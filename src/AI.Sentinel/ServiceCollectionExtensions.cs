@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Intervention;
@@ -19,7 +20,10 @@ public static class ServiceCollectionExtensions
         configure?.Invoke(opts);
         services.AddSingleton(opts);
         services.AddSingleton<IAuditStore>(new RingBufferAuditStore(opts.AuditCapacity));
-        services.AddSingleton(sp => new InterventionEngine(opts, mediator: null));
+        services.AddSingleton(sp => new InterventionEngine(
+            opts,
+            mediator: null,
+            logger: sp.GetService<ILogger<InterventionEngine>>()));
 
         // Security detectors
         services.AddSingleton<IDetector, PromptInjectionDetector>();

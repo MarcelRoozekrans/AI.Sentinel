@@ -1,8 +1,13 @@
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
+using Microsoft.Extensions.Logging;
+
 namespace AI.Sentinel.Intervention;
 
-public sealed class InterventionEngine(SentinelOptions options, IMediator? mediator)
+public sealed class InterventionEngine(
+    SentinelOptions options,
+    IMediator? mediator,
+    ILogger<InterventionEngine>? logger = null)
 {
     public void Apply(
         PipelineResult result,
@@ -14,22 +19,24 @@ public sealed class InterventionEngine(SentinelOptions options, IMediator? media
 
         var action = options.ActionFor(result.MaxSeverity);
 
-        if (mediator is not null)
+        if (mediator is not null && action != SentinelAction.PassThrough)
         {
             var now = DateTimeOffset.UtcNow;
             var sid = sessionId ?? new SessionId("unknown");
-            _ = mediator.Publish(new ThreatDetectedNotification(
+
+            PublishSafe(mediator.Publish(new ThreatDetectedNotification(
                 sid,
                 sender ?? options.DefaultSenderId,
                 receiver ?? options.DefaultReceiverId,
                 result,
-                now));
-            _ = mediator.Publish(new InterventionAppliedNotification(
+                now)));
+
+            PublishSafe(mediator.Publish(new InterventionAppliedNotification(
                 sid,
                 action,
                 result.MaxSeverity,
                 result.Detections.FirstOrDefault()?.Reason ?? "",
-                now));
+                now)));
         }
 
         if (action == SentinelAction.Quarantine)
@@ -37,5 +44,15 @@ public sealed class InterventionEngine(SentinelOptions options, IMediator? media
                 $"AI.Sentinel quarantined message: {result.MaxSeverity} threat detected. " +
                 $"Detectors: {string.Join(", ", result.Detections.Select(d => d.DetectorId))}",
                 result);
+    }
+
+    // Fast path: synchronous ValueTask completes inline with no allocation.
+    // Async path: attach a continuation to log any fault rather than silently discard it.
+    private void PublishSafe(ValueTask task)
+    {
+        if (task.IsCompletedSuccessfully) return;
+        task.AsTask().ContinueWith(
+            t => logger?.LogWarning(t.Exception, "AI.Sentinel: mediator publish failed"),
+            TaskScheduler.Default);
     }
 }

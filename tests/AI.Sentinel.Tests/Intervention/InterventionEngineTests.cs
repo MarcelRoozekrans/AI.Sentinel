@@ -3,6 +3,7 @@ using AI.Sentinel;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
+using ZeroAlloc.Mediator;
 
 public class InterventionEngineTests
 {
@@ -34,5 +35,64 @@ public class InterventionEngineTests
         var opts = new SentinelOptions { OnCritical = SentinelAction.Log };
         var engine = new InterventionEngine(opts, mediator: null);
         engine.Apply(CriticalResult());
+    }
+
+    [Fact]
+    public void Apply_WithMediator_PublishesTwoNotifications()
+    {
+        var published = new List<object>();
+        var mediator = new RecordingMediator(published);
+        var opts = new SentinelOptions { OnCritical = SentinelAction.Log };
+        var engine = new InterventionEngine(opts, mediator);
+
+        engine.Apply(CriticalResult());
+
+        Assert.Equal(2, published.Count);
+    }
+
+    [Fact]
+    public void Apply_WithPassThrough_DoesNotPublish()
+    {
+        var published = new List<object>();
+        var mediator = new RecordingMediator(published);
+        var opts = new SentinelOptions
+        {
+            OnCritical = SentinelAction.PassThrough,
+            OnHigh = SentinelAction.PassThrough,
+            OnMedium = SentinelAction.PassThrough,
+            OnLow = SentinelAction.PassThrough
+        };
+        var engine = new InterventionEngine(opts, mediator);
+
+        engine.Apply(CriticalResult());
+
+        Assert.Empty(published);
+    }
+
+    [Fact]
+    public void Apply_WhenMediatorThrows_DoesNotPropagateException()
+    {
+        var opts = new SentinelOptions { OnCritical = SentinelAction.Log };
+        var engine = new InterventionEngine(opts, new ThrowingMediator());
+
+        // Should not throw — mediator failures must not crash the detection pipeline
+        engine.Apply(CriticalResult());
+    }
+
+    private sealed class RecordingMediator(List<object> published) : IMediator
+    {
+        public ValueTask Publish<TNotification>(TNotification notification, CancellationToken ct = default)
+            where TNotification : INotification
+        {
+            published.Add(notification!);
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingMediator : IMediator
+    {
+        public ValueTask Publish<TNotification>(TNotification notification, CancellationToken ct = default)
+            where TNotification : INotification
+            => ValueTask.FromException(new InvalidOperationException("mediator failure"));
     }
 }
