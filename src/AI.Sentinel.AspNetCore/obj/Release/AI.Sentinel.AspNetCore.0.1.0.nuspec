@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2012/06/nuspec.xsd">
+  <metadata>
+    <id>AI.Sentinel.AspNetCore</id>
+    <version>0.1.0</version>
+    <authors>ZeroAlloc-Net</authors>
+    <license type="expression">MIT</license>
+    <licenseUrl>https://licenses.nuget.org/MIT</licenseUrl>
+    <readme>README.md</readme>
+    <description>Embedded ASP.NET Core dashboard for AI.Sentinel — real-time threat monitoring, audit trail, and agent graph.</description>
+    <tags>ai security chatclient monitoring prompt-injection hallucination</tags>
+    <repository type="git" url="https://github.com/ZeroAlloc-Net/AI.Sentinel" commit="d9f99954657a70c09c505a5300a735a2d843abcd" />
+    <dependencies>
+      <group targetFramework="net8.0">
+        <dependency id="AI.Sentinel" version="0.1.0" exclude="Build,Analyzers" />
+      </group>
+      <group targetFramework="net10.0">
+        <dependency id="AI.Sentinel" version="0.1.0" exclude="Build,Analyzers" />
+      </group>
+    </dependencies>
+    <frameworkReferences>
+      <group targetFramework="net8.0">
+        <frameworkReference name="Microsoft.AspNetCore.App" />
+      </group>
+      <group targetFramework="net10.0">
+        <frameworkReference name="Microsoft.AspNetCore.App" />
+      </group>
+    </frameworkReferences>
+  </metadata>
+  <files>
+    <file src="C:\Users\MarcelRoozekrans\source\AI.Sentinel\src\AI.Sentinel.AspNetCore\bin\Release\net10.0\AI.Sentinel.AspNetCore.dll" target="lib\net10.0\AI.Sentinel.AspNetCore.dll" />
+    <file src="C:\Users\MarcelRoozekrans\source\AI.Sentinel\src\AI.Sentinel.AspNetCore\bin\Release\net8.0\AI.Sentinel.AspNetCore.dll" target="lib\net8.0\AI.Sentinel.AspNetCore.dll" />
+    <file src="C:\Users\MarcelRoozekrans\source\AI.Sentinel\README.md" target="\README.md" />
+  </files>
+</package>
