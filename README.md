@@ -28,11 +28,23 @@ app.UseAISentinel("/ai-sentinel"); // dashboard
 
 ## Detectors (25)
 
-**Security (17):** Prompt injection, credential exposure, tool poisoning, data exfiltration, jailbreak, privilege escalation, and more.
+**Security (17):** 6 rule-based + 11 LLM-escalation-only
 
-**Hallucination (5):** Phantom citations, cross-agent contradictions, source grounding, confidence decay, self-consistency.
+| Detector | Type | Description |
+|---|---|---|
+| `SEC-01` PromptInjection | Rule-based | Override/injection phrase patterns |
+| `SEC-02` CredentialExposure | Rule-based | API keys, tokens, private keys in output |
+| `SEC-03` ToolPoisoning | Rule-based | Suspicious tool-call patterns |
+| `SEC-04` DataExfiltration | Rule-based | Base64 / high-entropy data patterns |
+| `SEC-05` Jailbreak | Rule-based | Jailbreak attempt phrases |
+| `SEC-06` PrivilegeEscalation | Rule-based | Role/permission escalation phrases |
+| `SEC-07`–`SEC-17` (11 detectors) | LLM escalation only | Covert channels, agent impersonation, supply chain, indirect injection, etc. Rule-based pass returns Clean; LLM second-pass fires when `opts.EscalationClient` is configured. |
 
-**Operational (8):** Blank responses, repetition loops, incomplete code blocks, placeholder text, and more.
+**Hallucination (5):** PhantomCitation and SelfConsistency are rule-based; CrossAgentContradiction, SourceGrounding, and ConfidenceDecay are LLM-escalation-only.
+
+**Operational (8):** BlankResponse, RepetitionLoop, IncompleteCodeBlock, PlaceholderText are rule-based; ContextCollapse, AgentProbing, QueryIntent, ResponseCoherence are LLM-escalation-only.
+
+> **v0.1.0 note:** LLM-escalation-only detectors provide no protection without `opts.EscalationClient`. They intentionally skip the rule-based fast path — the LLM classifier is the detection mechanism. Configure `EscalationClient` to activate them.
 
 ## Hybrid Detection
 
