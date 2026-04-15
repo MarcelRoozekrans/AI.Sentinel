@@ -78,7 +78,7 @@ public sealed class SentinelChatClient(
 
         // 2. Collect streamed chunks
         var chunks = new System.Text.StringBuilder();
-        await foreach (var update in base.GetStreamingResponseAsync(messages, chatOptions, cancellationToken))
+        await foreach (var update in base.GetStreamingResponseAsync(messageList, chatOptions, cancellationToken))
         {
             chunks.Append(update.Text ?? "");
             yield return update;
