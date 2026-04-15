@@ -78,6 +78,10 @@ public class DetectionPipelineTests
         var systemMsg = capturedMessages.FirstOrDefault(m => m.Role == ChatRole.System);
         Assert.NotNull(systemMsg);
         Assert.DoesNotContain(adversarialReason, systemMsg.Text ?? "");
+
+        // Also verify the expected safe content IS present
+        Assert.Contains("TEST-01", systemMsg.Text ?? "");    // detector.Id
+        Assert.Contains("Medium", systemMsg.Text ?? "");      // initial.Severity
     }
 
     // Helpers
