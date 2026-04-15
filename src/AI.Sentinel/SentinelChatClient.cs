@@ -37,7 +37,7 @@ public sealed class SentinelChatClient(
         interventionEngine.Apply(promptResult, sessionId, options.DefaultSenderId, options.DefaultReceiverId);
 
         // Call the inner client
-        var response = await base.GetResponseAsync(messages, chatOptions, cancellationToken);
+        var response = await base.GetResponseAsync(messageList, chatOptions, cancellationToken);
 
         // Scan the response
         IReadOnlyList<ChatMessage> responseMessages =

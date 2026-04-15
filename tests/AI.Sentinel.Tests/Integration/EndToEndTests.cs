@@ -67,6 +67,52 @@ public class EndToEndTests
         Assert.NotEmpty(entries);
     }
 
+    [Fact]
+    public async Task GetResponseAsync_WithLazyEnumerable_InnerClientReceivesMessages()
+    {
+        var capturedMessages = new List<ChatMessage>();
+        var services = new ServiceCollection();
+        AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services,
+            opts => opts.OnCritical = SentinelAction.Log);
+
+        services.AddChatClient(_ => (IChatClient)new CapturingFakeClient(capturedMessages, "ok"))
+                .UseAISentinel();
+
+        var sp = services.BuildServiceProvider();
+        var client = sp.GetRequiredService<IChatClient>();
+
+        // Lazy enumerable — will be exhausted by .ToList() inside SentinelChatClient
+        IEnumerable<ChatMessage> LazyMessages()
+        {
+            yield return new ChatMessage(ChatRole.User, "hello");
+        }
+
+        await client.GetResponseAsync(LazyMessages());
+
+        Assert.Single(capturedMessages);
+        Assert.Equal("hello", capturedMessages[0].Text);
+    }
+
+    private sealed class CapturingFakeClient(List<ChatMessage> captured, string text) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            captured.AddRange(messages);
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, text)));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) => throw new NotImplementedException();
+
+        public object? GetService(Type serviceType, object? key = null) => null;
+        public void Dispose() { }
+    }
+
     private sealed class FakeInnerClient(string text) : IChatClient
     {
         public Task<ChatResponse> GetResponseAsync(
