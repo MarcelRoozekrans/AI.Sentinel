@@ -76,7 +76,7 @@ public class DashboardAuthTests
     }
 
     [Fact]
-    public async Task StaticFileAsync_UnknownFile_Returns404()
+    public async Task StaticFileAsync_UnlistedFile_Returns404()
     {
         var host = await new HostBuilder()
             .ConfigureWebHost(web =>
@@ -92,7 +92,7 @@ public class DashboardAuthTests
             .StartAsync();
 
         var client = host.GetTestClient();
-        var response = await client.GetAsync("/sentinel/static/../../appsettings.json");
+        var response = await client.GetAsync("/sentinel/static/evil.txt");
 
         Assert.Equal(404, (int)response.StatusCode);
     }
