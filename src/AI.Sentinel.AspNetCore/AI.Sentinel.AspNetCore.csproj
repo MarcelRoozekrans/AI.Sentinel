@@ -7,4 +7,7 @@
     <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="wwwroot\**\*" />
+  </ItemGroup>
 </Project>

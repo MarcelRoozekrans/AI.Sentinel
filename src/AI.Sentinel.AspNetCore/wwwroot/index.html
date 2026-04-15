@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI.Sentinel Dashboard</title>
+  <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="static/sentinel.css">
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>AI.Sentinel</h1>
+      <p class="subtitle">Multi-agent security monitoring</p>
+    </div>
+  </header>
+
+  <main>
+    <!-- TRS Ring Gauge (SSE real-time) -->
+    <section class="panel trs-panel">
+      <h2>Threat Risk Score</h2>
+      <div class="gauge-wrap">
+        <svg viewBox="0 0 120 120" class="gauge">
+          <circle cx="60" cy="60" r="50" class="gauge-track"/>
+          <circle cx="60" cy="60" r="50" id="gauge-arc" class="gauge-arc"/>
+          <text x="60" y="56" id="trs-value" class="gauge-value">0</text>
+          <text x="60" y="72" id="trs-stage" class="gauge-stage">SAFE</text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- Stats (HTMX poll) -->
+    <section class="panel stats-panel"
+      hx-get="api/stats"
+      hx-trigger="load, every 3s"
+      hx-swap="innerHTML">
+      <p class="loading">Loading&#8230;</p>
+    </section>
+
+    <!-- Live event feed (HTMX poll) -->
+    <section class="panel feed-panel">
+      <h2>Live Event Feed</h2>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Time</th><th>Detector</th><th>Severity</th><th>Reason</th><th>Hash</th></tr>
+          </thead>
+          <tbody id="feed-body"
+            hx-get="api/feed"
+            hx-trigger="load, every 2s"
+            hx-swap="innerHTML">
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // SSE for TRS ring gauge
+    const circumference = 2 * Math.PI * 50;
+    const arc = document.getElementById('gauge-arc');
+    arc.style.strokeDasharray = circumference;
+    arc.style.strokeDashoffset = circumference;
+
+    const es = new EventSource('api/trs');
+    es.onmessage = function(e) {
+      const d = JSON.parse(e.data);
+      document.getElementById('trs-value').textContent = d.value;
+      document.getElementById('trs-stage').textContent = d.stage.toUpperCase();
+      const offset = circumference * (1 - d.value / 100);
+      arc.style.strokeDashoffset = offset;
+      arc.className = 'gauge-arc stage-' + d.stage.toLowerCase();
+    };
+  </script>
+</body>
+</html>
