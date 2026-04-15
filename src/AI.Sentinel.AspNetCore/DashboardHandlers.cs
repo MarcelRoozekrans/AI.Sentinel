@@ -112,9 +112,19 @@ internal static class DashboardHandlers
         }
     }
 
+    private static readonly HashSet<string> AllowedStaticFiles =
+        new(StringComparer.OrdinalIgnoreCase) { "sentinel.css" };
+
     public static Task StaticFileAsync(HttpContext ctx)
     {
         var file = (string?)ctx.Request.RouteValues["file"] ?? "";
+
+        if (!AllowedStaticFiles.Contains(file))
+        {
+            ctx.Response.StatusCode = 404;
+            return Task.CompletedTask;
+        }
+
         var content = ReadEmbedded(file);
         if (string.IsNullOrEmpty(content))
         {
