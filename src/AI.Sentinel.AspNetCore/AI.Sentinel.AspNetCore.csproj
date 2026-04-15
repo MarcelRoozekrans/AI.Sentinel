@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
     <PackageId>AI.Sentinel.AspNetCore</PackageId>
     <Description>Embedded ASP.NET Core dashboard for AI.Sentinel — real-time threat monitoring, audit trail, and agent graph.</Description>
     <Version>0.1.0</Version>
