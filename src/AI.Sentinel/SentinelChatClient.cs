@@ -40,7 +40,8 @@ public sealed class SentinelChatClient(
         var response = await base.GetResponseAsync(messages, chatOptions, cancellationToken);
 
         // Scan the response
-        IReadOnlyList<ChatMessage> responseMessages = (IReadOnlyList<ChatMessage>)response.Messages;
+        IReadOnlyList<ChatMessage> responseMessages =
+            response.Messages as IReadOnlyList<ChatMessage> ?? response.Messages.ToList();
         var responseCtx = new SentinelContext(
             options.DefaultReceiverId,
             options.DefaultSenderId,
@@ -63,6 +64,7 @@ public sealed class SentinelChatClient(
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var sessionId = SessionId.New();
 
+        // 1. Scan prompt
         var ctx = new SentinelContext(
             options.DefaultSenderId,
             options.DefaultReceiverId,
@@ -74,8 +76,29 @@ public sealed class SentinelChatClient(
         await AppendAuditAsync(result, messageList, cancellationToken);
         interventionEngine.Apply(result, sessionId, options.DefaultSenderId, options.DefaultReceiverId);
 
+        // 2. Collect streamed chunks
+        var chunks = new System.Text.StringBuilder();
         await foreach (var update in base.GetStreamingResponseAsync(messages, chatOptions, cancellationToken))
+        {
+            chunks.Append(update.Text ?? "");
             yield return update;
+        }
+
+        // 3. Scan aggregated response
+        var responseText = chunks.ToString();
+        if (!string.IsNullOrEmpty(responseText))
+        {
+            var responseMessages = new List<ChatMessage> { new(ChatRole.Assistant, responseText) };
+            var responseCtx = new SentinelContext(
+                options.DefaultReceiverId,
+                options.DefaultSenderId,
+                sessionId,
+                responseMessages,
+                []);
+            var responseResult = await pipeline.RunAsync(responseCtx, cancellationToken);
+            await AppendAuditAsync(responseResult, responseMessages, cancellationToken);
+            interventionEngine.Apply(responseResult, sessionId, options.DefaultReceiverId, options.DefaultSenderId);
+        }
     }
 
     private async Task AppendAuditAsync(

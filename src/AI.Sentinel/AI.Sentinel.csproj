@@ -18,12 +18,12 @@
     <PackageReference Include="Microsoft.Extensions.AI" Version="9.*" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.*" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="9.*" />
-    <PackageReference Include="ZeroAlloc.AsyncEvents" Version="*" />
-    <PackageReference Include="ZeroAlloc.Collections" Version="*" />
-    <PackageReference Include="ZeroAlloc.Results" Version="*" />
-    <PackageReference Include="ZeroAlloc.ValueObjects" Version="*" />
-    <PackageReference Include="ZeroAlloc.Validation" Version="*" />
-    <PackageReference Include="ZeroAlloc.Mediator" Version="*" />
-    <PackageReference Include="ZeroAlloc.Mediator.Generator" Version="*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <PackageReference Include="ZeroAlloc.AsyncEvents" Version="1.0.*" />
+    <PackageReference Include="ZeroAlloc.Collections" Version="0.1.*" />
+    <PackageReference Include="ZeroAlloc.Results" Version="0.1.*" />
+    <PackageReference Include="ZeroAlloc.ValueObjects" Version="1.1.*" />
+    <PackageReference Include="ZeroAlloc.Validation" Version="0.2.*" />
+    <PackageReference Include="ZeroAlloc.Mediator" Version="1.1.*" />
+    <PackageReference Include="ZeroAlloc.Mediator.Generator" Version="1.1.*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
   </ItemGroup>
 </Project>

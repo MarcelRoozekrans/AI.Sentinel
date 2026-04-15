@@ -3,7 +3,7 @@ using ZeroAlloc.Collections;
 
 namespace AI.Sentinel.Audit;
 
-public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore
+public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, IDisposable
 {
     private readonly HeapRingBuffer<AuditEntry> _buffer = new(capacity);
     private readonly SemaphoreSlim _lock = new(1, 1);
@@ -42,4 +42,6 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore
             yielded++;
         }
     }
+
+    public void Dispose() => _lock.Dispose();
 }

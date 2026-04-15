@@ -55,30 +55,42 @@ public sealed class DetectionPipeline(
         IChatClient client,
         CancellationToken ct)
     {
-        var lastMessage = ctx.Messages.LastOrDefault()?.Text ?? "(empty)";
-        var prompt = $$"""
-            You are a security classifier. A rule-based detector flagged this content as {{initial.Severity}}: {{initial.Reason}}
-            Content: {{lastMessage}}
-            Respond with JSON only: {"severity":"None|Low|Medium|High|Critical","reason":"one sentence"}
-            """;
+        // IMPORTANT: Do not interpolate untrusted content into the instruction context.
+        // Use separate messages to prevent secondary prompt injection.
+        var instruction = new ChatMessage(ChatRole.System,
+            $$"""
+            You are a security classifier. A rule-based detector flagged incoming content as {{initial.Severity}}: {{initial.Reason}}
+            Your task: assess whether the content is truly {{initial.Severity}} or lower severity.
+            Respond with JSON only, no explanation: {"severity":"None|Low|Medium|High|Critical","reason":"one sentence"}
+            """);
+
+        // Untrusted content is isolated in a separate user message
+        var contentMessage = new ChatMessage(ChatRole.User,
+            ctx.Messages.LastOrDefault()?.Text ?? "(empty)");
 
         try
         {
             var response = await client.GetResponseAsync(
-                [new ChatMessage(ChatRole.User, prompt)],
+                new List<ChatMessage> { instruction, contentMessage },
                 cancellationToken: ct);
 
             var text = response.Text ?? "";
-            if (text.Contains("Critical", StringComparison.OrdinalIgnoreCase))
-                return DetectionResult.WithSeverity(detector.Id, Severity.Critical, $"LLM escalated: {text[..Math.Min(100, text.Length)]}");
-            if (text.Contains("High", StringComparison.OrdinalIgnoreCase))
-                return DetectionResult.WithSeverity(detector.Id, Severity.High, $"LLM escalated: {text[..Math.Min(100, text.Length)]}");
-            if (text.Contains("Medium", StringComparison.OrdinalIgnoreCase))
-                return DetectionResult.WithSeverity(detector.Id, Severity.Medium, $"LLM escalated: {text[..Math.Min(100, text.Length)]}");
+            if (text.Contains("\"Critical\"", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("Critical", StringComparison.Ordinal))
+                return DetectionResult.WithSeverity(detector.Id, Severity.Critical,
+                    $"LLM escalated to Critical");
+            if (text.Contains("\"High\"", StringComparison.OrdinalIgnoreCase))
+                return DetectionResult.WithSeverity(detector.Id, Severity.High,
+                    $"LLM escalated to High");
+            if (text.Contains("\"Medium\"", StringComparison.OrdinalIgnoreCase))
+                return DetectionResult.WithSeverity(detector.Id, Severity.Medium,
+                    $"LLM escalated to Medium");
+
+            // LLM says None/Low or returned unexpected format — trust the rule-based result
         }
         catch
         {
-            // Escalation failure is non-fatal — fall back to rule-based result
+            // Escalation failure is non-fatal — preserve rule-based result
         }
 
         return initial;
