@@ -7,6 +7,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\AI.Sentinel\AI.Sentinel.csproj" />
     <ProjectReference Include="..\..\..\src\AI.Sentinel.AspNetCore\AI.Sentinel.AspNetCore.csproj" />
+    <ProjectReference Include="..\ChatApp.Client\ChatApp.Client.csproj" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.6" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="9.*" />
   </ItemGroup>
 </Project>

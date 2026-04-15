@@ -40,17 +40,10 @@ builder.Services.AddChatClient(svp =>
 // ── SignalR ──────────────────────────────────────────────────────────────────
 builder.Services.AddSignalR();
 
-// ── CORS (for Blazor WASM dev server on a different port) ────────────────────
-builder.Services.AddCors(options =>
-    options.AddDefaultPolicy(policy =>
-        policy.WithOrigins("https://localhost:7001", "http://localhost:5001")
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials()));
-
 var app = builder.Build();
 
-app.UseCors();
+// ── Blazor WASM hosting ──────────────────────────────────────────────────────
+app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
 
 // ── AI.Sentinel dashboard ────────────────────────────────────────────────────
@@ -58,5 +51,8 @@ app.UseAISentinel("/ai-sentinel");
 
 // ── SignalR hub ──────────────────────────────────────────────────────────────
 app.MapHub<ChatHub>("/hubs/chat");
+
+// ── Fallback to Blazor WASM index.html for client-side routing ───────────────
+app.MapFallbackToFile("index.html");
 
 app.Run();
