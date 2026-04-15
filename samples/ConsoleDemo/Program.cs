@@ -22,15 +22,17 @@ static SentinelAction ParseAction(string? value, SentinelAction fallback) =>
 var onCritical = ParseAction(config["AISentinel:OnCritical"], SentinelAction.Quarantine);
 var onHigh     = ParseAction(config["AISentinel:OnHigh"],     SentinelAction.Alert);
 var onMedium   = ParseAction(config["AISentinel:OnMedium"],   SentinelAction.Log);
+var onLow      = ParseAction(config["AISentinel:OnLow"],      SentinelAction.Log);
 
 // Build DI container
 var services = new ServiceCollection();
 services.AddLogging();
-AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services, opts =>
+services.AddAISentinel(opts =>
 {
     opts.OnCritical = onCritical;
     opts.OnHigh     = onHigh;
     opts.OnMedium   = onMedium;
+    opts.OnLow      = onLow;
 });
 services.AddChatClient(svp =>
     new ChatClientBuilder(
@@ -47,12 +49,19 @@ var client = sp.GetRequiredService<IChatClient>();
 
 Console.WriteLine("AI.Sentinel Console Demo");
 Console.WriteLine($"Model  : {model}");
-Console.WriteLine($"Actions: Critical={onCritical}, High={onHigh}, Medium={onMedium}");
+Console.WriteLine($"Actions: Critical={onCritical}, High={onHigh}, Medium={onMedium}, Low={onLow}");
 Console.WriteLine("Type a message and press Enter. Ctrl+C to quit.\n");
+
+using var cts = new CancellationTokenSource();
+Console.CancelKeyPress += (_, e) =>
+{
+    e.Cancel = true; // prevent immediate process kill
+    cts.Cancel();
+};
 
 var history = new List<ChatMessage>();
 
-while (true)
+while (!cts.Token.IsCancellationRequested)
 {
     Console.Write("You: ");
     var input = Console.ReadLine();
@@ -65,7 +74,7 @@ while (true)
 
     try
     {
-        await foreach (var update in client.GetStreamingResponseAsync(history))
+        await foreach (var update in client.GetStreamingResponseAsync(history, cancellationToken: cts.Token))
         {
             var token = update.Text ?? "";
             responseText.Append(token);
@@ -73,6 +82,11 @@ while (true)
         }
         Console.WriteLine();
         history.Add(new ChatMessage(ChatRole.Assistant, responseText.ToString()));
+    }
+    catch (OperationCanceledException)
+    {
+        Console.WriteLine("\nBye!");
+        break;
     }
     catch (SentinelException ex)
     {
