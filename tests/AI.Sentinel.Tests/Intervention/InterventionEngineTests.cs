@@ -51,6 +51,19 @@ public class InterventionEngineTests
     }
 
     [Fact]
+    public void Apply_WithAlertAction_PublishesNotifications()
+    {
+        var published = new List<object>();
+        var mediator = new RecordingMediator(published);
+        var opts = new SentinelOptions { OnCritical = SentinelAction.Alert };
+        var engine = new InterventionEngine(opts, mediator);
+
+        engine.Apply(CriticalResult());
+
+        Assert.Equal(2, published.Count); // Alert publishes, same as Log
+    }
+
+    [Fact]
     public void Apply_WithPassThrough_DoesNotPublish()
     {
         var published = new List<object>();
