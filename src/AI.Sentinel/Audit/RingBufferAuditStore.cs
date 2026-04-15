@@ -30,13 +30,16 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore
         try { snapshot = _buffer.ToArray(); }
         finally { _lock.Release(); }
 
+        int yielded = 0;
         foreach (var entry in snapshot)
         {
             if (ct.IsCancellationRequested) yield break;
+            if (yielded >= query.PageSize) yield break;
             if (query.MinSeverity.HasValue && entry.Severity < query.MinSeverity) continue;
             if (query.From.HasValue && entry.Timestamp < query.From) continue;
             if (query.To.HasValue && entry.Timestamp > query.To) continue;
             yield return entry;
+            yielded++;
         }
     }
 }

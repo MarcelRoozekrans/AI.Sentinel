@@ -18,12 +18,14 @@ public sealed class SentinelOptionsValidator
     }
 }
 
+// [Validate] — will emit SentinelOptionsValidator when ZeroAlloc.Validation source generator ships
 [Validate]
 public sealed class SentinelOptions
 {
     /// <summary>Optional secondary IChatClient used for LLM escalation on borderline detections.</summary>
     public IChatClient? EscalationClient { get; set; }
 
+    // [GreaterThan(0)] — enforced by SentinelOptionsValidator (ZeroAlloc.Validation source gen not yet available in v0.2.3)
     [GreaterThan(0)]
     public int AuditCapacity { get; set; } = 10_000;
 
