@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>AI.Sentinel</PackageId>
+    <Description>Security monitoring middleware for IChatClient — prompt injection, hallucination, and operational anomaly detection with an intervention engine.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="9.*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.*" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="9.*" />
+    <PackageReference Include="ZeroAlloc.AsyncEvents" Version="*" />
+    <PackageReference Include="ZeroAlloc.Collections" Version="*" />
+    <PackageReference Include="ZeroAlloc.Results" Version="*" />
+    <PackageReference Include="ZeroAlloc.ValueObjects" Version="*" />
+    <PackageReference Include="ZeroAlloc.Validation" Version="*" />
+    <PackageReference Include="ZeroAlloc.Mediator" Version="*" />
+    <PackageReference Include="ZeroAlloc.Mediator.Generator" Version="*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>
