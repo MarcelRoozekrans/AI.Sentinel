@@ -1,3 +1,4 @@
+using AI.Sentinel.Audit;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
 

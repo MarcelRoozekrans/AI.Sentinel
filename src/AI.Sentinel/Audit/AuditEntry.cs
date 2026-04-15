@@ -1,8 +1,7 @@
 using AI.Sentinel.Detection;
 
-namespace AI.Sentinel;
+namespace AI.Sentinel.Audit;
 
-// STUB — full implementation in Task 5
 public sealed record AuditEntry(
     string Id,
     DateTimeOffset Timestamp,
