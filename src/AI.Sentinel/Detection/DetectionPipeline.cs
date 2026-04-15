@@ -55,12 +55,12 @@ public sealed class DetectionPipeline(
         IChatClient client,
         CancellationToken ct)
     {
-        // IMPORTANT: Do not interpolate untrusted content into the instruction context.
-        // Use separate messages to prevent secondary prompt injection.
+        // IMPORTANT: Do NOT include initial.Reason here — it contains text derived from user input
+        // and could be used for secondary prompt injection against the escalation LLM.
         var instruction = new ChatMessage(ChatRole.System,
             $$"""
-            You are a security classifier. A rule-based detector flagged incoming content as {{initial.Severity}}: {{initial.Reason}}
-            Your task: assess whether the content is truly {{initial.Severity}} or lower severity.
+            You are a security classifier. A rule-based detector (rule ID: {{detector.Id}}) flagged incoming content at severity {{initial.Severity}}.
+            Your task: assess whether the content justifies {{initial.Severity}} severity or should be lower.
             Respond with JSON only, no explanation: {"severity":"None|Low|Medium|High|Critical","reason":"one sentence"}
             """);
 
