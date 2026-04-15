@@ -1,0 +1,173 @@
+@page "/"
+@implements IAsyncDisposable
+
+<PageTitle>AI Chat — guarded by AI.Sentinel</PageTitle>
+
+<div class="chat-container d-flex flex-column h-100">
+
+    <div class="chat-header px-3 py-2 border-bottom d-flex align-items-center gap-2">
+        <span class="fw-semibold">AI Chat</span>
+        <span class="badge @(_connected ? "bg-success" : "bg-secondary") ms-1">
+            @(_connected ? "connected" : "connecting…")
+        </span>
+        <a href="/ai-sentinel" target="_blank" class="ms-auto small text-decoration-none">
+            AI.Sentinel dashboard ↗
+        </a>
+    </div>
+
+    <div class="chat-messages flex-grow-1 overflow-auto px-3 py-2" @ref="_messagesDiv">
+        @foreach (var msg in _messages)
+        {
+            <div class="message-row mb-3 d-flex @(msg.Role == "user" ? "justify-content-end" : "justify-content-start")">
+                <div class="message-bubble p-2 px-3 rounded @BubbleClass(msg.Role)">
+                    @if (msg.Role == "blocked")
+                    {
+                        <span class="fw-semibold">&#x26D4; Blocked:</span>
+                        <span>@msg.Text</span>
+                    }
+                    else if (msg.Role == "error")
+                    {
+                        <span>&#x26A0; @msg.Text</span>
+                    }
+                    else
+                    {
+                        <span style="white-space:pre-wrap">@msg.Text</span>
+                    }
+                </div>
+            </div>
+        }
+        @if (_streaming)
+        {
+            <div class="message-row mb-3 d-flex justify-content-start">
+                <div class="message-bubble p-2 px-3 rounded bg-light border">
+                    <span style="white-space:pre-wrap">@_streamBuffer</span>
+                    <span class="blinking-cursor">|</span>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="chat-input border-top px-3 py-2">
+        <div class="input-group">
+            <textarea class="form-control"
+                      rows="2"
+                      placeholder="Type a message…"
+                      @bind="_input"
+                      @bind:event="oninput"
+                      @onkeydown="HandleKeyDown"
+                      disabled="@(_streaming || !_connected)">
+            </textarea>
+            <button class="btn btn-primary"
+                    @onclick="SendAsync"
+                    disabled="@(string.IsNullOrWhiteSpace(_input) || _streaming || !_connected)">
+                Send
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    record ChatMessageDto(string Role, string Text);
+
+    record DisplayMessage(string Role, string Text);
+
+    private HubConnection? _hub;
+    private readonly List<DisplayMessage> _messages = [];
+    private readonly List<ChatMessageDto> _history  = [];
+    private string  _input       = "";
+    private bool    _streaming   = false;
+    private bool    _connected   = false;
+    private string  _streamBuffer = "";
+    private ElementReference _messagesDiv;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _hub = new HubConnectionBuilder()
+            .WithUrl("/hubs/chat")
+            .WithAutomaticReconnect()
+            .Build();
+
+        _hub.Reconnecting += _ => { _connected = false; InvokeAsync(StateHasChanged); return Task.CompletedTask; };
+        _hub.Reconnected  += _ => { _connected = true;  InvokeAsync(StateHasChanged); return Task.CompletedTask; };
+        _hub.Closed       += _ => { _connected = false; InvokeAsync(StateHasChanged); return Task.CompletedTask; };
+
+        await _hub.StartAsync();
+        _connected = true;
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+            await SendAsync();
+    }
+
+    private async Task SendAsync()
+    {
+        if (_hub is null || string.IsNullOrWhiteSpace(_input) || _streaming) return;
+
+        var userText = _input.Trim();
+        _input   = "";
+        _streaming = true;
+        _streamBuffer = "";
+        _messages.Add(new DisplayMessage("user", userText));
+
+        try
+        {
+            var stream = _hub.StreamAsync<string>("StreamResponse", userText, _history);
+
+            await foreach (var token in stream)
+            {
+                if (token.StartsWith("\0BLOCKED:"))
+                {
+                    var reason = token["\0BLOCKED:".Length..];
+                    _messages.Add(new DisplayMessage("blocked", reason));
+                    _streamBuffer = "";
+                    goto done;
+                }
+                if (token == "\0ERROR")
+                {
+                    _messages.Add(new DisplayMessage("error", "An unexpected error occurred."));
+                    _streamBuffer = "";
+                    goto done;
+                }
+                _streamBuffer += token;
+                await InvokeAsync(StateHasChanged);
+            }
+
+            // Stream completed normally
+            if (!string.IsNullOrEmpty(_streamBuffer))
+            {
+                _messages.Add(new DisplayMessage("assistant", _streamBuffer));
+                _history.Add(new ChatMessageDto("user",      userText));
+                _history.Add(new ChatMessageDto("assistant", _streamBuffer));
+            }
+
+            done:;
+        }
+        catch (Exception)
+        {
+            _messages.Add(new DisplayMessage("error", "Connection error. Please try again."));
+        }
+        finally
+        {
+            _streaming    = false;
+            _streamBuffer = "";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private static string BubbleClass(string role) => role switch
+    {
+        "user"      => "bg-primary text-white",
+        "assistant" => "bg-light border",
+        "blocked"   => "bg-danger bg-opacity-10 border border-danger text-danger",
+        "error"     => "bg-warning bg-opacity-10 border border-warning text-warning-emphasis",
+        _           => "bg-light border"
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hub is not null)
+            await _hub.DisposeAsync();
+    }
+}

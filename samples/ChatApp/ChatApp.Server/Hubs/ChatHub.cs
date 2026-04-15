@@ -5,15 +5,26 @@ using AI.Sentinel.Intervention;
 
 namespace ChatApp.Server.Hubs;
 
+/// <summary>Simple message DTO shared between client and server over SignalR.</summary>
+/// <param name="Role">"user" or "assistant"</param>
+/// <param name="Text">Message text</param>
+public record ChatMessageDto(string Role, string Text);
+
 public sealed class ChatHub(IChatClient chatClient) : Hub
 {
     public async IAsyncEnumerable<string> StreamResponse(
         string userMessage,
-        IEnumerable<ChatMessage> history,
+        IEnumerable<ChatMessageDto> history,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var messages = history.Append(new ChatMessage(ChatRole.User, userMessage)).ToList();
-        var stream   = chatClient.GetStreamingResponseAsync(messages, cancellationToken: cancellationToken);
+        var messages = history
+            .Select(m => new ChatMessage(
+                m.Role == "user" ? ChatRole.User : ChatRole.Assistant,
+                m.Text))
+            .Append(new ChatMessage(ChatRole.User, userMessage))
+            .ToList();
+
+        var stream = chatClient.GetStreamingResponseAsync(messages, cancellationToken: cancellationToken);
 
         // Collect tokens via an async channel so we can translate exceptions to sentinel strings
         // without needing yield-in-catch (not allowed in C#).
