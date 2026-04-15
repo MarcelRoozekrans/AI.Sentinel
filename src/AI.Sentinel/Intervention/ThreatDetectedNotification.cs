@@ -7,5 +7,5 @@ public readonly record struct ThreatDetectedNotification(
     SessionId SessionId,
     AgentId SenderId,
     AgentId ReceiverId,
-    PipelineResult Result,
+    PipelineResult PipelineResult,
     DateTimeOffset DetectedAt) : INotification;
