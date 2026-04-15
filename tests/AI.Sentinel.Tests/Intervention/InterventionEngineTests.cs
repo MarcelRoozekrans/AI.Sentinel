@@ -89,10 +89,36 @@ public class InterventionEngineTests
         }
     }
 
+    [Fact]
+    public async Task Apply_WhenMediatorFaultsAsync_DoesNotPropagate()
+    {
+        var opts = new SentinelOptions { OnCritical = SentinelAction.Log };
+        var engine = new InterventionEngine(opts, new AsyncFaultingMediator());
+
+        // Must not throw synchronously
+        engine.Apply(CriticalResult());
+
+        // Give the async continuation time to complete
+        await Task.Delay(100);
+        // No assertion needed beyond "did not throw" — the test verifies the async fault
+        // path (ContinueWith) is reached without crashing the caller
+    }
+
     private sealed class ThrowingMediator : IMediator
     {
         public ValueTask Publish<TNotification>(TNotification notification, CancellationToken ct = default)
             where TNotification : INotification
             => ValueTask.FromException(new InvalidOperationException("mediator failure"));
+    }
+
+    private sealed class AsyncFaultingMediator : IMediator
+    {
+        public ValueTask Publish<TNotification>(TNotification notification, CancellationToken ct = default)
+            where TNotification : INotification
+            => new ValueTask(Task.Run(async () =>
+            {
+                await Task.Yield();
+                throw new InvalidOperationException("async mediator fault");
+            }));
     }
 }

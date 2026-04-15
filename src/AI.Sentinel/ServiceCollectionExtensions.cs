@@ -22,7 +22,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAuditStore>(new RingBufferAuditStore(opts.AuditCapacity));
         services.AddSingleton(sp => new InterventionEngine(
             opts,
-            mediator: null,
+            mediator: sp.GetService<IMediator>(),
             logger: sp.GetService<ILogger<InterventionEngine>>()));
 
         // Security detectors

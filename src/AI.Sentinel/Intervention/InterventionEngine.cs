@@ -46,13 +46,21 @@ public sealed class InterventionEngine(
                 result);
     }
 
-    // Fast path: synchronous ValueTask completes inline with no allocation.
-    // Async path: attach a continuation to log any fault rather than silently discard it.
+    // Fast path: synchronous success — no allocation, return immediately.
+    // Sync fault: log inline and return.
+    // Async path: attach continuation that logs only on fault (OnlyOnFaulted avoids firing for success).
     private void PublishSafe(ValueTask task)
     {
         if (task.IsCompletedSuccessfully) return;
+        if (task.IsFaulted)
+        {
+            logger?.LogWarning(task.AsTask().Exception, "AI.Sentinel: mediator publish failed");
+            return;
+        }
         task.AsTask().ContinueWith(
             t => logger?.LogWarning(t.Exception, "AI.Sentinel: mediator publish failed"),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
             TaskScheduler.Default);
     }
 }
