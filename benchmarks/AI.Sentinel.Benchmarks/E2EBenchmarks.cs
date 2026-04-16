@@ -9,7 +9,7 @@ namespace AI.Sentinel.Benchmarks;
 
 [Config(typeof(BenchmarkConfig))]
 [BenchmarkCategory("E2E")]
-public class E2EBenchmarks : IDisposable
+public class E2EBenchmarks
 {
     [Params("empty", "security", "all")]
     public string DetectorSet { get; set; } = "empty";
@@ -54,5 +54,4 @@ public class E2EBenchmarks : IDisposable
     public Task<ChatResponse> GetResponse_Malicious() =>
         _sentinel.GetResponseAsync(MessageFactory.Malicious, cancellationToken: CancellationToken.None);
 
-    public void Dispose() => _auditStore.Dispose();
 }

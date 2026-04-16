@@ -6,7 +6,7 @@ namespace AI.Sentinel.Benchmarks;
 
 [Config(typeof(BenchmarkConfig))]
 [BenchmarkCategory("AuditStore")]
-public class AuditStoreBenchmarks : IDisposable
+public class AuditStoreBenchmarks
 {
     private RingBufferAuditStore _store = null!;
     private AuditEntry _entry = default!;
@@ -34,5 +34,6 @@ public class AuditStoreBenchmarks : IDisposable
         Task.WhenAll(Enumerable.Range(0, 8)
             .Select(_ => _store.AppendAsync(_entry, CancellationToken.None).AsTask()));
 
-    public void Dispose() => _store.Dispose();
+    [GlobalCleanup]
+    public void Cleanup() => _store.Dispose();
 }
