@@ -1,4 +1,5 @@
 @page "/"
+@inject IJSRuntime JS
 @implements IAsyncDisposable
 
 <PageTitle>AI Chat — guarded by AI.Sentinel</PageTitle>
@@ -15,7 +16,7 @@
         </a>
     </div>
 
-    <div class="chat-messages flex-grow-1 overflow-auto px-3 py-2" @ref="_messagesDiv">
+    <div class="chat-messages flex-grow-1 overflow-auto px-3 py-2" id="chatMessages">
         @foreach (var msg in _messages)
         {
             <div class="message-row mb-3 d-flex @(msg.Role == "user" ? "justify-content-end" : "justify-content-start")">
@@ -67,18 +68,17 @@
 </div>
 
 @code {
-    record ChatMessageDto(string Role, string Text);
-
     record DisplayMessage(string Role, string Text);
 
     private HubConnection? _hub;
     private readonly List<DisplayMessage> _messages = [];
     private readonly List<ChatMessageDto> _history  = [];
-    private string  _input       = "";
-    private bool    _streaming   = false;
-    private bool    _connected   = false;
-    private string  _streamBuffer = "";
-    private ElementReference _messagesDiv;
+    private string  _input        = "";
+    private bool    _streaming    = false;
+    private bool    _connected    = false;
+    private System.Text.StringBuilder _streamBuilder = new();
+
+    private string _streamBuffer => _streamBuilder.ToString();
 
     protected override async Task OnInitializedAsync()
     {
@@ -91,8 +91,15 @@
         _hub.Reconnected  += _ => { _connected = true;  InvokeAsync(StateHasChanged); return Task.CompletedTask; };
         _hub.Closed       += _ => { _connected = false; InvokeAsync(StateHasChanged); return Task.CompletedTask; };
 
-        await _hub.StartAsync();
-        _connected = true;
+        try
+        {
+            await _hub.StartAsync();
+            _connected = true;
+        }
+        catch (Exception)
+        {
+            _messages.Add(new DisplayMessage("error", "Could not connect to server. Please refresh the page."));
+        }
     }
 
     private async Task HandleKeyDown(KeyboardEventArgs e)
@@ -106,11 +113,14 @@
         if (_hub is null || string.IsNullOrWhiteSpace(_input) || _streaming) return;
 
         var userText = _input.Trim();
-        _input   = "";
-        _streaming = true;
-        _streamBuffer = "";
+        _input       = "";
+        _streaming   = true;
+        _streamBuilder.Clear();
+
+        // Add user bubble immediately so the turn is visible while awaiting the response.
         _messages.Add(new DisplayMessage("user", userText));
 
+        var responseNormal = false;
         try
         {
             var stream = _hub.StreamAsync<string>("StreamResponse", userText, _history);
@@ -121,28 +131,33 @@
                 {
                     var reason = token["\0BLOCKED:".Length..];
                     _messages.Add(new DisplayMessage("blocked", reason));
-                    _streamBuffer = "";
-                    goto done;
+                    goto finalize;
                 }
                 if (token == "\0ERROR")
                 {
                     _messages.Add(new DisplayMessage("error", "An unexpected error occurred."));
-                    _streamBuffer = "";
-                    goto done;
+                    goto finalize;
                 }
-                _streamBuffer += token;
+                _streamBuilder.Append(token);
                 await InvokeAsync(StateHasChanged);
+                await ScrollToBottomAsync();
             }
 
-            // Stream completed normally
-            if (!string.IsNullOrEmpty(_streamBuffer))
+            // Stream completed — promote the buffer to a permanent message.
+            var responseText = _streamBuilder.ToString();
+            if (!string.IsNullOrWhiteSpace(responseText))
             {
-                _messages.Add(new DisplayMessage("assistant", _streamBuffer));
+                _messages.Add(new DisplayMessage("assistant", responseText));
                 _history.Add(new ChatMessageDto("user",      userText));
-                _history.Add(new ChatMessageDto("assistant", _streamBuffer));
+                _history.Add(new ChatMessageDto("assistant", responseText));
+                responseNormal = true;
+            }
+            else
+            {
+                _messages.Add(new DisplayMessage("error", "Received an empty response from the model."));
             }
 
-            done:;
+            finalize:;
         }
         catch (Exception)
         {
@@ -150,10 +165,32 @@
         }
         finally
         {
-            _streaming    = false;
-            _streamBuffer = "";
+            _streaming = false;
+            _streamBuilder.Clear();
             await InvokeAsync(StateHasChanged);
+            await ScrollToBottomAsync();
+
+            // If the exchange did not complete normally, remove the orphaned user bubble
+            // so the displayed history and the context sent to the server stay in sync.
+            if (!responseNormal && _messages.Count > 0 && _messages[^1].Role != "user")
+            {
+                // User bubble is second-to-last (followed by the error/blocked bubble).
+                // Only remove it when the last message is a non-user sentinel message.
+                var userIdx = _messages.FindLastIndex(m => m.Role == "user");
+                if (userIdx >= 0 && userIdx == _messages.Count - 2)
+                    _messages.RemoveAt(userIdx);
+            }
         }
+    }
+
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("eval",
+                "var el=document.getElementById('chatMessages');if(el)el.scrollTop=el.scrollHeight");
+        }
+        catch { /* ignore JS errors during disposal */ }
     }
 
     private static string BubbleClass(string role) => role switch

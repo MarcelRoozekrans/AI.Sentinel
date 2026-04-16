@@ -9,6 +9,7 @@ using Microsoft.Extensions.Logging;
 
 var config = new ConfigurationBuilder()
     .AddJsonFile("appsettings.json", optional: false)
+    .AddJsonFile("appsettings.local.json", optional: true)
     .AddEnvironmentVariables()
     .Build();
 

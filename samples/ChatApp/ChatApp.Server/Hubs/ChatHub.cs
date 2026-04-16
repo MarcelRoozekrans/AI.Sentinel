@@ -2,13 +2,9 @@ using System.Runtime.CompilerServices;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Intervention;
+using ChatApp.Shared;
 
 namespace ChatApp.Server.Hubs;
-
-/// <summary>Simple message DTO shared between client and server over SignalR.</summary>
-/// <param name="Role">"user" or "assistant"</param>
-/// <param name="Text">Message text</param>
-public record ChatMessageDto(string Role, string Text);
 
 public sealed class ChatHub(IChatClient chatClient) : Hub
 {
@@ -30,6 +26,9 @@ public sealed class ChatHub(IChatClient chatClient) : Hub
         // without needing yield-in-catch (not allowed in C#).
         var channel = System.Threading.Channels.Channel.CreateUnbounded<string>();
 
+        // Use CancellationToken.None as the Task.Run scheduler token so that a pre-cancelled
+        // token does not prevent the lambda from starting — the channel would otherwise never be
+        // completed and ReadAllAsync would hang indefinitely.
         _ = Task.Run(async () =>
         {
             try
@@ -40,24 +39,25 @@ public sealed class ChatHub(IChatClient chatClient) : Hub
                     if (!string.IsNullOrEmpty(text))
                         channel.Writer.TryWrite(text);
                 }
-                channel.Writer.Complete();
             }
             catch (SentinelException ex)
             {
                 var reason = ex.PipelineResult.Detections.FirstOrDefault()?.Reason ?? "threat detected";
                 channel.Writer.TryWrite($"\0BLOCKED:{reason}");
-                channel.Writer.Complete();
             }
             catch (OperationCanceledException)
             {
-                channel.Writer.Complete();
+                // Client disconnected — channel completes normally via finally
             }
             catch (Exception)
             {
                 channel.Writer.TryWrite("\0ERROR");
-                channel.Writer.Complete();
             }
-        }, cancellationToken);
+            finally
+            {
+                channel.Writer.TryComplete();
+            }
+        }, CancellationToken.None);
 
         await foreach (var token in channel.Reader.ReadAllAsync(cancellationToken))
             yield return token;

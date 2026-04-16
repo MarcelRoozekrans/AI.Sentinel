@@ -13,6 +13,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChatApp.Server", "ChatApp\C
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChatApp.Client", "ChatApp\ChatApp.Client\ChatApp.Client.csproj", "{9A0E0B7F-24F1-4EC7-99B2-86179CE4F5EE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChatApp.Shared", "ChatApp\ChatApp.Shared\ChatApp.Shared.csproj", "{D55001FF-7093-4393-B9BD-5D57451FA476}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AI.Sentinel.AspNetCore", "..\src\AI.Sentinel.AspNetCore\AI.Sentinel.AspNetCore.csproj", "{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -71,6 +75,30 @@ Global
 		{9A0E0B7F-24F1-4EC7-99B2-86179CE4F5EE}.Release|x64.Build.0 = Release|Any CPU
 		{9A0E0B7F-24F1-4EC7-99B2-86179CE4F5EE}.Release|x86.ActiveCfg = Release|Any CPU
 		{9A0E0B7F-24F1-4EC7-99B2-86179CE4F5EE}.Release|x86.Build.0 = Release|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Debug|x64.Build.0 = Debug|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Debug|x86.Build.0 = Debug|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Release|x64.ActiveCfg = Release|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Release|x64.Build.0 = Release|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Release|x86.ActiveCfg = Release|Any CPU
+		{D55001FF-7093-4393-B9BD-5D57451FA476}.Release|x86.Build.0 = Release|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Debug|x64.Build.0 = Debug|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Debug|x86.Build.0 = Debug|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Release|Any CPU.Build.0 = Release|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Release|x64.ActiveCfg = Release|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Release|x64.Build.0 = Release|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Release|x86.ActiveCfg = Release|Any CPU
+		{74EC3EF3-0B45-4B85-AE48-0AF03D13F305}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -78,5 +106,6 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{FC3881EA-0FEA-47ED-972B-4B27B7D5AFCD} = {4F8FF80B-A782-F207-92B2-3CC9BCAF9282}
 		{9A0E0B7F-24F1-4EC7-99B2-86179CE4F5EE} = {4F8FF80B-A782-F207-92B2-3CC9BCAF9282}
+		{D55001FF-7093-4393-B9BD-5D57451FA476} = {4F8FF80B-A782-F207-92B2-3CC9BCAF9282}
 	EndGlobalSection
 EndGlobal
