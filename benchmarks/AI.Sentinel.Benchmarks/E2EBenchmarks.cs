@@ -39,6 +39,9 @@ public class E2EBenchmarks : IDisposable
             options);
     }
 
+    [GlobalCleanup]
+    public void Cleanup() => _auditStore.Dispose();
+
     [Benchmark(Baseline = true, Description = "GetResponseAsync / clean short")]
     public Task<ChatResponse> GetResponse_CleanShort() =>
         _sentinel.GetResponseAsync(MessageFactory.CleanShort, cancellationToken: CancellationToken.None);
