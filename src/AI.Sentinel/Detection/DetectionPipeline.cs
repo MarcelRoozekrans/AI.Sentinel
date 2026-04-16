@@ -1,3 +1,4 @@
+using System.Buffers;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -15,12 +16,11 @@ public sealed class DetectionPipeline
         IChatClient? escalationClient,
         ILogger<DetectionPipeline>? logger = null)
     {
-        _detectors = detectors.ToArray();
+        _detectors        = detectors.ToArray();
         _escalationClient = escalationClient;
-        _logger = logger;
+        _logger           = logger;
     }
 
-    // Severity → raw score contribution (0-100 per detector)
     private static int SeverityScore(Severity s) => s switch
     {
         Severity.Critical => 100,
@@ -32,11 +32,39 @@ public sealed class DetectionPipeline
 
     public async ValueTask<PipelineResult> RunAsync(SentinelContext ctx, CancellationToken ct)
     {
-        // Run all detectors in parallel
-        var tasks = _detectors.Select(d => d.AnalyzeAsync(ctx, ct).AsTask());
-        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
+        if (_detectors.Length == 0)
+            return new PipelineResult(ThreatRiskScore.Zero, []);
 
-        // LLM escalation for borderline detections (only if escalationClient configured)
+        var vTasks = ArrayPool<ValueTask<DetectionResult>>.Shared.Rent(_detectors.Length);
+        DetectionResult[] results;
+        try
+        {
+            // Start all detectors
+            for (int i = 0; i < _detectors.Length; i++)
+                vTasks[i] = _detectors[i].AnalyzeAsync(ctx, ct);
+
+            // Fast path: all completed synchronously (typical for rule-based detectors with cached clean results)
+            if (AllCompletedSuccessfully(vTasks, _detectors.Length))
+            {
+                results = new DetectionResult[_detectors.Length];
+                for (int i = 0; i < _detectors.Length; i++)
+                    results[i] = vTasks[i].Result;
+            }
+            else
+            {
+                // Slow path: at least one async detector — use Task.WhenAll
+                var tasks = new Task<DetectionResult>[_detectors.Length];
+                for (int i = 0; i < _detectors.Length; i++)
+                    tasks[i] = vTasks[i].AsTask();
+                results = await Task.WhenAll(tasks).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            ArrayPool<ValueTask<DetectionResult>>.Shared.Return(vTasks);
+        }
+
+        // LLM escalation (unchanged logic)
         if (_escalationClient is not null)
         {
             var escalated = new List<DetectionResult>(results.Length);
@@ -53,9 +81,26 @@ public sealed class DetectionPipeline
             results = escalated.ToArray();
         }
 
-        var nonClean = results.Where(r => !r.IsClean).ToList();
-        var scoreInputs = results.Select(r => new ThreatRiskScore(SeverityScore(r.Severity)));
-        var score = ThreatRiskScore.Aggregate(scoreInputs);
+        return BuildResult(results);
+    }
+
+    private static bool AllCompletedSuccessfully(ValueTask<DetectionResult>[] tasks, int count)
+    {
+        foreach (ref readonly var t in tasks.AsSpan(0, count))
+            if (!t.IsCompletedSuccessfully) return false;
+        return true;
+    }
+
+    private static PipelineResult BuildResult(DetectionResult[] results)
+    {
+        var nonClean = new List<DetectionResult>();
+        var scores   = new ThreatRiskScore[results.Length];
+        for (int i = 0; i < results.Length; i++)
+        {
+            if (!results[i].IsClean) nonClean.Add(results[i]);
+            scores[i] = new ThreatRiskScore(SeverityScore(results[i].Severity));
+        }
+        var score = ThreatRiskScore.Aggregate(scores);
         return new PipelineResult(score, nonClean);
     }
 
@@ -67,8 +112,6 @@ public sealed class DetectionPipeline
         ILogger<DetectionPipeline>? logger,
         CancellationToken ct)
     {
-        // IMPORTANT: Do NOT include initial.Reason here — it contains text derived from user input
-        // and could be used for secondary prompt injection against the escalation LLM.
         var instruction = new ChatMessage(ChatRole.System,
             $$"""
             You are a security classifier. A rule-based detector (rule ID: {{detector.Id}}) flagged incoming content at severity {{initial.Severity}}.
@@ -76,7 +119,6 @@ public sealed class DetectionPipeline
             Respond with JSON only, no explanation: {"severity":"None|Low|Medium|High|Critical","reason":"one sentence"}
             """);
 
-        // Untrusted content is isolated in a separate user message
         var contentMessage = new ChatMessage(ChatRole.User,
             ctx.Messages.LastOrDefault()?.Text ?? "(empty)");
 
@@ -89,20 +131,14 @@ public sealed class DetectionPipeline
             var text = response.Text ?? "";
             if (text.Contains("\"Critical\"", StringComparison.OrdinalIgnoreCase) ||
                 text.Contains("Critical", StringComparison.Ordinal))
-                return DetectionResult.WithSeverity(detector.Id, Severity.Critical,
-                    $"LLM escalated to Critical");
+                return DetectionResult.WithSeverity(detector.Id, Severity.Critical, "LLM escalated to Critical");
             if (text.Contains("\"High\"", StringComparison.OrdinalIgnoreCase))
-                return DetectionResult.WithSeverity(detector.Id, Severity.High,
-                    $"LLM escalated to High");
+                return DetectionResult.WithSeverity(detector.Id, Severity.High, "LLM escalated to High");
             if (text.Contains("\"Medium\"", StringComparison.OrdinalIgnoreCase))
-                return DetectionResult.WithSeverity(detector.Id, Severity.Medium,
-                    $"LLM escalated to Medium");
-
-            // LLM says None/Low or returned unexpected format — trust the rule-based result
+                return DetectionResult.WithSeverity(detector.Id, Severity.Medium, "LLM escalated to Medium");
         }
         catch (Exception ex)
         {
-            // Escalation failure is non-fatal — preserve rule-based result
             logger?.LogDebug(ex, "LLM escalation failed for detector {DetectorId}", detector.Id);
         }
 
