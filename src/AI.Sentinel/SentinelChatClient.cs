@@ -32,12 +32,12 @@ public sealed class SentinelChatClient(
             messageList,
             []);
 
-        var promptResult = await pipeline.RunAsync(promptCtx, cancellationToken);
-        await AppendAuditAsync(promptResult, messageList, cancellationToken);
+        var promptResult = await pipeline.RunAsync(promptCtx, cancellationToken).ConfigureAwait(false);
+        await AppendAuditAsync(promptResult, messageList, cancellationToken).ConfigureAwait(false);
         interventionEngine.Apply(promptResult, sessionId, options.DefaultSenderId, options.DefaultReceiverId);
 
         // Call the inner client
-        var response = await base.GetResponseAsync(messageList, chatOptions, cancellationToken);
+        var response = await base.GetResponseAsync(messageList, chatOptions, cancellationToken).ConfigureAwait(false);
 
         // Scan the response
         IReadOnlyList<ChatMessage> responseMessages =
@@ -49,8 +49,8 @@ public sealed class SentinelChatClient(
             responseMessages,
             []);
 
-        var responseResult = await pipeline.RunAsync(responseCtx, cancellationToken);
-        await AppendAuditAsync(responseResult, responseMessages, cancellationToken);
+        var responseResult = await pipeline.RunAsync(responseCtx, cancellationToken).ConfigureAwait(false);
+        await AppendAuditAsync(responseResult, responseMessages, cancellationToken).ConfigureAwait(false);
         interventionEngine.Apply(responseResult, sessionId, options.DefaultReceiverId, options.DefaultSenderId);
 
         return response;
@@ -72,13 +72,13 @@ public sealed class SentinelChatClient(
             messageList,
             []);
 
-        var result = await pipeline.RunAsync(ctx, cancellationToken);
-        await AppendAuditAsync(result, messageList, cancellationToken);
+        var result = await pipeline.RunAsync(ctx, cancellationToken).ConfigureAwait(false);
+        await AppendAuditAsync(result, messageList, cancellationToken).ConfigureAwait(false);
         interventionEngine.Apply(result, sessionId, options.DefaultSenderId, options.DefaultReceiverId);
 
         // 2. Collect streamed chunks
         var chunks = new System.Text.StringBuilder();
-        await foreach (var update in base.GetStreamingResponseAsync(messageList, chatOptions, cancellationToken))
+        await foreach (var update in base.GetStreamingResponseAsync(messageList, chatOptions, cancellationToken).ConfigureAwait(false))
         {
             chunks.Append(update.Text ?? "");
             yield return update;
@@ -95,8 +95,8 @@ public sealed class SentinelChatClient(
                 sessionId,
                 responseMessages,
                 []);
-            var responseResult = await pipeline.RunAsync(responseCtx, cancellationToken);
-            await AppendAuditAsync(responseResult, responseMessages, cancellationToken);
+            var responseResult = await pipeline.RunAsync(responseCtx, cancellationToken).ConfigureAwait(false);
+            await AppendAuditAsync(responseResult, responseMessages, cancellationToken).ConfigureAwait(false);
             interventionEngine.Apply(responseResult, sessionId, options.DefaultReceiverId, options.DefaultSenderId);
         }
     }
@@ -106,9 +106,9 @@ public sealed class SentinelChatClient(
         IReadOnlyList<ChatMessage> msgs,
         CancellationToken cancellationToken)
     {
+        var content = msgs.LastOrDefault()?.Text ?? "";
         foreach (var detection in result.Detections)
         {
-            var content = msgs.LastOrDefault()?.Text ?? "";
             var hash = ComputeHash(content);
             var entry = new AuditEntry(
                 Guid.NewGuid().ToString("N"),
@@ -118,7 +118,7 @@ public sealed class SentinelChatClient(
                 detection.Severity,
                 detection.DetectorId.ToString(),
                 detection.Reason);
-            await auditStore.AppendAsync(entry, cancellationToken);
+            await auditStore.AppendAsync(entry, cancellationToken).ConfigureAwait(false);
         }
     }
 

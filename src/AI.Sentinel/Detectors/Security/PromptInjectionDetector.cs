@@ -9,13 +9,14 @@ public sealed partial class PromptInjectionDetector : ILlmEscalatingDetector
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
-        @"(?i)(ignore\s+(all\s+)?(previous|prior|above)\s+instructions?|" +
+        @"(ignore\s+(all\s+)?(previous|prior|above)\s+instructions?|" +
         @"forget\s+(your\s+)?(previous|prior|all)\s+instructions?|" +
         @"you\s+are\s+now\s+a\s+different|" +
         @"SYSTEM\s*:\s*(you\s+are|ignore)|" +
         @"new\s+persona|pretend\s+you\s+are|act\s+as\s+if|" +
         @"disregard\s+(all\s+)?previous)",
-        RegexOptions.Compiled)]
+        RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
+        matchTimeoutMilliseconds: 1000)]
     private static partial Regex InjectionPattern();
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)

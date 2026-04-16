@@ -5,6 +5,8 @@ using AI.Sentinel.Domain;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detectors.Operational;
 
+namespace AI.Sentinel.Tests.Detectors.Operational;
+
 public class OperationalDetectorTests
 {
     private static SentinelContext Ctx(string text) => new(

@@ -9,10 +9,11 @@ public sealed partial class JailbreakDetector : ILlmEscalatingDetector
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
-        @"(?i)(DAN\s+mode|jailbreak|no\s+restrictions?|no\s+guidelines?|" +
+        @"(DAN\s+mode|jailbreak|no\s+restrictions?|no\s+guidelines?|" +
         @"no\s+(ethical\s+)?constraints?|pretend\s+you\s+have\s+no|" +
         @"you\s+are\s+freed\s+from|unrestricted\s+AI|evil\s+mode)",
-        RegexOptions.Compiled)]
+        RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
+        matchTimeoutMilliseconds: 1000)]
     private static partial Regex JailbreakPattern();
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)

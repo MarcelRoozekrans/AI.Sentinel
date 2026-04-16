@@ -3,6 +3,9 @@
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <RollForward>LatestMajor</RollForward>
+    <!-- In xUnit test projects, ConfigureAwait(false) is forbidden by xUnit1030; suppress MA0004 here -->
+    <!-- HLQ005 conflicts with xUnit2013: HLQ005 bans "Single", xUnit2013 requires Assert.Single; suppress HLQ005 in tests -->
+    <NoWarn>$(NoWarn);MA0004;HLQ005</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\AI.Sentinel\AI.Sentinel.csproj" />

@@ -4,6 +4,8 @@ using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Audit;
 
+namespace AI.Sentinel.Tests.Detection;
+
 public class DetectionPipelineTests
 {
     private static SentinelContext FakeContext() => new(
@@ -77,11 +79,11 @@ public class DetectionPipelineTests
         // The system message must not contain the adversarial reason string
         var systemMsg = capturedMessages.FirstOrDefault(m => m.Role == ChatRole.System);
         Assert.NotNull(systemMsg);
-        Assert.DoesNotContain(adversarialReason, systemMsg.Text ?? "");
+        Assert.DoesNotContain(adversarialReason, systemMsg.Text ?? "", StringComparison.Ordinal);
 
         // Also verify the expected safe content IS present
-        Assert.Contains("TEST-01", systemMsg.Text ?? "");    // detector.Id
-        Assert.Contains("Medium", systemMsg.Text ?? "");      // initial.Severity
+        Assert.Contains("TEST-01", systemMsg.Text ?? "", StringComparison.Ordinal);    // detector.Id
+        Assert.Contains("Medium", systemMsg.Text ?? "", StringComparison.Ordinal);      // initial.Severity
     }
 
     // Helpers
@@ -118,7 +120,10 @@ public class DetectionPipelineTests
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> messages,
             ChatOptions? options = null,
-            CancellationToken cancellationToken = default) => throw new NotImplementedException();
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException("Streaming not needed in this test double.");
+        }
 
         public object? GetService(Type serviceType, object? key = null) => null;
         public void Dispose() { }

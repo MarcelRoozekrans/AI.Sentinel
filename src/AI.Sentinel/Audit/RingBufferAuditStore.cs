@@ -10,7 +10,7 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, I
 
     public async ValueTask AppendAsync(AuditEntry entry, CancellationToken ct)
     {
-        await _lock.WaitAsync(ct);
+        await _lock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             // Overwrite oldest when full (ring buffer semantics)
@@ -25,7 +25,7 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, I
         AuditQuery query,
         [EnumeratorCancellation] CancellationToken ct)
     {
-        await _lock.WaitAsync(ct);
+        await _lock.WaitAsync(ct).ConfigureAwait(false);
         AuditEntry[] snapshot;
         try { snapshot = _buffer.ToArray(); }
         finally { _lock.Release(); }

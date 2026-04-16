@@ -9,9 +9,10 @@ public sealed partial class PrivilegeEscalationDetector : IDetector
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
-        @"(?i)(grant\s+(me\s+)?(admin|root|superuser|elevated)\s+(access|privileges?)|" +
-        @"sudo\s+|run\s+as\s+(administrator|root)|escalate\s+(my\s+)?privileges?)",
-        RegexOptions.Compiled)]
+        @"(grant\s+(?:me\s+)?(?:admin|root|superuser|elevated)\s+(?:access|privileges?)|" +
+        @"sudo\s+|run\s+as\s+(?:administrator|root)|escalate\s+(?:my\s+)?privileges?)",
+        RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
+        matchTimeoutMilliseconds: 1000)]
     private static partial Regex EscalationPattern();
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)

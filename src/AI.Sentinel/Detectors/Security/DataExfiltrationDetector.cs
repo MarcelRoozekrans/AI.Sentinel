@@ -8,10 +8,10 @@ public sealed partial class DataExfiltrationDetector : IDetector
     public DetectorId Id => new("SEC-04");
     public DetectorCategory Category => DetectorCategory.Security;
 
-    [GeneratedRegex(@"[A-Za-z0-9+/]{12,}={0,2}", RegexOptions.Compiled)]
+    [GeneratedRegex(@"[A-Za-z0-9+/]{12,}={0,2}", RegexOptions.ExplicitCapture | RegexOptions.Compiled, matchTimeoutMilliseconds: 1000)]
     private static partial Regex Base64Pattern();
 
-    [GeneratedRegex(@"\b[0-9a-fA-F]{16,}\b", RegexOptions.Compiled)]
+    [GeneratedRegex(@"\b[0-9a-fA-F]{16,}\b", RegexOptions.ExplicitCapture | RegexOptions.Compiled, matchTimeoutMilliseconds: 1000)]
     private static partial Regex HexPattern();
 
     private static double Entropy(string s)

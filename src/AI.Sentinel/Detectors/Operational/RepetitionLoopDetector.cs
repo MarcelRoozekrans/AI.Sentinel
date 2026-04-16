@@ -15,7 +15,7 @@ public sealed class RepetitionLoopDetector : IDetector
                             .Where(s => s.Length > 5)
                             .ToList();
         if (sentences.Count == 0) return ValueTask.FromResult(DetectionResult.Clean(Id));
-        var maxRepeat = sentences.GroupBy(s => s).Max(g => g.Count());
+        var maxRepeat = sentences.GroupBy(s => s, StringComparer.Ordinal).Max(g => g.Count());
         if (maxRepeat >= 3)
             return ValueTask.FromResult(DetectionResult.WithSeverity(Id, Severity.Medium,
                 $"Sentence repeated {maxRepeat}x — possible repetition loop"));

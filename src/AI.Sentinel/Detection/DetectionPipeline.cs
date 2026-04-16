@@ -1,13 +1,24 @@
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 
 namespace AI.Sentinel.Detection;
 
-public sealed class DetectionPipeline(
-    IEnumerable<IDetector> detectors,
-    IChatClient? escalationClient)
+public sealed class DetectionPipeline
 {
-    private readonly IDetector[] _detectors = detectors.ToArray();
+    private readonly IDetector[] _detectors;
+    private readonly IChatClient? _escalationClient;
+    private readonly ILogger<DetectionPipeline>? _logger;
+
+    public DetectionPipeline(
+        IEnumerable<IDetector> detectors,
+        IChatClient? escalationClient,
+        ILogger<DetectionPipeline>? logger = null)
+    {
+        _detectors = detectors.ToArray();
+        _escalationClient = escalationClient;
+        _logger = logger;
+    }
 
     // Severity → raw score contribution (0-100 per detector)
     private static int SeverityScore(Severity s) => s switch
@@ -23,10 +34,10 @@ public sealed class DetectionPipeline(
     {
         // Run all detectors in parallel
         var tasks = _detectors.Select(d => d.AnalyzeAsync(ctx, ct).AsTask());
-        var results = await Task.WhenAll(tasks);
+        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
 
         // LLM escalation for borderline detections (only if escalationClient configured)
-        if (escalationClient is not null)
+        if (_escalationClient is not null)
         {
             var escalated = new List<DetectionResult>(results.Length);
             for (int i = 0; i < _detectors.Length; i++)
@@ -34,7 +45,7 @@ public sealed class DetectionPipeline(
                 var r = results[i];
                 if (r.Severity >= Severity.Medium && _detectors[i] is ILlmEscalatingDetector)
                 {
-                    var upgraded = await EscalateAsync(_detectors[i], ctx, r, escalationClient, ct);
+                    var upgraded = await EscalateAsync(_detectors[i], ctx, r, _escalationClient, _logger, ct).ConfigureAwait(false);
                     escalated.Add(upgraded);
                 }
                 else escalated.Add(r);
@@ -53,6 +64,7 @@ public sealed class DetectionPipeline(
         SentinelContext ctx,
         DetectionResult initial,
         IChatClient client,
+        ILogger<DetectionPipeline>? logger,
         CancellationToken ct)
     {
         // IMPORTANT: Do NOT include initial.Reason here — it contains text derived from user input
@@ -72,7 +84,7 @@ public sealed class DetectionPipeline(
         {
             var response = await client.GetResponseAsync(
                 new List<ChatMessage> { instruction, contentMessage },
-                cancellationToken: ct);
+                cancellationToken: ct).ConfigureAwait(false);
 
             var text = response.Text ?? "";
             if (text.Contains("\"Critical\"", StringComparison.OrdinalIgnoreCase) ||
@@ -88,9 +100,10 @@ public sealed class DetectionPipeline(
 
             // LLM says None/Low or returned unexpected format — trust the rule-based result
         }
-        catch
+        catch (Exception ex)
         {
             // Escalation failure is non-fatal — preserve rule-based result
+            logger?.LogDebug(ex, "LLM escalation failed for detector {DetectorId}", detector.Id);
         }
 
         return initial;

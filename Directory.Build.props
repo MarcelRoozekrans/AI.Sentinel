@@ -6,5 +6,34 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>AI.Sentinel</RootNamespace>
+    <!-- EPS06 fires exclusively in source-generator output (*.g.cs); suppress globally -->
+    <NoWarn>$(NoWarn);EPS06</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Meziantou.Analyzer" Version="3.0.25">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Roslynator.Analyzers" Version="4.15.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="ErrorProne.NET.CoreAnalyzers" Version="0.1.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="ErrorProne.NET.Structs" Version="0.1.2">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="NetFabric.Hyperlinq.Analyzer" Version="2.3.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="ZeroAlloc.Analyzers" Version="1.*">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
 </Project>

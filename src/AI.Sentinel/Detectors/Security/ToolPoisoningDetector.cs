@@ -10,9 +10,10 @@ public sealed partial class ToolPoisoningDetector : IDetector
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
-        @"(?i)(call\s+tool\s+with|invoke\s+function|execute\s+command|" +
+        @"(call\s+tool\s+with|invoke\s+function|execute\s+command|" +
         @"tool_name\s*[=:]\s*|function_call\s*[=:]\s*|<tool_call>|<function_calls>)",
-        RegexOptions.Compiled)]
+        RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
+        matchTimeoutMilliseconds: 1000)]
     private static partial Regex ToolPattern();
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)

@@ -42,7 +42,7 @@ public sealed class InterventionEngine(
         if (action == SentinelAction.Quarantine)
             throw new SentinelException(
                 $"AI.Sentinel quarantined message: {result.MaxSeverity} threat detected. " +
-                $"Detectors: {string.Join(", ", result.Detections.Select(d => d.DetectorId))}",
+                $"Detectors: {string.Join(", ", result.Detections.Select(d => d.DetectorId.ToString()))}",
                 result);
     }
 
@@ -57,7 +57,7 @@ public sealed class InterventionEngine(
             logger?.LogWarning(task.AsTask().Exception, "AI.Sentinel: mediator publish failed");
             return;
         }
-        task.AsTask().ContinueWith(
+        _ = task.AsTask().ContinueWith(
             t => logger?.LogWarning(t.Exception, "AI.Sentinel: mediator publish failed"),
             CancellationToken.None,
             TaskContinuationOptions.OnlyOnFaulted,

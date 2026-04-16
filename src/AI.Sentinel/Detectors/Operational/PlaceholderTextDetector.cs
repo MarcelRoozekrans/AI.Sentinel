@@ -8,7 +8,7 @@ public sealed partial class PlaceholderTextDetector : IDetector
     public DetectorId Id => new("OPS-07");
     public DetectorCategory Category => DetectorCategory.Operational;
 
-    [GeneratedRegex(@"(?i)\b(TODO|FIXME|PLACEHOLDER|Lorem\s+ipsum|YOUR_[A-Z_]+)\b", RegexOptions.Compiled)]
+    [GeneratedRegex(@"\b(TODO|FIXME|PLACEHOLDER|Lorem\s+ipsum|YOUR_[A-Z_]+)\b", RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled, matchTimeoutMilliseconds: 1000)]
     private static partial Regex PlaceholderPattern();
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)

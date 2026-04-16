@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyDescriptionAttribute(("Embedded ASP.NET Core dashboard for AI.Sentinel — real-time threat monitoring, au" +
     "dit trail, and agent graph."))]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+096db6f3c00f178db6d00abd927a6b808ed2939f")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+20bbafed18e2dffcc75368f4c20a4d6c5859a5c6")]
 [assembly: System.Reflection.AssemblyProductAttribute("AI.Sentinel.AspNetCore")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AI.Sentinel.AspNetCore")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]

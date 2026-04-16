@@ -5,6 +5,8 @@ using AI.Sentinel;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Audit;
 
+namespace AI.Sentinel.Tests.Integration;
+
 public class EndToEndTests
 {
     [Fact] public async Task PromptInjection_IsQuarantined_EndToEnd()
@@ -38,7 +40,7 @@ public class EndToEndTests
         var result = await client.GetResponseAsync(
             new List<ChatMessage> { new(ChatRole.User, "What is 6 times 7?") });
 
-        Assert.Contains("42", result.Text ?? "");
+        Assert.Contains("42", result.Text ?? "", StringComparison.Ordinal);
     }
 
     [Fact] public async Task AuditStore_ReceivesEntries_AfterThreat()
@@ -107,7 +109,10 @@ public class EndToEndTests
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> messages,
             ChatOptions? options = null,
-            CancellationToken cancellationToken = default) => throw new NotImplementedException();
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException("Streaming not needed in this test double.");
+        }
 
         public object? GetService(Type serviceType, object? key = null) => null;
         public void Dispose() { }
@@ -124,8 +129,10 @@ public class EndToEndTests
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> messages,
             ChatOptions? options = null,
-            CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException();
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException("Streaming not needed in this test double.");
+        }
 
         public object? GetService(Type serviceType, object? key = null) => null;
         public void Dispose() { }

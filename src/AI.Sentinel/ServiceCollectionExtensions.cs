@@ -62,7 +62,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDetector, ResponseCoherenceDetector>();
 
         services.AddSingleton(sp =>
-            new DetectionPipeline(sp.GetServices<IDetector>(), opts.EscalationClient));
+            new DetectionPipeline(sp.GetServices<IDetector>(), opts.EscalationClient, sp.GetService<ILogger<DetectionPipeline>>()));
 
         return services;
     }

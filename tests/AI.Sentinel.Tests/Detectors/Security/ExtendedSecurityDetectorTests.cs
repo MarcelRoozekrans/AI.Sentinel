@@ -5,6 +5,8 @@ using AI.Sentinel.Domain;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detectors.Security;
 
+namespace AI.Sentinel.Tests.Detectors.Security;
+
 public class ExtendedSecurityDetectorTests
 {
     private static SentinelContext Ctx(string text) => new(

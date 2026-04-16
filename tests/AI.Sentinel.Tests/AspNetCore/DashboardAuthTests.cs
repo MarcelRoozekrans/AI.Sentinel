@@ -7,6 +7,8 @@ using Microsoft.Extensions.Hosting;
 using Xunit;
 using AI.Sentinel.AspNetCore;
 
+namespace AI.Sentinel.Tests.AspNetCore;
+
 public class DashboardAuthTests
 {
     [Fact]

@@ -2,6 +2,8 @@ using Xunit;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
 
+namespace AI.Sentinel.Tests;
+
 public class SentinelOptionsTests
 {
     [Fact] public void DefaultOptions_AreValid()

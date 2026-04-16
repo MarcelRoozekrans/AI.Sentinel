@@ -25,7 +25,7 @@ public class RingBufferAuditStoreTests
     {
         var store = new RingBufferAuditStore(capacity: 3);
         for (int i = 0; i < 5; i++)
-            await store.AppendAsync(new AuditEntry(i.ToString(), DateTimeOffset.UtcNow,
+            await store.AppendAsync(new AuditEntry(i.ToString(System.Globalization.CultureInfo.InvariantCulture), DateTimeOffset.UtcNow,
                 $"hash{i}", null, Severity.None, "OPS-01", $"msg{i}"), CancellationToken.None);
 
         var results = new List<AuditEntry>();

@@ -9,15 +9,16 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
-        @"(?i)(password\s*[=:]\s*\S+|" +
+        @"(password\s*[=:]\s*\S+|" +
         @"api[_-]?key\s*[=:]\s*\S+|" +
         @"secret[_-]?key\s*[=:]\s*\S+|" +
         @"Authorization\s*:\s*Bearer\s+\S+|" +
         @"AWS_SECRET_ACCESS_KEY\s*=\s*\S+|" +
-        @"-----BEGIN\s+(RSA\s+)?PRIVATE\s+KEY-----|" +
+        @"-----BEGIN\s+(?:RSA\s+)?PRIVATE\s+KEY-----|" +
         @"ghp_[a-zA-Z0-9]{36}|" +
         @"sk-[a-zA-Z0-9]{32,})",
-        RegexOptions.Compiled)]
+        RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
+        matchTimeoutMilliseconds: 1000)]
     private static partial Regex CredentialPattern();
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)

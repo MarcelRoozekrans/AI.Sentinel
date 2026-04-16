@@ -18,6 +18,21 @@
           }
         }
       },
+      "ErrorProne.NET.CoreAnalyzers/0.1.2": {
+        "type": "package"
+      },
+      "ErrorProne.NET.Structs/0.1.2": {
+        "type": "package"
+      },
+      "Meziantou.Analyzer/3.0.25": {
+        "type": "package",
+        "build": {
+          "buildTransitive/Meziantou.Analyzer.props": {}
+        },
+        "buildMultiTargeting": {
+          "buildMultiTargeting/Meziantou.Analyzer.props": {}
+        }
+      },
       "Microsoft.AspNetCore.TestHost/10.0.6": {
         "type": "package",
         "compile": {
@@ -453,6 +468,9 @@
           "build/net8.0/Microsoft.TestPlatform.TestHost.targets": {}
         }
       },
+      "NetFabric.Hyperlinq.Analyzer/2.3.0": {
+        "type": "package"
+      },
       "Newtonsoft.Json/13.0.3": {
         "type": "package",
         "compile": {
@@ -481,6 +499,9 @@
             "related": ".xml"
           }
         }
+      },
+      "Roslynator.Analyzers/4.15.0": {
+        "type": "package"
       },
       "System.Diagnostics.EventLog/6.0.0": {
         "type": "package",
@@ -620,6 +641,12 @@
           "build/net6.0/xunit.runner.visualstudio.props": {}
         }
       },
+      "ZeroAlloc.Analyzers/1.3.12": {
+        "type": "package",
+        "build": {
+          "buildTransitive/ZeroAlloc.Analyzers.props": {}
+        }
+      },
       "ZeroAlloc.AsyncEvents/1.0.0": {
         "type": "package",
         "compile": {
@@ -708,7 +735,7 @@
       },
       "AI.Sentinel/0.1.0": {
         "type": "project",
-        "framework": ".NETCoreApp,Version=v10.0",
+        "framework": ".NETCoreApp,Version=v9.0",
         "dependencies": {
           "Microsoft.Extensions.AI": "9.0.0",
           "Microsoft.Extensions.AI.Abstractions": "9.0.0",
@@ -731,7 +758,7 @@
       },
       "AI.Sentinel.AspNetCore/0.1.0": {
         "type": "project",
-        "framework": ".NETCoreApp,Version=v10.0",
+        "framework": ".NETCoreApp,Version=v9.0",
         "dependencies": {
           "AI.Sentinel": "0.1.0"
         },
@@ -761,6 +788,21 @@
           "lib/net6.0/Castle.Core.dll": {
             "related": ".xml"
           }
+        }
+      },
+      "ErrorProne.NET.CoreAnalyzers/0.1.2": {
+        "type": "package"
+      },
+      "ErrorProne.NET.Structs/0.1.2": {
+        "type": "package"
+      },
+      "Meziantou.Analyzer/3.0.25": {
+        "type": "package",
+        "build": {
+          "buildTransitive/Meziantou.Analyzer.props": {}
+        },
+        "buildMultiTargeting": {
+          "buildMultiTargeting/Meziantou.Analyzer.props": {}
         }
       },
       "Microsoft.AspNetCore.TestHost/8.0.26": {
@@ -1201,6 +1243,9 @@
           "build/net8.0/Microsoft.TestPlatform.TestHost.targets": {}
         }
       },
+      "NetFabric.Hyperlinq.Analyzer/2.3.0": {
+        "type": "package"
+      },
       "Newtonsoft.Json/13.0.3": {
         "type": "package",
         "compile": {
@@ -1229,6 +1274,9 @@
             "related": ".xml"
           }
         }
+      },
+      "Roslynator.Analyzers/4.15.0": {
+        "type": "package"
       },
       "System.Diagnostics.EventLog/6.0.0": {
         "type": "package",
@@ -1384,6 +1432,12 @@
           "build/net6.0/xunit.runner.visualstudio.props": {}
         }
       },
+      "ZeroAlloc.Analyzers/1.3.12": {
+        "type": "package",
+        "build": {
+          "buildTransitive/ZeroAlloc.Analyzers.props": {}
+        }
+      },
       "ZeroAlloc.AsyncEvents/1.0.0": {
         "type": "package",
         "compile": {
@@ -1534,6 +1588,75 @@
         "lib/netstandard2.1/Castle.Core.dll",
         "lib/netstandard2.1/Castle.Core.xml",
         "readme.txt"
+      ]
+    },
+    "ErrorProne.NET.CoreAnalyzers/0.1.2": {
+      "sha512": "RQdzUtFVhwLwisP2Du7Ugm7ldwAzc+QJrlZWNIwHXcgq4b5fLwZgdN1203RdYiHS8OOALophC6yWekxu3UgN2g==",
+      "type": "package",
+      "path": "errorprone.net.coreanalyzers/0.1.2",
+      "hasTools": true,
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "analyzers/dotnet/cs/ErrorProne.NET.Core.dll",
+        "analyzers/dotnet/cs/ErrorProne.NET.Core.pdb",
+        "analyzers/dotnet/cs/ErrorProne.Net.CoreAnalyzers.dll",
+        "analyzers/dotnet/cs/ErrorProne.Net.CoreAnalyzers.pdb",
+        "analyzers/dotnet/cs/RuntimeContracts.dll",
+        "errorprone.net.coreanalyzers.0.1.2.nupkg.sha512",
+        "errorprone.net.coreanalyzers.nuspec",
+        "tools/install.ps1",
+        "tools/uninstall.ps1"
+      ]
+    },
+    "ErrorProne.NET.Structs/0.1.2": {
+      "sha512": "2AuzqxkREpl8kBt249CeR1sM70ZxBwm6nMcqi8tikisn5jD9jQW2ZNv8Q7PwHzxQYwTSmeRuua8vbPfClqXCzA==",
+      "type": "package",
+      "path": "errorprone.net.structs/0.1.2",
+      "hasTools": true,
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "analyzers/dotnet/cs/ErrorProne.NET.Core.dll",
+        "analyzers/dotnet/cs/ErrorProne.NET.Core.pdb",
+        "analyzers/dotnet/cs/ErrorProne.Net.StructAnalyzers.dll",
+        "analyzers/dotnet/cs/ErrorProne.Net.StructAnalyzers.pdb",
+        "analyzers/dotnet/cs/RuntimeContracts.dll",
+        "errorprone.net.structs.0.1.2.nupkg.sha512",
+        "errorprone.net.structs.nuspec",
+        "tools/install.ps1",
+        "tools/uninstall.ps1"
+      ]
+    },
+    "Meziantou.Analyzer/3.0.25": {
+      "sha512": "8mzoeC5EWI7E5gY5he3qLomGmIMT5EBFVdLRSOzwD2XikHTtVihIL+7YrrlJ1iWqshIrdmQnOxH/OIY1Bk98ww==",
+      "type": "package",
+      "path": "meziantou.analyzer/3.0.25",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "LICENSE.txt",
+        "README.md",
+        "analyzers/dotnet/roslyn4.14/cs/Meziantou.Analyzer.CodeFixers.dll",
+        "analyzers/dotnet/roslyn4.14/cs/Meziantou.Analyzer.dll",
+        "analyzers/dotnet/roslyn4.2/cs/Meziantou.Analyzer.CodeFixers.dll",
+        "analyzers/dotnet/roslyn4.2/cs/Meziantou.Analyzer.dll",
+        "analyzers/dotnet/roslyn4.4/cs/Meziantou.Analyzer.CodeFixers.dll",
+        "analyzers/dotnet/roslyn4.4/cs/Meziantou.Analyzer.dll",
+        "analyzers/dotnet/roslyn4.6/cs/Meziantou.Analyzer.CodeFixers.dll",
+        "analyzers/dotnet/roslyn4.6/cs/Meziantou.Analyzer.dll",
+        "analyzers/dotnet/roslyn4.8/cs/Meziantou.Analyzer.CodeFixers.dll",
+        "analyzers/dotnet/roslyn4.8/cs/Meziantou.Analyzer.dll",
+        "analyzers/dotnet/roslyn5.0/cs/Meziantou.Analyzer.CodeFixers.dll",
+        "analyzers/dotnet/roslyn5.0/cs/Meziantou.Analyzer.dll",
+        "build/Meziantou.Analyzer.props",
+        "buildMultiTargeting/Meziantou.Analyzer.props",
+        "buildTransitive/Meziantou.Analyzer.props",
+        "configuration/default.editorconfig",
+        "configuration/none.editorconfig",
+        "icon.png",
+        "meziantou.analyzer.3.0.25.nupkg.sha512",
+        "meziantou.analyzer.nuspec"
       ]
     },
     "Microsoft.AspNetCore.TestHost/8.0.26": {
@@ -2211,6 +2334,24 @@
         "microsoft.testplatform.testhost.nuspec"
       ]
     },
+    "NetFabric.Hyperlinq.Analyzer/2.3.0": {
+      "sha512": "xckR4WhI4q8Oy2k88sair3UEL+qtI0QbWbMKmItVTHqu23C/oQHcZHR4NFTy07J2KOa8P0ad9T/6vAsm8v/8tA==",
+      "type": "package",
+      "path": "netfabric.hyperlinq.analyzer/2.3.0",
+      "hasTools": true,
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "LICENSE",
+        "analyzers/dotnet/cs/NetFabric.Hyperlinq.Analyzer.CodeFixes.dll",
+        "analyzers/dotnet/cs/NetFabric.Hyperlinq.Analyzer.dll",
+        "netfabric.hyperlinq.analyzer.2.3.0.nupkg.sha512",
+        "netfabric.hyperlinq.analyzer.nuspec",
+        "tools/install.ps1",
+        "tools/uninstall.ps1"
+      ]
+    },
     "Newtonsoft.Json/13.0.3": {
       "sha512": "HrC5BXdl00IP9zeV+0Z848QWPAoCr9P3bDEZguI+gkLcBKAOxix/tLEAAHC+UvDNPv4a2d18lOReHMOagPa+zQ==",
       "type": "package",
@@ -2257,6 +2398,38 @@
         "lib/netstandard2.0/NSubstitute.xml",
         "nsubstitute.5.3.0.nupkg.sha512",
         "nsubstitute.nuspec"
+      ]
+    },
+    "Roslynator.Analyzers/4.15.0": {
+      "sha512": "E8fu71Y+vzhniJKy1K13Rzwm8Vjcj7CDFBpflqncKUZfc3SzuF0kMBiyMmgXNPkjWTdE3Z+30HlGgYjHONZY/Q==",
+      "type": "package",
+      "path": "roslynator.analyzers/4.15.0",
+      "hasTools": true,
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "analyzers/dotnet/roslyn3.8/cs/Roslynator.CSharp.Analyzers.CodeFixes.dll",
+        "analyzers/dotnet/roslyn3.8/cs/Roslynator.CSharp.Analyzers.dll",
+        "analyzers/dotnet/roslyn3.8/cs/Roslynator_Analyzers_Roslynator.CSharp.Workspaces.dll",
+        "analyzers/dotnet/roslyn3.8/cs/Roslynator_Analyzers_Roslynator.CSharp.dll",
+        "analyzers/dotnet/roslyn3.8/cs/Roslynator_Analyzers_Roslynator.Common.dll",
+        "analyzers/dotnet/roslyn3.8/cs/Roslynator_Analyzers_Roslynator.Core.dll",
+        "analyzers/dotnet/roslyn3.8/cs/Roslynator_Analyzers_Roslynator.Workspaces.Common.dll",
+        "analyzers/dotnet/roslyn3.8/cs/Roslynator_Analyzers_Roslynator.Workspaces.Core.dll",
+        "analyzers/dotnet/roslyn4.7/cs/Roslynator.CSharp.Analyzers.CodeFixes.dll",
+        "analyzers/dotnet/roslyn4.7/cs/Roslynator.CSharp.Analyzers.dll",
+        "analyzers/dotnet/roslyn4.7/cs/Roslynator_Analyzers_Roslynator.CSharp.Workspaces.dll",
+        "analyzers/dotnet/roslyn4.7/cs/Roslynator_Analyzers_Roslynator.CSharp.dll",
+        "analyzers/dotnet/roslyn4.7/cs/Roslynator_Analyzers_Roslynator.Common.dll",
+        "analyzers/dotnet/roslyn4.7/cs/Roslynator_Analyzers_Roslynator.Core.dll",
+        "analyzers/dotnet/roslyn4.7/cs/Roslynator_Analyzers_Roslynator.Workspaces.Common.dll",
+        "analyzers/dotnet/roslyn4.7/cs/Roslynator_Analyzers_Roslynator.Workspaces.Core.dll",
+        "docs/README.md",
+        "icon.png",
+        "roslynator.analyzers.4.15.0.nupkg.sha512",
+        "roslynator.analyzers.nuspec",
+        "tools/install.ps1",
+        "tools/uninstall.ps1"
       ]
     },
     "System.Diagnostics.EventLog/6.0.0": {
@@ -2491,6 +2664,23 @@
         "xunit.runner.visualstudio.nuspec"
       ]
     },
+    "ZeroAlloc.Analyzers/1.3.12": {
+      "sha512": "bfIgUVW2vpRkZlWpImWge1WgogiIee3eCBgiqoWRAIYFFWMEYsgzB32qQmKV5nR2gvCSl9+Dq2MWGd4XEZW6Vg==",
+      "type": "package",
+      "path": "zeroalloc.analyzers/1.3.12",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "analyzers/dotnet/cs/ZeroAlloc.Analyzers.CodeFixes.dll",
+        "analyzers/dotnet/cs/ZeroAlloc.Analyzers.dll",
+        "build/ZeroAlloc.Analyzers.props",
+        "buildTransitive/ZeroAlloc.Analyzers.props",
+        "icon.png",
+        "zeroalloc.analyzers.1.3.12.nupkg.sha512",
+        "zeroalloc.analyzers.nuspec"
+      ]
+    },
     "ZeroAlloc.AsyncEvents/1.0.0": {
       "sha512": "C4maRJa7fnbzJfG7sdB6htL1aI9vXkXVdPwN1r0QmU4rdSJ1NUdRGTncCL2Ini3yZ1DhxmvsaZDTQoO5AkTdfg==",
       "type": "package",
@@ -2638,24 +2828,36 @@
     "net10.0": [
       "AI.Sentinel >= 0.1.0",
       "AI.Sentinel.AspNetCore >= 0.1.0",
+      "ErrorProne.NET.CoreAnalyzers >= 0.1.2",
+      "ErrorProne.NET.Structs >= 0.1.2",
+      "Meziantou.Analyzer >= 3.0.25",
       "Microsoft.AspNetCore.TestHost >= 10.*",
       "Microsoft.Extensions.AI >= 9.*",
       "Microsoft.Extensions.AI.Abstractions >= 9.*",
       "Microsoft.Extensions.DependencyInjection >= 9.*",
       "Microsoft.NET.Test.Sdk >= 17.*",
       "NSubstitute >= 5.*",
+      "NetFabric.Hyperlinq.Analyzer >= 2.3.0",
+      "Roslynator.Analyzers >= 4.15.0",
+      "ZeroAlloc.Analyzers >= 1.*",
       "xunit >= 2.*",
       "xunit.runner.visualstudio >= 2.*"
     ],
     "net8.0": [
       "AI.Sentinel >= 0.1.0",
       "AI.Sentinel.AspNetCore >= 0.1.0",
+      "ErrorProne.NET.CoreAnalyzers >= 0.1.2",
+      "ErrorProne.NET.Structs >= 0.1.2",
+      "Meziantou.Analyzer >= 3.0.25",
       "Microsoft.AspNetCore.TestHost >= 8.*",
       "Microsoft.Extensions.AI >= 9.*",
       "Microsoft.Extensions.AI.Abstractions >= 9.*",
       "Microsoft.Extensions.DependencyInjection >= 9.*",
       "Microsoft.NET.Test.Sdk >= 17.*",
       "NSubstitute >= 5.*",
+      "NetFabric.Hyperlinq.Analyzer >= 2.3.0",
+      "Roslynator.Analyzers >= 4.15.0",
+      "ZeroAlloc.Analyzers >= 1.*",
       "xunit >= 2.*",
       "xunit.runner.visualstudio >= 2.*"
     ]
@@ -2724,6 +2926,24 @@
       "net8.0": {
         "targetAlias": "net8.0",
         "dependencies": {
+          "ErrorProne.NET.CoreAnalyzers": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[0.1.2, )"
+          },
+          "ErrorProne.NET.Structs": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[0.1.2, )"
+          },
+          "Meziantou.Analyzer": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[3.0.25, )"
+          },
           "Microsoft.AspNetCore.TestHost": {
             "target": "Package",
             "version": "[8.*, )"
@@ -2748,6 +2968,24 @@
             "target": "Package",
             "version": "[5.*, )"
           },
+          "NetFabric.Hyperlinq.Analyzer": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[2.3.0, )"
+          },
+          "Roslynator.Analyzers": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[4.15.0, )"
+          },
+          "ZeroAlloc.Analyzers": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[1.*, )"
+          },
           "xunit": {
             "target": "Package",
             "version": "[2.*, )"
@@ -2771,15 +3009,15 @@
         "downloadDependencies": [
           {
             "name": "Microsoft.AspNetCore.App.Ref",
-            "version": "[8.0.25, 8.0.25]"
+            "version": "[8.0.26, 8.0.26]"
           },
           {
             "name": "Microsoft.NETCore.App.Ref",
-            "version": "[8.0.25, 8.0.25]"
+            "version": "[8.0.26, 8.0.26]"
           },
           {
             "name": "Microsoft.WindowsDesktop.App.Ref",
-            "version": "[8.0.25, 8.0.25]"
+            "version": "[8.0.26, 8.0.26]"
           }
         ],
         "frameworkReferences": {
@@ -2787,7 +3025,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.104/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.106/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.CSharp": "(,4.7.32767]",
           "Microsoft.VisualBasic": "(,10.3.32767]",
@@ -3074,6 +3312,24 @@
       "net10.0": {
         "targetAlias": "net10.0",
         "dependencies": {
+          "ErrorProne.NET.CoreAnalyzers": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[0.1.2, )"
+          },
+          "ErrorProne.NET.Structs": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[0.1.2, )"
+          },
+          "Meziantou.Analyzer": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[3.0.25, )"
+          },
           "Microsoft.AspNetCore.TestHost": {
             "target": "Package",
             "version": "[10.*, )"
@@ -3097,6 +3353,24 @@
           "NSubstitute": {
             "target": "Package",
             "version": "[5.*, )"
+          },
+          "NetFabric.Hyperlinq.Analyzer": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[2.3.0, )"
+          },
+          "Roslynator.Analyzers": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[4.15.0, )"
+          },
+          "ZeroAlloc.Analyzers": {
+            "include": "Runtime, Build, Native, ContentFiles, Analyzers",
+            "suppressParent": "All",
+            "target": "Package",
+            "version": "[1.*, )"
           },
           "xunit": {
             "target": "Package",
@@ -3123,7 +3397,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.104/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.106/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.CSharp": "(,4.7.32767]",
           "Microsoft.VisualBasic": "(,10.4.32767]",

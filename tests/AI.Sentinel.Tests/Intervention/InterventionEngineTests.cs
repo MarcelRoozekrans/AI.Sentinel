@@ -5,6 +5,8 @@ using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
 using ZeroAlloc.Mediator;
 
+namespace AI.Sentinel.Tests.Intervention;
+
 public class InterventionEngineTests
 {
     private static PipelineResult CleanResult() =>

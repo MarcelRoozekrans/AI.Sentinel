@@ -17,6 +17,8 @@
       "Microsoft.Extensions.AI/9.10.2": {
         "dependencies": {
           "Microsoft.Extensions.AI.Abstractions": "9.10.2",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.15",
+          "Microsoft.Extensions.Logging.Abstractions": "8.0.3",
           "System.Numerics.Tensors": "9.0.10"
         },
         "runtime": {
@@ -39,6 +41,17 @@
           "lib/net8.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll": {
             "assemblyVersion": "9.0.0.0",
             "fileVersion": "9.0.1526.17522"
+          }
+        }
+      },
+      "Microsoft.Extensions.Logging.Abstractions/8.0.3": {
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "9.0.15"
+        },
+        "runtime": {
+          "lib/net8.0/Microsoft.Extensions.Logging.Abstractions.dll": {
+            "assemblyVersion": "8.0.0.0",
+            "fileVersion": "8.0.1325.6609"
           }
         }
       },
@@ -189,6 +202,13 @@
       "sha512": "sha512-4ulUZtcGCPQ/LadApR1QftrRZ0AvxGW6SsVhS3QoTAwZtzhbN6x0VCVPoXsoPkznUrgzy8bi4KZ+kFt5jsP40Q==",
       "path": "microsoft.extensions.dependencyinjection.abstractions/9.0.15",
       "hashPath": "microsoft.extensions.dependencyinjection.abstractions.9.0.15.nupkg.sha512"
+    },
+    "Microsoft.Extensions.Logging.Abstractions/8.0.3": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-dL0QGToTxggRLMYY4ZYX5AMwBb+byQBd/5dMiZE07Nv73o6I5Are3C7eQTh7K2+A4ct0PVISSr7TZANbiNb2yQ==",
+      "path": "microsoft.extensions.logging.abstractions/8.0.3",
+      "hashPath": "microsoft.extensions.logging.abstractions.8.0.3.nupkg.sha512"
     },
     "Microsoft.Extensions.Options/9.0.15": {
       "type": "package",

@@ -9,9 +9,10 @@ public sealed partial class PhantomCitationDetector : ILlmEscalatingDetector
     public DetectorCategory Category => DetectorCategory.Hallucination;
 
     [GeneratedRegex(
-        @"(?i)(arxiv:[89]\d{3}\.\d{4,}|doi:10\.9{3,}/|" +
-        @"https?://[a-z0-9\-]+\.(nonexistent|fake|invalid|example)\.[a-z]{2,})",
-        RegexOptions.Compiled)]
+        @"(arxiv:[89]\d{3}\.\d{4,}|doi:10\.9{3,}/|" +
+        @"https?://[a-z0-9\-]+\.(?:nonexistent|fake|invalid|example)\.[a-z]{2,})",
+        RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
+        matchTimeoutMilliseconds: 1000)]
     private static partial Regex PhantomPattern();
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)

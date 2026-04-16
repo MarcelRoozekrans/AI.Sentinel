@@ -8,6 +8,8 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Detectors.Operational;
 
+namespace AI.Sentinel.Tests;
+
 public class SentinelChatClientTests
 {
     private static IChatClient BuildSentinelClient(
@@ -27,7 +29,7 @@ public class SentinelChatClientTests
         var client = BuildSentinelClient(inner);
         var result = await client.GetResponseAsync(
             new List<ChatMessage> { new(ChatRole.User, "hi") });
-        Assert.Contains("Hello!", result.Text ?? "");
+        Assert.Contains("Hello!", result.Text ?? "", StringComparison.Ordinal);
     }
 
     [Fact] public async Task CriticalThreat_WithQuarantine_ThrowsSentinelException()
@@ -64,7 +66,9 @@ public class SentinelChatClientTests
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> messages,
             ChatOptions? options = null,
-            CancellationToken cancellationToken = default) =>
-            throw new NotImplementedException();
+            CancellationToken cancellationToken = default)
+        {
+            throw new NotSupportedException("Streaming not needed in this test double.");
+        }
     }
 }

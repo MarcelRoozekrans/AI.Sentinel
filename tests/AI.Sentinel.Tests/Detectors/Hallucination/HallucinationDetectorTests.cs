@@ -5,6 +5,8 @@ using AI.Sentinel.Domain;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detectors.Hallucination;
 
+namespace AI.Sentinel.Tests.Detectors.Hallucination;
+
 public class HallucinationDetectorTests
 {
     private static SentinelContext Ctx(string text) => new(
