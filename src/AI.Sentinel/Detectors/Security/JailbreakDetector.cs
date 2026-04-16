@@ -5,7 +5,10 @@ namespace AI.Sentinel.Detectors.Security;
 
 public sealed partial class JailbreakDetector : ILlmEscalatingDetector
 {
-    public DetectorId Id => new("SEC-13");
+    private static readonly DetectorId _id = new("SEC-13");
+    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+
+    public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
@@ -18,10 +21,10 @@ public sealed partial class JailbreakDetector : ILlmEscalatingDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = string.Join(" ", ctx.Messages.Select(m => m.Text ?? ""));
+        var text = ctx.TextContent;
         var match = JailbreakPattern().Match(text);
         return ValueTask.FromResult(match.Success
-            ? DetectionResult.WithSeverity(Id, Severity.Critical, $"Jailbreak attempt: '{match.Value}'")
-            : DetectionResult.Clean(Id));
+            ? DetectionResult.WithSeverity(_id, Severity.Critical, $"Jailbreak attempt: '{match.Value}'")
+            : _clean);
     }
 }

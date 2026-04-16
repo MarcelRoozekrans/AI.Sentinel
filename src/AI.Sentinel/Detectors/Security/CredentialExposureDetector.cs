@@ -5,7 +5,10 @@ namespace AI.Sentinel.Detectors.Security;
 
 public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector
 {
-    public DetectorId Id => new("SEC-02");
+    private static readonly DetectorId _id = new("SEC-02");
+    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+
+    public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
@@ -23,10 +26,10 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = string.Join(" ", ctx.Messages.Select(m => m.Text ?? ""));
+        var text = ctx.TextContent;
         var match = CredentialPattern().Match(text);
-        if (!match.Success) return ValueTask.FromResult(DetectionResult.Clean(Id));
-        return ValueTask.FromResult(DetectionResult.WithSeverity(Id, Severity.Critical,
+        if (!match.Success) return ValueTask.FromResult(_clean);
+        return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Critical,
             $"Credential exposure: '{match.Value[..Math.Min(20, match.Value.Length)]}...'"));
     }
 }

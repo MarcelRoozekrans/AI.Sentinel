@@ -5,7 +5,10 @@ namespace AI.Sentinel.Detectors.Hallucination;
 
 public sealed partial class PhantomCitationDetector : ILlmEscalatingDetector
 {
-    public DetectorId Id => new("HAL-01");
+    private static readonly DetectorId _id = new("HAL-01");
+    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+
+    public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Hallucination;
 
     [GeneratedRegex(
@@ -17,10 +20,10 @@ public sealed partial class PhantomCitationDetector : ILlmEscalatingDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = string.Join(" ", ctx.Messages.Select(m => m.Text ?? ""));
+        var text = ctx.TextContent;
         var match = PhantomPattern().Match(text);
         return ValueTask.FromResult(match.Success
-            ? DetectionResult.WithSeverity(Id, Severity.Medium, $"Suspicious citation: '{match.Value}'")
-            : DetectionResult.Clean(Id));
+            ? DetectionResult.WithSeverity(_id, Severity.Medium, $"Suspicious citation: '{match.Value}'")
+            : _clean);
     }
 }

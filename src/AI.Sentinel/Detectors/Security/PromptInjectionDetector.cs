@@ -5,7 +5,10 @@ namespace AI.Sentinel.Detectors.Security;
 
 public sealed partial class PromptInjectionDetector : ILlmEscalatingDetector
 {
-    public DetectorId Id => new("SEC-01");
+    private static readonly DetectorId _id = new("SEC-01");
+    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+
+    public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
@@ -21,10 +24,10 @@ public sealed partial class PromptInjectionDetector : ILlmEscalatingDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = string.Join(" ", ctx.Messages.Select(m => m.Text ?? ""));
+        var text = ctx.TextContent;
         var match = InjectionPattern().Match(text);
-        if (!match.Success) return ValueTask.FromResult(DetectionResult.Clean(Id));
-        return ValueTask.FromResult(DetectionResult.WithSeverity(Id, Severity.Critical,
+        if (!match.Success) return ValueTask.FromResult(_clean);
+        return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Critical,
             $"Prompt injection pattern: '{match.Value}'"));
     }
 }

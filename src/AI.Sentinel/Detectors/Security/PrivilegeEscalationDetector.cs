@@ -5,7 +5,10 @@ namespace AI.Sentinel.Detectors.Security;
 
 public sealed partial class PrivilegeEscalationDetector : IDetector
 {
-    public DetectorId Id => new("SEC-16");
+    private static readonly DetectorId _id = new("SEC-16");
+    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+
+    public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
@@ -17,10 +20,10 @@ public sealed partial class PrivilegeEscalationDetector : IDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = string.Join(" ", ctx.Messages.Select(m => m.Text ?? ""));
+        var text = ctx.TextContent;
         var match = EscalationPattern().Match(text);
         return ValueTask.FromResult(match.Success
-            ? DetectionResult.WithSeverity(Id, Severity.High, $"Privilege escalation: '{match.Value}'")
-            : DetectionResult.Clean(Id));
+            ? DetectionResult.WithSeverity(_id, Severity.High, $"Privilege escalation: '{match.Value}'")
+            : _clean);
     }
 }
