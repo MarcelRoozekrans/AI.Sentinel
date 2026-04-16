@@ -264,11 +264,11 @@ All measurements: .NET 9, Release, `Job.Default`, `MemoryDiagnoser` + `Threading
 
 | Scenario | Mean | Allocated |
 |---|---|---|
-| Audit store — sequential append | ~54 ns | 0 B |
-| Single regex detector — clean input | ~93–109 ns | ~152 B |
-| Single regex detector — malicious input | ~211 ns | ~592 B |
-| `RepetitionLoopDetector` — clean input | ~453 ns | ~912 B |
-| Audit store — 8 concurrent appends | ~729 ns | 400 B |
+| Audit store — sequential append | ~64 ns | 0 B |
+| Single regex detector — clean input | ~36 ns | 0 B |
+| Single regex detector — malicious input | ~237 ns | ~480 B |
+| `RepetitionLoopDetector` — clean input | ~246 ns | ~296 B |
+| Audit store — 8 concurrent appends | ~731 ns | 400 B |
 
 Run the full suite yourself:
 
