@@ -1,0 +1,9 @@
+<Project>
+  <!-- Override the repo-root TargetFrameworks so each benchmark project uses its own TargetFramework. -->
+  <PropertyGroup>
+    <TargetFrameworks />
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+</Project>
