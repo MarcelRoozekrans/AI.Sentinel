@@ -13,6 +13,10 @@ public class OperationalDetectorTests
         new AgentId("a"), new AgentId("b"), SessionId.New(),
         new List<ChatMessage> { new(ChatRole.Assistant, text) }, new List<AuditEntry>());
 
+    private static SentinelContext CtxMessages(IReadOnlyList<ChatMessage> messages) => new(
+        new AgentId("a"), new AgentId("b"), SessionId.New(),
+        messages, new List<AuditEntry>());
+
     [Fact] public async Task BlankResponse_Detected() =>
         Assert.True((await new BlankResponseDetector().AnalyzeAsync(Ctx("   "), default)).Severity >= Severity.Medium);
 
@@ -45,11 +49,48 @@ public class OperationalDetectorTests
             new AgentProbingDetector(),
             new QueryIntentDetector(),
             new ResponseCoherenceDetector(),
+            new SemanticRepetitionDetector(),
+            new PersonaDriftDetector(),
+            new SycophancyDetector(),
         ];
         foreach (var d in stubs)
         {
             var r = await d.AnalyzeAsync(Ctx("What did we discuss earlier?"), default);
             Assert.NotNull(r);
         }
+    }
+
+    // OPS-15: WrongLanguageDetector
+    [Fact] public async Task WrongLanguage_LatinUserNonLatinAssistant_Detected()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User, "What is the capital of France? Please answer in English."),
+            new(ChatRole.Assistant, "巴黎是法国的首都，也是最大的城市。它以埃菲尔铁塔和卢浮宫等著名景点而闻名。"),
+        };
+        var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.Severity >= Severity.Medium);
+    }
+
+    [Fact] public async Task WrongLanguage_SameScript_Clean()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User, "What is the capital of France?"),
+            new(ChatRole.Assistant, "The capital of France is Paris, a major European city."),
+        };
+        var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.Equal(Severity.None, r.Severity);
+    }
+
+    [Fact] public async Task WrongLanguage_ShortMessage_Skipped()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User, "Hi"),
+            new(ChatRole.Assistant, "你好"),
+        };
+        var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.Equal(Severity.None, r.Severity);
     }
 }

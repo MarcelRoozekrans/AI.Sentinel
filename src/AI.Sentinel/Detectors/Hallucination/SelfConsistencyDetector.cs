@@ -5,7 +5,7 @@ namespace AI.Sentinel.Detectors.Hallucination;
 
 public sealed partial class SelfConsistencyDetector : ILlmEscalatingDetector
 {
-    private static readonly DetectorId _id = new("HAL-05");
+    private static readonly DetectorId _id = new("HAL-02");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
 
     public DetectorId Id => _id;

@@ -5,7 +5,7 @@ namespace AI.Sentinel.Detectors.Security;
 
 public sealed partial class PrivilegeEscalationDetector : IDetector
 {
-    private static readonly DetectorId _id = new("SEC-16");
+    private static readonly DetectorId _id = new("SEC-06");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
 
     public DetectorId Id => _id;

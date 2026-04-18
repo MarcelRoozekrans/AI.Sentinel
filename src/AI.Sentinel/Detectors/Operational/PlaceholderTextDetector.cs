@@ -5,7 +5,7 @@ namespace AI.Sentinel.Detectors.Operational;
 
 public sealed partial class PlaceholderTextDetector : IDetector
 {
-    private static readonly DetectorId _id = new("OPS-07");
+    private static readonly DetectorId _id = new("OPS-04");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
 
     public DetectorId Id => _id;

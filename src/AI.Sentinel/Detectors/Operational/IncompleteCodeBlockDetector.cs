@@ -4,7 +4,7 @@ namespace AI.Sentinel.Detectors.Operational;
 
 public sealed class IncompleteCodeBlockDetector : IDetector
 {
-    private static readonly DetectorId _id    = new("OPS-06");
+    private static readonly DetectorId _id    = new("OPS-03");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
 
     public DetectorId Id => _id;

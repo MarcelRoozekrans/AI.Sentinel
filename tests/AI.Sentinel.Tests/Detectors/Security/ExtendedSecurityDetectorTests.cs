@@ -47,6 +47,7 @@ public class ExtendedSecurityDetectorTests
             new PhantomCitationSecurityDetector(),
             new GovernanceGapDetector(),
             new SupplyChainPoisoningDetector(),
+            new RefusalBypassDetector(),
         ];
         foreach (var d in stubs)
         {

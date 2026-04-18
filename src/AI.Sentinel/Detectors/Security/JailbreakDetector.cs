@@ -5,7 +5,7 @@ namespace AI.Sentinel.Detectors.Security;
 
 public sealed partial class JailbreakDetector : ILlmEscalatingDetector
 {
-    private static readonly DetectorId _id = new("SEC-13");
+    private static readonly DetectorId _id = new("SEC-05");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
 
     public DetectorId Id => _id;
