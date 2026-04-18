@@ -69,6 +69,24 @@ public class EndToEndTests
         Assert.NotEmpty(entries);
     }
 
+    [Fact] public async Task ResponseScan_CredentialExposure_IsQuarantined_EndToEnd()
+    {
+        var services = new ServiceCollection();
+        AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services,
+            opts => opts.OnCritical = SentinelAction.Quarantine);
+
+        // Inner client returns a response containing a credential
+        services.AddChatClient(_ => (IChatClient)new FakeInnerClient("Here is your key: sk-abc123def456ghi789jkl012mno345pqr678"))
+                .UseAISentinel();
+
+        var sp = services.BuildServiceProvider();
+        var client = sp.GetRequiredService<IChatClient>();
+
+        await Assert.ThrowsAsync<SentinelException>(
+            () => client.GetResponseAsync(
+                new List<ChatMessage> { new(ChatRole.User, "Show me the API key") }));
+    }
+
     [Fact]
     public async Task GetResponseAsync_WithLazyEnumerable_InnerClientReceivesMessages()
     {

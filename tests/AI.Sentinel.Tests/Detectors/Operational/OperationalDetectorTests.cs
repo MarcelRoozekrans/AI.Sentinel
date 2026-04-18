@@ -37,4 +37,19 @@ public class OperationalDetectorTests
         foreach (var d in all)
             Assert.Equal(Severity.None, (await d.AnalyzeAsync(Ctx("The answer is 42."), default)).Severity);
     }
+
+    [Fact] public async Task AllOperationalStubDetectors_DoNotThrow()
+    {
+        IDetector[] stubs = [
+            new ContextCollapseDetector(),
+            new AgentProbingDetector(),
+            new QueryIntentDetector(),
+            new ResponseCoherenceDetector(),
+        ];
+        foreach (var d in stubs)
+        {
+            var r = await d.AnalyzeAsync(Ctx("What did we discuss earlier?"), default);
+            Assert.NotNull(r);
+        }
+    }
 }

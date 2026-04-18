@@ -25,4 +25,18 @@ public class HallucinationDetectorTests
         var r = await new SelfConsistencyDetector().AnalyzeAsync(Ctx(text), default);
         Assert.True(r.Severity >= Severity.Low);
     }
+
+    [Fact] public async Task AllHallucinationStubDetectors_DoNotThrow()
+    {
+        IDetector[] stubs = [
+            new CrossAgentContradictionDetector(),
+            new SourceGroundingDetector(),
+            new ConfidenceDecayDetector(),
+        ];
+        foreach (var d in stubs)
+        {
+            var r = await d.AnalyzeAsync(Ctx("I think this might be true."), default);
+            Assert.NotNull(r);
+        }
+    }
 }
