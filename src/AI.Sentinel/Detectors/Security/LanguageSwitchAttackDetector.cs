@@ -2,8 +2,10 @@ using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
 
+using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Security;
 
+[Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed class LanguageSwitchAttackDetector : IDetector
 {
     private static readonly DetectorId _id = new("SEC-27");

@@ -2,8 +2,10 @@ using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
+using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Security;
 
+[Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed partial class ToolPoisoningDetector : IDetector
 {
     public DetectorId Id => new("SEC-03");

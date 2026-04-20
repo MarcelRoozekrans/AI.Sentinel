@@ -1,8 +1,10 @@
 using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
+using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Security;
 
+[Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector
 {
     private static readonly DetectorId _id = new("SEC-02");
