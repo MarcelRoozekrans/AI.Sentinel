@@ -1,4 +1,5 @@
 using Microsoft.Extensions.AI;
+using AI.Sentinel.Alerts;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
@@ -9,13 +10,16 @@ namespace AI.Sentinel.Tests;
 
 public class SentinelPipelineTests
 {
-    private static SentinelPipeline Build(IDetector[]? detectors = null, IChatClient? inner = null)
+    private static SentinelPipeline Build(
+        IDetector[]? detectors = null,
+        IChatClient? inner = null,
+        IAlertSink? alertSink = null)
     {
         var opts = new SentinelOptions();
         var pipeline = new DetectionPipeline(detectors ?? [], null);
         var audit = new RingBufferAuditStore(100);
         var engine = new InterventionEngine(opts, null);
-        return new SentinelPipeline(inner ?? new TestChatClient("hello"), pipeline, audit, engine, opts);
+        return new SentinelPipeline(inner ?? new TestChatClient("hello"), pipeline, audit, engine, opts, alertSink);
     }
 
     [Fact]
@@ -42,6 +46,27 @@ public class SentinelPipelineTests
             [new ChatMessage(ChatRole.User, "Hello")], null, default);
         Assert.True(result.IsFailure);
         Assert.IsType<SentinelError.PipelineFailure>(result.Error);
+    }
+
+    [Fact]
+    public async Task GetResponseResultAsync_QuarantineThreat_CallsAlertSinkOnce()
+    {
+        var sink = new RecordingAlertSink();
+        _ = await Build([new AlwaysCriticalDetector()], alertSink: sink).GetResponseResultAsync(
+            [new ChatMessage(ChatRole.User, "hostile")], null, default);
+        // Fire-and-forget is async; give it a moment to complete.
+        await Task.Delay(100);
+        Assert.Equal(1, sink.CallCount);
+        Assert.IsType<SentinelError.ThreatDetected>(sink.LastError);
+    }
+
+    [Fact]
+    public async Task GetResponseResultAsync_CleanMessage_DoesNotCallAlertSink()
+    {
+        var sink = new RecordingAlertSink();
+        _ = await Build(alertSink: sink).GetResponseResultAsync(
+            [new ChatMessage(ChatRole.User, "Hello")], null, default);
+        Assert.Equal(0, sink.CallCount);
     }
 
     private sealed class AlwaysCriticalDetector : IDetector
@@ -76,5 +101,19 @@ public class SentinelPipelineTests
         public ChatClientMetadata Metadata => new("test", null, null);
         public object? GetService(Type serviceType, object? key = null) => null;
         public void Dispose() { }
+    }
+
+    private sealed class RecordingAlertSink : IAlertSink
+    {
+        private int _callCount;
+        public int CallCount => _callCount;
+        public SentinelError? LastError { get; private set; }
+
+        public ValueTask SendAsync(SentinelError error, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _callCount);
+            LastError = error;
+            return ValueTask.CompletedTask;
+        }
     }
 }

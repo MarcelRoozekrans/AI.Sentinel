@@ -82,8 +82,9 @@ public sealed class SentinelPipeline(
         {
             // Quarantine: convert throw to Result instead of re-throwing.
             // Use the PipelineResult carried by the exception — it has the real detections.
-            var top = ex.PipelineResult.Detections.FirstOrDefault()
-                ?? pipelineResult.Detections.First();
+            var top = ex.PipelineResult.Detections.MaxBy(d => d.Severity)
+                ?? pipelineResult.Detections.MaxBy(d => d.Severity)
+                ?? DetectionResult.Clean(new DetectorId("unknown"));
             return new SentinelError.ThreatDetected(top, action);
         }
 
