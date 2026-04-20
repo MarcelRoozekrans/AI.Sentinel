@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using AI.Sentinel.Alerts;
 using AI.Sentinel.Detection;
 using Xunit;
 
@@ -48,6 +49,28 @@ public class ServiceCollectionExtensionsTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal("ok", result.Value.Messages[0].Text);
+    }
+
+    [Fact]
+    public void AddAISentinel_NoAlertWebhook_RegistersNullAlertSink()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel();
+        var provider = services.BuildServiceProvider();
+
+        var sink = provider.GetRequiredService<IAlertSink>();
+        Assert.IsType<NullAlertSink>(sink);
+    }
+
+    [Fact]
+    public void AddAISentinel_WithAlertWebhook_RegistersWebhookAlertSink()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(opts => opts.AlertWebhook = new Uri("http://example.com/hook"));
+        var provider = services.BuildServiceProvider();
+
+        var sink = provider.GetRequiredService<IAlertSink>();
+        Assert.IsType<WebhookAlertSink>(sink);
     }
 
     private sealed class StubInnerClient : IChatClient
