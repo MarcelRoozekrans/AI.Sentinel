@@ -4,7 +4,7 @@ namespace AI.Sentinel.Alerts;
 
 public sealed class WebhookAlertSink(Uri endpoint) : IAlertSink
 {
-    private static readonly HttpClient _http = new();
+    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
 
     public async ValueTask SendAsync(SentinelError error, CancellationToken ct)
     {

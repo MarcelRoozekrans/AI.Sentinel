@@ -69,9 +69,9 @@ public sealed class SentinelPipeline(
 
         if ((action == SentinelAction.Quarantine || action == SentinelAction.Alert) && alertSink is not null)
         {
-            var top = pipelineResult.Detections.FirstOrDefault()
+            var top = pipelineResult.Detections.MaxBy(d => d.Severity)
                 ?? DetectionResult.Clean(new DetectorId("unknown"));
-            _ = alertSink.SendAsync(new SentinelError.ThreatDetected(top, action), ct).AsTask();
+            _ = alertSink.SendAsync(new SentinelError.ThreatDetected(top, action), CancellationToken.None).AsTask();
         }
 
         try

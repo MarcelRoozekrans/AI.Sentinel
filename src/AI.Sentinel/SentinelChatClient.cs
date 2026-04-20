@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
+using AI.Sentinel.Alerts;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Intervention;
@@ -12,9 +13,10 @@ public sealed class SentinelChatClient(
     DetectionPipeline pipeline,
     IAuditStore auditStore,
     InterventionEngine interventionEngine,
-    SentinelOptions options) : DelegatingChatClient(innerClient)
+    SentinelOptions options,
+    IAlertSink? alertSink = null) : DelegatingChatClient(innerClient)
 {
-    private readonly SentinelPipeline _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options);
+    private readonly SentinelPipeline _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options, alertSink);
 
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,

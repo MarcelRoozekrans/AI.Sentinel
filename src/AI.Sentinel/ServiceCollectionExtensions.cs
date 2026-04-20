@@ -17,6 +17,9 @@ public static class ServiceCollectionExtensions
         var opts = new SentinelOptions();
         configure?.Invoke(opts);
         services.AddSingleton(opts);
+        services.AddSingleton<IAlertSink>(opts.AlertWebhook is not null
+            ? new WebhookAlertSink(opts.AlertWebhook)
+            : NullAlertSink.Instance);
         services.AddSingleton<IAuditStore>(new RingBufferAuditStore(opts.AuditCapacity));
         services.AddSingleton(sp => new InterventionEngine(
             opts,
@@ -37,23 +40,20 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<DetectionPipeline>(),
             sp.GetRequiredService<IAuditStore>(),
             sp.GetRequiredService<InterventionEngine>(),
-            sp.GetRequiredService<SentinelOptions>()));
+            sp.GetRequiredService<SentinelOptions>(),
+            sp.GetRequiredService<IAlertSink>()));
 
     public static SentinelPipeline BuildSentinelPipeline(
         this IServiceProvider sp,
         IChatClient innerClient)
     {
         ArgumentNullException.ThrowIfNull(innerClient);
-        var opts = sp.GetRequiredService<SentinelOptions>();
-        IAlertSink sink = opts.AlertWebhook is not null
-            ? new WebhookAlertSink(opts.AlertWebhook)
-            : NullAlertSink.Instance;
         return new SentinelPipeline(
             innerClient,
             sp.GetRequiredService<DetectionPipeline>(),
             sp.GetRequiredService<IAuditStore>(),
             sp.GetRequiredService<InterventionEngine>(),
-            opts,
-            sink);
+            sp.GetRequiredService<SentinelOptions>(),
+            sp.GetRequiredService<IAlertSink>());
     }
 }
