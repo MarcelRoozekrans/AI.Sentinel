@@ -1,7 +1,9 @@
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
+using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Operational;
 
+[Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed class IncompleteCodeBlockDetector : IDetector
 {
     private static readonly DetectorId _id    = new("OPS-03");

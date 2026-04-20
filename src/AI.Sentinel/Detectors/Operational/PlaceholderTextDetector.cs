@@ -1,8 +1,10 @@
 using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
+using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Operational;
 
+[Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed partial class PlaceholderTextDetector : IDetector
 {
     private static readonly DetectorId _id = new("OPS-04");

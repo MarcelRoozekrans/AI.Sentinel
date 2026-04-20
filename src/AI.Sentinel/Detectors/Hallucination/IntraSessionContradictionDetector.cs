@@ -2,9 +2,11 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
+using ZeroAlloc.Inject;
 
 namespace AI.Sentinel.Detectors.Hallucination;
 
+[Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed partial class IntraSessionContradictionDetector : ILlmEscalatingDetector
 {
     private static readonly DetectorId _id = new("HAL-07");

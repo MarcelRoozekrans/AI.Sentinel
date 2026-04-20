@@ -1,9 +1,11 @@
 using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
+using ZeroAlloc.Inject;
 
 namespace AI.Sentinel.Detectors.Hallucination;
 
+[Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed partial class GroundlessStatisticDetector : ILlmEscalatingDetector
 {
     private static readonly DetectorId _id = new("HAL-08");
