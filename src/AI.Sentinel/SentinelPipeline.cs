@@ -69,11 +69,12 @@ public sealed class SentinelPipeline(
         {
             interventionEngine.Apply(pipelineResult, sessionId, sender, receiver);
         }
-        catch (SentinelException)
+        catch (SentinelException ex)
         {
-            // Quarantine: convert throw to Result instead of re-throwing
-            var top = pipelineResult.Detections.FirstOrDefault()
-                ?? DetectionResult.Clean(new DetectorId("unknown"));
+            // Quarantine: convert throw to Result instead of re-throwing.
+            // Use the PipelineResult carried by the exception — it has the real detections.
+            var top = ex.PipelineResult.Detections.FirstOrDefault()
+                ?? pipelineResult.Detections.First();
             return new SentinelError.ThreatDetected(top, action);
         }
 
