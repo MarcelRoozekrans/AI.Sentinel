@@ -23,6 +23,7 @@ public sealed class SentinelOptions
     public AgentId DefaultSenderId   { get; set; } = new("unknown-sender");
     public AgentId DefaultReceiverId { get; set; } = new("unknown-receiver");
 
+    /// <summary>Optional webhook URL to which alert payloads are POSTed when a threat is detected or the pipeline fails.</summary>
     public Uri? AlertWebhook { get; set; }
 
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch

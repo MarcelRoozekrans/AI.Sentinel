@@ -4,11 +4,20 @@ using AI.Sentinel.Intervention;
 
 namespace AI.Sentinel;
 
+/// <summary>Represents an error produced by the AI.Sentinel pipeline.</summary>
 public abstract record SentinelError
 {
+    /// <summary>Indicates a threat was detected and an action was taken.</summary>
+    /// <param name="Result">The highest-severity detection that triggered this error.</param>
+    /// <param name="Action">The action taken in response to the detection.</param>
     public sealed record ThreatDetected(DetectionResult Result, SentinelAction Action) : SentinelError;
+
+    /// <summary>Indicates the pipeline itself failed with an unhandled exception or internal error.</summary>
+    /// <param name="Message">A human-readable description of the failure.</param>
+    /// <param name="Inner">The underlying exception that caused the failure, if any.</param>
     public sealed record PipelineFailure(string Message, Exception? Inner = null) : SentinelError;
 
+    /// <summary>Converts this error to a throwable <see cref="Exception"/>.</summary>
     public Exception ToException() => this switch
     {
         ThreatDetected t => new SentinelException(

@@ -10,6 +10,7 @@ using ZeroAlloc.Results;
 
 namespace AI.Sentinel;
 
+/// <summary>Wraps an <see cref="IChatClient"/> with threat detection, intervention, and auditing for both prompt and response messages.</summary>
 public sealed class SentinelPipeline(
     IChatClient innerClient,
     DetectionPipeline pipeline,
@@ -18,6 +19,11 @@ public sealed class SentinelPipeline(
     SentinelOptions options,
     IAlertSink? alertSink = null)
 {
+    /// <summary>Scans the prompt and response for threats and returns the chat response on success, or a <see cref="SentinelError"/> if a threat is detected or the inner client fails.</summary>
+    /// <param name="messages">The conversation messages to send to the inner client.</param>
+    /// <param name="chatOptions">Optional chat options forwarded to the inner client.</param>
+    /// <param name="ct">Cancellation token for the operation.</param>
+    /// <returns>A successful <see cref="ChatResponse"/> when no threats are found, or a <see cref="SentinelError.ThreatDetected"/> / <see cref="SentinelError.PipelineFailure"/> on failure.</returns>
     public async ValueTask<Result<ChatResponse, SentinelError>> GetResponseResultAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions,

@@ -2,6 +2,9 @@ using System.Net.Http.Json;
 
 namespace AI.Sentinel.Alerts;
 
+/// <summary>Delivers alert notifications to an HTTP webhook endpoint as JSON payloads.</summary>
+/// <remarks>Failures are silently swallowed so a webhook outage never propagates back to the pipeline.</remarks>
+/// <param name="endpoint">The URL of the webhook that receives POST requests with alert payloads.</param>
 public sealed class WebhookAlertSink(Uri endpoint) : IAlertSink
 {
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
