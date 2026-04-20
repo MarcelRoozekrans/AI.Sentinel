@@ -37,4 +37,16 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IAuditStore>(),
             sp.GetRequiredService<InterventionEngine>(),
             sp.GetRequiredService<SentinelOptions>()));
+
+    public static SentinelPipeline BuildSentinelPipeline(
+        this IServiceProvider sp,
+        IChatClient innerClient)
+    {
+        return new SentinelPipeline(
+            innerClient,
+            sp.GetRequiredService<DetectionPipeline>(),
+            sp.GetRequiredService<IAuditStore>(),
+            sp.GetRequiredService<InterventionEngine>(),
+            sp.GetRequiredService<SentinelOptions>());
+    }
 }

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel.Detection;
 using Xunit;
@@ -31,5 +32,28 @@ public class ServiceCollectionExtensionsTests
             .ToList();
 
         Assert.Empty(duplicates);
+    }
+
+    [Fact]
+    public void BuildSentinelPipeline_ReturnsInstance()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel();
+        var provider = services.BuildServiceProvider();
+
+        var inner = new StubInnerClient();
+        var pipeline = provider.BuildSentinelPipeline(inner);
+        Assert.NotNull(pipeline);
+    }
+
+    private sealed class StubInnerClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> m, ChatOptions? o = null, CancellationToken ct = default)
+            => Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "ok")]));
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> m, ChatOptions? o = null, CancellationToken ct = default)
+            => throw new NotSupportedException();
+        public ChatClientMetadata Metadata => new("stub", null, null);
+        public object? GetService(Type serviceType, object? key = null) => null;
+        public void Dispose() { }
     }
 }
