@@ -1,11 +1,9 @@
 using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
-using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
+using ZeroAlloc.Results.Extensions;
 
 namespace AI.Sentinel;
 
@@ -16,115 +14,31 @@ public sealed class SentinelChatClient(
     InterventionEngine interventionEngine,
     SentinelOptions options) : DelegatingChatClient(innerClient)
 {
+    private readonly SentinelPipeline _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options);
+
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions = null,
         CancellationToken cancellationToken = default)
     {
-        var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
-        var sessionId = SessionId.New();
-
-        // Scan the prompt
-        var promptCtx = new SentinelContext(
-            options.DefaultSenderId,
-            options.DefaultReceiverId,
-            sessionId,
-            messageList,
-            []);
-
-        var promptResult = await pipeline.RunAsync(promptCtx, cancellationToken).ConfigureAwait(false);
-        await AppendAuditAsync(promptResult, messageList, cancellationToken).ConfigureAwait(false);
-        interventionEngine.Apply(promptResult, sessionId, options.DefaultSenderId, options.DefaultReceiverId);
-
-        // Call the inner client
-        var response = await base.GetResponseAsync(messageList, chatOptions, cancellationToken).ConfigureAwait(false);
-
-        // Scan the response
-        IReadOnlyList<ChatMessage> responseMessages =
-            response.Messages as IReadOnlyList<ChatMessage> ?? response.Messages.ToList();
-        var responseCtx = new SentinelContext(
-            options.DefaultReceiverId,
-            options.DefaultSenderId,
-            sessionId,
-            responseMessages,
-            []);
-
-        var responseResult = await pipeline.RunAsync(responseCtx, cancellationToken).ConfigureAwait(false);
-        await AppendAuditAsync(responseResult, responseMessages, cancellationToken).ConfigureAwait(false);
-        interventionEngine.Apply(responseResult, sessionId, options.DefaultReceiverId, options.DefaultSenderId);
-
-        return response;
+        var result = await _sentinel.GetResponseResultAsync(messages, chatOptions, cancellationToken)
+            .ConfigureAwait(false);
+        return result.Match(ok => ok, err => throw err.ToException());
     }
 
-    public override async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+    public override IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions = null,
-        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default)
+        => StreamAsync(messages, chatOptions, cancellationToken);
+
+    private async IAsyncEnumerable<ChatResponseUpdate> StreamAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? chatOptions,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
-        var sessionId = SessionId.New();
-
-        // 1. Scan prompt
-        var ctx = new SentinelContext(
-            options.DefaultSenderId,
-            options.DefaultReceiverId,
-            sessionId,
-            messageList,
-            []);
-
-        var result = await pipeline.RunAsync(ctx, cancellationToken).ConfigureAwait(false);
-        await AppendAuditAsync(result, messageList, cancellationToken).ConfigureAwait(false);
-        interventionEngine.Apply(result, sessionId, options.DefaultSenderId, options.DefaultReceiverId);
-
-        // 2. Collect streamed chunks
-        var chunks = new System.Text.StringBuilder();
-        await foreach (var update in base.GetStreamingResponseAsync(messageList, chatOptions, cancellationToken).ConfigureAwait(false))
-        {
-            chunks.Append(update.Text ?? "");
+        await foreach (var update in base.GetStreamingResponseAsync(messages, chatOptions, cancellationToken)
+            .ConfigureAwait(false))
             yield return update;
-        }
-
-        // 3. Scan aggregated response
-        var responseText = chunks.ToString();
-        if (!string.IsNullOrEmpty(responseText))
-        {
-            var responseMessages = new List<ChatMessage> { new(ChatRole.Assistant, responseText) };
-            var responseCtx = new SentinelContext(
-                options.DefaultReceiverId,
-                options.DefaultSenderId,
-                sessionId,
-                responseMessages,
-                []);
-            var responseResult = await pipeline.RunAsync(responseCtx, cancellationToken).ConfigureAwait(false);
-            await AppendAuditAsync(responseResult, responseMessages, cancellationToken).ConfigureAwait(false);
-            interventionEngine.Apply(responseResult, sessionId, options.DefaultReceiverId, options.DefaultSenderId);
-        }
-    }
-
-    private async Task AppendAuditAsync(
-        PipelineResult result,
-        IReadOnlyList<ChatMessage> msgs,
-        CancellationToken cancellationToken)
-    {
-        var content = msgs.LastOrDefault()?.Text ?? "";
-        foreach (var detection in result.Detections)
-        {
-            var hash = ComputeHash(content);
-            var entry = new AuditEntry(
-                Guid.NewGuid().ToString("N"),
-                DateTimeOffset.UtcNow,
-                hash,
-                null,
-                detection.Severity,
-                detection.DetectorId.ToString(),
-                detection.Reason);
-            await auditStore.AppendAsync(entry, cancellationToken).ConfigureAwait(false);
-        }
-    }
-
-    private static string ComputeHash(string input)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }
