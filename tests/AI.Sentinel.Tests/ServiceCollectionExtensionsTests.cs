@@ -35,7 +35,7 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void BuildSentinelPipeline_ReturnsInstance()
+    public async Task BuildSentinelPipeline_IsWiredToProvidedClient()
     {
         var services = new ServiceCollection();
         services.AddAISentinel();
@@ -43,7 +43,11 @@ public class ServiceCollectionExtensionsTests
 
         var inner = new StubInnerClient();
         var pipeline = provider.BuildSentinelPipeline(inner);
-        Assert.NotNull(pipeline);
+        var result = await pipeline.GetResponseResultAsync(
+            [new ChatMessage(ChatRole.User, "hi")], null, default);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("ok", result.Value.Messages[0].Text);
     }
 
     private sealed class StubInnerClient : IChatClient

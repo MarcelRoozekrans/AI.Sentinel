@@ -42,6 +42,7 @@ public static class ServiceCollectionExtensions
         this IServiceProvider sp,
         IChatClient innerClient)
     {
+        ArgumentNullException.ThrowIfNull(innerClient);
         return new SentinelPipeline(
             innerClient,
             sp.GetRequiredService<DetectionPipeline>(),
