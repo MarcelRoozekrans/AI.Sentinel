@@ -35,4 +35,65 @@ public class AlertSinkTests
         await sink.SendAsync(error, default);
         // reaching here confirms the exception was swallowed
     }
+
+    [Fact]
+    public async Task WebhookAlertSink_ThreatDetected_PostsCorrectJsonPayload()
+    {
+        using var listener = new System.Net.HttpListener();
+        listener.Prefixes.Add("http://localhost:19998/hook/");
+        listener.Start();
+
+        string capturedBody = "";
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx = await listener.GetContextAsync();
+            using var reader = new StreamReader(ctx.Request.InputStream);
+            capturedBody = await reader.ReadToEndAsync();
+            ctx.Response.StatusCode = 200;
+            ctx.Response.Close();
+        });
+
+        var sink = new WebhookAlertSink(new Uri("http://localhost:19998/hook/"));
+        var error = new SentinelError.ThreatDetected(
+            DetectionResult.WithSeverity(new DetectorId("SEC-99"), Severity.High, "test reason"),
+            SentinelAction.Alert);
+
+        await sink.SendAsync(error, default);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+        listener.Stop();
+
+        Assert.Contains("\"type\":\"ThreatDetected\"", capturedBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SEC-99", capturedBody, StringComparison.Ordinal);
+        Assert.Contains("High", capturedBody, StringComparison.Ordinal);
+        Assert.Contains("test reason", capturedBody, StringComparison.Ordinal);
+        Assert.Contains("Alert", capturedBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WebhookAlertSink_PipelineFailure_PostsCorrectJsonPayload()
+    {
+        using var listener = new System.Net.HttpListener();
+        listener.Prefixes.Add("http://localhost:19997/hook/");
+        listener.Start();
+
+        string capturedBody = "";
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx = await listener.GetContextAsync();
+            using var reader = new StreamReader(ctx.Request.InputStream);
+            capturedBody = await reader.ReadToEndAsync();
+            ctx.Response.StatusCode = 200;
+            ctx.Response.Close();
+        });
+
+        var sink = new WebhookAlertSink(new Uri("http://localhost:19997/hook/"));
+        var error = new SentinelError.PipelineFailure("something failed");
+
+        await sink.SendAsync(error, default);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+        listener.Stop();
+
+        Assert.Contains("\"type\":\"PipelineFailure\"", capturedBody, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("something failed", capturedBody, StringComparison.Ordinal);
+    }
 }
