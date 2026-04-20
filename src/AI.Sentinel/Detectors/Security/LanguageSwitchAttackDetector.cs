@@ -1,7 +1,6 @@
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
-
 using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Security;
 

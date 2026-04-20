@@ -1,6 +1,5 @@
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors;
-
 using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Security;
 
