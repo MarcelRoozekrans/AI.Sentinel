@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.AI;
+using AI.Sentinel.Alerts;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
@@ -14,7 +15,8 @@ public sealed class SentinelPipeline(
     DetectionPipeline pipeline,
     IAuditStore auditStore,
     InterventionEngine interventionEngine,
-    SentinelOptions options)
+    SentinelOptions options,
+    IAlertSink? alertSink = null)
 {
     public async ValueTask<Result<ChatResponse, SentinelError>> GetResponseResultAsync(
         IEnumerable<ChatMessage> messages,
@@ -64,6 +66,13 @@ public sealed class SentinelPipeline(
         if (pipelineResult.IsClean) return null;
 
         var action = options.ActionFor(pipelineResult.MaxSeverity);
+
+        if ((action == SentinelAction.Quarantine || action == SentinelAction.Alert) && alertSink is not null)
+        {
+            var top = pipelineResult.Detections.FirstOrDefault()
+                ?? DetectionResult.Clean(new DetectorId("unknown"));
+            _ = alertSink.SendAsync(new SentinelError.ThreatDetected(top, action), ct).AsTask();
+        }
 
         try
         {

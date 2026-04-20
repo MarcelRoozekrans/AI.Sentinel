@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using AI.Sentinel.Alerts;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Intervention;
@@ -43,11 +44,16 @@ public static class ServiceCollectionExtensions
         IChatClient innerClient)
     {
         ArgumentNullException.ThrowIfNull(innerClient);
+        var opts = sp.GetRequiredService<SentinelOptions>();
+        IAlertSink sink = opts.AlertWebhook is not null
+            ? new WebhookAlertSink(opts.AlertWebhook)
+            : NullAlertSink.Instance;
         return new SentinelPipeline(
             innerClient,
             sp.GetRequiredService<DetectionPipeline>(),
             sp.GetRequiredService<IAuditStore>(),
             sp.GetRequiredService<InterventionEngine>(),
-            sp.GetRequiredService<SentinelOptions>());
+            opts,
+            sink);
     }
 }

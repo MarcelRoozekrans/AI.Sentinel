@@ -23,6 +23,8 @@ public sealed class SentinelOptions
     public AgentId DefaultSenderId   { get; set; } = new("unknown-sender");
     public AgentId DefaultReceiverId { get; set; } = new("unknown-receiver");
 
+    public Uri? AlertWebhook { get; set; }
+
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch
     {
         Detection.Severity.Critical => OnCritical,
