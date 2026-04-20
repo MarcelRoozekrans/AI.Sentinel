@@ -52,6 +52,27 @@ public class SentinelChatClientTests
             ValueTask.FromResult(DetectionResult.WithSeverity(Id, Severity.Critical, "fake threat"));
     }
 
+    [Fact]
+    public async Task GetStreamingResponseAsync_WithCriticalDetector_PassesThroughWithoutException()
+    {
+        // Streaming is a pass-through — detection is not run on the streaming path.
+        // This test pins that contract: even a Critical detector must not block streaming.
+        var inner = new StreamingFakeChatClient("streamed chunk");
+        var client = BuildSentinelClient(inner,
+            opts: new SentinelOptions { OnCritical = SentinelAction.Quarantine },
+            detectors: [new FakeCriticalDetector()]);
+
+        var chunks = new List<ChatResponseUpdate>();
+        await foreach (var update in client.GetStreamingResponseAsync(
+            new List<ChatMessage> { new(ChatRole.User, "hostile input") }))
+        {
+            chunks.Add(update);
+        }
+
+        Assert.Single(chunks);
+        Assert.Equal("streamed chunk", chunks[0].Text);
+    }
+
     private sealed class FakeChatClient(string responseText) : IChatClient
     {
         public void Dispose() { }
@@ -69,6 +90,27 @@ public class SentinelChatClientTests
             CancellationToken cancellationToken = default)
         {
             throw new NotSupportedException("Streaming not needed in this test double.");
+        }
+    }
+
+    private sealed class StreamingFakeChatClient(string chunk) : IChatClient
+    {
+        public void Dispose() { }
+        public object? GetService(Type serviceType, object? key = null) => null;
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, chunk)));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            yield return new ChatResponseUpdate(ChatRole.Assistant, chunk);
         }
     }
 }

@@ -69,6 +69,30 @@ public class SentinelPipelineTests
         Assert.Equal(0, sink.CallCount);
     }
 
+    [Fact]
+    public async Task GetResponseResultAsync_CleanPromptMaliciousResponse_ReturnsFailure()
+    {
+        // inner client returns a message that the detector flags
+        var inner = new TestChatClient("malicious reply");
+        var result = await Build([new ResponseOnlyDetector()], inner: inner)
+            .GetResponseResultAsync([new ChatMessage(ChatRole.User, "clean prompt")], null, default);
+        Assert.True(result.IsFailure);
+        Assert.IsType<SentinelError.ThreatDetected>(result.Error);
+    }
+
+    private sealed class ResponseOnlyDetector : IDetector
+    {
+        public DetectorId Id => new("RESP-01");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+        {
+            var hasAssistantMessage = ctx.Messages.Any(m => m.Role == ChatRole.Assistant);
+            return hasAssistantMessage
+                ? ValueTask.FromResult(DetectionResult.WithSeverity(Id, Severity.Critical, "response threat"))
+                : ValueTask.FromResult(DetectionResult.Clean(Id));
+        }
+    }
+
     private sealed class AlwaysCriticalDetector : IDetector
     {
         public DetectorId Id => new("TEST-01");
