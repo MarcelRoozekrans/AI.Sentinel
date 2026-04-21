@@ -18,10 +18,11 @@ public sealed class WebhookAlertSink(Uri endpoint) : IAlertSink
                 t.Result.Severity.ToString(),
                 t.Result.DetectorId.ToString(),
                 t.Result.Reason,
-                t.Action.ToString()),
+                t.Action.ToString(),
+                t.Session.ToString()),
             SentinelError.PipelineFailure f => new AlertPayload(
-                "PipelineFailure", "Unknown", "n/a", f.Message, "n/a"),
-            _ => new AlertPayload("Unknown", "Unknown", "n/a", string.Empty, "n/a")
+                "PipelineFailure", "Unknown", "n/a", f.Message, "n/a", "n/a"),
+            _ => new AlertPayload("Unknown", "Unknown", "n/a", string.Empty, "n/a", "n/a")
         };
 
 #pragma warning disable ERP022 // fire-and-forget: webhook failure must never surface to the caller
@@ -41,5 +42,6 @@ public sealed class WebhookAlertSink(Uri endpoint) : IAlertSink
         string Severity,
         string Detector,
         string Reason,
-        string Action);
+        string Action,
+        string Session);
 }

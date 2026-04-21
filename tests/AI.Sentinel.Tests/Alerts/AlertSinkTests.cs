@@ -70,6 +70,7 @@ public class AlertSinkTests
         Assert.Contains("High", capturedBody, StringComparison.Ordinal);
         Assert.Contains("test reason", capturedBody, StringComparison.Ordinal);
         Assert.Contains("Alert", capturedBody, StringComparison.Ordinal);
+        Assert.Contains("\"session\":", capturedBody, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
