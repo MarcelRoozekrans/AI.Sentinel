@@ -28,7 +28,8 @@ public sealed class SentinelOptions
 
     /// <summary>Suppression window for repeated alerts from the same detector in the same session.
     /// <c>null</c> (default) suppresses for the entire session lifetime.
-    /// Set to a <see cref="TimeSpan"/> to re-alert after the window expires.</summary>
+    /// Set to a <see cref="TimeSpan"/> to re-alert after the window expires.
+    /// This value is read once at DI registration time; changes after <c>AddAISentinel</c> returns have no effect.</summary>
     public TimeSpan? AlertDeduplicationWindow { get; set; }
 
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch

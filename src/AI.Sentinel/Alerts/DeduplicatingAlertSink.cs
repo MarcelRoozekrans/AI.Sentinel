@@ -5,8 +5,11 @@ using System.Diagnostics.Metrics;
 namespace AI.Sentinel.Alerts;
 
 /// <summary>Alert sink decorator that suppresses repeated alerts for the same detector and session.</summary>
-/// <remarks>Session-scoped by default (same detector never re-alerts in the same session).
-/// Set <paramref name="window"/> to re-alert after the window expires.</remarks>
+/// <remarks>
+/// <para>Session-scoped by default (same detector never re-alerts in the same session).
+/// Set <paramref name="window"/> to re-alert after the window expires.</para>
+/// <para>The suppression dictionary is not evicted. In session-scoped mode (window = null), entries accumulate over the lifetime of the singleton proportional to unique (DetectorId, SessionId) pairs seen. This is negligible in typical deployments.</para>
+/// </remarks>
 public sealed class DeduplicatingAlertSink(IAlertSink inner, TimeSpan? window = null) : IAlertSink
 {
     private static readonly Meter _meter = new("ai.sentinel");

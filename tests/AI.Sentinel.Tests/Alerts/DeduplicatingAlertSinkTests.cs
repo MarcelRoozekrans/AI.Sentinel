@@ -54,6 +54,19 @@ public class DeduplicatingAlertSinkTests
     }
 
     [Fact]
+    public async Task TimeWindow_BeforeExpiry_AlertIsSuppressed()
+    {
+        var inner = new RecordingAlertSink();
+        var sink = new DeduplicatingAlertSink(inner, window: TimeSpan.FromMinutes(5));
+        var session = SessionId.New();
+
+        await sink.SendAsync(MakeThreat("SEC-01", session), default);
+        await sink.SendAsync(MakeThreat("SEC-01", session), default); // within window
+
+        Assert.Equal(1, inner.CallCount);
+    }
+
+    [Fact]
     public async Task PipelineFailure_NeverSuppressed()
     {
         var inner = new RecordingAlertSink();
