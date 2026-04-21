@@ -13,7 +13,7 @@ namespace AI.Sentinel;
 /// <summary>Wraps an <see cref="IChatClient"/> with threat detection, intervention, and auditing for both prompt and response messages.</summary>
 public sealed class SentinelPipeline(
     IChatClient innerClient,
-    DetectionPipeline pipeline,
+    IDetectionPipeline pipeline,
     IAuditStore auditStore,
     InterventionEngine interventionEngine,
     SentinelOptions options,

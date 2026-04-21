@@ -10,7 +10,7 @@ namespace AI.Sentinel;
 
 public sealed class SentinelChatClient(
     IChatClient innerClient,
-    DetectionPipeline pipeline,
+    IDetectionPipeline pipeline,
     IAuditStore auditStore,
     InterventionEngine interventionEngine,
     SentinelOptions options,
