@@ -260,15 +260,43 @@ await foreach (var entry in store.QueryAsync(new AuditQuery
 
 ## Benchmarks
 
-All measurements: .NET 9, Release, `Job.Default`, `MemoryDiagnoser` + `ThreadingDiagnoser`.
+All measurements: .NET 9.0.15, Windows 11, Release, `Job.Default`, `MemoryDiagnoser` + `ThreadingDiagnoser`.
+
+**Individual detectors**
 
 | Scenario | Mean | Allocated |
 |---|---|---|
-| Audit store — sequential append | ~64 ns | 0 B |
-| Single regex detector — clean input | ~36 ns | 0 B |
-| Single regex detector — malicious input | ~237 ns | ~480 B |
-| `RepetitionLoopDetector` — clean input | ~246 ns | ~296 B |
-| Audit store — 8 concurrent appends | ~731 ns | 400 B |
+| `PromptInjection` — clean input | ~59 ns | 0 B |
+| `PromptInjection` — malicious input | ~231 ns | 480 B |
+| `RepetitionLoopDetector` — clean input | ~106 ns | 296 B |
+
+**Detection pipeline** (`DetectionPipeline.RunAsync`, no-op inner client)
+
+| Detector set | Input | Mean | Allocated |
+|---|---|---|---|
+| Empty (baseline) | clean | ~16 ns | 32 B |
+| Security-only (13 detectors) | clean | ~958 ns | 472 B |
+| Security-only (13 detectors) | malicious | ~2,388 ns | 2,616 B |
+| All detectors (30 rule-based) | clean | ~1,855 ns | 1,568 B |
+| All detectors (30 rule-based) | malicious | ~3,462 ns | 4,008 B |
+
+**End-to-end** (`SentinelChatClient.GetResponseAsync`, no-op inner client, single short message)
+
+| Detector set | Input | Mean | Allocated |
+|---|---|---|---|
+| Empty | clean | ~994 ns | 1.24 KB |
+| Security-only | clean | ~2,636 ns | 2.26 KB |
+| All detectors | clean | ~6,268 ns | 4.53 KB |
+| All detectors | malicious | ~8,653 ns | 7.25 KB |
+
+**Audit store**
+
+| Scenario | Mean | Allocated |
+|---|---|---|
+| Sequential append | ~77 ns | 0 B |
+| 8 concurrent appends | ~983 ns | 400 B |
+
+> E2E numbers exclude real LLM latency (measured against a no-op inner client). Add your model's round-trip time on top.
 
 Run the full suite yourself:
 
