@@ -53,24 +53,20 @@ public class SentinelChatClientTests
     }
 
     [Fact]
-    public async Task GetStreamingResponseAsync_WithCriticalDetector_PassesThroughWithoutException()
+    public async Task GetStreamingResponseAsync_WithCriticalDetector_ThrowsSentinelException()
     {
-        // Streaming is a pass-through — detection is not run on the streaming path.
-        // This test pins that contract: even a Critical detector must not block streaming.
+        // Streaming now runs the full detection pipeline — a Critical threat must block.
         var inner = new StreamingFakeChatClient("streamed chunk");
         var client = BuildSentinelClient(inner,
             opts: new SentinelOptions { OnCritical = SentinelAction.Quarantine },
             detectors: [new FakeCriticalDetector()]);
 
-        var chunks = new List<ChatResponseUpdate>();
-        await foreach (var update in client.GetStreamingResponseAsync(
-            new List<ChatMessage> { new(ChatRole.User, "hostile input") }))
+        await Assert.ThrowsAsync<SentinelException>(async () =>
         {
-            chunks.Add(update);
-        }
-
-        Assert.Single(chunks);
-        Assert.Equal("streamed chunk", chunks[0].Text);
+            await foreach (var _ in client.GetStreamingResponseAsync(
+                new List<ChatMessage> { new(ChatRole.User, "hostile input") }))
+            { }
+        });
     }
 
     private sealed class FakeChatClient(string responseText) : IChatClient

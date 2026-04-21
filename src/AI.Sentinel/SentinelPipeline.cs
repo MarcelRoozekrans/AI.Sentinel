@@ -73,6 +73,55 @@ public sealed class SentinelPipeline(
         return Result<ChatResponse, SentinelError>.Success(response);
     }
 
+    /// <summary>Buffers the full inner streaming response, scans both prompt and response,
+    /// and returns the buffer on success or a <see cref="SentinelError"/> on failure.</summary>
+    /// <remarks>
+    /// Buffering is intentional — it ensures a quarantined response never reaches the caller.
+    /// Time-to-first-token equals total LLM response latency on this path.
+    /// </remarks>
+    public async ValueTask<Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>> GetStreamingResultAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? chatOptions,
+        CancellationToken ct)
+    {
+        var rateError = CheckRateLimit(chatOptions);
+        if (rateError is not null)
+            return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(rateError);
+
+        var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
+        var sessionId = SessionId.New();
+
+        var promptError = await ScanAsync(messageList, sessionId,
+            options.DefaultSenderId, options.DefaultReceiverId, ct).ConfigureAwait(false);
+        if (promptError is not null)
+            return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(promptError);
+
+        var buffer = new List<ChatResponseUpdate>();
+        try
+        {
+            await foreach (var update in innerClient
+                .GetStreamingResponseAsync(messageList, chatOptions, ct)
+                .ConfigureAwait(false))
+                buffer.Add(update);
+        }
+        catch (Exception ex)
+        {
+            return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(
+                new SentinelError.PipelineFailure("Inner client streaming failed.", ex));
+        }
+
+        var responseText = string.Concat(buffer.Select(u => u.Text ?? ""));
+        IReadOnlyList<ChatMessage> responseMessages =
+            [new ChatMessage(ChatRole.Assistant, responseText)];
+
+        var responseError = await ScanAsync(responseMessages, sessionId,
+            options.DefaultReceiverId, options.DefaultSenderId, ct).ConfigureAwait(false);
+        if (responseError is not null)
+            return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(responseError);
+
+        return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Success(buffer);
+    }
+
     private async ValueTask<SentinelError?> ScanAsync(
         IReadOnlyList<ChatMessage> msgs,
         SessionId sessionId,

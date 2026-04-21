@@ -34,15 +34,17 @@ public sealed class SentinelChatClient(
         CancellationToken cancellationToken = default)
         => StreamAsync(messages, chatOptions, cancellationToken);
 
-    // Streaming is a pass-through with no sentinel scan — scanning streamed responses
-    // requires SentinelPipeline.GetStreamingResultAsync, which is a future backlog item.
     private async IAsyncEnumerable<ChatResponseUpdate> StreamAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        await foreach (var update in base.GetStreamingResponseAsync(messages, chatOptions, cancellationToken)
-            .ConfigureAwait(false))
+        var result = await _sentinel
+            .GetStreamingResultAsync(messages, chatOptions, cancellationToken)
+            .ConfigureAwait(false);
+        if (result.IsFailure)
+            throw result.Error.ToException();
+        foreach (var update in result.Value)
             yield return update;
     }
 }
