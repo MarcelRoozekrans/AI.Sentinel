@@ -22,21 +22,27 @@ public sealed class DeduplicatingAlertSink(IAlertSink inner, TimeSpan? window = 
             return inner.SendAsync(error, ct);
 
         var detectorId = t.Result.DetectorId.ToString();
-        var sessionId  = t.Session.ToString();
-        var key        = (DetectorId: detectorId, SessionId: sessionId);
-        var expiry     = window is null ? DateTimeOffset.MaxValue : DateTimeOffset.UtcNow + window.Value;
+        var sessionId = t.Session.ToString();
+        var key = (detectorId, sessionId);
+        var now = DateTimeOffset.UtcNow;
+        var expiry = window is null ? DateTimeOffset.MaxValue : now + window.Value;
 
-        if (_seen.TryAdd(key, expiry))
-            return inner.SendAsync(error, ct);  // first occurrence — send
+        var shouldSend = false;
+        _seen.AddOrUpdate(
+            key,
+            _ => { shouldSend = true; return expiry; },                      // first occurrence
+            (_, existing) =>
+            {
+                if (existing <= now) { shouldSend = true; return expiry; }   // window expired — reset
+                return existing;                                              // still within window
+            });
 
-        if (_seen.TryGetValue(key, out var existing) && existing > DateTimeOffset.UtcNow)
+        if (!shouldSend)
         {
             _suppressed.Add(1, new TagList { { "detector", detectorId } });
-            return ValueTask.CompletedTask;  // within window — suppress
+            return ValueTask.CompletedTask;
         }
 
-        // Window has expired — reset and send.
-        _seen[key] = expiry;
         return inner.SendAsync(error, ct);
     }
 }

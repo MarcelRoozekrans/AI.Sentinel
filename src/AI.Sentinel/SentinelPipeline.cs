@@ -79,8 +79,9 @@ public sealed class SentinelPipeline(
         scanActivity?.SetTag("sentinel.severity", pipelineResult.MaxSeverity.ToString());
         scanActivity?.SetTag("sentinel.is_clean", pipelineResult.IsClean);
         scanActivity?.SetTag("sentinel.threat_count", pipelineResult.Detections.Count);
-        scanActivity?.SetTag("sentinel.top_detector",
-            pipelineResult.Detections.MaxBy(d => d.Severity)?.DetectorId.ToString());
+        var topDetector = pipelineResult.Detections.MaxBy(d => d.Severity);
+        if (topDetector is not null)
+            scanActivity?.SetTag("sentinel.top_detector", topDetector.DetectorId.ToString());
 
         if (pipelineResult.IsClean) return null;
 
@@ -100,6 +101,8 @@ public sealed class SentinelPipeline(
         {
             var top = pipelineResult.Detections.MaxBy(d => d.Severity)
                 ?? DetectionResult.Clean(new DetectorId("unknown"));
+            // Fire-and-forget: alert failures must never propagate to the caller.
+            // Implementations of IAlertSink are expected to swallow their own exceptions.
             _ = alertSink.SendAsync(new SentinelError.ThreatDetected(top, action, sessionId), CancellationToken.None).AsTask();
         }
 

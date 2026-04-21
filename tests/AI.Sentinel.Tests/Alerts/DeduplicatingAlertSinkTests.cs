@@ -43,11 +43,11 @@ public class DeduplicatingAlertSinkTests
     public async Task TimeWindow_AfterExpiry_AlertPassesThrough()
     {
         var inner = new RecordingAlertSink();
-        var sink = new DeduplicatingAlertSink(inner, window: TimeSpan.FromMilliseconds(50));
+        var sink = new DeduplicatingAlertSink(inner, window: TimeSpan.FromMilliseconds(100));
         var session = SessionId.New();
 
         await sink.SendAsync(MakeThreat("SEC-01", session), default);
-        await Task.Delay(100); // wait for window to expire
+        await Task.Delay(300); // wait for window to expire
         await sink.SendAsync(MakeThreat("SEC-01", session), default);
 
         Assert.Equal(2, inner.CallCount);
