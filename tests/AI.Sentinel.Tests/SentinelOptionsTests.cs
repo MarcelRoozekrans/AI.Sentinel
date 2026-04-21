@@ -42,4 +42,22 @@ public class SentinelOptionsTests
         Assert.Null(opts.MaxCallsPerSecond);
         Assert.Null(opts.BurstSize);
     }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void MaxCallsPerSecond_ZeroOrNegative_IsInvalid(int value)
+    {
+        var opts = new SentinelOptions { MaxCallsPerSecond = value };
+        Assert.False(new SentinelOptionsValidator().Validate(opts).IsValid);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void BurstSize_ZeroOrNegative_IsInvalid(int value)
+    {
+        var opts = new SentinelOptions { BurstSize = value };
+        Assert.False(new SentinelOptionsValidator().Validate(opts).IsValid);
+    }
 }
