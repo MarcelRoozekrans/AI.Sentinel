@@ -35,4 +35,13 @@ public class SentinelErrorTests
         var ex = error.ToException();
         Assert.Contains("something went wrong", ex.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void RateLimitExceeded_ToException_ReturnsSentinelException()
+    {
+        var error = new SentinelError.RateLimitExceeded("user-42");
+        var ex = error.ToException();
+        var sentinelEx = Assert.IsType<SentinelException>(ex);
+        Assert.Contains("user-42", sentinelEx.Message, StringComparison.Ordinal);
+    }
 }

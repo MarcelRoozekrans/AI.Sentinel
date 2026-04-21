@@ -18,6 +18,10 @@ public abstract record SentinelError
     /// <param name="Inner">The underlying exception that caused the failure, if any.</param>
     public sealed record PipelineFailure(string Message, Exception? Inner = null) : SentinelError;
 
+    /// <summary>Indicates the per-session rate limit was exceeded.</summary>
+    /// <param name="SessionKey">The session key that exceeded its call budget.</param>
+    public sealed record RateLimitExceeded(string SessionKey) : SentinelError;
+
     /// <summary>Converts this error to a throwable <see cref="Exception"/>.</summary>
     public Exception ToException() => this switch
     {
@@ -25,6 +29,8 @@ public abstract record SentinelError
             $"AI.Sentinel quarantined message: {t.Result.Severity} threat detected by {t.Result.DetectorId}.",
             new PipelineResult(SeverityToScore(t.Result.Severity), [t.Result])),
         PipelineFailure f => new InvalidOperationException(f.Message, f.Inner),
+        RateLimitExceeded r => new SentinelException(
+            $"AI.Sentinel rate limit exceeded for session '{r.SessionKey}'."),
         _ => new InvalidOperationException("Unknown SentinelError")
     };
 
