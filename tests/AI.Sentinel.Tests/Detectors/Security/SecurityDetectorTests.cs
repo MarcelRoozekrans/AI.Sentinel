@@ -57,13 +57,20 @@ public class SecurityDetectorTests
 
     [Theory]
     [InlineData("My SSN is 123-45-6789")]
-    [InlineData("Call me at 555-867-5309")]
     [InlineData("Card number: 4111111111111111")]
-    public async Task PiiLeakage_Detected(string text)
+    public async Task PiiLeakage_HighOrAbove_Detected(string text)
     {
         var d = new PiiLeakageDetector();
         var r = await d.AnalyzeAsync(Ctx(text), default);
         Assert.True(r.Severity >= Severity.High);
+    }
+
+    [Fact]
+    public async Task PiiLeakage_Phone_MediumSeverity()
+    {
+        var d = new PiiLeakageDetector();
+        var r = await d.AnalyzeAsync(Ctx("Call me at 555-867-5309"), default);
+        Assert.True(r.Severity >= Severity.Medium);
     }
 
     [Fact]
