@@ -69,13 +69,12 @@ Items are grouped by theme. No priority order implied within a group.
 | **Streaming pipeline support** | Run detector passes on `GetStreamingResponseAsync` — currently only `GetResponseAsync` is scanned |
 | **Output schema validation** | Validate structured (JSON/XML) responses against a caller-supplied schema before returning to the application — catches malformed outputs and prompt-injected schema violations (cf. OWASP LLM05) |
 | **Per-session rate limiting** | Circuit breaker that triggers `SentinelAction` when call rate within a session window exceeds a configurable threshold — guards against token-budget exhaustion and automated enumeration attacks (cf. OWASP LLM10) |
-| **OpenTelemetry integration** | Emit an `Activity` span per pipeline run with detector results as span attributes, and a `Meter` for threat rate/severity distribution — plugs into existing OTel infrastructure with zero config |
+| **Centralize `Meter` singleton into `SentinelMetrics`** | `SentinelPipeline` and `DeduplicatingAlertSink` each construct `new Meter("ai.sentinel")` independently. Consolidate into a single `internal static class SentinelMetrics` that owns all counters and histograms — avoids duplicate meter registration and makes the full metric surface visible in one place |
+| **Add eviction to `DeduplicatingAlertSink._seen`** | The suppression dictionary grows unbounded over the singleton's lifetime (one entry per unique `(DetectorId, SessionId)` pair seen). For high-volume windowed deployments (many sessions, short windows) this can accumulate significant memory. Add a background sweeper or use `MemoryCache` with sliding expiry to reclaim stale entries |
 | **Persistent audit store** | Pluggable `IAuditStore` interface backed by SQLite, Postgres, or any sink — in-memory ring buffer remains the default, no breaking change |
-| **Webhook / alert sinks** | Push `ThreatDetectedNotification` to Slack, PagerDuty, or generic webhooks without requiring MediatR consumers — configured via `opts.AlertSinks` |
 | **Custom detector SDK** | Official public API (`ISentinelDetector`) + stable NuGet surface for registering third-party detectors via `opts.AddDetector<T>()` |
 | **Per-pipeline configuration** | Register multiple named `SentinelOptions` instances so different endpoints get different detector sets, thresholds, or `EscalationClient`s |
 | **Offline replay / test harness** | `SentinelReplayClient` that feeds a saved conversation JSON through the pipeline without a real LLM — useful for regression testing detector changes and incident forensics |
-| **Alert deduplication** | Suppress repeat alerts for the same detector+session within a configurable time window — prevents alert fatigue when a session repeatedly triggers the same pattern |
 | **Detector result caching** | Short-TTL cache keyed on content hash — avoids re-running all detectors when identical prompts are sent in quick succession |
 | **Fluent per-detector config** | `opts.Configure<PromptInjectionDetector>(d => d.Severity = Severity.High)` — tune or disable individual detectors without removing them from the pipeline |
 

@@ -161,7 +161,7 @@ builder.Services.AddAISentinel(opts =>
 {
     // Action per severity level
     opts.OnCritical = SentinelAction.Quarantine;  // throws SentinelException
-    opts.OnHigh     = SentinelAction.Alert;        // publishes mediator notification
+    opts.OnHigh     = SentinelAction.Alert;        // publishes mediator notification + alert sink
     opts.OnMedium   = SentinelAction.Log;          // logs via ILogger
     opts.OnLow      = SentinelAction.Log;
     // opts.OnLow   = SentinelAction.PassThrough;  // silent
@@ -175,6 +175,14 @@ builder.Services.AddAISentinel(opts =>
     // Agent identity labels for audit entries
     opts.DefaultSenderId   = new AgentId("web-user");
     opts.DefaultReceiverId = new AgentId("assistant");
+
+    // Optional: POST alert payloads to a webhook on Quarantine/Alert actions
+    opts.AlertWebhook = new Uri("https://hooks.example.com/sentinel");
+
+    // Optional: suppress repeat alerts for the same detector+session.
+    // null (default) suppresses for the entire session lifetime.
+    // Set a TimeSpan to re-alert after the window expires.
+    opts.AlertDeduplicationWindow = TimeSpan.FromMinutes(5);
 });
 ```
 
@@ -182,10 +190,12 @@ builder.Services.AddAISentinel(opts =>
 
 | `SentinelAction` | Behaviour |
 |---|---|
-| `Quarantine` | Throws `SentinelException` with full `PipelineResult`. Stops the call. |
-| `Alert` | Publishes `ThreatDetectedNotification` + `InterventionAppliedNotification` via `IMediator`. Call continues. |
+| `Quarantine` | Throws `SentinelException` with full `PipelineResult`. Stops the call. Also fires the alert sink. |
+| `Alert` | Publishes `ThreatDetectedNotification` + `InterventionAppliedNotification` via `IMediator`. Fires the alert sink. Call continues. |
 | `Log` | Writes to `ILogger<InterventionEngine>`. Call continues. |
 | `PassThrough` | No action. Detections are still audited. |
+
+Alert sink behaviour: when `opts.AlertWebhook` is set, `WebhookAlertSink` POSTs a JSON payload (type, severity, detector, reason, action, session) to the configured URL on `Quarantine` or `Alert` actions. The `DeduplicatingAlertSink` wraps the webhook sink and suppresses repeat alerts for the same detector+session, controlled by `opts.AlertDeduplicationWindow`.
 
 ---
 
@@ -216,23 +226,57 @@ If your DI container has an `IMediator` (ZeroAlloc.Mediator, MediatR-compatible)
 
 ```csharp
 // Fired when a threat is detected
-record ThreatDetectedNotification(
-    SessionId      Session,
-    AgentId        Sender,
-    AgentId        Receiver,
-    PipelineResult Result,
-    DateTimeOffset Timestamp);
+readonly record struct ThreatDetectedNotification(
+    SessionId      SessionId,
+    AgentId        SenderId,
+    AgentId        ReceiverId,
+    PipelineResult PipelineResult,
+    DateTimeOffset DetectedAt);
 
 // Fired when an intervention is applied
-record InterventionAppliedNotification(
-    SessionId      Session,
+readonly record struct InterventionAppliedNotification(
+    SessionId      SessionId,
     SentinelAction Action,
     Severity       Severity,
     string         Reason,
-    DateTimeOffset Timestamp);
+    DateTimeOffset AppliedAt);
 ```
 
 Register a handler to forward these to Slack, PagerDuty, your SIEM, or anywhere else.
+
+---
+
+## OpenTelemetry
+
+AI.Sentinel emits metrics and traces out of the box via the `ai.sentinel` meter and activity source. Wire them into your existing OTel pipeline with the standard .NET instrumentation API:
+
+```csharp
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(m => m.AddMeter("ai.sentinel"))
+    .WithTracing(t => t.AddSource("ai.sentinel"));
+```
+
+**Metrics**
+
+| Metric | Type | Description |
+|---|---|---|
+| `sentinel.scans` | Counter | Total pipeline scans executed |
+| `sentinel.scan.ms` | Histogram | Pipeline scan duration in milliseconds |
+| `sentinel.threats` | Counter | Threats detected (tagged by `severity` and `detector`) |
+| `sentinel.alerts.suppressed` | Counter | Alerts suppressed by the deduplication window (tagged by `detector`) |
+
+**Traces**
+
+Each `GetResponseAsync` call produces a `sentinel.scan` span (one per direction — prompt and response) with the following attributes:
+
+| Attribute | Description |
+|---|---|
+| `sentinel.severity` | Max severity found in this scan |
+| `sentinel.is_clean` | `true` when no threats were detected |
+| `sentinel.threat_count` | Number of distinct detector hits |
+| `sentinel.top_detector` | ID of the highest-severity detector that fired |
+
+All metrics and spans are zero-cost when no listener is registered — there is no overhead when OTel is not configured.
 
 ---
 
@@ -275,8 +319,8 @@ All measurements: .NET 9.0.15, Windows 11, Release, `Job.Default`, `MemoryDiagno
 | Detector set | Input | Mean | Allocated |
 |---|---|---|---|
 | Empty (baseline) | clean | ~16 ns | 32 B |
-| Security-only (13 detectors) | clean | ~958 ns | 472 B |
-| Security-only (13 detectors) | malicious | ~2,388 ns | 2,616 B |
+| Security-only (9 detectors) | clean | ~958 ns | 472 B |
+| Security-only (9 detectors) | malicious | ~2,388 ns | 2,616 B |
 | All detectors (30 rule-based) | clean | ~1,855 ns | 1,568 B |
 | All detectors (30 rule-based) | malicious | ~3,462 ns | 4,008 B |
 
@@ -293,8 +337,8 @@ All measurements: .NET 9.0.15, Windows 11, Release, `Job.Default`, `MemoryDiagno
 
 | Scenario | Mean | Allocated |
 |---|---|---|
-| Sequential append | ~77 ns | 0 B |
-| 8 concurrent appends | ~983 ns | 400 B |
+| Sequential append | ~118 ns | 0 B |
+| 8 concurrent appends | ~1,468 ns | 400 B |
 
 > E2E numbers exclude real LLM latency (measured against a no-op inner client). Add your model's round-trip time on top.
 
