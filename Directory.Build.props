@@ -6,8 +6,8 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>AI.Sentinel</RootNamespace>
-    <!-- EPS06 fires exclusively in source-generator output (*.g.cs); suppress globally -->
-    <NoWarn>$(NoWarn);EPS06</NoWarn>
+    <!-- EPS06/EPC12 fire exclusively in source-generator output (*.g.cs); suppress globally -->
+    <NoWarn>$(NoWarn);EPS06;EPC12</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 
 namespace AI.Sentinel.Detection;
 
-public sealed class DetectionPipeline
+public sealed class DetectionPipeline : IDetectionPipeline
 {
     private readonly IDetector[] _detectors;
     private readonly IChatClient? _escalationClient;
