@@ -107,6 +107,8 @@ Items are grouped by theme. No priority order implied within a group.
 | **Benchmark CI gate** | MSBuild target that runs the benchmark suite and fails the build if any detector regresses past a configurable latency threshold |
 | **`AI.Sentinel.Analyzers`** | Roslyn diagnostic package that catches misconfiguration at build time: warn when `EscalationClient` is unset but LLM-escalation detectors are active, warn when `OnCritical = PassThrough`, warn on zero audit capacity |
 | **Source-generated detector registration** | `[SentinelDetector]` attribute on a custom detector class → source generator emits the `opts.AddDetector<T>()` call — complements the custom detector SDK with zero-boilerplate registration |
+| **EditorConfig blank-line rule** | Add an `.editorconfig` rule enforcing a blank line between `using` directives and `namespace` declarations — currently inconsistent across detector files and will widen without enforcement |
+| **`SentinelPipeline` direct benchmark** | Add a `SentinelPipelineBenchmarks` class measuring `GetResponseResultAsync` directly (not via the `SentinelChatClient` shim) — gives a clean baseline for the Result-returning path independent of the IChatClient exception-mapping overhead |
 
 ---
 
