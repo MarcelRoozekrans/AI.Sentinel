@@ -28,5 +28,6 @@
     <PackageReference Include="ZeroAlloc.Mediator.Generator" Version="1.1.*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <PackageReference Include="ZeroAlloc.Inject" Version="1.*" />
     <PackageReference Include="ZeroAlloc.Inject.Generator" Version="1.*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <PackageReference Include="ZeroAlloc.Telemetry" Version="1.*" />
   </ItemGroup>
 </Project>
