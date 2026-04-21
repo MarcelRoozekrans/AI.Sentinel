@@ -20,7 +20,8 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAlertSink>(opts.AlertWebhook is not null
             ? new WebhookAlertSink(opts.AlertWebhook)
             : NullAlertSink.Instance);
-        services.AddSingleton<IAuditStore>(new RingBufferAuditStore(opts.AuditCapacity));
+        services.AddSingleton<IAuditStore>(
+            new AuditStoreInstrumented(new RingBufferAuditStore(opts.AuditCapacity)));
         services.AddSingleton(sp => new InterventionEngine(
             opts,
             mediator: sp.GetService<IMediator>(),
@@ -28,8 +29,9 @@ public static class ServiceCollectionExtensions
 
         services.AddAISentinelDetectors();
 
-        services.AddSingleton(sp =>
-            new DetectionPipeline(sp.GetServices<IDetector>(), opts.EscalationClient, sp.GetService<ILogger<DetectionPipeline>>()));
+        services.AddSingleton<IDetectionPipeline>(sp =>
+            new DetectionPipelineInstrumented(
+                new DetectionPipeline(sp.GetServices<IDetector>(), opts.EscalationClient, sp.GetService<ILogger<DetectionPipeline>>())));
 
         return services;
     }
@@ -37,7 +39,7 @@ public static class ServiceCollectionExtensions
     public static ChatClientBuilder UseAISentinel(this ChatClientBuilder builder) =>
         builder.Use((inner, sp) => new SentinelChatClient(
             inner,
-            sp.GetRequiredService<DetectionPipeline>(),
+            sp.GetRequiredService<IDetectionPipeline>(),
             sp.GetRequiredService<IAuditStore>(),
             sp.GetRequiredService<InterventionEngine>(),
             sp.GetRequiredService<SentinelOptions>(),
@@ -50,7 +52,7 @@ public static class ServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(innerClient);
         return new SentinelPipeline(
             innerClient,
-            sp.GetRequiredService<DetectionPipeline>(),
+            sp.GetRequiredService<IDetectionPipeline>(),
             sp.GetRequiredService<IAuditStore>(),
             sp.GetRequiredService<InterventionEngine>(),
             sp.GetRequiredService<SentinelOptions>(),
