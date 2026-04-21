@@ -152,6 +152,8 @@ Detectors run in two modes:
 
 > **LLM escalation detectors** are no-ops until `opts.EscalationClient` is configured. Set it to a cheap fast model (e.g. GPT-4o-mini) to activate them without adding significant latency on the clean path — the second-pass only fires when the rule-based result is `Medium`+.
 
+> **Streaming**: `GetStreamingResponseAsync` buffers the complete response before yielding tokens so the response scan can quarantine before any token reaches the application. Time-to-first-token equals full model response latency on this path.
+
 ---
 
 ## Configuration
@@ -183,6 +185,13 @@ builder.Services.AddAISentinel(opts =>
     // null (default) suppresses for the entire session lifetime.
     // Set a TimeSpan to re-alert after the window expires.
     opts.AlertDeduplicationWindow = TimeSpan.FromMinutes(5);
+
+    // Optional: per-session token-bucket circuit breaker.
+    // MaxCallsPerSecond = steady-state refill rate; BurstSize = initial token count.
+    // Pass "sentinel.session_id" in ChatOptions.AdditionalProperties for per-user buckets.
+    // Without a session key, all calls share a global bucket.
+    opts.MaxCallsPerSecond = 5;   // allow 5 calls/sec per session (steady state)
+    opts.BurstSize = 20;          // up-front burst before throttling kicks in
 });
 ```
 
@@ -264,10 +273,11 @@ builder.Services.AddOpenTelemetry()
 | `sentinel.scan.ms` | Histogram | Pipeline scan duration in milliseconds |
 | `sentinel.threats` | Counter | Threats detected (tagged by `severity` and `detector`) |
 | `sentinel.alerts.suppressed` | Counter | Alerts suppressed by the deduplication window (tagged by `detector`) |
+| `sentinel.rate_limit.exceeded` | Counter | Calls rejected by the per-session rate limiter (tagged by `session`) |
 
 **Traces**
 
-Each `GetResponseAsync` call produces a `sentinel.scan` span (one per direction — prompt and response) with the following attributes:
+Each `GetResponseAsync` / `GetStreamingResponseAsync` call produces a `sentinel.scan` span (one per direction — prompt and response) with the following attributes:
 
 | Attribute | Description |
 |---|---|
