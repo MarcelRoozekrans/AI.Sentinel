@@ -59,7 +59,7 @@ public class ServiceCollectionExtensionsTests
         var provider = services.BuildServiceProvider();
 
         var sink = provider.GetRequiredService<IAlertSink>();
-        Assert.IsType<NullAlertSink>(sink);
+        Assert.IsType<DeduplicatingAlertSink>(sink);
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class ServiceCollectionExtensionsTests
         var provider = services.BuildServiceProvider();
 
         var sink = provider.GetRequiredService<IAlertSink>();
-        Assert.IsType<WebhookAlertSink>(sink);
+        Assert.IsType<DeduplicatingAlertSink>(sink);
     }
 
     private sealed class StubInnerClient : IChatClient

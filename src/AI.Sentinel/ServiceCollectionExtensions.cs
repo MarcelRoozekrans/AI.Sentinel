@@ -17,9 +17,13 @@ public static class ServiceCollectionExtensions
         var opts = new SentinelOptions();
         configure?.Invoke(opts);
         services.AddSingleton(opts);
-        services.AddSingleton<IAlertSink>(opts.AlertWebhook is not null
-            ? new WebhookAlertSink(opts.AlertWebhook)
-            : NullAlertSink.Instance);
+        services.AddSingleton<IAlertSink>(_ =>
+        {
+            IAlertSink raw = opts.AlertWebhook is not null
+                ? new WebhookAlertSink(opts.AlertWebhook)
+                : NullAlertSink.Instance;
+            return new DeduplicatingAlertSink(new AlertSinkInstrumented(raw), opts.AlertDeduplicationWindow);
+        });
         services.AddSingleton<IAuditStore>(
             new AuditStoreInstrumented(new RingBufferAuditStore(opts.AuditCapacity)));
         services.AddSingleton(sp => new InterventionEngine(
