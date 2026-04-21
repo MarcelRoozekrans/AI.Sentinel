@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Security.Cryptography;
@@ -8,6 +9,7 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
+using ZeroAlloc.Resilience;
 using ZeroAlloc.Results;
 
 namespace AI.Sentinel;
@@ -24,6 +26,9 @@ public sealed class SentinelPipeline(
     private static readonly Meter _meter = new("ai.sentinel");
     private static readonly Counter<long> _threats = _meter.CreateCounter<long>("sentinel.threats");
     private static readonly ActivitySource _activitySource = new("ai.sentinel");
+    private static readonly Counter<long> _rateLimited =
+        _meter.CreateCounter<long>("sentinel.rate_limit.exceeded");
+    private readonly ConcurrentDictionary<string, RateLimiter> _rateLimiters = new(StringComparer.Ordinal);
 
     /// <summary>Scans the prompt and response for threats and returns the chat response on success, or a <see cref="SentinelError"/> if a threat is detected or the inner client fails.</summary>
     /// <param name="messages">The conversation messages to send to the inner client.</param>
@@ -35,6 +40,10 @@ public sealed class SentinelPipeline(
         ChatOptions? chatOptions,
         CancellationToken ct)
     {
+        var rateError = CheckRateLimit(chatOptions);
+        if (rateError is not null)
+            return Result<ChatResponse, SentinelError>.Failure(rateError);
+
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var sessionId = SessionId.New();
 
@@ -121,6 +130,22 @@ public sealed class SentinelPipeline(
         }
 
         return null;
+    }
+
+    private SentinelError? CheckRateLimit(ChatOptions? chatOptions)
+    {
+        if (options.MaxCallsPerSecond is not int maxRps) return null;
+
+        var sessionKey = chatOptions?.AdditionalProperties
+            ?.GetValueOrDefault("sentinel.session_id") as string ?? "__global__";
+        var burst = options.BurstSize ?? maxRps;
+        var limiter = _rateLimiters.GetOrAdd(sessionKey,
+            _ => new RateLimiter(maxRps, burst, RateLimitScope.Instance));
+
+        if (limiter.TryAcquire()) return null;
+
+        _rateLimited.Add(1, new TagList { { "session", sessionKey } });
+        return new SentinelError.RateLimitExceeded(sessionKey);
     }
 
     private async Task AppendAuditAsync(
