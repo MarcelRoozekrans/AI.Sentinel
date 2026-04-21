@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Diagnostics.Metrics;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.AI;
@@ -19,6 +21,9 @@ public sealed class SentinelPipeline(
     SentinelOptions options,
     IAlertSink? alertSink = null)
 {
+    private static readonly Meter _meter = new("ai.sentinel");
+    private static readonly Counter<long> _threats = _meter.CreateCounter<long>("sentinel.threats");
+
     /// <summary>Scans the prompt and response for threats and returns the chat response on success, or a <see cref="SentinelError"/> if a threat is detected or the inner client fails.</summary>
     /// <param name="messages">The conversation messages to send to the inner client.</param>
     /// <param name="chatOptions">Optional chat options forwarded to the inner client.</param>
@@ -69,7 +74,23 @@ public sealed class SentinelPipeline(
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
         await AppendAuditAsync(pipelineResult, msgs, ct).ConfigureAwait(false);
 
+        Activity.Current?.SetTag("sentinel.severity", pipelineResult.MaxSeverity.ToString());
+        Activity.Current?.SetTag("sentinel.is_clean", pipelineResult.IsClean);
+        Activity.Current?.SetTag("sentinel.threat_count", pipelineResult.Detections.Count);
+        Activity.Current?.SetTag("sentinel.top_detector",
+            pipelineResult.Detections.MaxBy(d => d.Severity)?.DetectorId.ToString());
+
         if (pipelineResult.IsClean) return null;
+
+        foreach (var d in pipelineResult.Detections)
+        {
+            var tags = new TagList
+            {
+                { "severity", d.Severity.ToString() },
+                { "detector", d.DetectorId.ToString() }
+            };
+            _threats.Add(1, tags);
+        }
 
         var action = options.ActionFor(pipelineResult.MaxSeverity);
 
