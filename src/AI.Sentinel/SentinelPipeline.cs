@@ -23,6 +23,7 @@ public sealed class SentinelPipeline(
 {
     private static readonly Meter _meter = new("ai.sentinel");
     private static readonly Counter<long> _threats = _meter.CreateCounter<long>("sentinel.threats");
+    private static readonly ActivitySource _activitySource = new("ai.sentinel");
 
     /// <summary>Scans the prompt and response for threats and returns the chat response on success, or a <see cref="SentinelError"/> if a threat is detected or the inner client fails.</summary>
     /// <param name="messages">The conversation messages to send to the inner client.</param>
@@ -71,13 +72,14 @@ public sealed class SentinelPipeline(
         CancellationToken ct)
     {
         var ctx = new SentinelContext(sender, receiver, sessionId, msgs, []);
+        using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
         await AppendAuditAsync(pipelineResult, msgs, ct).ConfigureAwait(false);
 
-        Activity.Current?.SetTag("sentinel.severity", pipelineResult.MaxSeverity.ToString());
-        Activity.Current?.SetTag("sentinel.is_clean", pipelineResult.IsClean);
-        Activity.Current?.SetTag("sentinel.threat_count", pipelineResult.Detections.Count);
-        Activity.Current?.SetTag("sentinel.top_detector",
+        scanActivity?.SetTag("sentinel.severity", pipelineResult.MaxSeverity.ToString());
+        scanActivity?.SetTag("sentinel.is_clean", pipelineResult.IsClean);
+        scanActivity?.SetTag("sentinel.threat_count", pipelineResult.Detections.Count);
+        scanActivity?.SetTag("sentinel.top_detector",
             pipelineResult.Detections.MaxBy(d => d.Severity)?.DetectorId.ToString());
 
         if (pipelineResult.IsClean) return null;

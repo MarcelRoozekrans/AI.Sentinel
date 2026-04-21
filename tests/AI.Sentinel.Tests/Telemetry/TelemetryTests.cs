@@ -12,54 +12,51 @@ namespace AI.Sentinel.Tests.Telemetry;
 public class TelemetryTests
 {
     /// <summary>
-    /// Verifies that calling GetResponseResultAsync produces a "sentinel.scan" Activity span
-    /// and enriches the ambient Activity with domain tags when the message is clean.
-    ///
-    /// DetectionPipelineInstrumented (source-generated proxy) opens a child span named
-    /// "sentinel.scan" around RunAsync. After RunAsync returns the span is stopped, so
-    /// SentinelPipeline.ScanAsync sets the domain tags on Activity.Current — which, inside
-    /// a test-created parent span, is that parent span. The test therefore:
-    ///   1. Asserts that a "sentinel.scan" child Activity was emitted.
-    ///   2. Asserts that the parent span received the "sentinel.severity" and
-    ///      "sentinel.is_clean" domain tags.
+    /// Verifies that calling GetResponseResultAsync produces "sentinel.scan" Activity spans
+    /// owned by SentinelPipeline itself, and that the domain tags are written directly onto
+    /// those spans (not on a parent). A root activity is used to isolate spans from
+    /// parallel test runs via TraceId.
     /// </summary>
     [Fact]
     public async Task SentinelScan_EmitsActivitySpan()
     {
-        var collectedActivities = new List<Activity>();
+        var activities = new System.Collections.Concurrent.ConcurrentBag<Activity>();
 
         using var testSource = new ActivitySource("sentinel.test");
         using var listener = new ActivityListener
         {
-            ShouldListenTo = source =>
-                string.Equals(source.Name, "ai.sentinel", StringComparison.Ordinal) ||
-                string.Equals(source.Name, "sentinel.test", StringComparison.Ordinal),
+            ShouldListenTo = s => string.Equals(s.Name, "ai.sentinel", StringComparison.Ordinal)
+                               || string.Equals(s.Name, "sentinel.test", StringComparison.Ordinal),
             Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
-            ActivityStopped = activity => collectedActivities.Add(activity),
+            ActivityStopped = activities.Add,
         };
         ActivitySource.AddActivityListener(listener);
 
-        var sentinel = BuildPipeline(detectors: []);
+        var pipeline = BuildPipeline(new AlwaysCleanDetector());
 
-        // Wrap in a parent span so Activity.Current is non-null when ScanAsync sets tags.
-        using (testSource.StartActivity("test.request"))
+        // Wrap in a root span so all child sentinel.scan spans share the same TraceId,
+        // allowing isolation from parallel test runs.
+        ActivityTraceId traceId;
+        using (var root = testSource.StartActivity("test.root")!)
         {
-            _ = await sentinel.GetResponseResultAsync(
-                [new ChatMessage(ChatRole.User, "Hello")], null, default);
+            traceId = root.TraceId;
+            _ = await pipeline.GetResponseResultAsync(
+                [new ChatMessage(ChatRole.User, "hello")], null, default);
         }
 
-        // The sentinel.scan child span must have been emitted.
-        var scan = collectedActivities.FirstOrDefault(
-            a => string.Equals(a.OperationName, "sentinel.scan", StringComparison.Ordinal));
-        Assert.NotNull(scan);
+        // Filter to only the sentinel.scan spans from this test's trace.
+        var scans = activities
+            .Where(a => string.Equals(a.OperationName, "sentinel.scan", StringComparison.Ordinal)
+                     && a.TraceId == traceId)
+            .ToList();
 
-        // Domain tags are written to Activity.Current (the parent span) by ScanAsync.
-        var parent = collectedActivities.FirstOrDefault(
-            a => string.Equals(a.OperationName, "test.request", StringComparison.Ordinal));
-        Assert.NotNull(parent);
-        // MaxSeverity is Severity.None when no detectors fire; IsClean == true.
-        Assert.Equal("None", parent.GetTagItem("sentinel.severity")?.ToString());
-        Assert.Equal("True", parent.GetTagItem("sentinel.is_clean")?.ToString());
+        // GetResponseResultAsync performs two scans (prompt + response).
+        Assert.Equal(2, scans.Count);
+        Assert.All(scans, scan =>
+        {
+            Assert.Equal("None", scan.GetTagItem("sentinel.severity")?.ToString());
+            Assert.Equal("True", scan.GetTagItem("sentinel.is_clean")?.ToString());
+        });
     }
 
     /// <summary>
@@ -100,6 +97,9 @@ public class TelemetryTests
     // Helpers
     // -------------------------------------------------------------------------
 
+    private static SentinelPipeline BuildPipeline(IDetector detector)
+        => BuildPipeline([detector]);
+
     private static SentinelPipeline BuildPipeline(IDetector[] detectors)
     {
         var opts = new SentinelOptions();
@@ -109,6 +109,14 @@ public class TelemetryTests
         var audit = new AuditStoreInstrumented(innerAudit);
         var engine = new InterventionEngine(opts, null);
         return new SentinelPipeline(new NoOpChatClient(), pipeline, audit, engine, opts);
+    }
+
+    private sealed class AlwaysCleanDetector : IDetector
+    {
+        public DetectorId Id => new("CLEAN-00");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+            => ValueTask.FromResult(DetectionResult.Clean(Id));
     }
 
     private sealed class AlwaysCriticalDetector : IDetector
