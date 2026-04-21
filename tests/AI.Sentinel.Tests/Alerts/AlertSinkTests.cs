@@ -12,7 +12,8 @@ public class AlertSinkTests
     {
         var error = new SentinelError.ThreatDetected(
             DetectionResult.WithSeverity(new DetectorId("SEC-01"), Severity.High, "test"),
-            SentinelAction.Quarantine);
+            SentinelAction.Quarantine,
+            SessionId.New());
         await NullAlertSink.Instance.SendAsync(error, default);
         // reaching here confirms no throw
     }
@@ -31,7 +32,8 @@ public class AlertSinkTests
         var sink = new WebhookAlertSink(new Uri("http://localhost:19999/nonexistent"));
         var error = new SentinelError.ThreatDetected(
             DetectionResult.WithSeverity(new DetectorId("SEC-01"), Severity.High, "test"),
-            SentinelAction.Alert);
+            SentinelAction.Alert,
+            SessionId.New());
         await sink.SendAsync(error, default);
         // reaching here confirms the exception was swallowed
     }
@@ -56,7 +58,8 @@ public class AlertSinkTests
         var sink = new WebhookAlertSink(new Uri("http://localhost:19998/hook/"));
         var error = new SentinelError.ThreatDetected(
             DetectionResult.WithSeverity(new DetectorId("SEC-99"), Severity.High, "test reason"),
-            SentinelAction.Alert);
+            SentinelAction.Alert,
+            SessionId.New());
 
         await sink.SendAsync(error, default);
         await serverTask.WaitAsync(TimeSpan.FromSeconds(5));

@@ -10,7 +10,8 @@ public abstract record SentinelError
     /// <summary>Indicates a threat was detected and an action was taken.</summary>
     /// <param name="Result">The highest-severity detection that triggered this error.</param>
     /// <param name="Action">The action taken in response to the detection.</param>
-    public sealed record ThreatDetected(DetectionResult Result, SentinelAction Action) : SentinelError;
+    /// <param name="Session">The session in which the threat was detected.</param>
+    public sealed record ThreatDetected(DetectionResult Result, SentinelAction Action, SessionId Session) : SentinelError;
 
     /// <summary>Indicates the pipeline itself failed with an unhandled exception or internal error.</summary>
     /// <param name="Message">A human-readable description of the failure.</param>

@@ -8,10 +8,21 @@ namespace AI.Sentinel.Tests;
 public class SentinelErrorTests
 {
     [Fact]
+    public void ThreatDetected_ExposesSessionId()
+    {
+        var sessionId = SessionId.New();
+        var error = new SentinelError.ThreatDetected(
+            DetectionResult.WithSeverity(new DetectorId("SEC-01"), Severity.High, "test"),
+            SentinelAction.Quarantine,
+            sessionId);
+        Assert.Equal(sessionId, error.Session);
+    }
+
+    [Fact]
     public void ThreatDetected_ToException_ReturnsSentinelException()
     {
         var result = DetectionResult.WithSeverity(new DetectorId("SEC-01"), Severity.High, "test");
-        var error = new SentinelError.ThreatDetected(result, SentinelAction.Quarantine);
+        var error = new SentinelError.ThreatDetected(result, SentinelAction.Quarantine, SessionId.New());
         var ex = error.ToException();
         Assert.IsType<SentinelException>(ex);
         Assert.Contains("SEC-01", ex.Message, StringComparison.Ordinal);

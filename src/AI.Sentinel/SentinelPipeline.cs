@@ -77,7 +77,7 @@ public sealed class SentinelPipeline(
         {
             var top = pipelineResult.Detections.MaxBy(d => d.Severity)
                 ?? DetectionResult.Clean(new DetectorId("unknown"));
-            _ = alertSink.SendAsync(new SentinelError.ThreatDetected(top, action), CancellationToken.None).AsTask();
+            _ = alertSink.SendAsync(new SentinelError.ThreatDetected(top, action, sessionId), CancellationToken.None).AsTask();
         }
 
         try
@@ -91,7 +91,7 @@ public sealed class SentinelPipeline(
             var top = ex.PipelineResult.Detections.MaxBy(d => d.Severity)
                 ?? pipelineResult.Detections.MaxBy(d => d.Severity)
                 ?? DetectionResult.Clean(new DetectorId("unknown"));
-            return new SentinelError.ThreatDetected(top, action);
+            return new SentinelError.ThreatDetected(top, action, sessionId);
         }
 
         return null;
