@@ -24,10 +24,8 @@ Items are grouped by theme. No priority order implied within a group.
 |---|---|---|
 | SEC-18 | `ToolDescriptionDivergenceDetector` | Tool description observed at invocation differs from description at discovery — possible MCP supply-chain manipulation |
 | SEC-19 | `ToolCallFrequencyDetector` | Anomalous spike or unusual pattern in tool invocation rate within a session — possible automated exfiltration or resource abuse |
-| SEC-20 | `SystemPromptLeakageDetector` | Response contains verbatim fragments of the system prompt — model was manipulated into disclosing its instructions (cf. OWASP LLM07) |
 | SEC-21 | `ExcessiveAgencyDetector` | Model takes unsolicited autonomous actions (file writes, API calls, spawning agents) beyond its stated scope (cf. OWASP LLM06 / ASI02) |
 | SEC-22 | `HumanTrustManipulationDetector` | Model output attempts to build false rapport, impersonate an authority figure, or exploit human-agent trust to bypass oversight (cf. OWASP ASI09) |
-| SEC-23 | `PiiLeakageDetector` | PII in responses: name+address combos, SSNs, phone numbers, DOBs — distinct from `CredentialExposure` which targets secrets/keys |
 | SEC-24 | `AdversarialUnicodeDetector` | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions past rule-based filters |
 | SEC-25 | `CodeInjectionDetector` | SQL injection, shell metacharacters, path traversal in LLM-generated code — model as injection vector into downstream systems |
 | SEC-26 | `PromptTemplateLeakageDetector` | Model reveals `{{variable}}`, `<SYSTEM>`, or other prompt scaffolding — confirms system prompt structure to an attacker |

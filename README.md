@@ -1,6 +1,6 @@
 # AI.Sentinel
 
-Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 30 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 31 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
 ---
 
@@ -22,7 +22,7 @@ It scans both directions on every call. If something looks wrong it can quaranti
 
 | Package | Description |
 |---|---|
-| `AI.Sentinel` | Core — pipeline, 30 detectors, intervention engine, audit store |
+| `AI.Sentinel` | Core — pipeline, 31 detectors, intervention engine, audit store |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 
 ```
@@ -105,7 +105,7 @@ Detectors run in two modes:
 - **Rule-based** — fast regex or heuristic, always active, sub-microsecond per call
 - **LLM escalation** — fires a second-pass LLM classifier when a rule-based result hits `Medium`+, or when the detector has no rule-based path (stub detectors, active only with `opts.EscalationClient`)
 
-### Security (17)
+### Security (18)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
@@ -126,6 +126,8 @@ Detectors run in two modes:
 | SEC-15 | PhantomCitationSecurity | LLM escalation | Security-context hallucinated authority sources |
 | SEC-16 | GovernanceGap | LLM escalation | Policy/compliance bypass attempts |
 | SEC-17 | SupplyChainPoisoning | LLM escalation | Compromised dependency suggestions |
+| SEC-20 | SystemPromptLeakage | Rule-based | Verbatim fragments of the system prompt echoed in conversation history |
+| SEC-23 | PiiLeakage | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email+name, phone, DOB |
 
 ### Hallucination (5)
 
