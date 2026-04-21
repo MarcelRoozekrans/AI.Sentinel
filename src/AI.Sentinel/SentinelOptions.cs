@@ -26,6 +26,11 @@ public sealed class SentinelOptions
     /// <summary>Optional webhook URL to which alert payloads are POSTed when a threat is detected or the pipeline fails.</summary>
     public Uri? AlertWebhook { get; set; }
 
+    /// <summary>Suppression window for repeated alerts from the same detector in the same session.
+    /// <c>null</c> (default) suppresses for the entire session lifetime.
+    /// Set to a <see cref="TimeSpan"/> to re-alert after the window expires.</summary>
+    public TimeSpan? AlertDeduplicationWindow { get; set; }
+
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch
     {
         Detection.Severity.Critical => OnCritical,

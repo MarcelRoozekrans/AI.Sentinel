@@ -27,4 +27,11 @@ public class SentinelOptionsTests
         Assert.Equal(SentinelAction.Quarantine, opts.ActionFor(Severity.Critical));
         Assert.Equal(SentinelAction.PassThrough, opts.ActionFor(Severity.None));
     }
+
+    [Fact]
+    public void AlertDeduplicationWindow_DefaultsToNull()
+    {
+        var opts = new SentinelOptions();
+        Assert.Null(opts.AlertDeduplicationWindow);
+    }
 }
