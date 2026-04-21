@@ -34,4 +34,12 @@ public class SentinelOptionsTests
         var opts = new SentinelOptions();
         Assert.Null(opts.AlertDeduplicationWindow);
     }
+
+    [Fact]
+    public void MaxCallsPerSecond_And_BurstSize_DefaultToNull()
+    {
+        var opts = new SentinelOptions();
+        Assert.Null(opts.MaxCallsPerSecond);
+        Assert.Null(opts.BurstSize);
+    }
 }

@@ -32,6 +32,17 @@ public sealed class SentinelOptions
     /// This value is read once at DI registration time; changes after <c>AddAISentinel</c> returns have no effect.</summary>
     public TimeSpan? AlertDeduplicationWindow { get; set; }
 
+    /// <summary>Maximum LLM calls per second per session (token-bucket steady state).
+    /// Null (default) = no rate limiting. Pair with <see cref="BurstSize"/> to allow
+    /// initial spikes while capping sustained throughput.
+    /// Uses <c>ZeroAlloc.Resilience.RateLimiter</c> — one bucket per session key.</summary>
+    public int? MaxCallsPerSecond { get; set; }
+
+    /// <summary>Burst capacity — initial and maximum token count for the per-session rate limiter.
+    /// Defaults to <see cref="MaxCallsPerSecond"/> when null.
+    /// Set higher than <see cref="MaxCallsPerSecond"/> to absorb short spikes without throttling.</summary>
+    public int? BurstSize { get; set; }
+
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch
     {
         Detection.Severity.Critical => OnCritical,
