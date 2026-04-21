@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+using System.Diagnostics.Metrics;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
@@ -77,6 +79,34 @@ public class SentinelPipelineRateLimitTests
         // Session-B is independent — should succeed
         var resultB = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], opts2, default);
         Assert.True(resultB.IsSuccess);
+    }
+
+    [Fact]
+    public async Task ExceedsLimit_EmitsMetric()
+    {
+        var measurements = new ConcurrentBag<(string Name, string? Session)>();
+        using var meterListener = new MeterListener();
+        meterListener.InstrumentPublished = (instrument, l) =>
+        {
+            if (string.Equals(instrument.Meter.Name, "ai.sentinel", StringComparison.Ordinal) &&
+                string.Equals(instrument.Name, "sentinel.rate_limit.exceeded", StringComparison.Ordinal))
+                l.EnableMeasurementEvents(instrument);
+        };
+        meterListener.SetMeasurementEventCallback<long>((instrument, measurement, tags, state) =>
+        {
+            var session = tags.ToArray()
+                .FirstOrDefault(t => string.Equals(t.Key, "session", StringComparison.Ordinal)).Value?.ToString();
+            measurements.Add((instrument.Name, session));
+        });
+        meterListener.Start();
+
+        var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
+        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
+        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
+
+        Assert.Contains(measurements, m =>
+            string.Equals(m.Name, "sentinel.rate_limit.exceeded", StringComparison.Ordinal) &&
+            string.Equals(m.Session, "__global__", StringComparison.Ordinal));
     }
 
     private sealed class NoOpChatClient : IChatClient

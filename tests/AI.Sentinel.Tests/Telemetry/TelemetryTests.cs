@@ -66,8 +66,7 @@ public class TelemetryTests
     [Fact]
     public async Task ThreatDetected_IncrementsSentinelThreatsCounter()
     {
-        string? capturedSeverity = null;
-        string? capturedDetector = null;
+        var measurements = new System.Collections.Concurrent.ConcurrentBag<(string? Severity, string? Detector)>();
 
         using var meterListener = new MeterListener();
         meterListener.InstrumentPublished = (instrument, l) =>
@@ -79,8 +78,9 @@ public class TelemetryTests
         meterListener.SetMeasurementEventCallback<long>((instrument, measurement, tags, state) =>
         {
             var tagArray = tags.ToArray();
-            capturedSeverity = tagArray.FirstOrDefault(t => string.Equals(t.Key, "severity", StringComparison.Ordinal)).Value?.ToString();
-            capturedDetector = tagArray.FirstOrDefault(t => string.Equals(t.Key, "detector", StringComparison.Ordinal)).Value?.ToString();
+            var severity = tagArray.FirstOrDefault(t => string.Equals(t.Key, "severity", StringComparison.Ordinal)).Value?.ToString();
+            var detector = tagArray.FirstOrDefault(t => string.Equals(t.Key, "detector", StringComparison.Ordinal)).Value?.ToString();
+            measurements.Add((severity, detector));
         });
         meterListener.Start();
 
@@ -89,8 +89,9 @@ public class TelemetryTests
         _ = await sentinel.GetResponseResultAsync(
             [new ChatMessage(ChatRole.User, "attack")], null, default);
 
-        Assert.Equal("Critical", capturedSeverity);
-        Assert.Equal("TEST-01", capturedDetector);
+        Assert.Contains(measurements, m =>
+            string.Equals(m.Severity, "Critical", StringComparison.Ordinal) &&
+            string.Equals(m.Detector, "TEST-01", StringComparison.Ordinal));
     }
 
     // -------------------------------------------------------------------------

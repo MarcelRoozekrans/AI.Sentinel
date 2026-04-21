@@ -110,7 +110,9 @@ public sealed class SentinelPipeline(
                 new SentinelError.PipelineFailure("Inner client streaming failed.", ex));
         }
 
-        var responseText = string.Concat(buffer.Select(u => u.Text ?? ""));
+        var sb = new StringBuilder();
+        for (var i = 0; i < buffer.Count; i++) sb.Append(buffer[i].Text);
+        var responseText = sb.ToString();
         IReadOnlyList<ChatMessage> responseMessages =
             [new ChatMessage(ChatRole.Assistant, responseText)];
 

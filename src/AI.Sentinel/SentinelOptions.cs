@@ -36,11 +36,13 @@ public sealed class SentinelOptions
     /// Null (default) = no rate limiting. Pair with <see cref="BurstSize"/> to allow
     /// initial spikes while capping sustained throughput.
     /// Uses <c>ZeroAlloc.Resilience.RateLimiter</c> — one bucket per session key.</summary>
+    [GreaterThan(0)]
     public int? MaxCallsPerSecond { get; set; }
 
     /// <summary>Burst capacity — initial and maximum token count for the per-session rate limiter.
     /// Defaults to <see cref="MaxCallsPerSecond"/> when null.
     /// Set higher than <see cref="MaxCallsPerSecond"/> to absorb short spikes without throttling.</summary>
+    [GreaterThan(0)]
     public int? BurstSize { get; set; }
 
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch
