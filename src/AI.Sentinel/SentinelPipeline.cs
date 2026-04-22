@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.AI;
@@ -23,11 +22,7 @@ public sealed class SentinelPipeline(
     SentinelOptions options,
     IAlertSink? alertSink = null)
 {
-    private static readonly Meter _meter = new("ai.sentinel");
-    private static readonly Counter<long> _threats = _meter.CreateCounter<long>("sentinel.threats");
     private static readonly ActivitySource _activitySource = new("ai.sentinel");
-    private static readonly Counter<long> _rateLimited =
-        _meter.CreateCounter<long>("sentinel.rate_limit.exceeded");
     private readonly ConcurrentDictionary<string, RateLimiter> _rateLimiters = new(StringComparer.Ordinal);
 
     /// <summary>Scans the prompt and response for threats and returns the chat response on success, or a <see cref="SentinelError"/> if a threat is detected or the inner client fails.</summary>
@@ -152,7 +147,7 @@ public sealed class SentinelPipeline(
                 { "severity", d.Severity.ToString() },
                 { "detector", d.DetectorId.ToString() }
             };
-            _threats.Add(1, tags);
+            SentinelMetrics.Threats.Add(1, tags);
         }
 
         var action = options.ActionFor(pipelineResult.MaxSeverity);
@@ -195,7 +190,7 @@ public sealed class SentinelPipeline(
 
         if (limiter.TryAcquire()) return null;
 
-        _rateLimited.Add(1, new TagList { { "session", sessionKey } });
+        SentinelMetrics.RateLimited.Add(1, new TagList { { "session", sessionKey } });
         return new SentinelError.RateLimitExceeded(sessionKey);
     }
 

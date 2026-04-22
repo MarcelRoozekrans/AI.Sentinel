@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Diagnostics.Metrics;
 
 namespace AI.Sentinel.Alerts;
 
@@ -12,10 +11,6 @@ namespace AI.Sentinel.Alerts;
 /// </remarks>
 public sealed class DeduplicatingAlertSink(IAlertSink inner, TimeSpan? window = null) : IAlertSink
 {
-    private static readonly Meter _meter = new("ai.sentinel");
-    private static readonly Counter<long> _suppressed =
-        _meter.CreateCounter<long>("sentinel.alerts.suppressed");
-
     private readonly ConcurrentDictionary<(string DetectorId, string SessionId), DateTimeOffset> _seen = new();
 
     public ValueTask SendAsync(SentinelError error, CancellationToken ct)
@@ -42,7 +37,7 @@ public sealed class DeduplicatingAlertSink(IAlertSink inner, TimeSpan? window = 
 
         if (!shouldSend)
         {
-            _suppressed.Add(1, new TagList { { "detector", detectorId } });
+            SentinelMetrics.AlertsSuppressed.Add(1, new TagList { { "detector", detectorId } });
             return ValueTask.CompletedTask;
         }
 
