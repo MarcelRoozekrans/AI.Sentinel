@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AI.Sentinel\AI.Sentinel.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.AspNetCore\AI.Sentinel.AspNetCore.csproj" />
+    <ProjectReference Include="..\..\src\AI.Sentinel.Cli\AI.Sentinel.Cli.csproj" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
