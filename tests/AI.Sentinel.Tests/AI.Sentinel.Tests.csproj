@@ -31,4 +31,9 @@
   <ItemGroup>
     <Analyzer Include="$(PkgZeroAlloc_Serialisation_Generator)\lib\netstandard2.0\ZeroAlloc.Serialisation.Generator.dll" />
   </ItemGroup>
+  <ItemGroup>
+    <None Update="Fixtures\**\*.*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
