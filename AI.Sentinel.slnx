@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/AI.Sentinel.AspNetCore/AI.Sentinel.AspNetCore.csproj" />
     <Project Path="src/AI.Sentinel/AI.Sentinel.csproj" />
+    <Project Path="src/AI.Sentinel.Cli/AI.Sentinel.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj" />
