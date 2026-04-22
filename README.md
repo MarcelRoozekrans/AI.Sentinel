@@ -1,6 +1,6 @@
 # AI.Sentinel
 
-Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 31 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 44 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
 ---
 
@@ -22,7 +22,7 @@ It scans both directions on every call. If something looks wrong it can quaranti
 
 | Package | Description |
 |---|---|
-| `AI.Sentinel` | Core — pipeline, 31 detectors, intervention engine, audit store |
+| `AI.Sentinel` | Core — pipeline, 44 detectors, intervention engine, audit store |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 
 ```
@@ -98,14 +98,14 @@ IChatClient.GetResponseAsync(messages)
 
 ---
 
-## Detectors (31)
+## Detectors (44)
 
 Detectors run in two modes:
 
 - **Rule-based** — fast regex or heuristic, always active, sub-microsecond per call
 - **LLM escalation** — fires a second-pass LLM classifier when a rule-based result hits `Medium`+, or when the detector has no rule-based path (stub detectors, active only with `opts.EscalationClient`)
 
-### Security (19)
+### Security (24)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
@@ -128,8 +128,13 @@ Detectors run in two modes:
 | SEC-17 | SupplyChainPoisoning | LLM escalation | Compromised dependency suggestions |
 | SEC-20 | SystemPromptLeakage | Rule-based | Verbatim fragments of the system prompt echoed in conversation history |
 | SEC-23 | PiiLeakage | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email+name, phone, DOB |
+| SEC-24 | AdversarialUnicode | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions |
+| SEC-25 | CodeInjection | Rule-based | SQL injection, shell metacharacters, path traversal in LLM-generated code |
+| SEC-26 | PromptTemplateLeakage | Rule-based | `{{variable}}`, `<SYSTEM>`, `[INST]` and other prompt scaffolding markers |
+| SEC-27 | LanguageSwitchAttack | Rule-based | Abrupt script/language switch mid-response — injection vector via non-Latin text |
+| SEC-28 | RefusalBypass | Rule-based | Model complied with a request it should have refused (caller-supplied forbidden patterns) |
 
-### Hallucination (5)
+### Hallucination (8)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
@@ -138,8 +143,11 @@ Detectors run in two modes:
 | HAL-03 | CrossAgentContradiction | LLM escalation | Contradictions between agents in a multi-agent session |
 | HAL-04 | SourceGrounding | LLM escalation | Claims unsupported by provided context |
 | HAL-05 | ConfidenceDecay | LLM escalation | Confidence degradation across turns |
+| HAL-06 | StaleKnowledge | Rule-based | Time-sensitive facts stated as current ("the latest version is X", "the current CEO is Y") |
+| HAL-07 | IntraSessionContradiction | LLM escalation | Model contradicts itself within the same conversation |
+| HAL-08 | GroundlessStatistic | Rule-based | Specific percentages or statistics asserted without any source in the provided context |
 
-### Operational (8)
+### Operational (12)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
@@ -151,6 +159,10 @@ Detectors run in two modes:
 | OPS-06 | AgentProbing | LLM escalation | Attempts to map agent capabilities or system prompt |
 | OPS-07 | QueryIntent | LLM escalation | Malicious intent hidden in benign-looking queries |
 | OPS-08 | ResponseCoherence | LLM escalation | Response that doesn't address the question asked |
+| OPS-12 | SemanticRepetition | LLM escalation | Same idea restated with different wording — extends RepetitionLoop beyond literal string matching |
+| OPS-13 | PersonaDrift | LLM escalation | Model's tone, persona, or stated identity shifts significantly across turns — context poisoning signal |
+| OPS-14 | Sycophancy | LLM escalation | Model reverses a stated position purely because the user pushed back — epistemic cowardice |
+| OPS-15 | WrongLanguage | Rule-based | Response language doesn't match the user's language (script/charset detection) |
 
 > **LLM escalation detectors** are no-ops until `opts.EscalationClient` is configured. Set it to a cheap fast model (e.g. GPT-4o-mini) to activate them without adding significant latency on the clean path — the second-pass only fires when the rule-based result is `Medium`+.
 

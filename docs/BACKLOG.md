@@ -13,10 +13,6 @@ Items are grouped by theme. No priority order implied within a group.
 | OPS-09 | `TruncatedOutputDetector` | Response cut off mid-sentence — model ran out of tokens or was interrupted |
 | OPS-10 | `WaitingForContextDetector` | Model stalling with placeholder phrases ("Please provide...", "Could you clarify...") when the request was self-contained |
 | OPS-11 | `UnboundedConsumptionDetector` | Abnormally large response length or token-count anomaly relative to the prompt — possible resource exhaustion or runaway generation (cf. OWASP LLM10) |
-| OPS-12 | `SemanticRepetitionDetector` | Same idea restated with different wording — extends `RepetitionLoop` beyond literal string matching; LLM escalation |
-| OPS-13 | `PersonaDriftDetector` | Model's tone, persona, or stated identity shifts significantly across turns within a session — early signal of context poisoning |
-| OPS-14 | `SycophancyDetector` | Model changes its stated facts or reverses a position purely because the user pushed back — epistemic cowardice as a reliability signal |
-| OPS-15 | `WrongLanguageDetector` | Response language doesn't match the user's language — rule-based via script/charset detection |
 
 ### Security
 
@@ -26,19 +22,6 @@ Items are grouped by theme. No priority order implied within a group.
 | SEC-19 | `ToolCallFrequencyDetector` | Anomalous spike or unusual pattern in tool invocation rate within a session — possible automated exfiltration or resource abuse |
 | SEC-21 | `ExcessiveAgencyDetector` | Model takes unsolicited autonomous actions (file writes, API calls, spawning agents) beyond its stated scope (cf. OWASP LLM06 / ASI02) |
 | SEC-22 | `HumanTrustManipulationDetector` | Model output attempts to build false rapport, impersonate an authority figure, or exploit human-agent trust to bypass oversight (cf. OWASP ASI09) |
-| SEC-24 | `AdversarialUnicodeDetector` | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions past rule-based filters |
-| SEC-25 | `CodeInjectionDetector` | SQL injection, shell metacharacters, path traversal in LLM-generated code — model as injection vector into downstream systems |
-| SEC-26 | `PromptTemplateLeakageDetector` | Model reveals `{{variable}}`, `<SYSTEM>`, or other prompt scaffolding — confirms system prompt structure to an attacker |
-| SEC-27 | `LanguageSwitchAttackDetector` | Model abruptly switches language mid-response — common vector for injections embedded in non-English text that bypassed rule-based filters |
-| SEC-28 | `RefusalBypassDetector` | Model complied with a request it should have refused — requires caller-supplied forbidden topic patterns; measures silent policy violations |
-
-### Hallucination
-
-| ID (proposed) | Name | What it detects |
-|---|---|---|
-| HAL-06 | `StaleKnowledgeDetector` | Model states time-sensitive facts as current ("the latest version is X", "the current CEO is Y") — rule-based on date/currency phrases, LLM escalation to verify |
-| HAL-07 | `IntraSessionContradictionDetector` | Model contradicts itself within the same conversation — distinct from `CrossAgentContradiction` which spans agents |
-| HAL-08 | `GroundlessStatisticDetector` | Specific percentages or statistics asserted without any source in the provided context (e.g. "studies show 73% of...") |
 
 ### Multi-Agent / Semantic
 
