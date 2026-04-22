@@ -23,7 +23,14 @@ public sealed class SentinelPipeline(
     IAlertSink? alertSink = null)
 {
     private static readonly ActivitySource _activitySource = new("ai.sentinel");
-    private readonly ConcurrentDictionary<string, RateLimiter> _rateLimiters = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, RateLimiterEntry> _rateLimiters = new(StringComparer.Ordinal);
+    private int _rateLimiterWriteCount;
+
+    private sealed class RateLimiterEntry(RateLimiter limiter)
+    {
+        public RateLimiter Limiter { get; } = limiter;
+        public long LastUsedMs = Environment.TickCount64;
+    }
 
     /// <summary>Scans the prompt and response for threats and returns the chat response on success, or a <see cref="SentinelError"/> if a threat is detected or the inner client fails.</summary>
     /// <param name="messages">The conversation messages to send to the inner client.</param>
@@ -185,13 +192,25 @@ public sealed class SentinelPipeline(
         var sessionKey = chatOptions?.AdditionalProperties
             ?.GetValueOrDefault("sentinel.session_id") as string ?? "__global__";
         var burst = options.BurstSize ?? maxRps;
-        var limiter = _rateLimiters.GetOrAdd(sessionKey,
-            _ => new RateLimiter(maxRps, burst, RateLimitScope.Instance));
+        var entry = _rateLimiters.GetOrAdd(sessionKey,
+            _ => new RateLimiterEntry(new RateLimiter(maxRps, burst, RateLimitScope.Instance)));
+        entry.LastUsedMs = Environment.TickCount64;
 
-        if (limiter.TryAcquire()) return null;
+        SweepIdleLimiters();
+
+        if (entry.Limiter.TryAcquire()) return null;
 
         SentinelMetrics.RateLimited.Add(1, new TagList { { "session", sessionKey } });
         return new SentinelError.RateLimitExceeded(sessionKey);
+    }
+
+    private void SweepIdleLimiters()
+    {
+        if ((Interlocked.Increment(ref _rateLimiterWriteCount) & 255) != 0) return;
+        var idleThreshold = Environment.TickCount64 - (long)options.SessionIdleTimeout.TotalMilliseconds;
+        foreach (var kvp in _rateLimiters)
+            if (kvp.Value.LastUsedMs < idleThreshold)
+                _rateLimiters.TryRemove(kvp);
     }
 
     private async Task AppendAuditAsync(

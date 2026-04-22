@@ -109,6 +109,38 @@ public class SentinelPipelineRateLimitTests
             string.Equals(m.Session, "__global__", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task IdleSession_LimiterEvicted_BurstRestored()
+    {
+        var opts = new SentinelOptions
+        {
+            MaxCallsPerSecond = 1,
+            BurstSize = 1,
+            SessionIdleTimeout = TimeSpan.FromMilliseconds(50)
+        };
+        var pipeline = new DetectionPipeline([], null);
+        var audit = new RingBufferAuditStore(100);
+        var engine = new InterventionEngine(opts, null);
+        var sentinel = new SentinelPipeline(new NoOpChatClient(), pipeline, audit, engine, opts);
+
+        var optsA = new ChatOptions { AdditionalProperties = new AdditionalPropertiesDictionary { ["sentinel.session_id"] = "session-A" } };
+
+        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], optsA, default);
+        var exhausted = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], optsA, default);
+        Assert.IsType<SentinelError.RateLimitExceeded>(exhausted.Error);
+
+        await Task.Delay(100);
+
+        for (var i = 0; i < 256; i++)
+        {
+            var sweepOpts = new ChatOptions { AdditionalProperties = new AdditionalPropertiesDictionary { ["sentinel.session_id"] = $"sweep-{i}" } };
+            _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], sweepOpts, default);
+        }
+
+        var restored = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], optsA, default);
+        Assert.True(restored.IsSuccess);
+    }
+
     private sealed class NoOpChatClient : IChatClient
     {
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages,
