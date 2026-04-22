@@ -50,7 +50,6 @@ Items are grouped by theme. No priority order implied within a group.
 | **Persistent audit store** | Pluggable `IAuditStore` interface backed by SQLite, Postgres, or any sink — in-memory ring buffer remains the default, no breaking change |
 | **Custom detector SDK** | Official public API (`ISentinelDetector`) + stable NuGet surface for registering third-party detectors via `opts.AddDetector<T>()` |
 | **Per-pipeline configuration** | Register multiple named `SentinelOptions` instances so different endpoints get different detector sets, thresholds, or `EscalationClient`s |
-| **Offline replay / test harness** | `SentinelReplayClient` that feeds a saved conversation JSON through the pipeline without a real LLM — useful for regression testing detector changes and incident forensics |
 | **Detector result caching** | Short-TTL cache keyed on content hash — avoids re-running all detectors when identical prompts are sent in quick succession |
 | **Fluent per-detector config** | `opts.Configure<PromptInjectionDetector>(d => d.Severity = Severity.High)` — tune or disable individual detectors without removing them from the pipeline |
 
@@ -77,7 +76,6 @@ Items are grouped by theme. No priority order implied within a group.
 
 | Feature | Description |
 |---|---|
-| **`sentinel` CLI tool** | `dotnet tool install AI.Sentinel.Cli` → `sentinel scan conversation.json` — run the detector pipeline offline against saved chat files, useful for incident forensics and CI |
 | **Detector test helpers** | `SentinelTestBuilder.WithPrompt(...).ExpectDetection<T>(Severity.High)` — xUnit/NUnit-friendly fluent API for unit-testing detectors with known inputs |
 | **Benchmark CI gate** | MSBuild target that runs the benchmark suite and fails the build if any detector regresses past a configurable latency threshold |
 | **`AI.Sentinel.Analyzers`** | Roslyn diagnostic package that catches misconfiguration at build time: warn when `EscalationClient` is unset but LLM-escalation detectors are active, warn when `OnCritical = PassThrough`, warn on zero audit capacity |

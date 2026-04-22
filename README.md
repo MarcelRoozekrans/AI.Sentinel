@@ -24,6 +24,7 @@ It scans both directions on every call. If something looks wrong it can quaranti
 |---|---|
 | `AI.Sentinel` | Core — pipeline, 45 detectors, intervention engine, audit store |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
+| `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
 
 ```
 dotnet add package AI.Sentinel
@@ -272,6 +273,32 @@ readonly record struct InterventionAppliedNotification(
 ```
 
 Register a handler to forward these to Slack, PagerDuty, your SIEM, or anywhere else.
+
+---
+
+## CLI: `sentinel` (offline replay)
+
+`AI.Sentinel.Cli` is a `dotnet tool` that replays saved conversations through the full detector pipeline — useful for incident forensics, CI regression testing, and detector tuning.
+
+```
+dotnet tool install -g AI.Sentinel.Cli
+sentinel scan conversation.json
+```
+
+Accepts OpenAI Chat Completion JSON (`{"messages": [...]}`) or AI.Sentinel audit NDJSON. Auto-detects by default.
+
+```
+sentinel scan conversation.json
+  [--format <openai|audit|auto>]                 # default: auto
+  [--output <text|json>]                          # default: text
+  [--expect <detectorId>]                         # repeatable, e.g. --expect SEC-01
+  [--min-severity <Low|Medium|High|Critical>]
+  [--baseline <prior-result.json>]                # diff against a prior run
+```
+
+Exit codes: `0` scan completed (no failing assertions), `1` assertion failed or baseline regression, `2` I/O or parse error.
+
+The CLI's core types — `SentinelReplayClient`, `ConversationLoader`, `ReplayRunner`, `ReplayResult` — are all `public`, so callers can reference `AI.Sentinel.Cli` programmatically from their own xUnit tests to assert detection behavior on saved conversations.
 
 ---
 
