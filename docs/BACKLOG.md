@@ -47,7 +47,6 @@ Items are grouped by theme. No priority order implied within a group.
 | **Claude Code hook adapter** | `AI.Sentinel.ClaudeCode` package — emit `PreToolUse` / `PostToolUse` hook payloads from the audit store so Claude Code can block or annotate tool calls in the IDE |
 | **Multi-agent spawn-chain tracking** | Propagate a `TraceId` through nested `SentinelChatClient` instances so the audit store records a parent→child call graph. Enables cross-agent contradiction and uncertainty propagation detection. |
 | **Session behavioral signatures** | Derive a compact fingerprint per session (tool call distribution, message length variance, vocabulary entropy) for anomaly scoring against a rolling baseline |
-| **Output schema validation** | Validate structured (JSON/XML) responses against a caller-supplied schema before returning to the application — catches malformed outputs and prompt-injected schema violations (cf. OWASP LLM05) |
 | **Persistent audit store** | Pluggable `IAuditStore` interface backed by SQLite, Postgres, or any sink — in-memory ring buffer remains the default, no breaking change |
 | **Custom detector SDK** | Official public API (`ISentinelDetector`) + stable NuGet surface for registering third-party detectors via `opts.AddDetector<T>()` |
 | **Per-pipeline configuration** | Register multiple named `SentinelOptions` instances so different endpoints get different detector sets, thresholds, or `EscalationClient`s |

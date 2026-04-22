@@ -1,6 +1,6 @@
 # AI.Sentinel
 
-Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 44 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 45 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
 ---
 
@@ -22,7 +22,7 @@ It scans both directions on every call. If something looks wrong it can quaranti
 
 | Package | Description |
 |---|---|
-| `AI.Sentinel` | Core — pipeline, 44 detectors, intervention engine, audit store |
+| `AI.Sentinel` | Core — pipeline, 45 detectors, intervention engine, audit store |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 
 ```
@@ -98,14 +98,14 @@ IChatClient.GetResponseAsync(messages)
 
 ---
 
-## Detectors (44)
+## Detectors (45)
 
 Detectors run in two modes:
 
 - **Rule-based** — fast regex or heuristic, always active, sub-microsecond per call
 - **LLM escalation** — fires a second-pass LLM classifier when a rule-based result hits `Medium`+, or when the detector has no rule-based path (stub detectors, active only with `opts.EscalationClient`)
 
-### Security (24)
+### Security (25)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
@@ -133,6 +133,7 @@ Detectors run in two modes:
 | SEC-26 | PromptTemplateLeakage | Rule-based | `{{variable}}`, `<SYSTEM>`, `[INST]` and other prompt scaffolding markers |
 | SEC-27 | LanguageSwitchAttack | Rule-based | Abrupt script/language switch mid-response — injection vector via non-Latin text |
 | SEC-28 | RefusalBypass | Rule-based | Model complied with a request it should have refused (caller-supplied forbidden patterns) |
+| SEC-29 | OutputSchema | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05) |
 
 ### Hallucination (8)
 
@@ -206,6 +207,11 @@ builder.Services.AddAISentinel(opts =>
     // Without a session key, all calls share a global bucket.
     opts.MaxCallsPerSecond = 5;   // allow 5 calls/sec per session (steady state)
     opts.BurstSize = 20;          // up-front burst before throttling kicks in
+
+    // Optional: validate structured LLM responses against a caller-supplied type (SEC-29).
+    // The type must be annotated with [ZeroAllocSerializable(SerializationFormat.SystemTextJson)].
+    // Requires calling services.AddSerializerDispatcher() (from ZeroAlloc.Serialisation).
+    opts.ExpectedResponseType = typeof(MyResponse);
 });
 ```
 
