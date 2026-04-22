@@ -98,14 +98,14 @@ IChatClient.GetResponseAsync(messages)
 
 ---
 
-## Detectors (30)
+## Detectors (31)
 
 Detectors run in two modes:
 
 - **Rule-based** — fast regex or heuristic, always active, sub-microsecond per call
 - **LLM escalation** — fires a second-pass LLM classifier when a rule-based result hits `Medium`+, or when the detector has no rule-based path (stub detectors, active only with `opts.EscalationClient`)
 
-### Security (18)
+### Security (19)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|

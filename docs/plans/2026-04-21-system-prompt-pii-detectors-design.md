@@ -17,7 +17,7 @@ Extracts the `ChatRole.System` message text from `ctx.Messages`. If none exists,
 ### Severity logic
 
 - 1 matching fragment → `Medium` ("Possible system prompt leakage")
-- 2+ fragments OR single fragment >= 10 words → `High` ("Significant system prompt leakage")
+- 2+ fragments OR single fragment >= 8 words → `High` ("Significant system prompt leakage")
 
 ### Edge cases
 
@@ -63,7 +63,7 @@ Multiple named `[GeneratedRegex]` patterns, tested sequentially against `ctx.Tex
 
 ### Class design
 
-- Implements `IDetector` (not `ILlmEscalatingDetector` — pure regex)
+- Implements `ILlmEscalatingDetector` — rule-based primary path; LLM second-pass on Medium+ results reduces false positives on ambiguous matches (phone, email, DOB) when `EscalationClient` is configured
 - `[Singleton(As = typeof(IDetector), AllowMultiple = true)]`
 - ID: `SEC-23`, Category: `Security`
 
