@@ -2,8 +2,10 @@ using Microsoft.Extensions.AI;
 using AI.Sentinel.Alerts;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
+using AI.Sentinel.Tests.Detectors.Security;
 using Xunit;
 
 namespace AI.Sentinel.Tests;
@@ -139,5 +141,34 @@ public class SentinelPipelineTests
             LastError = error;
             return ValueTask.CompletedTask;
         }
+    }
+
+    [Fact]
+    public async Task ExpectedType_Configured_ThroughPipeline_ReturnsThreatDetected()
+    {
+        // Inner returns JSON missing the required TemperatureC field
+        var inner = new TestChatClient("""{"city":"Amsterdam"}""");
+
+        var opts = new SentinelOptions
+        {
+            ExpectedResponseType = typeof(WeatherResponse),
+            OnHigh = SentinelAction.Quarantine
+        };
+
+        var detector = new OutputSchemaDetector(opts, new SerializerDispatcher());
+        var pipeline = new DetectionPipeline([detector], null);
+        var audit = new RingBufferAuditStore(100);
+        var engine = new InterventionEngine(opts, null);
+        var sentinel = new SentinelPipeline(inner, pipeline, audit, engine, opts);
+
+        var result = await sentinel.GetResponseResultAsync(
+            [new ChatMessage(ChatRole.User, "What's the weather?")],
+            null,
+            default);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<SentinelError.ThreatDetected>(result.Error);
+        var threat = (SentinelError.ThreatDetected)result.Error;
+        Assert.Equal(new DetectorId("SEC-29"), threat.Result.DetectorId);
     }
 }
