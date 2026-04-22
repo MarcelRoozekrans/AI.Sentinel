@@ -104,6 +104,62 @@ public class DeduplicatingAlertSinkTests
         Assert.Equal(1L, measurements[0]);
     }
 
+    [Fact]
+    public async Task SessionScoped_AfterIdleTimeout_AlertPassesThrough()
+    {
+        var inner = new RecordingAlertSink();
+        var sink = new DeduplicatingAlertSink(inner, window: null, sessionIdleTimeout: TimeSpan.FromMilliseconds(100));
+
+        var err = new SentinelError.ThreatDetected(
+            DetectionResult.WithSeverity(new DetectorId("SEC-01"), Severity.High, "t"),
+            SentinelAction.Alert,
+            new SessionId("sess-1"));
+
+        await sink.SendAsync(err, default);
+        Assert.Equal(1, inner.CallCount);
+
+        await Task.Delay(150);
+
+        await sink.SendAsync(err, default);
+        Assert.Equal(2, inner.CallCount);
+    }
+
+    [Fact]
+    public async Task Sweep_RemovesStaleEntries_OverTime()
+    {
+        var inner = new RecordingAlertSink();
+        var sink = new DeduplicatingAlertSink(inner, window: null, sessionIdleTimeout: TimeSpan.FromMilliseconds(50));
+
+        for (var i = 0; i < 300; i++)
+        {
+            var err = new SentinelError.ThreatDetected(
+                DetectionResult.WithSeverity(new DetectorId($"SEC-{i:000}"), Severity.High, "t"),
+                SentinelAction.Alert,
+                new SessionId($"sess-{i}"));
+            await sink.SendAsync(err, default);
+        }
+
+        await Task.Delay(100);
+
+        for (var i = 0; i < 256; i++)
+        {
+            var err = new SentinelError.ThreatDetected(
+                DetectionResult.WithSeverity(new DetectorId($"SEC-new-{i}"), Severity.High, "t"),
+                SentinelAction.Alert,
+                new SessionId($"sess-new-{i}"));
+            await sink.SendAsync(err, default);
+        }
+
+        var reSent = new SentinelError.ThreatDetected(
+            DetectionResult.WithSeverity(new DetectorId("SEC-001"), Severity.High, "t"),
+            SentinelAction.Alert,
+            new SessionId("sess-1"));
+
+        var beforeCount = inner.CallCount;
+        await sink.SendAsync(reSent, default);
+        Assert.Equal(beforeCount + 1, inner.CallCount);
+    }
+
     private sealed class RecordingAlertSink : IAlertSink
     {
         private int _callCount;

@@ -22,7 +22,10 @@ public static class ServiceCollectionExtensions
             IAlertSink raw = opts.AlertWebhook is not null
                 ? new WebhookAlertSink(opts.AlertWebhook)
                 : NullAlertSink.Instance;
-            return new DeduplicatingAlertSink(new AlertSinkInstrumented(raw), opts.AlertDeduplicationWindow);
+            return new DeduplicatingAlertSink(
+                new AlertSinkInstrumented(raw),
+                opts.AlertDeduplicationWindow,
+                opts.SessionIdleTimeout);
         });
         services.AddSingleton<IAuditStore>(
             new AuditStoreInstrumented(new RingBufferAuditStore(opts.AuditCapacity)));

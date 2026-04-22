@@ -7,15 +7,20 @@ namespace AI.Sentinel.Alerts;
 /// <remarks>
 /// <para>Session-scoped by default (same detector never re-alerts in the same session).
 /// Set <paramref name="window"/> to re-alert after the window expires.</para>
-/// <para>The suppression dictionary is not evicted. In session-scoped mode (window = null), entries accumulate over the lifetime of the singleton proportional to unique (DetectorId, SessionId) pairs seen. This is negligible in typical deployments.</para>
+/// <para>The suppression dictionary is lazily swept every 256 writes. Entries whose
+/// expiry has passed are removed, bounding memory growth.</para>
 /// </remarks>
-public sealed class DeduplicatingAlertSink(IAlertSink inner, TimeSpan? window = null) : IAlertSink
+public sealed class DeduplicatingAlertSink(
+    IAlertSink inner,
+    TimeSpan? window = null,
+    TimeSpan? sessionIdleTimeout = null) : IAlertSink
 {
+    private readonly TimeSpan _sessionIdleTimeout = sessionIdleTimeout ?? TimeSpan.FromHours(1);
     private readonly ConcurrentDictionary<(string DetectorId, string SessionId), DateTimeOffset> _seen = new();
+    private int _writeCount;
 
     public ValueTask SendAsync(SentinelError error, CancellationToken ct)
     {
-        // PipelineFailure errors always pass through — no session context to key on.
         if (error is not SentinelError.ThreatDetected t)
             return inner.SendAsync(error, ct);
 
@@ -23,16 +28,16 @@ public sealed class DeduplicatingAlertSink(IAlertSink inner, TimeSpan? window = 
         var sessionId = t.Session.ToString();
         var key = (detectorId, sessionId);
         var now = DateTimeOffset.UtcNow;
-        var expiry = window is null ? DateTimeOffset.MaxValue : now + window.Value;
+        var expiry = window is null ? now + _sessionIdleTimeout : now + window.Value;
 
         var shouldSend = false;
         _seen.AddOrUpdate(
             key,
-            _ => { shouldSend = true; return expiry; },                      // first occurrence
+            _ => { shouldSend = true; return expiry; },
             (_, existing) =>
             {
-                if (existing <= now) { shouldSend = true; return expiry; }   // window expired — reset
-                return existing;                                              // still within window
+                if (existing <= now) { shouldSend = true; return expiry; }
+                return existing;
             });
 
         if (!shouldSend)
@@ -41,6 +46,15 @@ public sealed class DeduplicatingAlertSink(IAlertSink inner, TimeSpan? window = 
             return ValueTask.CompletedTask;
         }
 
+        SweepIfNeeded(now);
         return inner.SendAsync(error, ct);
+    }
+
+    private void SweepIfNeeded(DateTimeOffset now)
+    {
+        if ((Interlocked.Increment(ref _writeCount) & 255) != 0) return;
+        foreach (var kvp in _seen)
+            if (kvp.Value <= now)
+                _seen.TryRemove(kvp);
     }
 }
