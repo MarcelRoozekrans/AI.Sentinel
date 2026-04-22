@@ -6,6 +6,7 @@
     <!-- In xUnit test projects, ConfigureAwait(false) is forbidden by xUnit1030; suppress MA0004 here -->
     <!-- HLQ005 conflicts with xUnit2013: HLQ005 bans "Single", xUnit2013 requires Assert.Single; suppress HLQ005 in tests -->
     <NoWarn>$(NoWarn);MA0004;HLQ005</NoWarn>
+    <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\AI.Sentinel\AI.Sentinel.csproj" />
@@ -14,10 +15,19 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
     <PackageReference Include="NSubstitute" Version="5.*" />
+    <PackageReference Include="ZeroAlloc.Serialisation" Version="1.3.*" />
+    <PackageReference Include="ZeroAlloc.Serialisation.SystemTextJson" Version="1.3.*" />
+    <PackageReference Include="ZeroAlloc.Serialisation.Generator" Version="1.3.*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="9.*" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="9.*" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.*" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="8.*" Condition="'$(TargetFramework)' == 'net8.0'" />
-<PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.*" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.*" Condition="'$(TargetFramework)' == 'net10.0'" />
+  </ItemGroup>
+  <!-- The ZeroAlloc.Serialisation.Generator package ships its source generator under lib/netstandard2.0
+       instead of analyzers/dotnet/cs, so the PackageReference above does not wire it in automatically.
+       Add the DLL as an <Analyzer> item so the C# compiler loads it as a Roslyn source generator. -->
+  <ItemGroup>
+    <Analyzer Include="$(PkgZeroAlloc_Serialisation_Generator)\lib\netstandard2.0\ZeroAlloc.Serialisation.Generator.dll" />
   </ItemGroup>
 </Project>
