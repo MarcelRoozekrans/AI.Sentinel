@@ -45,6 +45,11 @@ public sealed class SentinelOptions
     [GreaterThan(0)]
     public int? BurstSize { get; set; }
 
+    /// <summary>Inactivity window after which per-session dedup state and rate-limiter
+    /// buckets are evicted from in-memory dictionaries. Default: 1 hour.
+    /// Increase for long-lived sessions; decrease for very high-cardinality session keys.</summary>
+    public TimeSpan SessionIdleTimeout { get; set; } = TimeSpan.FromHours(1);
+
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch
     {
         Detection.Severity.Critical => OnCritical,

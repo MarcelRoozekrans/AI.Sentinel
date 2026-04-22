@@ -29,6 +29,13 @@ public sealed class SentinelOptionsValidator
                 ErrorCode    = "GreaterThan"
             });
 
+        if (opts.SessionIdleTimeout <= TimeSpan.Zero)
+            failures.Add(new ValidationFailure
+            {
+                ErrorMessage = "SessionIdleTimeout must be greater than TimeSpan.Zero",
+                ErrorCode    = "GreaterThan"
+            });
+
         return new ValidationResult([.. failures]);
     }
 }

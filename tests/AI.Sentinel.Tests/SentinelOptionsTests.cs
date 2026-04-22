@@ -60,4 +60,20 @@ public class SentinelOptionsTests
         var opts = new SentinelOptions { BurstSize = value };
         Assert.False(new SentinelOptionsValidator().Validate(opts).IsValid);
     }
+
+    [Fact]
+    public void SessionIdleTimeout_DefaultsToOneHour()
+    {
+        var opts = new SentinelOptions();
+        Assert.Equal(TimeSpan.FromHours(1), opts.SessionIdleTimeout);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void SessionIdleTimeout_ZeroOrNegative_IsInvalid(int seconds)
+    {
+        var opts = new SentinelOptions { SessionIdleTimeout = TimeSpan.FromSeconds(seconds) };
+        Assert.False(new SentinelOptionsValidator().Validate(opts).IsValid);
+    }
 }
