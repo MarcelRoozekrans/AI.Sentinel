@@ -1,10 +1,15 @@
+using System.CommandLine;
+
 namespace AI.Sentinel.Cli;
 
 public static class Program
 {
-    public static int Main(string[] args)
+    public static Task<int> Main(string[] args)
     {
-        Console.WriteLine("sentinel CLI — not yet implemented");
-        return 0;
+        var root = new RootCommand("AI.Sentinel - offline replay CLI")
+        {
+            ScanCommand.Build(),
+        };
+        return root.Parse(args).InvokeAsync();
     }
 }
