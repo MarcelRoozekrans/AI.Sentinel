@@ -76,4 +76,11 @@ public class SentinelOptionsTests
         var opts = new SentinelOptions { SessionIdleTimeout = TimeSpan.FromSeconds(seconds) };
         Assert.False(new SentinelOptionsValidator().Validate(opts).IsValid);
     }
+
+    [Fact]
+    public void ExpectedResponseType_DefaultsToNull()
+    {
+        var opts = new SentinelOptions();
+        Assert.Null(opts.ExpectedResponseType);
+    }
 }

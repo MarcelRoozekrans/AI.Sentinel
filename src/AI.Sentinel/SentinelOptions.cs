@@ -50,6 +50,13 @@ public sealed class SentinelOptions
     /// Increase for long-lived sessions; decrease for very high-cardinality session keys.</summary>
     public TimeSpan SessionIdleTimeout { get; set; } = TimeSpan.FromHours(1);
 
+    /// <summary>Optional expected response type for structured-output LLM calls.
+    /// When set, <c>OutputSchemaDetector</c> (SEC-29) attempts to deserialize each assistant
+    /// response as this type via the registered <c>ISerializerDispatcher</c>.
+    /// The type must be annotated with <c>[ZeroAllocSerializable(SerializationFormat.SystemTextJson)]</c>.
+    /// <c>null</c> (default) disables the detector.</summary>
+    public Type? ExpectedResponseType { get; set; }
+
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch
     {
         Detection.Severity.Critical => OnCritical,

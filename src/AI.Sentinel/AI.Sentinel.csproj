@@ -19,7 +19,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="9.*" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="9.*" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="9.*" />
     <PackageReference Include="ZeroAlloc.AsyncEvents" Version="1.0.*" />
     <PackageReference Include="ZeroAlloc.Collections" Version="0.1.*" />
@@ -31,6 +31,7 @@
     <PackageReference Include="ZeroAlloc.Inject" Version="1.*" />
     <PackageReference Include="ZeroAlloc.Inject.Generator" Version="1.*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <PackageReference Include="ZeroAlloc.Resilience" Version="1.0.*" />
+    <PackageReference Include="ZeroAlloc.Serialisation" Version="1.3.*" />
     <PackageReference Include="ZeroAlloc.Telemetry" Version="1.*" />
   </ItemGroup>
 </Project>
