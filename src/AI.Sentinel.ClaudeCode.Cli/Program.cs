@@ -13,6 +13,23 @@ public static class Program
     public static async Task<int> RunAsync(
         string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr)
     {
+        try
+        {
+            return await RunCoreAsync(args, stdin, stdout, stderr).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Fail safe: unexpected errors must never produce exit code 2 (Block).
+            // Exit code 1 signals "operator error / malformed input" to the host,
+            // which Claude Code treats as a tool failure, not a Sentinel block.
+            await stderr.WriteAsync($"Internal error: {ex.GetType().Name}: {ex.Message}\n").ConfigureAwait(false);
+            return 1;
+        }
+    }
+
+    private static async Task<int> RunCoreAsync(
+        string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr)
+    {
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
             await stderr.WriteAsync("Usage: sentinel-hook <user-prompt-submit|pre-tool-use|post-tool-use>\n").ConfigureAwait(false);

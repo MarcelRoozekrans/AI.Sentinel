@@ -36,11 +36,16 @@ public static class HookPipelineRunner
         return new HookOutput(HookDecision.Allow, null);
     }
 
-    // Benign placeholder returned by NullChatClient. Hooks don't invoke an LLM,
-    // so the pipeline's response scan sees this text. It must be long enough
-    // to avoid OPS-01 (BlankResponseDetector) Medium/Low severities and
-    // bland enough not to trigger other detectors.
-    private const string NullResponseText = "Hook adapter placeholder response.";
+    /// <summary>
+    /// Benign placeholder returned by <see cref="NullChatClient"/>. Hooks don't invoke an LLM,
+    /// so the pipeline's response scan sees this text. It must be long enough
+    /// to avoid OPS-01 (BlankResponseDetector) Medium/Low severities and
+    /// bland enough not to trigger other detectors. A regression test pins
+    /// that invariant — if a future detector fires on this string, either
+    /// adjust the placeholder or add a prompt-only scan mode to
+    /// <c>SentinelPipeline</c>.
+    /// </summary>
+    internal const string NullResponseText = "Hook adapter placeholder response.";
 
     private sealed class NullChatClient : IChatClient
     {

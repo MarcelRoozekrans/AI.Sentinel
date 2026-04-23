@@ -111,4 +111,22 @@ public class HookAdapterTests
         Assert.Equal(HookDecision.Allow, config.OnHigh);
         Assert.Equal(HookDecision.Warn, config.OnMedium); // default preserved
     }
+
+    [Fact]
+    public async Task NullResponseText_TriggersNoDetectors()
+    {
+        // Regression guard: HookPipelineRunner's placeholder must not itself trigger
+        // a detection. If this fails, either adjust the placeholder string or add a
+        // prompt-only scan mode to SentinelPipeline so the adapter can skip the
+        // response scan entirely.
+        var adapter = BuildAdapter();
+        var input = new HookInput(
+            "sess-1",
+            HookPipelineRunner.NullResponseText, // feed the placeholder as the user prompt
+            null, null, null);
+
+        var output = await adapter.HandleAsync(HookEvent.UserPromptSubmit, input, default);
+
+        Assert.Equal(HookDecision.Allow, output.Decision);
+    }
 }
