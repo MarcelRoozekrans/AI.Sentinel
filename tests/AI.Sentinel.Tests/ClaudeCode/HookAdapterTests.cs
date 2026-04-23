@@ -171,6 +171,34 @@ public class HookAdapterTests
         Assert.Equal(HookDecision.Block, config.OnCritical);
     }
 
+    [Theory]
+    [InlineData("1", true)]
+    [InlineData("true", true)]
+    [InlineData("TRUE", true)]
+    [InlineData("yes", true)]
+    [InlineData("YES", true)]
+    [InlineData("0", false)]
+    [InlineData("false", false)]
+    [InlineData("no", false)]
+    [InlineData("garbage", false)]
+    [InlineData("", false)]
+    public void HookConfig_FromEnvironment_VerboseParses(string value, bool expected)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["SENTINEL_HOOK_VERBOSE"] = value,
+        };
+        var config = HookConfig.FromEnvironment(env);
+        Assert.Equal(expected, config.Verbose);
+    }
+
+    [Fact]
+    public void HookConfig_FromEnvironment_VerboseMissing_DefaultsToFalse()
+    {
+        var config = HookConfig.FromEnvironment(new Dictionary<string, string?>(StringComparer.Ordinal));
+        Assert.False(config.Verbose);
+    }
+
     [Fact]
     public void HookInput_JsonRoundTrip_PreservesFields()
     {
