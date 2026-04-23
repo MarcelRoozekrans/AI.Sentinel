@@ -4,6 +4,7 @@
     <Project Path="src/AI.Sentinel/AI.Sentinel.csproj" />
     <Project Path="src/AI.Sentinel.Cli/AI.Sentinel.Cli.csproj" />
     <Project Path="src/AI.Sentinel.ClaudeCode/AI.Sentinel.ClaudeCode.csproj" />
+    <Project Path="src/AI.Sentinel.ClaudeCode.Cli/AI.Sentinel.ClaudeCode.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj" />
