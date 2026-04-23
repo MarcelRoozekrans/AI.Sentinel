@@ -40,6 +40,22 @@ Items are grouped by theme. No priority order implied within a group.
 
 ---
 
+## Policy & Authorization
+
+A new pillar alongside detectors: **preventive controls** and **authorization** at the tool-call boundary. Detectors classify what happened; these items decide what is *allowed to happen*. Inspired by Rag.NET's security layer (`UseRbac`, `UsePromptHardening`).
+
+| Feature | Description |
+|---|---|
+| **Prompt hardening prefix** | Preventive (not detective) control: `SentinelOptions.SystemPrefix` prepends a hardening system-message to every outbound `IChatClient` call, instructing the model to treat retrieved/untrusted content strictly as data, never as instructions. Lightweight port of Rag.NET's `PromptHardeningAnswerEngineDecorator` — one new option + a pipeline step that mutates the `ChatMessage[]` before the downstream client sees it. First-line mitigation against OWASP LLM01 (prompt injection); complements existing detection. Minimum viable: ~60 LOC + tests. |
+| **Tool-call authorization (`IToolCallGuard`)** | RBAC-style policy layer for LLM tool invocations — answers *"is this caller allowed to invoke this tool with these arguments?"* Introduces `IToolCallGuard`, `ICallerContext` (role/trust-level source), and `ToolCallPolicy` (rule set). Guard runs before each tool executes and returns allow / deny / require-approval; deny records an audit entry and optionally raises a detector hit for the dashboard. Conceptually analogous to Rag.NET's `UseRbac()` for retrieved chunks, applied instead to tool calls. Fills a real gap: Microsoft.Extensions.AI has no authorization story for tool calls today. |
+| **Tool-call guard — `FunctionInvokingChatClient` integration** | Surface #1 (recommended MVP): wrap `FunctionInvokingChatClient` so every in-process `AIFunction` call passes through `IToolCallGuard` before executing. Zero new infrastructure — sits in the same pipeline as `.UseAISentinel()`. Abstraction that falls out of this surface is reused by the other three without rework. |
+| **Tool-call guard — Claude Code `PreToolUse` hook** | Surface #2: reuse `IToolCallGuard` inside `AI.Sentinel.ClaudeCode` so the hook can deny/approve tool calls issued by Claude in-IDE. Deny action maps to Claude's hook block response. Reuses the policy evaluation from the MVP. |
+| **Tool-call guard — Copilot `preToolUse` hook** | Surface #3: same as above for `AI.Sentinel.Copilot` — reuse `IToolCallGuard` at the Copilot hook boundary. |
+| **Tool-call guard — MCP proxy `tools/call` interception** | Surface #4: once `AI.Sentinel.Mcp` is fully wired (Tasks 7-10 from the MCP plan), reuse `IToolCallGuard` inside the proxy so MCP server tool invocations are gated. Highest strategic value — single control point for every MCP-speaking client (Cursor, Continue, Cline, Windsurf, Copilot's MCP path). Depends on the MCP proxy adapter item below. |
+| **ASP.NET Core `ICallerContext` bridge** | Out-of-the-box `ICallerContext` implementation that extracts roles/claims from `HttpContext.User` — drop-in for web apps. Mirrors Rag.NET's `Rag.NET.Security.AspNetCore.ClaimsPrincipalCallerContext`. |
+
+---
+
 ## Architecture / Integration
 
 | Feature | Description |
@@ -90,16 +106,20 @@ Items are grouped by theme. No priority order implied within a group.
 
 ## ZeroAlloc Integration (`AI.Sentinel.ZeroAlloc`)
 
-Optional package that wires ZeroAlloc ecosystem packages into AI.Sentinel hot paths for measurably lower allocations. All items are additive — the core package has no ZeroAlloc dependency.
+Many ZeroAlloc packages are already wired into the core library. The items below are genuinely remaining integration opportunities.
+
+**Already shipped (removed from backlog):**
+- `ZeroAlloc.Collections.HeapRingBuffer<T>` backs `RingBufferAuditStore`
+- `ZeroAlloc.Telemetry` `[Instrument("ai.sentinel")]` applied to `IAuditStore`, `IAlertSink`, `IDetectionPipeline`
+- `ZeroAlloc.Resilience.RateLimiter` powers per-session rate limiting in `SentinelPipeline`
+- `ZeroAlloc.Inject` `[Singleton(As = typeof(IDetector), AllowMultiple = true)]` on every detector drives compile-time DI registration
+
+**Remaining integration opportunities:**
 
 | Feature | ZeroAlloc Package | Description |
 |---|---|---|
-| **Zero-alloc audit ring buffer** | `ZeroAlloc.Collections` | Replace the current `ConcurrentQueue`-backed ring buffer with `ZeroAlloc.Collections.RingBuffer<T>` — ArrayPool-backed, no per-entry allocation |
-| **Typed `SessionId` / `AgentId`** | `ZeroAlloc.ValueObjects` `[TypedId]` | Replace `string`-based identifiers with source-generated `readonly record struct` typed IDs — zero boxing on hot paths, EF Core and JSON converters included |
-| **OTel spans via `[Instrument]`** | `ZeroAlloc.Telemetry` | Apply `[Instrument]` to `IAuditStore` and `IDetectionPipeline` — generator emits static `ActivitySource` / `Meter` fields with no `params object[]` boxing |
-| **Rate limiting via `[RateLimit]`** | `ZeroAlloc.Resilience` | Implement per-session rate limiting with a lock-free token bucket generated by `ZeroAlloc.Resilience` instead of a hand-rolled `Interlocked` counter |
-| **FSM-modeled agent action sequences** | `ZeroAlloc.StateMachine` | Power `ExcessiveAgencyDetector` with a source-generated FSM — declare allowed tool-call sequences as states/transitions; any deviation triggers a detection |
-| **Compile-time DI registration** | `ZeroAlloc.Inject` | Replace reflection-based detector scanning with `[Transient]`-attributed detectors and a generated `AddAISentinelDetectors()` extension method |
-| **NDJSON export mapping** | `ZeroAlloc.Mapping` | Generate `AuditEntry → ExportDto` mapping with `[Map<AuditEntry, AuditExportDto>]` — used by the dashboard export endpoint, zero reflection |
+| **Typed `SessionId` / `AgentId`** | `ZeroAlloc.ValueObjects` `[TypedId]` | Replace current `sealed partial class` `SessionId` / `AgentId` wrappers with source-generated `readonly record struct` typed IDs — zero boxing on hot paths, EF Core and JSON converters included |
+| **FSM-modeled agent action sequences** | `ZeroAlloc.StateMachine` | Power `ExcessiveAgencyDetector` (SEC-21, not yet implemented) with a source-generated FSM — declare allowed tool-call sequences as states/transitions; any deviation triggers a detection |
+| **NDJSON export mapping** | `ZeroAlloc.Mapping` | Generate `AuditEntry → ExportDto` mapping with `[Map<AuditEntry, AuditExportDto>]` — used by the future dashboard NDJSON export endpoint, zero reflection |
 | **Mediator authorization for prompts** | `ZeroAlloc.Mediator.Authorization` | Gate prompt dispatch on caller-declared policies via `[Authorize("policy")]` on the mediator request — enforces access control at the model boundary |
 | **Fluxor state management in ChatApp** | `ZeroAlloc.Fluxor` | Replace ad-hoc component state in `ChatApp.Client/Chat.razor` with a compile-time Flux store — `ChatState` (messages, connection status, active threats) as a `readonly record struct`, reducers for `MessageSentAction`, `TokenReceivedAction`, `ThreatDetectedAction`; demonstrates ZeroAlloc.Fluxor + AI.Sentinel integration end-to-end. _Conditional on ZeroAlloc.Fluxor shipping._ |
