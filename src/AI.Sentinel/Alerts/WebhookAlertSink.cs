@@ -28,7 +28,7 @@ public sealed class WebhookAlertSink(Uri endpoint) : IAlertSink
 #pragma warning disable ERP022 // fire-and-forget: webhook failure must never surface to the caller
         try
         {
-            await _http.PostAsJsonAsync(endpoint, payload, ct).ConfigureAwait(false);
+            await _http.PostAsJsonAsync(endpoint, payload, AlertJsonContext.Default.AlertPayload, ct).ConfigureAwait(false);
         }
         catch
         {
@@ -37,7 +37,7 @@ public sealed class WebhookAlertSink(Uri endpoint) : IAlertSink
 #pragma warning restore ERP022
     }
 
-    private sealed record AlertPayload(
+    internal sealed record AlertPayload(
         string Type,
         string Severity,
         string Detector,
