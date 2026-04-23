@@ -25,6 +25,8 @@ It scans both directions on every call. If something looks wrong it can quaranti
 | `AI.Sentinel` | Core — pipeline, 45 detectors, intervention engine, audit store |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
+| `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
+| `AI.Sentinel.Copilot` / `AI.Sentinel.Copilot.Cli` | GitHub Copilot native hook adapter — wire into `hooks.json` to scan userPromptSubmitted, preToolUse, postToolUse |
 
 ```
 dotnet add package AI.Sentinel
@@ -299,6 +301,80 @@ sentinel scan conversation.json
 Exit codes: `0` scan completed (no failing assertions), `1` assertion failed or baseline regression, `2` I/O or parse error.
 
 The CLI's core types — `SentinelReplayClient`, `ConversationLoader`, `ReplayRunner`, `ReplayResult` — are all `public`, so callers can reference `AI.Sentinel.Cli` programmatically from their own xUnit tests to assert detection behavior on saved conversations.
+
+---
+
+## IDE / Agent integration
+
+AI.Sentinel ships native hook adapters for the two major AI coding agents that support out-of-process hook scripts. Both adapters read hook payloads from stdin, run the detector pipeline, and signal block/warn/allow via exit code + stdout JSON.
+
+### Claude Code
+
+```
+dotnet tool install -g AI.Sentinel.ClaudeCode.Cli
+```
+
+Add to `~/.claude/settings.json` (or your project's `.claude/settings.json`):
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "sentinel-hook user-prompt-submit" }] }
+    ],
+    "PreToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "sentinel-hook pre-tool-use" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "*", "hooks": [{ "type": "command", "command": "sentinel-hook post-tool-use" }] }
+    ]
+  }
+}
+```
+
+### GitHub Copilot
+
+```
+dotnet tool install -g AI.Sentinel.Copilot.Cli
+```
+
+Add to your repo's `hooks.json` (per Copilot hook documentation):
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "userPromptSubmitted": [
+      { "type": "command", "bash": "sentinel-copilot-hook user-prompt-submitted", "timeoutSec": 10 }
+    ],
+    "preToolUse": [
+      { "type": "command", "bash": "sentinel-copilot-hook pre-tool-use", "timeoutSec": 10 }
+    ],
+    "postToolUse": [
+      { "type": "command", "bash": "sentinel-copilot-hook post-tool-use", "timeoutSec": 10 }
+    ]
+  }
+}
+```
+
+### Severity → action mapping
+
+Both adapters share the same env-var contract — configure once, applies to both:
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_ON_CRITICAL` | `Block` | `Block` / `Warn` / `Allow` |
+| `SENTINEL_HOOK_ON_HIGH` | `Block` | `Block` / `Warn` / `Allow` |
+| `SENTINEL_HOOK_ON_MEDIUM` | `Warn` | `Block` / `Warn` / `Allow` |
+| `SENTINEL_HOOK_ON_LOW` | `Allow` | `Block` / `Warn` / `Allow` |
+
+`Block` → hook exits 2, which both Claude Code and Copilot surface as "call blocked" with the detector ID + reason on stderr. `Warn` → exit 0 with the reason on stderr (visible in the agent's log). `Allow` → silent pass.
+
+### Programmatic use
+
+The underlying libraries (`AI.Sentinel.ClaudeCode` and `AI.Sentinel.Copilot`) expose `HookAdapter` / `CopilotHookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Reference the library packages (not the `.Cli` tool packages) to write your own host integration in C#.
+
+> **MCP (Model Context Protocol) proxy is on the roadmap** — scaffolded as `AI.Sentinel.Mcp` but not yet implemented. Cursor, Continue, Cline, and Windsurf users can track its progress in the backlog.
 
 ---
 

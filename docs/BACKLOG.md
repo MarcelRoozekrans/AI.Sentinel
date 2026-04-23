@@ -44,7 +44,7 @@ Items are grouped by theme. No priority order implied within a group.
 
 | Feature | Description |
 |---|---|
-| **Claude Code hook adapter** | `AI.Sentinel.ClaudeCode` package — emit `PreToolUse` / `PostToolUse` hook payloads from the audit store so Claude Code can block or annotate tool calls in the IDE |
+| **MCP proxy adapter** | `AI.Sentinel.Mcp` — stdio proxy that wraps another MCP server and scans `tools/call` in both directions. Works with Cursor, Continue, Cline, Windsurf, and Copilot's MCP path. **Scaffolded**: csproj + `ProxyTargetSpec` exist; full bidirectional bridge via `McpMessageFilter` + request/response interception + `FakeMcpServer` test harness + `sentinel-mcp proxy` CLI are pending. Design + plan: `docs/plans/2026-04-23-claude-code-mcp-adapters-design.md` and `docs/plans/2026-04-23-claude-code-mcp-adapters.md` (Tasks 7-10). |
 | **Multi-agent spawn-chain tracking** | Propagate a `TraceId` through nested `SentinelChatClient` instances so the audit store records a parent→child call graph. Enables cross-agent contradiction and uncertainty propagation detection. |
 | **Session behavioral signatures** | Derive a compact fingerprint per session (tool call distribution, message length variance, vocabulary entropy) for anomaly scoring against a rolling baseline |
 | **Persistent audit store** | Pluggable `IAuditStore` interface backed by SQLite, Postgres, or any sink — in-memory ring buffer remains the default, no breaking change |
