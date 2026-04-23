@@ -178,4 +178,43 @@ public class ScanCommandTests
             File.Delete(tempBaseline);
         }
     }
+
+    [Fact]
+    public async Task Scan_BaselineNewDetection_ExitsZero()
+    {
+        // Baseline: clean (no detections). Current: SEC-01 fires on the injection fixture.
+        // A new detection that wasn't in the baseline is informational — should NOT exit non-zero.
+        var baseline = new ReplayResult(
+            "1",
+            "baseline.json",
+            ConversationFormat.OpenAIChatCompletion,
+            1,
+            [new TurnResult(0, Severity.None, [])],
+            Severity.None);
+
+        var tempBaseline = Path.GetTempFileName();
+        try
+        {
+            await File.WriteAllTextAsync(tempBaseline, JsonFormatter.Format(baseline));
+
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+
+            var exit = await ScanCommand.RunAsync(
+                Fixture("injection-openai.json"),
+                ConversationFormat.Auto,
+                OutputFormat.Text,
+                stdout,
+                stderr,
+                default,
+                baselinePath: tempBaseline);
+
+            Assert.Equal(0, exit);
+            Assert.Contains("NEW", stdout.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(tempBaseline);
+        }
+    }
 }

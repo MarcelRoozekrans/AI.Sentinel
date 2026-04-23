@@ -15,7 +15,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyDescriptionAttribute(("Offline replay CLI for AI.Sentinel — run the detector pipeline against saved conv" +
     "ersations."))]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+18c4716de85a6067e37e0c8bbb7315cbce755b0b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+2b5955cb064baab25899a88192b4ac6bfcf9378e")]
 [assembly: System.Reflection.AssemblyProductAttribute("AI.Sentinel.Cli")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AI.Sentinel.Cli")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]

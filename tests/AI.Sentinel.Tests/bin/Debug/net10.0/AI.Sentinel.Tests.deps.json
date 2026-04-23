@@ -10,11 +10,15 @@
         "dependencies": {
           "AI.Sentinel": "0.1.0",
           "AI.Sentinel.AspNetCore": "0.1.0",
-          "Microsoft.AspNetCore.TestHost": "10.0.6",
+          "AI.Sentinel.Cli": "0.1.0",
+          "Microsoft.AspNetCore.TestHost": "10.0.7",
           "Microsoft.Extensions.AI": "9.10.2",
           "Microsoft.Extensions.AI.Abstractions": "9.10.2",
           "Microsoft.NET.Test.Sdk": "17.14.1",
           "NSubstitute": "5.3.0",
+          "ZeroAlloc.Serialisation": "1.4.0",
+          "ZeroAlloc.Serialisation.Generator": "1.4.0",
+          "ZeroAlloc.Serialisation.SystemTextJson": "1.4.0",
           "xunit": "2.9.3"
         },
         "runtime": {
@@ -29,11 +33,11 @@
           }
         }
       },
-      "Microsoft.AspNetCore.TestHost/10.0.6": {
+      "Microsoft.AspNetCore.TestHost/10.0.7": {
         "runtime": {
           "lib/net10.0/Microsoft.AspNetCore.TestHost.dll": {
-            "assemblyVersion": "10.0.6.0",
-            "fileVersion": "10.0.626.17701"
+            "assemblyVersion": "10.0.7.0",
+            "fileVersion": "10.0.726.21808"
           }
         }
       },
@@ -48,6 +52,7 @@
       "Microsoft.Extensions.AI/9.10.2": {
         "dependencies": {
           "Microsoft.Extensions.AI.Abstractions": "9.10.2",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.7",
           "System.Numerics.Tensors": "9.0.10"
         },
         "runtime": {
@@ -62,6 +67,14 @@
           "lib/net9.0/Microsoft.Extensions.AI.Abstractions.dll": {
             "assemblyVersion": "9.10.0.0",
             "fileVersion": "9.1000.225.55201"
+          }
+        }
+      },
+      "Microsoft.Extensions.DependencyInjection.Abstractions/10.0.7": {
+        "runtime": {
+          "lib/net10.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll": {
+            "assemblyVersion": "10.0.0.0",
+            "fileVersion": "10.0.726.21808"
           }
         }
       },
@@ -333,6 +346,55 @@
           }
         }
       },
+      "System.CommandLine/2.0.0": {
+        "runtime": {
+          "lib/net8.0/System.CommandLine.dll": {
+            "assemblyVersion": "2.0.0.0",
+            "fileVersion": "2.0.25.52411"
+          }
+        },
+        "resources": {
+          "lib/net8.0/cs/System.CommandLine.resources.dll": {
+            "locale": "cs"
+          },
+          "lib/net8.0/de/System.CommandLine.resources.dll": {
+            "locale": "de"
+          },
+          "lib/net8.0/es/System.CommandLine.resources.dll": {
+            "locale": "es"
+          },
+          "lib/net8.0/fr/System.CommandLine.resources.dll": {
+            "locale": "fr"
+          },
+          "lib/net8.0/it/System.CommandLine.resources.dll": {
+            "locale": "it"
+          },
+          "lib/net8.0/ja/System.CommandLine.resources.dll": {
+            "locale": "ja"
+          },
+          "lib/net8.0/ko/System.CommandLine.resources.dll": {
+            "locale": "ko"
+          },
+          "lib/net8.0/pl/System.CommandLine.resources.dll": {
+            "locale": "pl"
+          },
+          "lib/net8.0/pt-BR/System.CommandLine.resources.dll": {
+            "locale": "pt-BR"
+          },
+          "lib/net8.0/ru/System.CommandLine.resources.dll": {
+            "locale": "ru"
+          },
+          "lib/net8.0/tr/System.CommandLine.resources.dll": {
+            "locale": "tr"
+          },
+          "lib/net8.0/zh-Hans/System.CommandLine.resources.dll": {
+            "locale": "zh-Hans"
+          },
+          "lib/net8.0/zh-Hant/System.CommandLine.resources.dll": {
+            "locale": "zh-Hant"
+          }
+        }
+      },
       "System.Numerics.Tensors/9.0.10": {
         "runtime": {
           "lib/net9.0/System.Numerics.Tensors.dll": {
@@ -407,6 +469,14 @@
           }
         }
       },
+      "ZeroAlloc.Inject/1.2.2": {
+        "runtime": {
+          "lib/net10.0/ZeroAlloc.Inject.dll": {
+            "assemblyVersion": "1.2.2.0",
+            "fileVersion": "1.2.2.0"
+          }
+        }
+      },
       "ZeroAlloc.Mediator/1.1.8": {
         "dependencies": {
           "ZeroAlloc.Pipeline": "0.1.1"
@@ -434,6 +504,18 @@
           }
         }
       },
+      "ZeroAlloc.Resilience/1.0.2": {
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.7",
+          "ZeroAlloc.StateMachine": "1.0.0"
+        },
+        "runtime": {
+          "lib/net10.0/ZeroAlloc.Resilience.dll": {
+            "assemblyVersion": "1.0.2.0",
+            "fileVersion": "1.0.2.0"
+          }
+        }
+      },
       "ZeroAlloc.Results/0.1.4": {
         "runtime": {
           "lib/net10.0/ZeroAlloc.Results.dll": {
@@ -442,14 +524,60 @@
           }
         }
       },
-      "ZeroAlloc.Validation/0.2.3": {
+      "ZeroAlloc.Serialisation/1.4.0": {
+        "dependencies": {
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.7"
+        },
+        "runtime": {
+          "lib/net10.0/ZeroAlloc.Serialisation.dll": {
+            "assemblyVersion": "1.4.0.0",
+            "fileVersion": "1.4.0.0"
+          }
+        }
+      },
+      "ZeroAlloc.Serialisation.Generator/1.4.0": {
+        "runtime": {
+          "lib/netstandard2.0/ZeroAlloc.Serialisation.Generator.dll": {
+            "assemblyVersion": "1.4.0.0",
+            "fileVersion": "1.4.0.0"
+          }
+        }
+      },
+      "ZeroAlloc.Serialisation.SystemTextJson/1.4.0": {
+        "dependencies": {
+          "ZeroAlloc.Serialisation": "1.4.0"
+        },
+        "runtime": {
+          "lib/net10.0/ZeroAlloc.Serialisation.SystemTextJson.dll": {
+            "assemblyVersion": "1.4.0.0",
+            "fileVersion": "1.4.0.0"
+          }
+        }
+      },
+      "ZeroAlloc.StateMachine/1.0.0": {
+        "runtime": {
+          "lib/net10.0/ZeroAlloc.StateMachine.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "ZeroAlloc.Telemetry/1.0.0": {
+        "runtime": {
+          "lib/net10.0/ZeroAlloc.Telemetry.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      },
+      "ZeroAlloc.Validation/0.2.4": {
         "dependencies": {
           "ZeroAlloc.Pipeline": "0.1.1"
         },
         "runtime": {
           "lib/net10.0/ZeroAlloc.Validation.dll": {
-            "assemblyVersion": "0.2.3.0",
-            "fileVersion": "0.2.3.0"
+            "assemblyVersion": "0.2.4.0",
+            "fileVersion": "0.2.4.0"
           }
         }
       },
@@ -465,12 +593,17 @@
         "dependencies": {
           "Microsoft.Extensions.AI": "9.10.2",
           "Microsoft.Extensions.AI.Abstractions": "9.10.2",
+          "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.7",
           "ZeroAlloc.AsyncEvents": "1.0.0",
           "ZeroAlloc.Collections": "0.1.5",
+          "ZeroAlloc.Inject": "1.2.2",
           "ZeroAlloc.Mediator": "1.1.8",
           "ZeroAlloc.Mediator.Generator": "1.1.8",
+          "ZeroAlloc.Resilience": "1.0.2",
           "ZeroAlloc.Results": "0.1.4",
-          "ZeroAlloc.Validation": "0.2.3",
+          "ZeroAlloc.Serialisation": "1.4.0",
+          "ZeroAlloc.Telemetry": "1.0.0",
+          "ZeroAlloc.Validation": "0.2.4",
           "ZeroAlloc.ValueObjects": "1.1.6"
         },
         "runtime": {
@@ -486,6 +619,18 @@
         },
         "runtime": {
           "AI.Sentinel.AspNetCore.dll": {
+            "assemblyVersion": "0.1.0.0",
+            "fileVersion": "0.1.0.0"
+          }
+        }
+      },
+      "AI.Sentinel.Cli/0.1.0": {
+        "dependencies": {
+          "AI.Sentinel": "0.1.0",
+          "System.CommandLine": "2.0.0"
+        },
+        "runtime": {
+          "AI.Sentinel.Cli.dll": {
             "assemblyVersion": "0.1.0.0",
             "fileVersion": "0.1.0.0"
           }
@@ -506,12 +651,12 @@
       "path": "castle.core/5.1.1",
       "hashPath": "castle.core.5.1.1.nupkg.sha512"
     },
-    "Microsoft.AspNetCore.TestHost/10.0.6": {
+    "Microsoft.AspNetCore.TestHost/10.0.7": {
       "type": "package",
       "serviceable": true,
-      "sha512": "sha512-2A6dxcSGlisnVLDp6mTyHiFJgAj/Ahm/t/tfWiowUhqea3SFmpGrQhiQEaCAgj7TwfVQp7IX1XN7MkFRx/u3UQ==",
-      "path": "microsoft.aspnetcore.testhost/10.0.6",
-      "hashPath": "microsoft.aspnetcore.testhost.10.0.6.nupkg.sha512"
+      "sha512": "sha512-2UM9EtTmX6yF6Efa6WOO7wmHz2kPksmnzPmMwveuOGJQwbtNg5wKGj7usGLr8Ve3AMhIAc2yqyRXt1xNsed3hg==",
+      "path": "microsoft.aspnetcore.testhost/10.0.7",
+      "hashPath": "microsoft.aspnetcore.testhost.10.0.7.nupkg.sha512"
     },
     "Microsoft.CodeCoverage/17.14.1": {
       "type": "package",
@@ -533,6 +678,13 @@
       "sha512": "sha512-xiONoJw1mjkB4PzAY1UIQrY1GJo+pEPm9lTbGTZ0uJ8JsilkQXibNKhAyGwUMT4wV7SJkVaAmk2DPkntfSPUxA==",
       "path": "microsoft.extensions.ai.abstractions/9.10.2",
       "hashPath": "microsoft.extensions.ai.abstractions.9.10.2.nupkg.sha512"
+    },
+    "Microsoft.Extensions.DependencyInjection.Abstractions/10.0.7": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Z6mfFEaFcwCfSboxJwOLfu7/31npCY9q70WUamHW/vRQhDvBKOT4Vf9YkZj5J6hLvJpb0oDEYfHunQZj0xxvKw==",
+      "path": "microsoft.extensions.dependencyinjection.abstractions/10.0.7",
+      "hashPath": "microsoft.extensions.dependencyinjection.abstractions.10.0.7.nupkg.sha512"
     },
     "Microsoft.NET.Test.Sdk/17.14.1": {
       "type": "package",
@@ -568,6 +720,13 @@
       "sha512": "sha512-lJ47Cps5Qzr86N99lcwd+OUvQma7+fBgr8+Mn+aOC0WrlqMNkdivaYD9IvnZ5Mqo6Ky3LS7ZI+tUq1/s9ERd0Q==",
       "path": "nsubstitute/5.3.0",
       "hashPath": "nsubstitute.5.3.0.nupkg.sha512"
+    },
+    "System.CommandLine/2.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Bjklzc5NoxqAGFi7BcGlY2TWAdB06Bq3a5sfRr3ubMRU80Mf98eyq3Y2UgR6xRV0TLznZmfe5T7mUjOunRNcdA==",
+      "path": "system.commandline/2.0.0",
+      "hashPath": "system.commandline.2.0.0.nupkg.sha512"
     },
     "System.Numerics.Tensors/9.0.10": {
       "type": "package",
@@ -632,6 +791,13 @@
       "path": "zeroalloc.collections/0.1.5",
       "hashPath": "zeroalloc.collections.0.1.5.nupkg.sha512"
     },
+    "ZeroAlloc.Inject/1.2.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-HzC5DsATbuEEoYI5QCWWTILGQwg+H1tXeTg9AxZMRviDuW9DXnpOxuL4X9kZZxbL1O0yHe3fVkueJq32TM9MTw==",
+      "path": "zeroalloc.inject/1.2.2",
+      "hashPath": "zeroalloc.inject.1.2.2.nupkg.sha512"
+    },
     "ZeroAlloc.Mediator/1.1.8": {
       "type": "package",
       "serviceable": true,
@@ -653,6 +819,13 @@
       "path": "zeroalloc.pipeline/0.1.1",
       "hashPath": "zeroalloc.pipeline.0.1.1.nupkg.sha512"
     },
+    "ZeroAlloc.Resilience/1.0.2": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-DSQASOSL44bL2EkfGJyWSNYgnpOb3T0l9xppuL9qagambpI9CSGP0xyYfGWd5OijDBnnoWqdc93Cu18MWMPLrQ==",
+      "path": "zeroalloc.resilience/1.0.2",
+      "hashPath": "zeroalloc.resilience.1.0.2.nupkg.sha512"
+    },
     "ZeroAlloc.Results/0.1.4": {
       "type": "package",
       "serviceable": true,
@@ -660,12 +833,47 @@
       "path": "zeroalloc.results/0.1.4",
       "hashPath": "zeroalloc.results.0.1.4.nupkg.sha512"
     },
-    "ZeroAlloc.Validation/0.2.3": {
+    "ZeroAlloc.Serialisation/1.4.0": {
       "type": "package",
       "serviceable": true,
-      "sha512": "sha512-djCIEVFMRKVFhOlnaiOXsEd/Xv1piOo7M3udVxVvZLr5iskUG67oZ6kFEChKTQZWYkOspNYFZEo2m/gGlfyYsQ==",
-      "path": "zeroalloc.validation/0.2.3",
-      "hashPath": "zeroalloc.validation.0.2.3.nupkg.sha512"
+      "sha512": "sha512-Coiwheps24RJ0Z3Adq9fZRDDxqXB+kbqB9kgij1fnwnWibb7wSg7bxwQXDnQRz5B2UFXMkT3w7wU4bh/gfLZ3g==",
+      "path": "zeroalloc.serialisation/1.4.0",
+      "hashPath": "zeroalloc.serialisation.1.4.0.nupkg.sha512"
+    },
+    "ZeroAlloc.Serialisation.Generator/1.4.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-xqOt5oBcpEKG6wkA7ofB8L2tQOfYnf3KQLZxPoO64f22Y3YRLpiUg2bgru8EfeCP+EkGcLzxlAYUPn+ds/qbow==",
+      "path": "zeroalloc.serialisation.generator/1.4.0",
+      "hashPath": "zeroalloc.serialisation.generator.1.4.0.nupkg.sha512"
+    },
+    "ZeroAlloc.Serialisation.SystemTextJson/1.4.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-+X9XWw4NWbSyHHG1BDlhXFeVgYPVXcd2teptSG5XlS0FOr7DZErko4xkjsEBGwHyUKFnPg6eAH/aRoJSByMe9w==",
+      "path": "zeroalloc.serialisation.systemtextjson/1.4.0",
+      "hashPath": "zeroalloc.serialisation.systemtextjson.1.4.0.nupkg.sha512"
+    },
+    "ZeroAlloc.StateMachine/1.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-Nh4+DEqha7rLFmRll44TXAsmwQSo7cPxgWv2mKkWl4w8Q/MMdO2e+rkHpE3o+jLqz5PjSLnv56Kc83YAU/c3Ag==",
+      "path": "zeroalloc.statemachine/1.0.0",
+      "hashPath": "zeroalloc.statemachine.1.0.0.nupkg.sha512"
+    },
+    "ZeroAlloc.Telemetry/1.0.0": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-kPGlXGHsK/6CuR8GuEbanHAIUBB+E6CWhVgnW4sPQDBt/9+E6qvzAg7UEIewC2bAOGiOptHxtCXR1c+0kalmFA==",
+      "path": "zeroalloc.telemetry/1.0.0",
+      "hashPath": "zeroalloc.telemetry.1.0.0.nupkg.sha512"
+    },
+    "ZeroAlloc.Validation/0.2.4": {
+      "type": "package",
+      "serviceable": true,
+      "sha512": "sha512-DGNOWYJGox58j3MxkkhQYsgt11G7l6GQM8XIvrKwAY3oZ0FTJuR82qAZjj/wK/a9a58wkMq8DrdfQaiwXh1Q3g==",
+      "path": "zeroalloc.validation/0.2.4",
+      "hashPath": "zeroalloc.validation.0.2.4.nupkg.sha512"
     },
     "ZeroAlloc.ValueObjects/1.1.6": {
       "type": "package",
@@ -680,6 +888,11 @@
       "sha512": ""
     },
     "AI.Sentinel.AspNetCore/0.1.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "AI.Sentinel.Cli/0.1.0": {
       "type": "project",
       "serviceable": false,
       "sha512": ""

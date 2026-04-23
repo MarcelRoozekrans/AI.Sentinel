@@ -1,0 +1,6 @@
+{
+  "messages": [
+    { "role": "user", "content": "What is the capital of France?" },
+    { "role": "assistant", "content": "The capital of France is Paris." }
+  ]
+}

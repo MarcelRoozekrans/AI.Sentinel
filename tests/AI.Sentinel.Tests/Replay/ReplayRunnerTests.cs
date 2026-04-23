@@ -13,12 +13,15 @@ public class ReplayRunnerTests
 {
     private static SentinelPipeline BuildPipeline(IDetector[] detectors, IChatClient inner)
     {
+        // Match ForensicsPipelineFactory: all severities Quarantine so every detection surfaces
+        // through the failure channel. Diverging here would mean the tests wouldn't catch a
+        // regression where the CLI defaults drift back to Log.
         var opts = new SentinelOptions
         {
             OnCritical = SentinelAction.Quarantine,
             OnHigh = SentinelAction.Quarantine,
-            OnMedium = SentinelAction.Log,
-            OnLow = SentinelAction.Log,
+            OnMedium = SentinelAction.Quarantine,
+            OnLow = SentinelAction.Quarantine,
         };
         var detectionPipeline = new DetectionPipeline(detectors, null);
         var audit = new RingBufferAuditStore(100);

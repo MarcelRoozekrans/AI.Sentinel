@@ -7,6 +7,18 @@ public static class ReplayRunner
 {
     public const string CurrentSchemaVersion = "1";
 
+    /// <summary>
+    /// Replays <paramref name="conversation"/> through <paramref name="pipeline"/> and returns
+    /// a serializable <see cref="ReplayResult"/>.
+    /// </summary>
+    /// <remarks>
+    /// <strong>Known limitation:</strong> each <see cref="TurnResult"/> contains at most one
+    /// <see cref="TurnDetection"/> — the highest-severity hit per turn. This is a consequence
+    /// of <c>SentinelError.ThreatDetected</c> carrying a single <c>DetectionResult</c>. If
+    /// multiple detectors fire on the same turn, only the top-severity match is reported.
+    /// Future enhancement: plumb the full <c>PipelineResult</c> through a new error variant
+    /// or query the audit store directly.
+    /// </remarks>
     public static async Task<ReplayResult> RunAsync(
         string file,
         LoadedConversation conversation,

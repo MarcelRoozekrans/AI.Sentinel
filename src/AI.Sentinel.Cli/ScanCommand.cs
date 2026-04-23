@@ -1,5 +1,4 @@
 using System.CommandLine;
-using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel.Detection;
 
 namespace AI.Sentinel.Cli;
@@ -85,19 +84,8 @@ public static class ScanCommand
             var replayResponses = conversation.Turns.Select(t => t.Response).ToArray();
             var replayClient = new SentinelReplayClient(replayResponses);
 
-            var services = new ServiceCollection();
-            services.AddAISentinel(opts =>
-            {
-                // Forensics contract: route every severity through the failure path so
-                // ReplayRunner captures each detection. Log would suppress them.
-                opts.OnCritical = SentinelAction.Quarantine;
-                opts.OnHigh = SentinelAction.Quarantine;
-                opts.OnMedium = SentinelAction.Quarantine;
-                opts.OnLow = SentinelAction.Quarantine;
-            });
-            var provider = services.BuildServiceProvider();
+            var (provider, pipeline) = ForensicsPipelineFactory.Build(replayClient);
             await using var _ = provider.ConfigureAwait(false);
-            var pipeline = provider.BuildSentinelPipeline(replayClient);
 
             var result = await ReplayRunner.RunAsync(file, conversation, pipeline, ct).ConfigureAwait(false);
 

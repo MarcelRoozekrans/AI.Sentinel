@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AI.Sentinel.Tests")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+15a0332ad83f1430cf2aa04bde512d4cb6fda028")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+acb60337439045ab478212e3773592e1b7c664f7")]
 [assembly: System.Reflection.AssemblyProductAttribute("AI.Sentinel.Tests")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AI.Sentinel.Tests")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

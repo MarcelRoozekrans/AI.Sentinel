@@ -19,6 +19,12 @@ public static class JsonFormatter
     }
 
     public static ReplayResult Deserialize(string json)
-        => JsonSerializer.Deserialize<ReplayResult>(json, _options)
+    {
+        var result = JsonSerializer.Deserialize<ReplayResult>(json, _options)
            ?? throw new InvalidDataException("Failed to deserialize ReplayResult.");
+        if (!string.Equals(result.SchemaVersion, ReplayRunner.CurrentSchemaVersion, StringComparison.Ordinal))
+            throw new InvalidDataException(
+                $"Unsupported schema version '{result.SchemaVersion}'; this tool emits and reads '{ReplayRunner.CurrentSchemaVersion}'.");
+        return result;
+    }
 }
