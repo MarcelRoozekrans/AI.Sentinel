@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <PackageId>AI.Sentinel.Copilot</PackageId>
+    <Description>GitHub Copilot hook adapter for AI.Sentinel — scan userPromptSubmitted, preToolUse, postToolUse hook payloads through the detector pipeline.</Description>
+    <Version>0.1.0</Version>
+    <Authors>ZeroAlloc-Net</Authors>
+    <PackageTags>ai;security;chatclient;copilot;hooks</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
+    <ProjectReference Include="..\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.*" />
+  </ItemGroup>
+</Project>
