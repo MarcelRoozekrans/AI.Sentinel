@@ -13,6 +13,7 @@
     <ProjectReference Include="..\..\src\AI.Sentinel.AspNetCore\AI.Sentinel.AspNetCore.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Cli\AI.Sentinel.Cli.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" />
+    <ProjectReference Include="..\..\src\AI.Sentinel.ClaudeCode.Cli\AI.Sentinel.ClaudeCode.Cli.csproj" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
