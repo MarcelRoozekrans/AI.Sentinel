@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <TargetFrameworks></TargetFrameworks>
     <TargetFramework>net8.0</TargetFramework>
     <OutputType>Exe</OutputType>
-    <PackAsTool>true</PackAsTool>
+    <PackAsTool Condition="'$(PublishAot)' != 'true'">true</PackAsTool>
     <ToolCommandName>sentinel-copilot-hook</ToolCommandName>
     <PackageId>AI.Sentinel.Copilot.Cli</PackageId>
     <Description>GitHub Copilot hook command for AI.Sentinel — wire into hooks.json to scan tool calls.</Description>
@@ -15,6 +16,7 @@
     <RepositoryType>git</RepositoryType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization Condition="'$(PublishAot)' == 'true'">true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
