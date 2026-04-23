@@ -77,6 +77,11 @@ public static class Program
         var outputJson = JsonSerializer.Serialize(output, HookJsonContext.Default.HookOutput);
         await stdout.WriteAsync(outputJson).ConfigureAwait(false);
 
+        if (config.Verbose)
+        {
+            await EmitVerboseAsync(stderr, "sentinel-hook", args[0], input.SessionId, output).ConfigureAwait(false);
+        }
+
         return output.Decision switch
         {
             HookDecision.Block => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 2).ConfigureAwait(false),
@@ -90,6 +95,35 @@ public static class Program
         if (!string.IsNullOrEmpty(reason))
             await stderr.WriteAsync($"{reason}\n").ConfigureAwait(false);
         return exitCode;
+    }
+
+    private static async Task EmitVerboseAsync(
+        TextWriter stderr,
+        string toolPrefix,
+        string eventName,
+        string sessionId,
+        HookOutput output)
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.Append('[').Append(toolPrefix).Append(']')
+          .Append(" event=").Append(eventName)
+          .Append(" decision=").Append(output.Decision);
+
+        if (output.Decision != HookDecision.Allow && !string.IsNullOrEmpty(output.Reason))
+        {
+            // output.Reason format: "{DetectorId} {Severity}: {text}"
+            var space1 = output.Reason.IndexOf(' ', StringComparison.Ordinal);
+            var colon = space1 > 0 ? output.Reason.IndexOf(':', space1 + 1) : -1;
+            if (space1 > 0 && colon > space1)
+            {
+                var detectorId = output.Reason[..space1];
+                var severity = output.Reason[(space1 + 1)..colon];
+                sb.Append(" detector=").Append(detectorId).Append(" severity=").Append(severity);
+            }
+        }
+
+        sb.Append(" session=").Append(sessionId).Append('\n');
+        await stderr.WriteAsync(sb.ToString()).ConfigureAwait(false);
     }
 
     private static bool TryParseEvent(string arg, out HookEvent evt)
