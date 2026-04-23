@@ -1,1 +1,6 @@
 BenchmarkDotNet.Artifacts/
+
+# Build artifacts
+bin/
+obj/
+*.user
