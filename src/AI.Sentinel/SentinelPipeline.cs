@@ -126,6 +126,27 @@ public sealed class SentinelPipeline(
         return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Success(buffer);
     }
 
+    /// <summary>Runs detection against <paramref name="messages"/> without invoking the inner chat client.
+    /// Useful for hook adapters that scan caller-supplied prompts or tool payloads where there is no LLM response.</summary>
+    /// <remarks>
+    /// Rate-limit check fires first; on exceeded quota the method returns <see cref="SentinelError.RateLimitExceeded"/>.
+    /// Otherwise runs a single detection pass and returns <see langword="null"/> on clean,
+    /// <see cref="SentinelError.ThreatDetected"/> on detection.
+    /// </remarks>
+    public async ValueTask<SentinelError?> ScanMessagesAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? chatOptions = null,
+        CancellationToken ct = default)
+    {
+        var rateError = CheckRateLimit(chatOptions);
+        if (rateError is not null) return rateError;
+
+        var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
+        var sessionId = SessionId.New();
+        return await ScanAsync(messageList, sessionId,
+            options.DefaultSenderId, options.DefaultReceiverId, ct).ConfigureAwait(false);
+    }
+
     private async ValueTask<SentinelError?> ScanAsync(
         IReadOnlyList<ChatMessage> msgs,
         SessionId sessionId,

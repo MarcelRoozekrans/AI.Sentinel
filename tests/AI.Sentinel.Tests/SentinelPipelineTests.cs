@@ -144,6 +144,49 @@ public class SentinelPipelineTests
     }
 
     [Fact]
+    public async Task ScanMessagesAsync_CleanInput_ReturnsNull()
+    {
+        var sentinel = Build();
+        var error = await sentinel.ScanMessagesAsync(
+            [new ChatMessage(ChatRole.User, "Hello")], null, default);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public async Task ScanMessagesAsync_Injection_ReturnsThreatDetected()
+    {
+        var sentinel = Build([new AlwaysCriticalDetector()]);
+        var error = await sentinel.ScanMessagesAsync(
+            [new ChatMessage(ChatRole.User, "hi")], null, default);
+        Assert.IsType<SentinelError.ThreatDetected>(error);
+    }
+
+    [Fact]
+    public async Task ScanMessagesAsync_DoesNotInvokeInnerClient()
+    {
+        var sentinel = Build(inner: new ThrowingChatClient());
+        var error = await sentinel.ScanMessagesAsync(
+            [new ChatMessage(ChatRole.User, "Hello")], null, default);
+        Assert.Null(error);
+    }
+
+    [Fact]
+    public async Task ScanMessagesAsync_RateLimitExceeded_ReturnsRateLimitError()
+    {
+        var opts = new SentinelOptions { MaxCallsPerSecond = 1, BurstSize = 1 };
+        var pipeline = new DetectionPipeline([], null);
+        var audit = new RingBufferAuditStore(100);
+        var engine = new InterventionEngine(opts, null);
+        var sentinel = new SentinelPipeline(
+            new TestChatClient("ok"), pipeline, audit, engine, opts);
+
+        _ = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
+        var error = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
+
+        Assert.IsType<SentinelError.RateLimitExceeded>(error);
+    }
+
+    [Fact]
     public async Task ExpectedType_Configured_ThroughPipeline_ReturnsThreatDetected()
     {
         // Inner returns JSON missing the required TemperatureC field
