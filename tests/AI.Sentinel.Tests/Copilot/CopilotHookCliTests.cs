@@ -34,4 +34,24 @@ public class CopilotHookCliTests
         var exit = await Program.RunAsync(["foo"], stdin, stdout, stderr);
         Assert.Equal(1, exit);
     }
+
+    [Fact]
+    public async Task Cli_MalformedStdin_ExitsOne()
+    {
+        var stdin = new StringReader("not json");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var exit = await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr);
+        Assert.Equal(1, exit);
+    }
+
+    [Fact]
+    public async Task Cli_EmptyStdin_ExitsOne()
+    {
+        var stdin = new StringReader("");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var exit = await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr);
+        Assert.Equal(1, exit);
+    }
 }

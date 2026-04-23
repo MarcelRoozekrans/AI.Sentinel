@@ -53,4 +53,16 @@ public class HookCliTests
 
         Assert.Equal(1, exit);
     }
+
+    [Fact]
+    public async Task Cli_EmptyStdin_ExitsOne()
+    {
+        var stdin = new StringReader("");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+
+        Assert.Equal(1, exit);
+    }
 }

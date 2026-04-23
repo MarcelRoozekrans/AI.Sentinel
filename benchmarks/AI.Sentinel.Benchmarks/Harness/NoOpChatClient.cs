@@ -25,7 +25,10 @@ internal sealed class NoOpChatClient : IChatClient
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await Task.CompletedTask.ConfigureAwait(false);
-        yield break;
+        // Yield a single non-empty update so BlankResponseDetector doesn't trip in
+        // streaming benchmarks. Content is intentionally bland — we're measuring
+        // buffer + scan overhead, not detector response to real text.
+        yield return new ChatResponseUpdate(ChatRole.Assistant, "ok");
     }
 
     public ChatClientMetadata Metadata => new("noop", null, null);

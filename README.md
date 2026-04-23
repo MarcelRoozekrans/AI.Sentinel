@@ -211,6 +211,13 @@ builder.Services.AddAISentinel(opts =>
     opts.MaxCallsPerSecond = 5;   // allow 5 calls/sec per session (steady state)
     opts.BurstSize = 20;          // up-front burst before throttling kicks in
 
+    // Optional: inactivity window after which per-session dedup + rate-limiter
+    // state is evicted. Applies to both AlertDeduplicationWindow's _seen
+    // dictionary and the rate-limiter bucket map. Default: 1 hour.
+    // Lower this for high-cardinality session keys (many unique users),
+    // raise it for long-lived sessions.
+    opts.SessionIdleTimeout = TimeSpan.FromHours(1);
+
     // Optional: validate structured LLM responses against a caller-supplied type (SEC-29).
     // The type must be annotated with [ZeroAllocSerializable(SerializationFormat.SystemTextJson)].
     // Requires calling services.AddSerializerDispatcher() (from ZeroAlloc.Serialisation).
