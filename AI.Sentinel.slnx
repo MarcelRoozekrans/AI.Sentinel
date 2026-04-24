@@ -8,6 +8,7 @@
     <Project Path="src/AI.Sentinel.Copilot/AI.Sentinel.Copilot.csproj" />
     <Project Path="src/AI.Sentinel.Copilot.Cli/AI.Sentinel.Copilot.Cli.csproj" />
     <Project Path="src/AI.Sentinel.Mcp/AI.Sentinel.Mcp.csproj" />
+    <Project Path="src/AI.Sentinel.Mcp.Cli/AI.Sentinel.Mcp.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj" />

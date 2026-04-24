@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <PackAsTool Condition="'$(PublishAot)' != 'true'">true</PackAsTool>
+    <ToolCommandName>sentinel-mcp</ToolCommandName>
+    <PackageId>AI.Sentinel.Mcp.Cli</PackageId>
+    <Description>MCP proxy CLI for AI.Sentinel — point your MCP host at sentinel-mcp to scan all tool calls.</Description>
+    <Version>0.1.0</Version>
+    <Authors>ZeroAlloc-Net</Authors>
+    <PackageTags>ai;security;chatclient;mcp;dotnet-tool</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization Condition="'$(PublishAot)' == 'true'">true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AI.Sentinel.Mcp\AI.Sentinel.Mcp.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.*" />
+  </ItemGroup>
+</Project>

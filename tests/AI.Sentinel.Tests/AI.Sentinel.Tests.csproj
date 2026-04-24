@@ -17,6 +17,7 @@
     <ProjectReference Include="..\..\src\AI.Sentinel.Copilot\AI.Sentinel.Copilot.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Copilot.Cli\AI.Sentinel.Copilot.Cli.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Mcp\AI.Sentinel.Mcp.csproj" />
+    <ProjectReference Include="..\..\src\AI.Sentinel.Mcp.Cli\AI.Sentinel.Mcp.Cli.csproj" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
