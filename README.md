@@ -374,8 +374,32 @@ Both adapters share the same env-var contract — configure once, applies to bot
 | `SENTINEL_HOOK_ON_HIGH` | `Block` | `Block` / `Warn` / `Allow` |
 | `SENTINEL_HOOK_ON_MEDIUM` | `Warn` | `Block` / `Warn` / `Allow` |
 | `SENTINEL_HOOK_ON_LOW` | `Allow` | `Block` / `Warn` / `Allow` |
+| `SENTINEL_HOOK_VERBOSE` | `false` | `1` / `true` / `yes` → emit a one-line diagnostic to stderr on every invocation |
 
 `Block` → hook exits 2, which both Claude Code and Copilot surface as "call blocked" with the detector ID + reason on stderr. `Warn` → exit 0 with the reason on stderr (visible in the agent's log). `Allow` → silent pass.
+
+### Diagnostics: did the hook fire?
+
+Set `SENTINEL_HOOK_VERBOSE=1` to emit a grep-friendly one-liner to stderr on every invocation, including Allow outcomes:
+
+```
+[sentinel-hook] event=user-prompt-submit decision=Allow session=sess-42
+[sentinel-hook] event=user-prompt-submit decision=Block detector=SEC-01 severity=Critical session=sess-42
+```
+
+Useful when wiring the hook for the first time ("did it run?") or when a block was expected but didn't happen. Leave off in steady state — the normal Block/Warn reason is already on stderr.
+
+### Native binary (optional, faster cold start)
+
+The hook CLIs are Native-AOT ready. Both `.csproj` files gate `PackAsTool` behind `PublishAot`, so a single source tree produces either the `dotnet tool` NuGet package or a ~6.5 MB single-file native binary, depending on how you publish it.
+
+```
+dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -r win-x64 -p:PublishAot=true
+```
+
+Replace `win-x64` with `linux-x64`, `osx-arm64`, etc. Output lands under `bin/Release/net8.0/<rid>/publish/sentinel-hook[.exe]`. Expect ~10× faster cold start than the dotnet-tool entry point — worth it if the hook fires on every tool call. Point the agent's hook `command` at the binary's full path instead of `sentinel-hook`.
+
+> **Prereqs on Windows:** the Visual Studio "Desktop development with C++" workload (for `link.exe` + Windows SDK). Linux needs `clang`/`libc` dev packages; macOS needs Xcode CLT.
 
 ### Programmatic use
 
