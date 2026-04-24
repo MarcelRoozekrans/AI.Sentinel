@@ -1,3 +1,4 @@
+using Microsoft.Extensions.AI;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using ZeroAlloc.Inject;
@@ -15,7 +16,9 @@ public sealed class TruncatedOutputDetector : IDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = ctx.TextContent.TrimEnd();
+        var text = string.Join(" ", ctx.Messages
+            .Where(m => m.Role == ChatRole.Assistant)
+            .Select(m => m.Text ?? "")).TrimEnd();
         if (text.Length == 0) return ValueTask.FromResult(_clean);
 
         var fenceCount = CountOccurrences(text, "```");

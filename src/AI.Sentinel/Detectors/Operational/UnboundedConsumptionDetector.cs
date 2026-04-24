@@ -24,8 +24,9 @@ public sealed class UnboundedConsumptionDetector : IDetector
             .Sum(m => (m.Text ?? "").Length);
 
         if (responseLen == 0) return ValueTask.FromResult(_clean);
+        if (promptLen == 0) return ValueTask.FromResult(_clean);
 
-        var ratio = promptLen > 0 ? (double)responseLen / promptLen : double.MaxValue;
+        var ratio = (double)responseLen / promptLen;
 
         if (responseLen > 50_000 || ratio > 100)
             return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.High,
