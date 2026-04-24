@@ -17,7 +17,7 @@ internal static class PipelineFactory
         new([], escalationClient: null);
 
     /// <summary>
-    /// Security-only pipeline with the 9 core fast-regex security detectors.
+    /// Security-only pipeline with the 13 regex/pattern-based security detectors.
     /// </summary>
     public static DetectionPipeline SecurityOnly() =>
         new(
@@ -31,6 +31,10 @@ internal static class PipelineFactory
                 new IndirectInjectionDetector(),
                 new AgentImpersonationDetector(),
                 new CovertChannelDetector(),
+                new ToolCallFrequencyDetector(),       // SEC-19
+                new ExcessiveAgencyDetector(),          // SEC-21
+                new HumanTrustManipulationDetector(),   // SEC-22
+                new ShorthandEmergenceDetector(),       // SEC-30
             ],
             escalationClient: null);
 
@@ -41,7 +45,7 @@ internal static class PipelineFactory
     public static DetectionPipeline All() =>
         new(
             [
-                // Security (17 detectors)
+                // Security (22 detectors)
                 new PromptInjectionDetector(),
                 new CredentialExposureDetector(),
                 new ToolPoisoningDetector(),
@@ -59,15 +63,21 @@ internal static class PipelineFactory
                 new AgentImpersonationDetector(),
                 new PrivilegeEscalationDetector(),
                 new SupplyChainPoisoningDetector(),
+                new ToolDescriptionDivergenceDetector(), // SEC-18
+                new ToolCallFrequencyDetector(),         // SEC-19
+                new ExcessiveAgencyDetector(),           // SEC-21
+                new HumanTrustManipulationDetector(),    // SEC-22
+                new ShorthandEmergenceDetector(),        // SEC-30
 
-                // Hallucination (5 detectors)
+                // Hallucination (6 detectors)
                 new PhantomCitationDetector(),
                 new SelfConsistencyDetector(),
                 new SourceGroundingDetector(),
                 new ConfidenceDecayDetector(),
                 new CrossAgentContradictionDetector(),
+                new UncertaintyPropagationDetector(),    // HAL-09
 
-                // Operational (8 detectors)
+                // Operational (11 detectors)
                 new BlankResponseDetector(),
                 new RepetitionLoopDetector(),
                 new ContextCollapseDetector(),
@@ -76,6 +86,9 @@ internal static class PipelineFactory
                 new IncompleteCodeBlockDetector(),
                 new PlaceholderTextDetector(),
                 new ResponseCoherenceDetector(),
+                new TruncatedOutputDetector(),           // OPS-09
+                new WaitingForContextDetector(),         // OPS-10
+                new UnboundedConsumptionDetector(),      // OPS-11
             ],
             escalationClient: null);
 }
