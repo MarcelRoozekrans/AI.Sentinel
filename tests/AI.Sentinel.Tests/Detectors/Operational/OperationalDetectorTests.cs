@@ -148,4 +148,38 @@ public class OperationalDetectorTests
         var r = await new WaitingForContextDetector().AnalyzeAsync(CtxMessages(messages), default);
         Assert.True(r.Severity >= Severity.Medium);
     }
+
+    // OPS-11: UnboundedConsumptionDetector
+    [Fact] public async Task UnboundedConsumption_SmallResponse_Clean()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User,      "What is 2+2?"),
+            new(ChatRole.Assistant, "The answer is 4."),
+        };
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.IsClean);
+    }
+
+    [Fact] public async Task UnboundedConsumption_LargeAbsolute_Low()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User,      "Write me something."),
+            new(ChatRole.Assistant, new string('a', 6_000)),
+        };
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.Severity >= Severity.Low);
+    }
+
+    [Fact] public async Task UnboundedConsumption_HighRatio_Medium()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User,      "Hi"),
+            new(ChatRole.Assistant, new string('a', 16_000)),
+        };
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.Severity >= Severity.Medium);
+    }
 }
