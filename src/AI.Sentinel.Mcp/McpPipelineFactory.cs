@@ -50,7 +50,7 @@ internal static class McpPipelineFactory
         _                  => SentinelAction.PassThrough,
     };
 
-    // 9 regex/pattern-based security detectors — mirrors
+    // 13 regex/pattern-based security detectors — mirrors
     // benchmarks/AI.Sentinel.Benchmarks/Harness/PipelineFactory.SecurityOnly().
     internal static IDetector[] BuildSecurityDetectors() =>
     [
@@ -63,6 +63,10 @@ internal static class McpPipelineFactory
         new IndirectInjectionDetector(),
         new AgentImpersonationDetector(),
         new CovertChannelDetector(),
+        new ToolCallFrequencyDetector(),      // SEC-19
+        new ExcessiveAgencyDetector(),         // SEC-21
+        new HumanTrustManipulationDetector(),  // SEC-22
+        new ShorthandEmergenceDetector(),      // SEC-30
     ];
 
     // 54 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
