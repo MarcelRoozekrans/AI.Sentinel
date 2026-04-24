@@ -105,4 +105,26 @@ public class HallucinationDetectorTests
         var r = await new GroundlessStatisticDetector().AnalyzeAsync(Ctx("Most users prefer the new interface."), default);
         Assert.Equal(Severity.None, r.Severity);
     }
+
+    // HAL-09: UncertaintyPropagationDetector
+    [Fact] public async Task UncertaintyPropagation_NoHedging_Clean()
+    {
+        var r = await new UncertaintyPropagationDetector().AnalyzeAsync(
+            Ctx("The capital of France is Paris."), default);
+        Assert.True(r.IsClean);
+    }
+
+    [Fact] public async Task UncertaintyPropagation_HedgingOnly_Low()
+    {
+        var r = await new UncertaintyPropagationDetector().AnalyzeAsync(
+            Ctx("I think the capital of France is Paris."), default);
+        Assert.Equal(Severity.Low, r.Severity);
+    }
+
+    [Fact] public async Task UncertaintyPropagation_HedgingPlusAssertion_Medium()
+    {
+        var r = await new UncertaintyPropagationDetector().AnalyzeAsync(
+            Ctx("I think there might be a problem with the config. Therefore the answer is to delete all temp files."), default);
+        Assert.True(r.Severity >= Severity.Medium);
+    }
 }
