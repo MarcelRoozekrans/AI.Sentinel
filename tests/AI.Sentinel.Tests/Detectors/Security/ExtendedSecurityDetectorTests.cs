@@ -85,6 +85,27 @@ public class ExtendedSecurityDetectorTests
         Assert.Equal(Severity.High, r.Severity);
     }
 
+    [Fact] public async Task ShorthandEmergence_CommonAcronyms_Clean()
+    {
+        var r = await new ShorthandEmergenceDetector().AnalyzeAsync(
+            Ctx("Use the API to call the LLM via HTTP and return JSON from the MCP server."), default);
+        Assert.True(r.IsClean);
+    }
+
+    [Fact] public async Task ShorthandEmergence_ThreeUnknownTokens_Low()
+    {
+        var r = await new ShorthandEmergenceDetector().AnalyzeAsync(
+            Ctx("Send XMSG to AGNT via BKND for processing."), default);
+        Assert.Equal(Severity.Low, r.Severity);
+    }
+
+    [Fact] public async Task ShorthandEmergence_FiveUnknownTokens_Medium()
+    {
+        var r = await new ShorthandEmergenceDetector().AnalyzeAsync(
+            Ctx("Send XMSG to AGNT via BKND using FWRD protocol with ENCR enabled."), default);
+        Assert.True(r.Severity >= Severity.Medium);
+    }
+
     [Fact] public async Task HumanTrustManipulation_Neutral_Clean()
     {
         var r = await new HumanTrustManipulationDetector().AnalyzeAsync(
