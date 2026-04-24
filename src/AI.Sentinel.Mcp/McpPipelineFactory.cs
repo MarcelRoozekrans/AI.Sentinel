@@ -21,18 +21,18 @@ internal static class McpPipelineFactory
     {
         ArgumentNullException.ThrowIfNull(config);
 
-        var detectors = preset switch
-        {
-            McpDetectorPreset.All => BuildAllDetectors(),
-            _                     => BuildSecurityDetectors(),
-        };
-
         var options = new SentinelOptions
         {
             OnCritical = MapDecision(config.OnCritical),
             OnHigh     = MapDecision(config.OnHigh),
             OnMedium   = MapDecision(config.OnMedium),
             OnLow      = MapDecision(config.OnLow),
+        };
+
+        var detectors = preset switch
+        {
+            McpDetectorPreset.All => BuildAllDetectors(options),
+            _                     => BuildSecurityDetectors(),
         };
 
         return new SentinelPipeline(
@@ -43,7 +43,7 @@ internal static class McpPipelineFactory
             options:            options);
     }
 
-    private static SentinelAction MapDecision(HookDecision decision) => decision switch
+    internal static SentinelAction MapDecision(HookDecision decision) => decision switch
     {
         HookDecision.Block => SentinelAction.Quarantine,
         HookDecision.Warn  => SentinelAction.Alert,
@@ -52,7 +52,7 @@ internal static class McpPipelineFactory
 
     // 9 regex/pattern-based security detectors — mirrors
     // benchmarks/AI.Sentinel.Benchmarks/Harness/PipelineFactory.SecurityOnly().
-    private static IDetector[] BuildSecurityDetectors() =>
+    internal static IDetector[] BuildSecurityDetectors() =>
     [
         new PromptInjectionDetector(),
         new JailbreakDetector(),
@@ -65,11 +65,16 @@ internal static class McpPipelineFactory
         new CovertChannelDetector(),
     ];
 
-    // Full set. Mirror of what AddAISentinel registers — keep these in sync
-    // whenever src/AI.Sentinel/ServiceCollectionExtensions.cs gains a detector.
-    private static IDetector[] BuildAllDetectors() =>
+    // 45 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
+    // source-gen. Keep these in sync whenever a new detector is decorated with
+    // [Singleton(As = typeof(IDetector), AllowMultiple = true)]. The drift-
+    // detection test BuildAllDetectors_CountMatchesRegisteredIDetectorCount
+    // fails loudly if the list here goes out of sync with the assembly.
+    internal static IDetector[] BuildAllDetectors() => BuildAllDetectors(new SentinelOptions());
+
+    internal static IDetector[] BuildAllDetectors(SentinelOptions options) =>
     [
-        // Security
+        // Security (25)
         new PromptInjectionDetector(),
         new JailbreakDetector(),
         new CredentialExposureDetector(),
@@ -87,13 +92,24 @@ internal static class McpPipelineFactory
         new PhantomCitationSecurityDetector(),
         new GovernanceGapDetector(),
         new SupplyChainPoisoningDetector(),
-        // Hallucination
+        new AdversarialUnicodeDetector(),
+        new CodeInjectionDetector(),
+        new LanguageSwitchAttackDetector(),
+        new OutputSchemaDetector(options),
+        new PiiLeakageDetector(),
+        new PromptTemplateLeakageDetector(),
+        new RefusalBypassDetector(),
+        new SystemPromptLeakageDetector(),
+        // Hallucination (8)
         new PhantomCitationDetector(),
         new SelfConsistencyDetector(),
         new SourceGroundingDetector(),
         new ConfidenceDecayDetector(),
         new CrossAgentContradictionDetector(),
-        // Operational
+        new GroundlessStatisticDetector(),
+        new IntraSessionContradictionDetector(),
+        new StaleKnowledgeDetector(),
+        // Operational (12)
         new BlankResponseDetector(),
         new RepetitionLoopDetector(),
         new ContextCollapseDetector(),
@@ -102,6 +118,10 @@ internal static class McpPipelineFactory
         new IncompleteCodeBlockDetector(),
         new PlaceholderTextDetector(),
         new ResponseCoherenceDetector(),
+        new PersonaDriftDetector(),
+        new SemanticRepetitionDetector(),
+        new SycophancyDetector(),
+        new WrongLanguageDetector(),
     ];
 
     // IChatClient satisfying SentinelPipeline's signature. Never invoked because
