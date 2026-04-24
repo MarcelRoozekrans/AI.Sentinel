@@ -1,0 +1,100 @@
+name: AOT publish
+
+# Validates that `dotnet publish -p:PublishAot=true` produces a native single-file
+# binary for both hook CLIs on a platform where the Visual C++ toolchain + Windows
+# SDK are available (windows-latest ships both preinstalled). Runs on every push
+# and PR that touches a CLI, the core library, or this workflow itself.
+#
+# Intentionally narrow: does not run the test suite or pack NuGet packages. Those
+# live in their own workflow when the rest of CI is wired up.
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "src/AI.Sentinel/**"
+      - "src/AI.Sentinel.ClaudeCode/**"
+      - "src/AI.Sentinel.ClaudeCode.Cli/**"
+      - "src/AI.Sentinel.Copilot/**"
+      - "src/AI.Sentinel.Copilot.Cli/**"
+      - "Directory.Build.props"
+      - "global.json"
+      - ".github/workflows/aot-publish.yml"
+  pull_request:
+    paths:
+      - "src/AI.Sentinel/**"
+      - "src/AI.Sentinel.ClaudeCode/**"
+      - "src/AI.Sentinel.ClaudeCode.Cli/**"
+      - "src/AI.Sentinel.Copilot/**"
+      - "src/AI.Sentinel.Copilot.Cli/**"
+      - "Directory.Build.props"
+      - "global.json"
+      - ".github/workflows/aot-publish.yml"
+
+jobs:
+  publish-aot:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        project:
+          - src/AI.Sentinel.ClaudeCode.Cli/AI.Sentinel.ClaudeCode.Cli.csproj
+          - src/AI.Sentinel.Copilot.Cli/AI.Sentinel.Copilot.Cli.csproj
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Publish AOT (win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish ${{ matrix.project }} `
+            -c Release `
+            -r win-x64 `
+            -p:PublishAot=true `
+            -o aot-out
+          if ($LASTEXITCODE -ne 0) { throw "Publish failed" }
+
+      - name: Verify native binary produced
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem aot-out -Filter "*.exe" |
+                 Where-Object { $_.Name -notlike "createdump*" } |
+                 Select-Object -First 1
+          if (-not $exe) {
+            Write-Error "No native .exe produced in aot-out/"
+            Get-ChildItem aot-out
+            exit 1
+          }
+          $sizeMb = [math]::Round($exe.Length / 1MB, 2)
+          Write-Host "Native binary: $($exe.Name) ($sizeMb MB)"
+          if ($sizeMb -gt 20) {
+            Write-Warning "Binary is unexpectedly large ($sizeMb MB > 20 MB threshold)"
+          }
+
+      - name: Smoke test
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem aot-out -Filter "*.exe" |
+                 Where-Object { $_.Name -notlike "createdump*" } |
+                 Select-Object -First 1
+          # Claude CLI uses underscore session_id, Copilot uses camelCase sessionId —
+          # both accept either form without failing parse, and the event argument
+          # flavor differs too. Use event=user-prompt-submit for Claude, fall back
+          # to user-prompt-submitted on exit 1 for Copilot.
+          $payload = '{"session_id":"ci","sessionId":"ci","prompt":"hello"}'
+          $out = $payload | & $exe.FullName user-prompt-submit 2>&1
+          $code = $LASTEXITCODE
+          if ($code -eq 1) {
+            $out = $payload | & $exe.FullName user-prompt-submitted 2>&1
+            $code = $LASTEXITCODE
+          }
+          Write-Host "Exit: $code; stdout: $out"
+          if ($code -ne 0) {
+            Write-Error "Native binary smoke test failed (exit $code)"
+            exit 1
+          }
