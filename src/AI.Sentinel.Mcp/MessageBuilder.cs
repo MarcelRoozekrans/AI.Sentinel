@@ -39,9 +39,8 @@ internal static class MessageBuilder
     }
 
     public static ChatMessage[] BuildPromptGetResponse(
-        GetPromptRequestParams req, GetPromptResult result, int maxScanBytes)
+        GetPromptResult result, int maxScanBytes)
     {
-        _ = req;
         var flattened = FlattenPromptMessages(result.Messages, maxScanBytes);
         if (string.IsNullOrEmpty(flattened))
         {

@@ -100,7 +100,6 @@ public class MessageBuilderTests
     [Fact]
     public void BuildPromptGetResponse_ConcatenatesAllMessagesAsAssistantRole()
     {
-        var req = new GetPromptRequestParams { Name = "onboard" };
         var result = new GetPromptResult
         {
             Messages =
@@ -118,11 +117,28 @@ public class MessageBuilderTests
             ],
         };
 
-        var messages = MessageBuilder.BuildPromptGetResponse(req, result, maxScanBytes: 1024);
+        var messages = MessageBuilder.BuildPromptGetResponse(result, maxScanBytes: 1024);
 
         var single = Assert.Single(messages);
         Assert.Equal(ChatRole.Assistant, single.Role);
         Assert.Contains("hello", single.Text, StringComparison.Ordinal);
         Assert.Contains("world", single.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildToolCallResponse_TextExactlyAtLimit_NotTruncated()
+    {
+        var req = new CallToolRequestParams { Name = "read_exact" };
+        var exactText = new string('x', 1024);   // exactly maxScanBytes
+        var result = new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = exactText }],
+        };
+
+        var messages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes: 1024);
+
+        Assert.Equal(2, messages.Length);
+        Assert.DoesNotContain("[truncated", messages[1].Text, StringComparison.Ordinal);
+        Assert.Contains(exactText, messages[1].Text, StringComparison.Ordinal);
     }
 }
