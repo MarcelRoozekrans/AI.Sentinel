@@ -78,6 +78,10 @@ public static class McpProxy
                 {
                     ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr),
                 },
+                GetPromptFilters =
+                {
+                    PromptGetInterceptor.Create(pipeline, maxScanBytes, stderr),
+                },
             },
         },
     };
