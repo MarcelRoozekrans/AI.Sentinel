@@ -64,6 +64,27 @@ public class ExtendedSecurityDetectorTests
         Assert.True(r.Severity >= Severity.Medium);
     }
 
+    [Fact] public async Task ExcessiveAgency_NeutralResponse_Clean()
+    {
+        var r = await new ExcessiveAgencyDetector().AnalyzeAsync(
+            Ctx("Here is the code you requested. Let me know if you need changes."), default);
+        Assert.True(r.IsClean);
+    }
+
+    [Fact] public async Task ExcessiveAgency_SoftVerb_Medium()
+    {
+        var r = await new ExcessiveAgencyDetector().AnalyzeAsync(
+            Ctx("I have written the configuration file to disk as requested."), default);
+        Assert.Equal(Severity.Medium, r.Severity);
+    }
+
+    [Fact] public async Task ExcessiveAgency_DestructiveVerb_High()
+    {
+        var r = await new ExcessiveAgencyDetector().AnalyzeAsync(
+            Ctx("I have deleted the old configuration files to clean up the workspace."), default);
+        Assert.Equal(Severity.High, r.Severity);
+    }
+
     [Fact] public async Task AllStubDetectors_DoNotThrow()
     {
         IDetector[] stubs = [
