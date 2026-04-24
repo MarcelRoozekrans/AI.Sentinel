@@ -1,6 +1,6 @@
 # AI.Sentinel
 
-Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 45 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 54 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
 ---
 
@@ -22,7 +22,7 @@ It scans both directions on every call. If something looks wrong it can quaranti
 
 | Package | Description |
 |---|---|
-| `AI.Sentinel` | Core — pipeline, 45 detectors, intervention engine, audit store |
+| `AI.Sentinel` | Core — pipeline, 54 detectors, intervention engine, audit store |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
 | `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
@@ -102,7 +102,7 @@ IChatClient.GetResponseAsync(messages)
 
 ---
 
-## Detectors (45)
+## Detectors (54)
 
 Detectors run in two modes:
 
