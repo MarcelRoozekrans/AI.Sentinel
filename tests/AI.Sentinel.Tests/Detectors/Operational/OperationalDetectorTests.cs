@@ -114,4 +114,38 @@ public class OperationalDetectorTests
             Ctx("The answer is 42."), default);
         Assert.True(r.IsClean);
     }
+
+    // OPS-10: WaitingForContextDetector
+    [Fact] public async Task WaitingForContext_ShortUserMsg_Clean()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User,      "Help"),
+            new(ChatRole.Assistant, "Could you clarify what you need help with?"),
+        };
+        var r = await new WaitingForContextDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.IsClean);
+    }
+
+    [Fact] public async Task WaitingForContext_LongUserSelfContained_Low()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User,      "Please write me a complete C# class that implements a binary search tree with insert, delete, and find methods including unit tests."),
+            new(ChatRole.Assistant, "Could you please provide more details about what you need?"),
+        };
+        var r = await new WaitingForContextDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.Severity >= Severity.Low);
+    }
+
+    [Fact] public async Task WaitingForContext_MultipleStalls_Medium()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User,      "Please write me a complete C# class that implements a binary search tree with insert, delete, and find methods including unit tests."),
+            new(ChatRole.Assistant, "Could you clarify what you need? Please provide more information. Could you specify the requirements?"),
+        };
+        var r = await new WaitingForContextDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.Severity >= Severity.Medium);
+    }
 }
