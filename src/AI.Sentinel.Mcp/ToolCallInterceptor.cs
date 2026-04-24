@@ -39,13 +39,13 @@ internal static class ToolCallInterceptor
             "missing tool call parameters", McpErrorCode.InvalidParams);
 
         var requestMessages = MessageBuilder.BuildToolCallRequest(req);
-        var preError = await ScanSafelyAsync(pipeline, requestMessages, stderr, phase: "pre", ct).ConfigureAwait(false);
+        var preError = await ScanSafelyAsync(pipeline, requestMessages, stderr, phase: "request", ct).ConfigureAwait(false);
         await BlockIfThreatAsync(preError, req.Name, stderr, phase: "request").ConfigureAwait(false);
 
         var result = await next(ctx, ct).ConfigureAwait(false);
 
         var responseMessages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes);
-        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "post", ct).ConfigureAwait(false);
+        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", ct).ConfigureAwait(false);
         await BlockIfThreatAsync(postError, req.Name, stderr, phase: "response").ConfigureAwait(false);
 
         await stderr.WriteLineAsync(
