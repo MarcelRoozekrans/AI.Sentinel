@@ -115,6 +115,13 @@ public class OperationalDetectorTests
         Assert.True(r.IsClean);
     }
 
+    [Fact] public async Task TruncatedOutput_Ellipsis_Low()
+    {
+        var r = await new TruncatedOutputDetector().AnalyzeAsync(
+            Ctx("The model was processing the request..."), default);
+        Assert.Equal(Severity.Low, r.Severity);
+    }
+
     // OPS-10: WaitingForContextDetector
     [Fact] public async Task WaitingForContext_ShortUserMsg_Clean()
     {
@@ -181,5 +188,26 @@ public class OperationalDetectorTests
         };
         var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
         Assert.True(r.Severity >= Severity.Medium);
+    }
+
+    [Fact] public async Task UnboundedConsumption_ExtremeResponse_High()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User,      "Summarize this."),
+            new(ChatRole.Assistant, new string('a', 51_000)),
+        };
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.Severity >= Severity.High);
+    }
+
+    [Fact] public async Task UnboundedConsumption_NoUserMessage_Clean()
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, "The capital of France is Paris."),
+        };
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.IsClean);
     }
 }

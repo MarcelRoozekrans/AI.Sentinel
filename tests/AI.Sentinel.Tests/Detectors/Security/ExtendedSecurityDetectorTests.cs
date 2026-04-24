@@ -64,6 +64,24 @@ public class ExtendedSecurityDetectorTests
         Assert.True(r.Severity >= Severity.Medium);
     }
 
+    [Fact] public async Task ToolCallFrequency_ModerateCalls_Low()
+    {
+        var messages = Enumerable.Range(0, 7)
+            .Select(_ => new ChatMessage(ChatRole.Tool, "result"))
+            .ToList();
+        var r = await new ToolCallFrequencyDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.Equal(Severity.Low, r.Severity);
+    }
+
+    [Fact] public async Task ToolCallFrequency_HighVolume_High()
+    {
+        var messages = Enumerable.Range(0, 22)
+            .Select(_ => new ChatMessage(ChatRole.Tool, "result"))
+            .ToList();
+        var r = await new ToolCallFrequencyDetector().AnalyzeAsync(CtxMessages(messages), default);
+        Assert.True(r.Severity >= Severity.High);
+    }
+
     [Fact] public async Task ExcessiveAgency_NeutralResponse_Clean()
     {
         var r = await new ExcessiveAgencyDetector().AnalyzeAsync(
