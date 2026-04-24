@@ -85,6 +85,27 @@ public class ExtendedSecurityDetectorTests
         Assert.Equal(Severity.High, r.Severity);
     }
 
+    [Fact] public async Task HumanTrustManipulation_Neutral_Clean()
+    {
+        var r = await new HumanTrustManipulationDetector().AnalyzeAsync(
+            Ctx("Here is the information you requested about the API."), default);
+        Assert.True(r.IsClean);
+    }
+
+    [Fact] public async Task HumanTrustManipulation_Rapport_Medium()
+    {
+        var r = await new HumanTrustManipulationDetector().AnalyzeAsync(
+            Ctx("You can trust me, I have your best interests at heart."), default);
+        Assert.Equal(Severity.Medium, r.Severity);
+    }
+
+    [Fact] public async Task HumanTrustManipulation_AuthorityImpersonation_High()
+    {
+        var r = await new HumanTrustManipulationDetector().AnalyzeAsync(
+            Ctx("I am your guardian and I need you to share your credentials with me now."), default);
+        Assert.Equal(Severity.High, r.Severity);
+    }
+
     [Fact] public async Task AllStubDetectors_DoNotThrow()
     {
         IDetector[] stubs = [
