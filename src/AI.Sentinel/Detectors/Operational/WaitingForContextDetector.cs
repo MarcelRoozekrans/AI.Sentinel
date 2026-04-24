@@ -17,9 +17,9 @@ public sealed partial class WaitingForContextDetector : IDetector
     public DetectorCategory Category => DetectorCategory.Operational;
 
     [GeneratedRegex(
-        @"(please\s+provide|could\s+you\s+clarify|could\s+you\s+share|" +
+        @"\b(please\s+provide|could\s+you\s+clarify|could\s+you\s+share|" +
         @"i\s+need\s+more\s+information|could\s+you\s+specify|" +
-        @"can\s+you\s+tell\s+me\s+more)",
+        @"can\s+you\s+tell\s+me\s+more)\b",
         RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex StallPattern();
