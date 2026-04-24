@@ -93,4 +93,25 @@ public class OperationalDetectorTests
         var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), default);
         Assert.Equal(Severity.None, r.Severity);
     }
+
+    [Fact] public async Task TruncatedOutput_MidSentence_Medium()
+    {
+        var r = await new TruncatedOutputDetector().AnalyzeAsync(
+            Ctx("The model was running fine then it suddenly"), default);
+        Assert.True(r.Severity >= Severity.Medium);
+    }
+
+    [Fact] public async Task TruncatedOutput_OpenCodeFence_Low()
+    {
+        var r = await new TruncatedOutputDetector().AnalyzeAsync(
+            Ctx("Here is the code:\n```csharp\nvar x = 1;"), default);
+        Assert.Equal(Severity.Low, r.Severity);
+    }
+
+    [Fact] public async Task TruncatedOutput_CompleteResponse_Clean()
+    {
+        var r = await new TruncatedOutputDetector().AnalyzeAsync(
+            Ctx("The answer is 42."), default);
+        Assert.True(r.IsClean);
+    }
 }
