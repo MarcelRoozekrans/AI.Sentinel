@@ -19,6 +19,8 @@ public sealed class TruncatedOutputDetector : IDetector
         if (text.Length == 0) return ValueTask.FromResult(_clean);
 
         var fenceCount = CountOccurrences(text, "```");
+        // OPS-03 (IncompleteCodeBlockDetector) also fires on odd fence counts at Medium;
+        // OPS-09 fires at Low because the framing here is truncation, not malformed code.
         if (fenceCount % 2 != 0)
             return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Low,
                 "Unclosed code fence — response may be truncated"));
