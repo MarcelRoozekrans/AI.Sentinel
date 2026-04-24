@@ -13,8 +13,10 @@ namespace AI.Sentinel.Mcp;
 /// </summary>
 /// <remarks>
 /// Forward-only in v1 Task 6: every <c>tools/list</c>, <c>tools/call</c>,
-/// <c>prompts/list</c>, <c>prompts/get</c>, <c>resources/list</c>, and
-/// <c>resources/read</c> request is forwarded to the upstream client verbatim.
+/// <c>prompts/list</c>, and <c>prompts/get</c> request is forwarded to the
+/// upstream client verbatim. Resources (<c>resources/list</c>,
+/// <c>resources/read</c>) are deferred to v2 — the proxy does not advertise
+/// the capability, so the SDK replies with <c>MethodNotFound</c> (-32601).
 /// Sentinel filters land in Tasks 7 and 8.
 /// </remarks>
 public static class McpProxy
@@ -61,9 +63,8 @@ public static class McpProxy
         ServerInfo = new Implementation { Name = "sentinel-mcp", Version = "0.1.0" },
         Capabilities = new ServerCapabilities
         {
-            Tools     = new ToolsCapability(),
-            Prompts   = new PromptsCapability(),
-            Resources = new ResourcesCapability(),
+            Tools   = new ToolsCapability(),
+            Prompts = new PromptsCapability(),
         },
         Handlers = BuildForwardingHandlers(targetClient),
     };
@@ -93,17 +94,6 @@ public static class McpProxy
             var prompts = await targetClient.ListPromptsAsync(cancellationToken: c).ConfigureAwait(false);
             return new ListPromptsResult { Prompts = prompts.Select(p => p.ProtocolPrompt).ToList() };
         },
-
-        ListResourcesHandler = async (req, c) =>
-        {
-            var resources = await targetClient.ListResourcesAsync(cancellationToken: c).ConfigureAwait(false);
-            return new ListResourcesResult { Resources = resources.Select(r => r.ProtocolResource).ToList() };
-        },
-
-        ReadResourceHandler = async (req, c) =>
-            await targetClient.ReadResourceAsync(
-                uri: req.Params!.Uri,
-                cancellationToken: c).ConfigureAwait(false),
     };
 
     private static Dictionary<string, object?> ToObjectDictionary(
