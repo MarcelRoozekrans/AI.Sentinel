@@ -28,11 +28,13 @@ public static class McpProxy
         HookConfig config,
         McpDetectorPreset preset,
         int maxScanBytes,
+        TextWriter stderr,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(hostTransport);
         ArgumentNullException.ThrowIfNull(targetTransport);
         ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(stderr);
 
         var targetClient = await McpClient.CreateAsync(
             clientTransport: targetTransport,
@@ -41,12 +43,9 @@ public static class McpProxy
             cancellationToken: ct).ConfigureAwait(false);
         await using var _targetDispose = targetClient.ConfigureAwait(false);
 
-        // Pipeline is constructed now so Tasks 7/8 can drop filters on top
-        // without rewiring the handler closure. Unused in forward-only mode.
-        _ = McpPipelineFactory.Create(config, preset);
-        _ = maxScanBytes;
+        var pipeline = McpPipelineFactory.Create(config, preset);
 
-        var serverOptions = BuildServerOptions(targetClient);
+        var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr);
 
         var server = McpServer.Create(
             hostTransport,
@@ -58,7 +57,11 @@ public static class McpProxy
         await server.RunAsync(ct).ConfigureAwait(false);
     }
 
-    private static McpServerOptions BuildServerOptions(McpClient targetClient) => new()
+    private static McpServerOptions BuildServerOptions(
+        McpClient targetClient,
+        SentinelPipeline pipeline,
+        int maxScanBytes,
+        TextWriter stderr) => new()
     {
         ServerInfo = new Implementation { Name = "sentinel-mcp", Version = "0.1.0" },
         Capabilities = new ServerCapabilities
@@ -67,6 +70,16 @@ public static class McpProxy
             Prompts = new PromptsCapability(),
         },
         Handlers = BuildForwardingHandlers(targetClient),
+        Filters  = new McpServerFilters
+        {
+            Request = new McpRequestFilters
+            {
+                CallToolFilters =
+                {
+                    ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr),
+                },
+            },
+        },
     };
 
     private static McpServerHandlers BuildForwardingHandlers(McpClient targetClient) => new()
