@@ -37,11 +37,14 @@ public sealed class FakeMcpServer : IAsyncDisposable
     private Pipe? _fromProxy;
     private Pipe? _toProxy;
 
+    private readonly List<CallToolRequestParams> _receivedToolCalls = [];
+    private readonly List<GetPromptRequestParams> _receivedPromptGets = [];
+
     /// <summary>Tool calls the fake server has received, in order.</summary>
-    public IList<CallToolRequestParams> ReceivedToolCalls { get; } = new List<CallToolRequestParams>();
+    public IReadOnlyList<CallToolRequestParams> ReceivedToolCalls => _receivedToolCalls;
 
     /// <summary>Prompt gets the fake server has received, in order.</summary>
-    public IList<GetPromptRequestParams> ReceivedPromptGets { get; } = new List<GetPromptRequestParams>();
+    public IReadOnlyList<GetPromptRequestParams> ReceivedPromptGets => _receivedPromptGets;
 
     /// <summary>Queues a <see cref="CallToolResult"/> to be returned by the next <c>tools/call</c>.</summary>
     public void EnqueueToolResult(CallToolResult result) => _toolResults.Writer.TryWrite(result);
@@ -110,7 +113,7 @@ public sealed class FakeMcpServer : IAsyncDisposable
         RequestContext<CallToolRequestParams> ctx,
         CancellationToken _)
     {
-        ReceivedToolCalls.Add(ctx.Params!);
+        _receivedToolCalls.Add(ctx.Params!);
         if (_toolResults.Reader.TryRead(out var queued))
         {
             return new ValueTask<CallToolResult>(queued);
@@ -134,7 +137,7 @@ public sealed class FakeMcpServer : IAsyncDisposable
         RequestContext<GetPromptRequestParams> ctx,
         CancellationToken _)
     {
-        ReceivedPromptGets.Add(ctx.Params!);
+        _receivedPromptGets.Add(ctx.Params!);
         if (_promptResults.Reader.TryRead(out var queued))
         {
             return new ValueTask<GetPromptResult>(queued);
