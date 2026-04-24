@@ -15,9 +15,8 @@ public sealed partial class ExcessiveAgencyDetector : ILlmEscalatingDetector
     public DetectorCategory Category => DetectorCategory.Security;
 
     [GeneratedRegex(
-        @"\b(i\s+have\s+(written|created|sent|executed|modified|ran|run)|" +
-        @"i\s+(deployed|spawned)|wrote\s+to|uploaded\s+to|" +
-        @"i\s+have\s+(deleted|removed))\b",
+        @"\b(i\s+have\s+(written|created|sent|executed|modified|ran|run|deployed|spawned|deleted|removed)|" +
+        @"i\s+(deployed|spawned)|wrote\s+to|uploaded\s+to)\b",
         RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex AgencyPattern();
