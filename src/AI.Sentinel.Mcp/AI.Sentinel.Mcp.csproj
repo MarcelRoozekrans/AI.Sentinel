@@ -21,4 +21,9 @@
     <ProjectReference Include="..\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" />
     <PackageReference Include="ModelContextProtocol" Version="1.2.*" />
   </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>AI.Sentinel.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
 </Project>
