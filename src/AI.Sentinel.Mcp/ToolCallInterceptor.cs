@@ -38,7 +38,7 @@ internal static class ToolCallInterceptor
         var req = ctx.Params ?? throw new McpProtocolException(
             "missing tool call parameters", McpErrorCode.InvalidParams);
 
-        var requestMessages = MessageBuilder.BuildToolCallRequest(req);
+        var requestMessages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes);
         var preError = await ScanSafelyAsync(pipeline, requestMessages, stderr, phase: "request", ct).ConfigureAwait(false);
         await BlockIfThreatAsync(preError, req.Name, stderr, phase: "request").ConfigureAwait(false);
 

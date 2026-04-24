@@ -22,12 +22,32 @@ public class MessageBuilderTests
             },
         };
 
-        var messages = MessageBuilder.BuildToolCallRequest(req);
+        var messages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes: 1024);
 
         var msg = Assert.Single(messages);
         Assert.Equal(ChatRole.User, msg.Role);
         Assert.Contains("tool:read_file", msg.Text, StringComparison.Ordinal);
         Assert.Contains("/tmp/hello.txt", msg.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildToolCallRequest_OversizeArguments_Truncates()
+    {
+        var longValue = new string('x', 4096);
+        var req = new CallToolRequestParams
+        {
+            Name = "write_huge",
+            Arguments = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            {
+                ["content"] = JsonDocument.Parse($"\"{longValue}\"").RootElement,
+            },
+        };
+
+        var messages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes: 256);
+
+        var msg = Assert.Single(messages);
+        Assert.Contains("[truncated", msg.Text, StringComparison.Ordinal);
+        Assert.True(msg.Text.Length < 4096);
     }
 
     [Fact]
