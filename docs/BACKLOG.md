@@ -60,7 +60,10 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 
 | Feature | Description |
 |---|---|
-| **MCP proxy adapter** | `AI.Sentinel.Mcp` — stdio proxy that wraps another MCP server and scans `tools/call` in both directions. Works with Cursor, Continue, Cline, Windsurf, and Copilot's MCP path. **Scaffolded**: csproj + `ProxyTargetSpec` exist; full bidirectional bridge via `McpMessageFilter` + request/response interception + `FakeMcpServer` test harness + `sentinel-mcp proxy` CLI are pending. Design + plan: `docs/plans/2026-04-23-claude-code-mcp-adapters-design.md` and `docs/plans/2026-04-23-claude-code-mcp-adapters.md` (Tasks 7-10). |
+| **MCP proxy: `resources/read` interception** | v1 proxy intercepts `tools/call` + `prompts/get` only. `resources/read` is the next content-bearing path and a real indirect-injection vector (file content read by the model). Needs a MIME gate (skip non-text), a size cap, and likely detector tuning for file-content signal-to-noise — worth its own focused session. |
+| **MCP proxy: SSE/HTTP transports** | v1 is stdio only. `ModelContextProtocol` supports `StreamableHttpClientTransport` and SSE; adding them lets the proxy sit in front of hosted MCP servers. |
+| **MCP proxy: subprocess lifecycle hardening** | `StdioClientTransport` disposal relies on the target honoring stdin EOF. If the target hangs, the proxy leaks the child process. Add a kill-after-grace-period wrapper plus `SENTINEL_MCP_TIMEOUT_SEC` env var. |
+| **MCP proxy: CLI flags for severity config** | v1 ships env-var-only config. Optional `--on-critical Block` / `--on-high Block` etc. CLI flags would match conventional CLI ergonomics. Not urgent — MCP hosts' `env` blocks work fine. |
 | **Multi-agent spawn-chain tracking** | Propagate a `TraceId` through nested `SentinelChatClient` instances so the audit store records a parent→child call graph. Enables cross-agent contradiction and uncertainty propagation detection. |
 | **Session behavioral signatures** | Derive a compact fingerprint per session (tool call distribution, message length variance, vocabulary entropy) for anomaly scoring against a rolling baseline |
 | **Persistent audit store** | Pluggable `IAuditStore` interface backed by SQLite, Postgres, or any sink — in-memory ring buffer remains the default, no breaking change |

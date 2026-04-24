@@ -27,6 +27,7 @@ It scans both directions on every call. If something looks wrong it can quaranti
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
 | `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
 | `AI.Sentinel.Copilot` / `AI.Sentinel.Copilot.Cli` | GitHub Copilot native hook adapter — wire into `hooks.json` to scan userPromptSubmitted, preToolUse, postToolUse |
+| `AI.Sentinel.Mcp` / `AI.Sentinel.Mcp.Cli` | `dotnet tool install AI.Sentinel.Mcp.Cli` — stdio MCP proxy that scans `tools/call` + `prompts/get` for any MCP-speaking host (Cursor, Continue, Cline, Windsurf, Copilot) |
 
 ```
 dotnet add package AI.Sentinel
@@ -364,6 +365,42 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
 }
 ```
 
+### MCP proxy
+
+For any MCP-speaking agent (Cursor, Continue, Cline, Windsurf, Copilot's MCP path), install the proxy and point your MCP host at it instead of at the target server directly:
+
+```
+dotnet tool install -g AI.Sentinel.Mcp.Cli
+```
+
+Example entry in your MCP host config (`mcpServers` block or equivalent):
+
+```json
+{
+  "mcpServers": {
+    "filesystem-guarded": {
+      "command": "sentinel-mcp",
+      "args": ["proxy", "--target", "uvx", "mcp-server-filesystem", "/home/me"],
+      "env": {
+        "SENTINEL_HOOK_ON_CRITICAL": "Block",
+        "SENTINEL_MCP_DETECTORS": "security"
+      }
+    }
+  }
+}
+```
+
+The proxy spawns the target command as a subprocess, intercepts `tools/call` and `prompts/get`, scans through the Sentinel detector pipeline, and blocks threats with a JSON-RPC error to the host.
+
+**Additional env vars (beyond the shared `SENTINEL_HOOK_ON_*` table above):**
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_MCP_DETECTORS` | `security` | `security` (9 regex security detectors) or `all` (every detector — higher false-positive rate on structured data) |
+| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Truncation cap on tool-result text passed to the detector pipeline. Full content still forwarded to the host. |
+
+**Lifecycle note:** the proxy's subprocess cleanup relies on the target honoring stdin EOF on dispose. If your target server hangs rather than exiting on EOF, the MCP host's own timeout/kill policy is your second line of defence. Future work: explicit kill-after-grace-period (tracked in BACKLOG).
+
 ### Severity → action mapping
 
 Both adapters share the same env-var contract — configure once, applies to both:
@@ -404,8 +441,6 @@ Replace `win-x64` with `linux-x64`, `osx-arm64`, etc. Output lands under `bin/Re
 ### Programmatic use
 
 The underlying libraries (`AI.Sentinel.ClaudeCode` and `AI.Sentinel.Copilot`) expose `HookAdapter` / `CopilotHookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Reference the library packages (not the `.Cli` tool packages) to write your own host integration in C#.
-
-> **MCP (Model Context Protocol) proxy is on the roadmap** — scaffolded as `AI.Sentinel.Mcp` but not yet implemented. Cursor, Continue, Cline, and Windsurf users can track its progress in the backlog.
 
 ---
 

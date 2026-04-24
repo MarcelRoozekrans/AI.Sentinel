@@ -17,6 +17,8 @@ on:
       - "src/AI.Sentinel.ClaudeCode.Cli/**"
       - "src/AI.Sentinel.Copilot/**"
       - "src/AI.Sentinel.Copilot.Cli/**"
+      - "src/AI.Sentinel.Mcp/**"
+      - "src/AI.Sentinel.Mcp.Cli/**"
       - "Directory.Build.props"
       - "global.json"
       - ".github/workflows/aot-publish.yml"
@@ -27,6 +29,8 @@ on:
       - "src/AI.Sentinel.ClaudeCode.Cli/**"
       - "src/AI.Sentinel.Copilot/**"
       - "src/AI.Sentinel.Copilot.Cli/**"
+      - "src/AI.Sentinel.Mcp/**"
+      - "src/AI.Sentinel.Mcp.Cli/**"
       - "Directory.Build.props"
       - "global.json"
       - ".github/workflows/aot-publish.yml"
@@ -39,6 +43,7 @@ jobs:
         project:
           - src/AI.Sentinel.ClaudeCode.Cli/AI.Sentinel.ClaudeCode.Cli.csproj
           - src/AI.Sentinel.Copilot.Cli/AI.Sentinel.Copilot.Cli.csproj
+          - src/AI.Sentinel.Mcp.Cli/AI.Sentinel.Mcp.Cli.csproj
       fail-fast: false
 
     steps:
@@ -82,19 +87,22 @@ jobs:
           $exe = Get-ChildItem aot-out -Filter "*.exe" |
                  Where-Object { $_.Name -notlike "createdump*" } |
                  Select-Object -First 1
-          # Claude CLI uses underscore session_id, Copilot uses camelCase sessionId —
-          # both accept either form without failing parse, and the event argument
-          # flavor differs too. Use event=user-prompt-submit for Claude, fall back
-          # to user-prompt-submitted on exit 1 for Copilot.
-          $payload = '{"session_id":"ci","sessionId":"ci","prompt":"hello"}'
-          $out = $payload | & $exe.FullName user-prompt-submit 2>&1
-          $code = $LASTEXITCODE
-          if ($code -eq 1) {
-            $out = $payload | & $exe.FullName user-prompt-submitted 2>&1
+          if ($exe.Name -like "*Mcp*") {
+            # MCP CLI: invoke with no args, expect exit 1 + Usage on stderr.
+            $out = & $exe.FullName 2>&1
             $code = $LASTEXITCODE
-          }
-          Write-Host "Exit: $code; stdout: $out"
-          if ($code -ne 0) {
-            Write-Error "Native binary smoke test failed (exit $code)"
-            exit 1
+            Write-Host "Exit: $code; output: $out"
+            if ($code -ne 1) { Write-Error "MCP binary did not exit 1 with no args"; exit 1 }
+            if ($out -notmatch "Usage") { Write-Error "Expected 'Usage' in stderr"; exit 1 }
+          } else {
+            # Hook CLIs: pipe JSON, try user-prompt-submit then user-prompt-submitted
+            $payload = '{"session_id":"ci","sessionId":"ci","prompt":"hello"}'
+            $out = $payload | & $exe.FullName user-prompt-submit 2>&1
+            $code = $LASTEXITCODE
+            if ($code -eq 1) {
+              $out = $payload | & $exe.FullName user-prompt-submitted 2>&1
+              $code = $LASTEXITCODE
+            }
+            Write-Host "Exit: $code; stdout: $out"
+            if ($code -ne 0) { Write-Error "Native binary smoke test failed (exit $code)"; exit 1 }
           }
