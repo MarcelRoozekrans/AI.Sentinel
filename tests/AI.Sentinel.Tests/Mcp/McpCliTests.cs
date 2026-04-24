@@ -31,4 +31,17 @@ public class McpCliTests
         Assert.Equal(1, exit);
         Assert.Contains("Usage", stderr.ToString(), StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task ProxyWithoutTarget_ExitsOneWithUsage()
+    {
+        var stdin = new StringReader("");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await Program.RunAsync(new[] { "proxy" }, stdin, stdout, stderr);
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--target", stderr.ToString(), StringComparison.Ordinal);
+    }
 }

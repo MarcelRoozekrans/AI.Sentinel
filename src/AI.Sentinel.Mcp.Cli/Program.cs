@@ -10,12 +10,25 @@ public static class Program
     {
         if (args.Length < 1 || !string.Equals(args[0], "proxy", StringComparison.Ordinal))
         {
-            await stderr.WriteLineAsync("Usage: sentinel-mcp proxy --target <command> [<target-args>...]").ConfigureAwait(false);
+            await stderr.WriteLineAsync(
+                "Usage: sentinel-mcp proxy --target <command> [<target-args>...]"
+            ).ConfigureAwait(false);
             return 1;
         }
 
-        // Proxy execution lands in Task 10.
-        await stderr.WriteLineAsync("proxy subcommand not yet implemented").ConfigureAwait(false);
-        return 1;
+        using var cts = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+
+        try
+        {
+            return await ProxyCommand.RunAsync(args, stdin, stdout, stderr, cts.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await stderr.WriteLineAsync(
+                $"sentinel-mcp: internal error: {ex.GetType().Name}: {ex.Message}"
+            ).ConfigureAwait(false);
+            return 1;
+        }
     }
 }
