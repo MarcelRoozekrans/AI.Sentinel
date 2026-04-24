@@ -16,6 +16,7 @@
     <ProjectReference Include="..\..\src\AI.Sentinel.ClaudeCode.Cli\AI.Sentinel.ClaudeCode.Cli.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Copilot\AI.Sentinel.Copilot.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Copilot.Cli\AI.Sentinel.Copilot.Cli.csproj" />
+    <ProjectReference Include="..\..\src\AI.Sentinel.Mcp\AI.Sentinel.Mcp.csproj" />
     <PackageReference Include="xunit" Version="2.*" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
@@ -23,8 +24,8 @@
     <PackageReference Include="ZeroAlloc.Serialisation" Version="1.4.*" />
     <PackageReference Include="ZeroAlloc.Serialisation.SystemTextJson" Version="1.4.*" />
     <PackageReference Include="ZeroAlloc.Serialisation.Generator" Version="1.4.*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GeneratePathProperty="true" />
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="9.*" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="9.*" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="10.*" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.*" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="8.*" Condition="'$(TargetFramework)' == 'net8.0'" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.*" Condition="'$(TargetFramework)' == 'net10.0'" />
