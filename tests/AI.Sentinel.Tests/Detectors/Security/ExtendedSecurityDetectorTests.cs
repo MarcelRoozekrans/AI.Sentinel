@@ -33,6 +33,13 @@ public class ExtendedSecurityDetectorTests
     [Fact] public async Task ToolPoisoning_CleanText_NotDetected() =>
         Assert.Equal(Severity.None, (await new ToolPoisoningDetector().AnalyzeAsync(Ctx("What tools do you have?"), default)).Severity);
 
+    [Fact] public async Task ToolDescriptionDivergence_ReturnsClean()
+    {
+        var r = await new ToolDescriptionDivergenceDetector().AnalyzeAsync(
+            Ctx("Normal response with no tool description changes"), default);
+        Assert.Equal(Severity.None, r.Severity);
+    }
+
     [Fact] public async Task AllStubDetectors_DoNotThrow()
     {
         IDetector[] stubs = [
@@ -48,6 +55,7 @@ public class ExtendedSecurityDetectorTests
             new GovernanceGapDetector(),
             new SupplyChainPoisoningDetector(),
             new RefusalBypassDetector(),
+            new ToolDescriptionDivergenceDetector(),
         ];
         foreach (var d in stubs)
         {
