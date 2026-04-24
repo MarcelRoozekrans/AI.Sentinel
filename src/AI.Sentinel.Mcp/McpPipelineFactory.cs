@@ -65,7 +65,7 @@ internal static class McpPipelineFactory
         new CovertChannelDetector(),
     ];
 
-    // 45 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
+    // 54 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
     // source-gen. Keep these in sync whenever a new detector is decorated with
     // [Singleton(As = typeof(IDetector), AllowMultiple = true)]. The drift-
     // detection test BuildAllDetectors_CountMatchesRegisteredIDetectorCount
@@ -74,7 +74,7 @@ internal static class McpPipelineFactory
 
     internal static IDetector[] BuildAllDetectors(SentinelOptions options) =>
     [
-        // Security (25)
+        // Security (28)
         new PromptInjectionDetector(),
         new JailbreakDetector(),
         new CredentialExposureDetector(),
@@ -100,7 +100,12 @@ internal static class McpPipelineFactory
         new PromptTemplateLeakageDetector(),
         new RefusalBypassDetector(),
         new SystemPromptLeakageDetector(),
-        // Hallucination (8)
+        new ToolDescriptionDivergenceDetector(),
+        new ToolCallFrequencyDetector(),
+        new ExcessiveAgencyDetector(),
+        new HumanTrustManipulationDetector(),
+        new ShorthandEmergenceDetector(),
+        // Hallucination (9)
         new PhantomCitationDetector(),
         new SelfConsistencyDetector(),
         new SourceGroundingDetector(),
@@ -109,7 +114,8 @@ internal static class McpPipelineFactory
         new GroundlessStatisticDetector(),
         new IntraSessionContradictionDetector(),
         new StaleKnowledgeDetector(),
-        // Operational (12)
+        new UncertaintyPropagationDetector(),
+        // Operational (15)
         new BlankResponseDetector(),
         new RepetitionLoopDetector(),
         new ContextCollapseDetector(),
@@ -122,6 +128,9 @@ internal static class McpPipelineFactory
         new SemanticRepetitionDetector(),
         new SycophancyDetector(),
         new WrongLanguageDetector(),
+        new TruncatedOutputDetector(),
+        new UnboundedConsumptionDetector(),
+        new WaitingForContextDetector(),
     ];
 
     // IChatClient satisfying SentinelPipeline's signature. Never invoked because
