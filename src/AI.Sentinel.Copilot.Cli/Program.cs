@@ -62,7 +62,7 @@ public static class Program
             .Cast<System.Collections.DictionaryEntry>()
             .Where(e => e.Key is string key && key.StartsWith("SENTINEL_HOOK_", StringComparison.Ordinal))
             .ToDictionary(e => (string)e.Key, e => e.Value as string, StringComparer.Ordinal);
-        var config = HookConfig.FromEnvironment(envVars);
+        var config = CopilotHookConfig.FromEnvironment(envVars);
 
         var services = new ServiceCollection();
         services.AddAISentinel(opts =>
