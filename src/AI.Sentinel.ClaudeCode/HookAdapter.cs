@@ -15,6 +15,9 @@ namespace AI.Sentinel.ClaudeCode;
 /// </summary>
 public sealed class HookAdapter
 {
+    // Static cache: parsed once at type init, kept alive for the process. Avoids per-call JsonDocument allocation.
+    private static readonly JsonElement EmptyJsonObject = JsonDocument.Parse("{}").RootElement;
+
     private readonly IServiceProvider _provider;
     private readonly HookConfig _config;
     private readonly IToolCallGuard? _guard;
@@ -60,7 +63,7 @@ public sealed class HookAdapter
         if (evt == HookEvent.PreToolUse && _guard is not null && !string.IsNullOrEmpty(input.ToolName))
         {
             var caller = _config.CallerContextProvider?.Invoke(input) ?? AnonymousSecurityContext.Instance;
-            var args = input.ToolInput ?? JsonDocument.Parse("{}").RootElement;
+            var args = input.ToolInput ?? EmptyJsonObject;
             var decision = await _guard.AuthorizeAsync(caller, input.ToolName, args, ct).ConfigureAwait(false);
             if (!decision.Allowed)
             {
@@ -78,7 +81,7 @@ public sealed class HookAdapter
                     await _audit.AppendAsync(entry, ct).ConfigureAwait(false);
                 }
 
-                var reason = $"Authorization denied by policy '{decision.PolicyName}': {decision.Reason}";
+                var reason = $"Authorization denied by policy '{decision.PolicyName ?? "?"}': {decision.Reason ?? "?"}";
                 return new HookOutput(HookDecision.Block, reason);
             }
         }
