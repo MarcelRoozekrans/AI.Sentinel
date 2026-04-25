@@ -19,6 +19,18 @@ internal static class McpPipelineFactory
 {
     public static SentinelPipeline Create(HookConfig config, McpDetectorPreset preset,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
+        => Create(config, preset, embeddingGenerator, out _);
+
+    /// <summary>
+    /// Same as <see cref="Create(HookConfig, McpDetectorPreset, IEmbeddingGenerator{string, Embedding{float}}?)"/>
+    /// but also exposes the underlying <see cref="IAuditStore"/> so the proxy can route
+    /// out-of-band entries (e.g. authorization denials) to the same ring buffer.
+    /// </summary>
+    public static SentinelPipeline Create(
+        HookConfig config,
+        McpDetectorPreset preset,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
+        out IAuditStore auditStore)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -37,10 +49,13 @@ internal static class McpPipelineFactory
             _                     => BuildSecurityDetectors(options),
         };
 
+        var ringBuffer = new RingBufferAuditStore(capacity: 1024);
+        auditStore = ringBuffer;
+
         return new SentinelPipeline(
             innerClient:        UnusedChatClient.Instance,
             pipeline:           new DetectionPipeline(detectors, escalationClient: null),
-            auditStore:         new RingBufferAuditStore(capacity: 1024),
+            auditStore:         ringBuffer,
             interventionEngine: new InterventionEngine(options, mediator: null),
             options:            options);
     }

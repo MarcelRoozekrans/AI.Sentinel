@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.AI;
+using AI.Sentinel.Audit;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Client;
@@ -18,11 +20,24 @@ namespace AI.Sentinel.Mcp;
 /// upstream client verbatim. Resources (<c>resources/list</c>,
 /// <c>resources/read</c>) are deferred to v2 — the proxy does not advertise
 /// the capability, so the SDK replies with <c>MethodNotFound</c> (-32601).
-/// Sentinel filters land in Tasks 7 and 8.
+/// Sentinel filters land in Tasks 7 and 8. When an
+/// <see cref="IToolCallGuard"/> is supplied via the <paramref name="guard"/>
+/// parameter on <see cref="RunAsync"/>, an authorization gate runs before the
+/// detection pipeline on every <c>tools/call</c>.
 /// </remarks>
 public static class McpProxy
 {
     /// <summary>Runs the proxy until <paramref name="ct"/> is cancelled or the host transport closes.</summary>
+    /// <param name="hostTransport">Transport facing the MCP host (typically stdio).</param>
+    /// <param name="targetTransport">Transport facing the upstream MCP target server.</param>
+    /// <param name="config">Severity-to-action mapping for detector findings.</param>
+    /// <param name="preset">Detector bundle to load.</param>
+    /// <param name="maxScanBytes">Per-request scan budget passed to the message builder.</param>
+    /// <param name="stderr">Writer used for structured proxy log lines.</param>
+    /// <param name="ct">Cancellation token observed by the running server.</param>
+    /// <param name="embeddingGenerator">Optional embedding generator for embedding-aware detectors.</param>
+    /// <param name="guard">Optional authorization guard. When supplied, runs before detection on <c>tools/call</c>.</param>
+    /// <param name="callerResolver">Optional resolver mapping the inbound request to an <see cref="ISecurityContext"/>. Defaults to <see cref="EnvironmentSecurityContext.FromEnvironment"/>.</param>
     public static async Task RunAsync(
         ITransport hostTransport,
         IClientTransport targetTransport,
@@ -31,7 +46,9 @@ public static class McpProxy
         int maxScanBytes,
         TextWriter stderr,
         CancellationToken ct,
-        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
+        IToolCallGuard? guard = null,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver = null)
     {
         ArgumentNullException.ThrowIfNull(hostTransport);
         ArgumentNullException.ThrowIfNull(targetTransport);
@@ -45,9 +62,9 @@ public static class McpProxy
             cancellationToken: ct).ConfigureAwait(false);
         await using var _targetDispose = targetClient.ConfigureAwait(false);
 
-        var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator);
+        var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator, out var auditStore);
 
-        var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr);
+        var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver);
 
         var server = McpServer.Create(
             hostTransport,
@@ -63,7 +80,10 @@ public static class McpProxy
         McpClient targetClient,
         SentinelPipeline pipeline,
         int maxScanBytes,
-        TextWriter stderr) => new()
+        TextWriter stderr,
+        IToolCallGuard? guard,
+        IAuditStore? auditStore,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver) => new()
     {
         ServerInfo = new Implementation { Name = "sentinel-mcp", Version = "0.1.0" },
         Capabilities = new ServerCapabilities
@@ -78,7 +98,7 @@ public static class McpProxy
             {
                 CallToolFilters =
                 {
-                    ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr),
+                    ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver),
                 },
                 GetPromptFilters =
                 {

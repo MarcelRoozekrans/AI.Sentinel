@@ -1,4 +1,9 @@
+using System.Text.Json;
+using AI.Sentinel.Audit;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.Domain;
+using AI.Sentinel.Mcp.Authorization;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -18,25 +23,42 @@ namespace AI.Sentinel.Mcp;
 /// <see cref="McpErrorCode.InternalError"/> so the SDK emits a JSON-RPC error
 /// (plain <see cref="McpException"/> would be swallowed by the tool-call
 /// wrapper into a <see cref="CallToolResult"/> with <c>IsError=true</c>).
+/// When an <see cref="IToolCallGuard"/> is supplied it runs BEFORE the request
+/// pre-scan; deny decisions are written to the optional <see cref="IAuditStore"/>
+/// (when provided) and then surfaced as an <see cref="McpProtocolException"/>.
 /// </remarks>
 internal static class ToolCallInterceptor
 {
+    // Static cache: parsed once at type init, kept alive for the process. Avoids per-call JsonDocument allocation.
+    private static readonly JsonElement EmptyJsonObject = JsonDocument.Parse("{}").RootElement;
+
     public static McpRequestFilter<CallToolRequestParams, CallToolResult> Create(
         SentinelPipeline pipeline,
         int maxScanBytes,
-        TextWriter stderr) =>
-        next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, next, ctx, ct);
+        TextWriter stderr,
+        IToolCallGuard? guard = null,
+        IAuditStore? audit = null,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver = null) =>
+        next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, guard, audit, callerResolver, next, ctx, ct);
 
     private static async ValueTask<CallToolResult> InvokeAsync(
         SentinelPipeline pipeline,
         int maxScanBytes,
         TextWriter stderr,
+        IToolCallGuard? guard,
+        IAuditStore? audit,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         McpRequestHandler<CallToolRequestParams, CallToolResult> next,
         RequestContext<CallToolRequestParams> ctx,
         CancellationToken ct)
     {
         var req = ctx.Params ?? throw new McpProtocolException(
             "missing tool call parameters", McpErrorCode.InvalidParams);
+
+        if (guard is not null)
+        {
+            await AuthorizeAsync(guard, audit, callerResolver, req, stderr, ct).ConfigureAwait(false);
+        }
 
         var requestMessages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes);
         var preError = await ScanSafelyAsync(pipeline, requestMessages, stderr, phase: "request", ct).ConfigureAwait(false);
@@ -52,6 +74,54 @@ internal static class ToolCallInterceptor
             $"[sentinel-mcp] event=tools/call decision=Allow tool={req.Name}"
         ).ConfigureAwait(false);
         return result;
+    }
+
+    private static async ValueTask AuthorizeAsync(
+        IToolCallGuard guard,
+        IAuditStore? audit,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver,
+        CallToolRequestParams req,
+        TextWriter stderr,
+        CancellationToken ct)
+    {
+        var caller = callerResolver?.Invoke(req) ?? EnvironmentSecurityContext.FromEnvironment();
+        var args = ToJsonElement(req.Arguments);
+        var decision = await guard.AuthorizeAsync(caller, req.Name, args, ct).ConfigureAwait(false);
+        if (decision.Allowed) return;
+
+        if (audit is not null)
+        {
+            var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+                sender:     new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
+                receiver:   new AgentId(req.Name),
+                session:    SessionId.New(),
+                callerId:   caller.Id,
+                roles:      caller.Roles,
+                toolName:   req.Name,
+                policyName: decision.PolicyName ?? "?",
+                reason:     decision.Reason ?? "?");
+            await audit.AppendAsync(entry, ct).ConfigureAwait(false);
+        }
+
+        await stderr.WriteLineAsync(
+            $"[sentinel-mcp] event=tools/call decision=AuthzDeny tool={req.Name} caller={caller.Id} policy={decision.PolicyName ?? "?"}"
+        ).ConfigureAwait(false);
+
+        throw new McpProtocolException(
+            $"Authorization denied by policy '{decision.PolicyName ?? "?"}': {decision.Reason ?? "?"}",
+            McpErrorCode.InvalidRequest);
+    }
+
+    private static JsonElement ToJsonElement(IDictionary<string, JsonElement>? args)
+    {
+        if (args is null || args.Count == 0)
+        {
+            return EmptyJsonObject;
+        }
+
+        var json = JsonSerializer.Serialize(args, McpJsonContext.Default.IDictionaryStringJsonElement);
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
     }
 
     private static async ValueTask<SentinelError?> ScanSafelyAsync(
