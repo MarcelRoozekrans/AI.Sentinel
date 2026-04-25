@@ -41,6 +41,8 @@ public static class ServiceCollectionExtensions
             new DetectionPipelineInstrumented(
                 new DetectionPipeline(sp.GetServices<IDetector>(), opts.EscalationClient, sp.GetService<ILogger<DetectionPipeline>>())));
 
+        var hasSecurityContext = services.Any(d => d.ServiceType == typeof(ISecurityContext));
+
         services.AddSingleton<IToolCallGuard>(sp =>
         {
             var policyByName = new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal);
@@ -56,7 +58,7 @@ public static class ServiceCollectionExtensions
             var logger = sp.GetService<ILogger<DefaultToolCallGuard>>();
             var pipelineLogger = sp.GetService<ILogger<SentinelPipeline>>();
 
-            EmitAuthorizationStartupWarnings(opts, bindings, policyByName, pipelineLogger);
+            EmitAuthorizationStartupWarnings(opts, bindings, policyByName, hasSecurityContext, pipelineLogger);
 
             return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, logger);
         });
@@ -68,6 +70,7 @@ public static class ServiceCollectionExtensions
         SentinelOptions opts,
         IReadOnlyList<ToolCallPolicyBinding> bindings,
         IReadOnlyDictionary<string, IAuthorizationPolicy> policiesByName,
+        bool hasSecurityContext,
         ILogger<SentinelPipeline>? logger)
     {
         if (logger is null) return;
@@ -84,6 +87,11 @@ public static class ServiceCollectionExtensions
                 logger.LogError("AI.Sentinel: RequireToolPolicy(\"{Pattern}\", \"{Policy}\") references unknown policy '{Policy}'. This binding will deny every matching call.",
                     binding.Pattern, binding.PolicyName, binding.PolicyName);
             }
+        }
+
+        if (bindings.Count > 0 && !hasSecurityContext)
+        {
+            logger.LogWarning("AI.Sentinel: tool-call policies are configured, but no ISecurityContext provider is registered — all calls will resolve as Anonymous and policies referencing roles will deny.");
         }
     }
 

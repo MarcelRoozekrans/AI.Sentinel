@@ -247,7 +247,7 @@ var decision = await guard.AuthorizeAsync(caller, request.Name, ToJsonElement(re
 if (!decision.Allowed)
 {
     await audit.AppendAsync(AuditEntry.AuthorizationDeny(...), ct);
-    throw new McpException(McpErrorCode.InvalidRequest,
+    throw new McpProtocolException(McpErrorCode.InvalidRequest,
         $"Authorization denied by policy '{decision.PolicyName}': {decision.Reason}");
 }
 // existing pre-scan continues
@@ -267,7 +267,7 @@ Trade-off: MCP is the surface where caller identity is hardest to do well — th
 | In-process | `IServiceProvider.GetService<ISecurityContext>()` → Anonymous | throw `ToolCallAuthorizationException` |
 | Claude Code | `HookConfig.CallerContextProvider` → Anonymous | `HookOutput(Block, reason)` |
 | Copilot | `CopilotHookConfig.CallerContextProvider` → Anonymous | `HookOutput(Block, reason)` |
-| MCP proxy | DI provider → env vars → Anonymous | `McpException(InvalidRequest, reason)` |
+| MCP proxy | DI provider → env vars → Anonymous | `McpProtocolException(InvalidRequest, reason)` |
 
 All four call the exact same `IToolCallGuard.AuthorizeAsync` and emit the same `AuditEntry` shape.
 
@@ -419,7 +419,7 @@ if (bindings.Any(b => !registered.ContainsKey(b.PolicyName)))
 | In-process | `tests/AI.Sentinel.Tests/Integration/InProcessAuthorizationTests.cs` | `[Authorize]`-attributed AIFunction denies/allows; deny throws `ToolCallAuthorizationException`; `RequireToolPolicy` binding takes effect; `ISecurityContext` resolved from DI |
 | Claude Code | `tests/AI.Sentinel.ClaudeCode.Tests/AuthorizationTests.cs` | `PreToolUse` deny → `HookOutput(Block, ...)`; `CallerContextProvider` invoked; default Anonymous → policy referencing roles denies |
 | Copilot | `tests/AI.Sentinel.Copilot.Tests/AuthorizationTests.cs` | Same as Claude Code (parallel structure) |
-| MCP proxy | `tests/AI.Sentinel.Mcp.Tests/AuthorizationTests.cs` | `tools/call` deny → `McpException(InvalidRequest)`; env-var caller resolution; DI provider takes precedence over env |
+| MCP proxy | `tests/AI.Sentinel.Mcp.Tests/AuthorizationTests.cs` | `tools/call` deny → `McpProtocolException(InvalidRequest)`; env-var caller resolution; DI provider takes precedence over env |
 
 ### Audit + dashboard tests
 
