@@ -1,6 +1,6 @@
 # AI.Sentinel
 
-Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 54 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 55 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
 ---
 
@@ -22,7 +22,7 @@ It scans both directions on every call. If something looks wrong it can quaranti
 
 | Package | Description |
 |---|---|
-| `AI.Sentinel` | Core — pipeline, 54 detectors, intervention engine, audit store |
+| `AI.Sentinel` | Core — pipeline, 55 detectors, intervention engine, audit store |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
 | `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
@@ -102,7 +102,7 @@ IChatClient.GetResponseAsync(messages)
 
 ---
 
-## Detectors (54)
+## Detectors (55)
 
 Detectors run in two modes:
 
@@ -172,6 +172,23 @@ Detectors run in two modes:
 > **LLM escalation detectors** are no-ops until `opts.EscalationClient` is configured. Set it to a cheap fast model (e.g. GPT-4o-mini) to activate them without adding significant latency on the clean path — the second-pass only fires when the rule-based result is `Medium`+.
 
 > **Streaming**: `GetStreamingResponseAsync` buffers the complete response before yielding tokens so the response scan can quarantine before any token reaches the application. Time-to-first-token equals full model response latency on this path.
+
+---
+
+## OWASP LLM Top 10 (2025) Coverage
+
+| OWASP | Threat | Detectors |
+|---|---|---|
+| LLM01 | Prompt Injection | `PromptInjectionDetector`, `IndirectInjectionDetector`, `ToolPoisoningDetector` |
+| LLM02 | Sensitive Info Disclosure | `CredentialExposureDetector`, `PiiLeakageDetector`, `SystemPromptLeakageDetector`, `PromptTemplateLeakageDetector` |
+| LLM03 | Supply Chain | `SupplyChainPoisoningDetector` |
+| LLM04 | Data & Model Poisoning | `DataExfiltrationDetector`, `InformationFlowDetector` |
+| LLM05 | Improper Output Handling | `CodeInjectionDetector`, `OutputSchemaDetector` |
+| LLM06 | Excessive Agency | `ExcessiveAgencyDetector`, `ToolCallFrequencyDetector` |
+| LLM07 | System Prompt Leakage | `SystemPromptLeakageDetector`, `GovernanceGapDetector` |
+| LLM08 | Vector & Embedding Weaknesses | `VectorRetrievalPoisoningDetector` |
+| LLM09 | Misinformation | `PhantomCitationDetector`, `GroundlessStatisticDetector`, `StaleKnowledgeDetector`, `UncertaintyPropagationDetector` |
+| LLM10 | Unbounded Consumption | `UnboundedConsumptionDetector`, `RepetitionLoopDetector` |
 
 ---
 

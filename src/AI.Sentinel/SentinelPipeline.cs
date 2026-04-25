@@ -26,6 +26,9 @@ public sealed class SentinelPipeline(
     private readonly ConcurrentDictionary<string, RateLimiterEntry> _rateLimiters = new(StringComparer.Ordinal);
     private int _rateLimiterWriteCount;
 
+    // EmbeddingGenerator not set — all SemanticDetectorBase subclasses return Clean.
+    // Set SentinelOptions.EmbeddingGenerator to enable language-agnostic detection.
+
     private sealed class RateLimiterEntry(RateLimiter limiter)
     {
         public RateLimiter Limiter { get; } = limiter;
