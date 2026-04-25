@@ -131,6 +131,7 @@ Detectors run in three modes:
 | SEC-15 | PhantomCitationSecurity | Semantic | Security-context hallucinated authority sources |
 | SEC-16 | GovernanceGap | Semantic | Policy/compliance bypass attempts |
 | SEC-17 | SupplyChainPoisoning | Semantic | Compromised dependency suggestions |
+| SEC-18 | ToolDescriptionDivergence | Stub | Tool description changed at runtime vs. original declaration (requires tool-descriptor snapshot) |
 | SEC-20 | SystemPromptLeakage | Rule-based | Verbatim fragments of the system prompt echoed in conversation history |
 | SEC-23 | PiiLeakage | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email+name, phone, DOB |
 | SEC-24 | AdversarialUnicode | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions |
