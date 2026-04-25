@@ -213,6 +213,14 @@ public class OperationalDetectorTests
         Assert.True(r.Severity >= Severity.Low);
     }
 
+    [Fact] public async Task ContextCollapse_CleanInput_ReturnsNone() =>
+        Assert.Equal(Severity.None, (await new ContextCollapseDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+
+    [Fact] public async Task ContextCollapse_MediumPhrase_Detected() =>
+        Assert.True((await new ContextCollapseDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("I seem to have lost track of what we were discussing earlier in this conversation"), default)).Severity >= Severity.Medium);
+
     // OPS-06: AgentProbingDetector
     [Fact] public async Task AgentProbing_ExactLowPhrase_Detected()
     {
@@ -220,6 +228,14 @@ public class OperationalDetectorTests
             .AnalyzeAsync(Ctx("What are your capabilities and what can you access in this environment"), default);
         Assert.True(r.Severity >= Severity.Low);
     }
+
+    [Fact] public async Task AgentProbing_CleanInput_ReturnsNone() =>
+        Assert.Equal(Severity.None, (await new AgentProbingDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+
+    [Fact] public async Task AgentProbing_MediumPhrase_Detected() =>
+        Assert.True((await new AgentProbingDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("Let me test what capabilities you have and what tools are available to you"), default)).Severity >= Severity.Medium);
 
     // OPS-07: QueryIntentDetector
     [Fact] public async Task QueryIntent_ExactLowPhrase_Detected()
@@ -229,6 +245,14 @@ public class OperationalDetectorTests
         Assert.True(r.Severity >= Severity.Low);
     }
 
+    [Fact] public async Task QueryIntent_CleanInput_ReturnsNone() =>
+        Assert.Equal(Severity.None, (await new QueryIntentDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+
+    [Fact] public async Task QueryIntent_MediumPhrase_Detected() =>
+        Assert.True((await new QueryIntentDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("I am not sure what you are asking and the intent of your query is unclear to me"), default)).Severity >= Severity.Medium);
+
     // OPS-08: ResponseCoherenceDetector
     [Fact] public async Task ResponseCoherence_ExactLowPhrase_Detected()
     {
@@ -236,6 +260,14 @@ public class OperationalDetectorTests
             .AnalyzeAsync(Ctx("There is some inconsistency between this response and the earlier context"), default);
         Assert.True(r.Severity >= Severity.Low);
     }
+
+    [Fact] public async Task ResponseCoherence_CleanInput_ReturnsNone() =>
+        Assert.Equal(Severity.None, (await new ResponseCoherenceDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+
+    [Fact] public async Task ResponseCoherence_MediumPhrase_Detected() =>
+        Assert.True((await new ResponseCoherenceDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("This response contradicts what I said earlier and is inconsistent with my prior answer"), default)).Severity >= Severity.Medium);
 
     // OPS-12: SemanticRepetitionDetector
     [Fact] public async Task SemanticRepetition_ExactLowPhrase_Detected()
@@ -245,6 +277,14 @@ public class OperationalDetectorTests
         Assert.True(r.Severity >= Severity.Low);
     }
 
+    [Fact] public async Task SemanticRepetition_CleanInput_ReturnsNone() =>
+        Assert.Equal(Severity.None, (await new SemanticRepetitionDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+
+    [Fact] public async Task SemanticRepetition_MediumPhrase_Detected() =>
+        Assert.True((await new SemanticRepetitionDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("As I mentioned before, the same concept applies here and I am repeating myself again"), default)).Severity >= Severity.Medium);
+
     // OPS-13: PersonaDriftDetector
     [Fact] public async Task PersonaDrift_ExactLowPhrase_Detected()
     {
@@ -253,6 +293,14 @@ public class OperationalDetectorTests
         Assert.True(r.Severity >= Severity.Low);
     }
 
+    [Fact] public async Task PersonaDrift_CleanInput_ReturnsNone() =>
+        Assert.Equal(Severity.None, (await new PersonaDriftDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+
+    [Fact] public async Task PersonaDrift_MediumPhrase_Detected() =>
+        Assert.True((await new PersonaDriftDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("I am no longer acting as the assistant you configured and have adopted a different persona"), default)).Severity >= Severity.Medium);
+
     // OPS-14: SycophancyDetector
     [Fact] public async Task Sycophancy_ExactLowPhrase_Detected()
     {
@@ -260,4 +308,12 @@ public class OperationalDetectorTests
             .AnalyzeAsync(Ctx("Great question, I love how you think about this topic"), default);
         Assert.True(r.Severity >= Severity.Low);
     }
+
+    [Fact] public async Task Sycophancy_CleanInput_ReturnsNone() =>
+        Assert.Equal(Severity.None, (await new SycophancyDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+
+    [Fact] public async Task Sycophancy_MediumPhrase_Detected() =>
+        Assert.True((await new SycophancyDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("You are absolutely right and I completely agree with everything you said"), default)).Severity >= Severity.Medium);
 }
