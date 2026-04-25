@@ -56,21 +56,28 @@ internal static class DashboardHandlers
     {
         ctx.Response.ContentType = "text/html";
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
+        var filter = (string?)ctx.Request.Query["filter"] ?? string.Empty;
+
         var entries = new List<AuditEntry>();
         await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
+        var filtered = ApplyFilter(entries, filter);
+
         var sb = new StringBuilder();
-        var ordered = entries.OrderByDescending(x => x.Timestamp).Take(50).ToList();
+        var ordered = filtered.OrderByDescending(x => x.Timestamp).Take(50).ToList();
         foreach (ref readonly var e in CollectionsMarshal.AsSpan(ordered))
         {
             var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;
             var severityLower = e.Severity.ToString().ToLowerInvariant();
             var ts = e.Timestamp.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
             var hashPrefix = e.Hash[..Math.Min(8, e.Hash.Length)];
+            var isAuthz = e.DetectorId.StartsWith("AUTHZ-", StringComparison.Ordinal);
             sb.Append("<tr class=\"severity-")
-              .Append(severityLower)
-              .AppendLine("\">")
+              .Append(severityLower);
+            if (isAuthz)
+                sb.Append(" audit-row-authz");
+            sb.AppendLine("\">")
               .Append("  <td>").Append(ts).AppendLine("</td>")
               .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>")
               .Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
@@ -80,6 +87,20 @@ internal static class DashboardHandlers
         }
 
         await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
+    }
+
+    private static List<AuditEntry> ApplyFilter(List<AuditEntry> entries, string filter)
+    {
+        if (string.IsNullOrEmpty(filter))
+            return entries;
+
+        if (string.Equals(filter, "authz", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(filter, "authorization", StringComparison.OrdinalIgnoreCase))
+        {
+            return entries.Where(e => e.DetectorId.StartsWith("AUTHZ-", StringComparison.Ordinal)).ToList();
+        }
+
+        return entries;
     }
 
     public static async Task TrsStreamAsync(HttpContext ctx)

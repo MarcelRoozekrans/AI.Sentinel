@@ -139,4 +139,37 @@ td:nth-child(4) { white-space: normal; max-width: 300px; overflow: hidden; text-
 tr.severity-critical { background: rgba(239,68,68,0.04); }
 tr.severity-high     { background: rgba(249,115,22,0.04); }
 
+/* Authorization denial rows (DetectorId starts with "AUTHZ-") */
+tr.audit-row-authz {
+  border-left: 4px solid #f59e0b;
+  background: rgba(245,158,11,0.06);
+}
+tr.audit-row-authz td:first-child {
+  border-left: 0;
+}
+
+/* Filter chips (Security / Hallucination / Operational / Authorization) */
+.feed-chips {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.6rem;
+  flex-wrap: wrap;
+}
+.feed-chip {
+  background: #0f172a;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0.2rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.feed-chip:hover { color: var(--text); border-color: #475569; }
+.feed-chip.active { background: var(--surface); color: var(--text); border-color: #7dd3fc; }
+.feed-chip.chip-authz.active { border-color: #f59e0b; color: #fbbf24; }
+
 .loading { color: var(--muted); font-style: italic; }
