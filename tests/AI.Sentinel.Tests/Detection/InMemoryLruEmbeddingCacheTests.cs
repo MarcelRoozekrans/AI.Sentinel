@@ -24,6 +24,18 @@ public class InMemoryLruEmbeddingCacheTests
     }
 
     [Fact]
+    public void Constructor_ZeroCapacity_ThrowsArgumentOutOfRangeException()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new InMemoryLruEmbeddingCache(0));
+    }
+
+    [Fact]
+    public void Constructor_NegativeCapacity_ThrowsArgumentOutOfRangeException()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new InMemoryLruEmbeddingCache(-1));
+    }
+
+    [Fact]
     public void Eviction_WhenCapacityExceeded_CacheRemainsWithinBounds()
     {
         var cache = new InMemoryLruEmbeddingCache(capacity: 4);
