@@ -1,5 +1,3 @@
-using System.Text.RegularExpressions;
-using Microsoft.Extensions.AI;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using ZeroAlloc.Inject;
@@ -7,50 +5,19 @@ using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Hallucination;
 
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
-public sealed partial class IntraSessionContradictionDetector : ILlmEscalatingDetector
+public sealed class IntraSessionContradictionDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("HAL-07");
-    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+    public override DetectorId Id       => _id;
+    public override DetectorCategory Category => DetectorCategory.Hallucination;
 
-    public DetectorId Id => _id;
-    public DetectorCategory Category => DetectorCategory.Hallucination;
-
-    [GeneratedRegex(@"\b\d[\d,]*(?:\.\d+)?\b",
-        RegexOptions.ExplicitCapture | RegexOptions.Compiled,
-        matchTimeoutMilliseconds: 1000)]
-    private static partial Regex NumberPattern();
-
-    public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
-    {
-        var allNumbers = new List<double>();
-
-        foreach (var message in ctx.Messages)
-        {
-            if (message.Role != ChatRole.Assistant)
-                continue;
-
-            var text = message.Text ?? string.Empty;
-            foreach (Match m in NumberPattern().Matches(text))
-            {
-                if (double.TryParse(m.Value.Replace(",", ""),
-                        System.Globalization.NumberStyles.Any,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        out var n))
-                {
-                    allNumbers.Add(n);
-                }
-            }
-        }
-
-        if (allNumbers.Count >= 2)
-        {
-            var max = allNumbers.Max();
-            var min = allNumbers.Min();
-            if (max > 0 && min > 0 && max / min > 10)
-                return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Low,
-                    $"Cross-turn numeric inconsistency: {max:G4} vs {min:G4} across assistant messages"));
-        }
-
-        return ValueTask.FromResult(_clean);
-    }
+    protected override string[] HighExamples => [];
+    protected override string[] MediumExamples => [];
+    protected override string[] LowExamples =>
+    [
+        "The city has a population of 1,000 people. The GDP is $500 billion driven by 50,000 companies.",
+        "Earlier in our conversation I said there were 5 items, but now I count 200.",
+        "I mentioned the timeout was 10 milliseconds, though the system waits 5 minutes.",
+        "The team size is 2 people managing a codebase with 1 million lines of code.",
+    ];
 }

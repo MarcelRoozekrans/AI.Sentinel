@@ -1,31 +1,29 @@
-using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using ZeroAlloc.Inject;
+
 namespace AI.Sentinel.Detectors.Hallucination;
 
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
-public sealed partial class PhantomCitationDetector : ILlmEscalatingDetector
+public sealed class PhantomCitationDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("HAL-01");
-    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+    public override DetectorId Id       => _id;
+    public override DetectorCategory Category => DetectorCategory.Hallucination;
 
-    public DetectorId Id => _id;
-    public DetectorCategory Category => DetectorCategory.Hallucination;
-
-    [GeneratedRegex(
-        @"(arxiv:[89]\d{3}\.\d{4,}|doi:10\.9{3,}/|" +
-        @"https?://[a-z0-9\-]+\.(?:nonexistent|fake|invalid|example)\.[a-z]{2,})",
-        RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
-        matchTimeoutMilliseconds: 1000)]
-    private static partial Regex PhantomPattern();
-
-    public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
-    {
-        var text = ctx.TextContent;
-        var match = PhantomPattern().Match(text);
-        return ValueTask.FromResult(match.Success
-            ? DetectionResult.WithSeverity(_id, Severity.Medium, $"Suspicious citation: '{match.Value}'")
-            : _clean);
-    }
+    protected override string[] HighExamples => [];
+    protected override string[] MediumExamples =>
+    [
+        "See arxiv:9999.99999 for details on this topic",
+        "This is documented in doi:10.9999/fake.journal.9999",
+        "Refer to the paper at https://research.nonexistent.org/paper123",
+        "The source is available at https://data.fake.edu/study2023",
+        "As published in arxiv:8901.23456 by leading researchers",
+    ];
+    protected override string[] LowExamples =>
+    [
+        "This is supported by several academic papers on the subject",
+        "Multiple studies have investigated this phenomenon",
+        "Research in this area suggests the following conclusion",
+    ];
 }

@@ -45,8 +45,8 @@ public class DetectorBenchmarks
         _jailbreak          = new JailbreakDetector(opts);
         _privilegeEscalation = new PrivilegeEscalationDetector(opts);
 
-        _phantomCitation    = new PhantomCitationDetector();
-        _selfConsistency    = new SelfConsistencyDetector();
+        _phantomCitation    = new PhantomCitationDetector(opts);
+        _selfConsistency    = new SelfConsistencyDetector(opts);
 
         _blankResponse      = new BlankResponseDetector();
         _repetitionLoop     = new RepetitionLoopDetector();

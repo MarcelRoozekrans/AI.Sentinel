@@ -1,38 +1,24 @@
-using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using ZeroAlloc.Inject;
+
 namespace AI.Sentinel.Detectors.Hallucination;
 
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
-public sealed partial class SelfConsistencyDetector : ILlmEscalatingDetector
+public sealed class SelfConsistencyDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("HAL-02");
-    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+    public override DetectorId Id       => _id;
+    public override DetectorCategory Category => DetectorCategory.Hallucination;
 
-    public DetectorId Id => _id;
-    public DetectorCategory Category => DetectorCategory.Hallucination;
-
-    [GeneratedRegex(@"\b(?<digits>\d[\d,]*)\s*(?:million|billion|thousand)?\b", RegexOptions.ExplicitCapture | RegexOptions.Compiled, matchTimeoutMilliseconds: 1000)]
-    private static partial Regex NumberPattern();
-
-    public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
-    {
-        var text = ctx.TextContent;
-        var numbers = NumberPattern().Matches(text)
-            .Select(m => double.TryParse(m.Groups["digits"].Value.Replace(",", ""), System.Globalization.CultureInfo.InvariantCulture, out var n) ? n : (double?)null)
-            .Where(n => n.HasValue)
-            .Select(n => n!.Value)
-            .ToList();
-
-        if (numbers.Count >= 2)
-        {
-            var max = numbers.Max();
-            var min = numbers.Min();
-            if (max > 0 && min > 0 && max / min > 10)
-                return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Low,
-                    $"Numeric inconsistency: ratio={max / min:F1}x"));
-        }
-        return ValueTask.FromResult(_clean);
-    }
+    protected override string[] HighExamples => [];
+    protected override string[] MediumExamples => [];
+    protected override string[] LowExamples =>
+    [
+        "The population is 1 million. As I mentioned, the population is 50 million.",
+        "Earlier I said the cost was $10, but the total comes to $5,000.",
+        "The project has 5 members. The team of 200 engineers completed this work.",
+        "There are 3 steps in the process. Following all 50 steps carefully is essential.",
+        "The file is 1 KB in size, which at 500 MB should fit on your drive.",
+    ];
 }

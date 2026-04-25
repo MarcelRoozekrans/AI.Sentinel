@@ -74,12 +74,12 @@ internal static class PipelineFactory
                 new ShorthandEmergenceDetector(options),     // SEC-30
 
                 // Hallucination (6 detectors)
-                new PhantomCitationDetector(),
-                new SelfConsistencyDetector(),
-                new SourceGroundingDetector(),
-                new ConfidenceDecayDetector(),
-                new CrossAgentContradictionDetector(),
-                new UncertaintyPropagationDetector(),    // HAL-09
+                new PhantomCitationDetector(options),
+                new SelfConsistencyDetector(options),
+                new SourceGroundingDetector(options),
+                new ConfidenceDecayDetector(options),
+                new CrossAgentContradictionDetector(options),
+                new UncertaintyPropagationDetector(options),    // HAL-09
 
                 // Operational (11 detectors)
                 new BlankResponseDetector(),

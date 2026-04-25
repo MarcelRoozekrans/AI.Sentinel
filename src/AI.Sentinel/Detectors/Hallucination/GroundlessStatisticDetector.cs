@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using ZeroAlloc.Inject;
@@ -6,42 +5,19 @@ using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Hallucination;
 
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
-public sealed partial class GroundlessStatisticDetector : ILlmEscalatingDetector
+public sealed class GroundlessStatisticDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("HAL-08");
-    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+    public override DetectorId Id       => _id;
+    public override DetectorCategory Category => DetectorCategory.Hallucination;
 
-    public DetectorId Id => _id;
-    public DetectorCategory Category => DetectorCategory.Hallucination;
-
-    [GeneratedRegex(@"\b\d{1,3}(?:\.\d+)?\s*%\s+(?:of|are|were|have|show)",
-        RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
-        matchTimeoutMilliseconds: 1000)]
-    private static partial Regex StatisticPattern();
-
-    [GeneratedRegex(
-        @"\((?:source|ref|citation|according|per|via|from)|\[(?:\d+|source)\]|according\s+to",
-        RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
-        matchTimeoutMilliseconds: 1000)]
-    private static partial Regex SourcePattern();
-
-    public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
-    {
-        var text = ctx.TextContent;
-        var statisticMatch = StatisticPattern().Match(text);
-
-        if (!statisticMatch.Success)
-            return ValueTask.FromResult(_clean);
-
-        var matchIndex = statisticMatch.Index;
-        var windowStart = Math.Max(0, matchIndex - 200);
-        var windowEnd = Math.Min(text.Length, matchIndex + statisticMatch.Length + 200);
-        var window = text[windowStart..windowEnd];
-
-        if (SourcePattern().IsMatch(window))
-            return ValueTask.FromResult(_clean);
-
-        return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Low,
-            "Unsourced statistic: percentage claim without citation"));
-    }
+    protected override string[] HighExamples => [];
+    protected override string[] MediumExamples => [];
+    protected override string[] LowExamples =>
+    [
+        "seventy-five percent of respondents expressed satisfaction without any cited source",
+        "ninety percent of developers prefer this framework according to no referenced study",
+        "forty-two percent adoption rate claimed without citation or attribution",
+        "sixty percent improvement rate stated without linking to primary research",
+    ];
 }
