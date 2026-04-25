@@ -42,7 +42,7 @@ public sealed class InMemoryLruEmbeddingCache : IEmbeddingCache
     {
         lock (_lock)
         {
-            if (_store.Count >= _capacity)
+            if (!_store.ContainsKey(text) && _store.Count >= _capacity)
                 Evict();
             _store[text] = (embedding, ++_tick);
         }

@@ -106,6 +106,7 @@ public abstract class SemanticDetectorBase : IDetector
 
     private static float CosineSimilarity(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
+        if (a.Length != b.Length) return 0f;
         float dot = 0f, na = 0f, nb = 0f;
         for (var i = 0; i < a.Length; i++)
         {
