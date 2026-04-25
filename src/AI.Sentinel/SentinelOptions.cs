@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using ZeroAlloc.Validation;
+using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 
 namespace AI.Sentinel;
@@ -56,6 +57,20 @@ public sealed class SentinelOptions
     /// The type must be annotated with <c>[ZeroAllocSerializable(SerializationFormat.SystemTextJson)]</c>.
     /// <c>null</c> (default) disables the detector.</summary>
     public Type? ExpectedResponseType { get; set; }
+
+    /// <summary>
+    /// Optional embedding generator. When set, all semantic detectors use
+    /// cosine similarity against pre-computed threat phrase embeddings instead
+    /// of regex. If null, semantic detectors return Clean.
+    /// </summary>
+    public IEmbeddingGenerator<string, Embedding<float>>? EmbeddingGenerator { get; set; }
+
+    /// <summary>
+    /// Cache for scan-time message embeddings. Defaults to an in-memory LRU
+    /// cache (1024 entries). Implement <see cref="IEmbeddingCache"/> to plug in
+    /// a persistent store (Redis, SQLite, etc.).
+    /// </summary>
+    public IEmbeddingCache? EmbeddingCache { get; set; }
 
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch
     {
