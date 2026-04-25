@@ -44,13 +44,25 @@ public static class ServiceCollectionExtensions
     }
 
     public static ChatClientBuilder UseAISentinel(this ChatClientBuilder builder) =>
-        builder.Use((inner, sp) => new SentinelChatClient(
-            inner,
-            sp.GetRequiredService<IDetectionPipeline>(),
-            sp.GetRequiredService<IAuditStore>(),
-            sp.GetRequiredService<InterventionEngine>(),
-            sp.GetRequiredService<SentinelOptions>(),
-            sp.GetRequiredService<IAlertSink>()));
+        builder.Use((inner, sp) =>
+        {
+            var opts = sp.GetRequiredService<SentinelOptions>();
+            if (opts.EmbeddingGenerator is null)
+            {
+                var logger = sp.GetService<ILogger<SentinelPipeline>>();
+                var semanticCount = sp.GetServices<IDetector>().Count(d => d is SemanticDetectorBase);
+                logger?.LogWarning(
+                    "SentinelOptions.EmbeddingGenerator is not configured. All {Count} semantic detectors will return Clean until an IEmbeddingGenerator is provided.",
+                    semanticCount);
+            }
+            return new SentinelChatClient(
+                inner,
+                sp.GetRequiredService<IDetectionPipeline>(),
+                sp.GetRequiredService<IAuditStore>(),
+                sp.GetRequiredService<InterventionEngine>(),
+                opts,
+                sp.GetRequiredService<IAlertSink>());
+        });
 
     public static SentinelPipeline BuildSentinelPipeline(
         this IServiceProvider sp,

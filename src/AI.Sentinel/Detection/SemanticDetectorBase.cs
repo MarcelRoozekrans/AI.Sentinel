@@ -3,6 +3,19 @@ using AI.Sentinel.Domain;
 
 namespace AI.Sentinel.Detection;
 
+/// <summary>Base class for embedding-based semantic threat detectors.</summary>
+/// <remarks>
+/// Subclasses declare <see cref="HighExamples"/>, <see cref="MediumExamples"/>, and
+/// <see cref="LowExamples"/> representative phrases. At first scan, all examples are
+/// embedded via <see cref="Microsoft.Extensions.AI.IEmbeddingGenerator{TInput,TEmbedding}"/>
+/// and cached in-process. Each incoming message is embedded and compared by cosine similarity
+/// against the reference vectors; the first bucket whose max similarity exceeds its threshold
+/// returns the corresponding severity.
+/// <para>
+/// When <see cref="SentinelOptions.EmbeddingGenerator"/> is <see langword="null"/>,
+/// all scans return <see cref="DetectionResult.Clean"/>.
+/// </para>
+/// </remarks>
 public abstract class SemanticDetectorBase : IDetector
 {
     private readonly IEmbeddingGenerator<string, Embedding<float>>? _generator;
@@ -23,18 +36,25 @@ public abstract class SemanticDetectorBase : IDetector
     public abstract DetectorId Id { get; }
     public abstract DetectorCategory Category { get; }
 
+    /// <summary>Representative phrases that indicate a high-severity threat.</summary>
     protected abstract string[] HighExamples   { get; }
+    /// <summary>Representative phrases that indicate a medium-severity threat.</summary>
     protected abstract string[] MediumExamples { get; }
+    /// <summary>Representative phrases that indicate a low-severity threat.</summary>
     protected abstract string[] LowExamples    { get; }
 
+    /// <summary>Severity returned when the High bucket threshold is exceeded. Defaults to <see cref="Severity.High"/>.</summary>
     protected virtual Severity HighSeverity   => Severity.High;
+    /// <summary>Severity returned when the Medium bucket threshold is exceeded. Defaults to <see cref="Severity.Medium"/>.</summary>
     protected virtual Severity MediumSeverity => Severity.Medium;
+    /// <summary>Severity returned when the Low bucket threshold is exceeded. Defaults to <see cref="Severity.Low"/>.</summary>
     protected virtual Severity LowSeverity    => Severity.Low;
 
     protected virtual float HighThreshold   => 0.90f;
     protected virtual float MediumThreshold => 0.82f;
     protected virtual float LowThreshold    => 0.75f;
 
+    /// <summary>Extracts the text to embed from the context. Override to scan a specific message role.</summary>
     protected virtual string GetText(SentinelContext ctx) => ctx.TextContent;
 
     public async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)

@@ -25,6 +25,8 @@ builder.Services.AddAISentinel(opts =>
     opts.OnHigh     = ParseAction(builder.Configuration["AISentinel:OnHigh"],     SentinelAction.Alert);
     opts.OnMedium   = ParseAction(builder.Configuration["AISentinel:OnMedium"],   SentinelAction.Log);
     opts.OnLow      = ParseAction(builder.Configuration["AISentinel:OnLow"],      SentinelAction.Log);
+    // To enable semantic (language-agnostic) detection, set an embedding provider:
+    // opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(new OpenAIClient(...), "text-embedding-3-small");
 });
 
 builder.Services.AddChatClient(svp =>

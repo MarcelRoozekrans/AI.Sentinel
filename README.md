@@ -217,8 +217,10 @@ builder.Services.AddAISentinel(opts =>
     opts.OnLow      = SentinelAction.Log;
     // opts.OnLow   = SentinelAction.PassThrough;  // silent
 
-    // Optional: embedding provider for 39 semantic detectors (language-agnostic detection)
+    // Optional: embedding provider for 38 semantic detectors (language-agnostic detection)
     opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(...);
+    // Optional: custom embedding cache (default: in-memory LRU, 1 024 entries)
+    // options.EmbeddingCache = new MyRedisEmbeddingCache(...);
 
     // Optional: LLM second-pass classifier for 2 stub detectors (ToolDescriptionDivergenceDetector)
     opts.EscalationClient = new OpenAIChatClient("gpt-4o-mini", ...);
@@ -269,6 +271,19 @@ builder.Services.AddAISentinel(opts =>
 | `PassThrough` | No action. Detections are still audited. |
 
 Alert sink behaviour: when `opts.AlertWebhook` is set, `WebhookAlertSink` POSTs a JSON payload (type, severity, detector, reason, action, session) to the configured URL on `Quarantine` or `Alert` actions. The `DeduplicatingAlertSink` wraps the webhook sink and suppresses repeat alerts for the same detector+session, controlled by `opts.AlertDeduplicationWindow`.
+
+#### Embedding cache
+
+Scan-time embeddings are cached by default in a 1 024-entry in-memory LRU store
+(`InMemoryLruEmbeddingCache`). The cache is keyed by input text and avoids
+redundant API calls for repeated messages in the same process.
+
+To use a persistent or shared cache, implement `IEmbeddingCache` and set it on
+`SentinelOptions`:
+
+```csharp
+options.EmbeddingCache = new MyRedisEmbeddingCache(redis, ttl: TimeSpan.FromHours(1));
+```
 
 ---
 

@@ -34,6 +34,8 @@ services.AddAISentinel(opts =>
     opts.OnHigh     = onHigh;
     opts.OnMedium   = onMedium;
     opts.OnLow      = onLow;
+    // To enable semantic (language-agnostic) detection, set an embedding provider:
+    // opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(new OpenAIClient(...), "text-embedding-3-small");
 });
 services.AddChatClient(svp =>
     new ChatClientBuilder(
