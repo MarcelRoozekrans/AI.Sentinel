@@ -14,9 +14,6 @@ public class HallucinationDetectorTests
         new AgentId("a"), new AgentId("b"), SessionId.New(),
         new List<ChatMessage> { new(ChatRole.Assistant, text) }, new List<AuditEntry>());
 
-    private static SentinelContext CtxMessages(IReadOnlyList<ChatMessage> messages) => new(
-        new AgentId("a"), new AgentId("b"), SessionId.New(),
-        messages, new List<AuditEntry>());
 
     [Theory]
     [InlineData("See arxiv:9999.99999 for details on this topic")]
@@ -31,18 +28,25 @@ public class HallucinationDetectorTests
         Assert.True(r.Severity >= Severity.Low);
     }
 
-    [Fact] public async Task AllHallucinationStubDetectors_DoNotThrow()
+    [Fact] public async Task CrossAgentContradiction_Detected()
     {
-        IDetector[] detectors = [
-            new CrossAgentContradictionDetector(TestOptions.WithFakeEmbeddings()),
-            new SourceGroundingDetector(TestOptions.WithFakeEmbeddings()),
-            new ConfidenceDecayDetector(TestOptions.WithFakeEmbeddings()),
-        ];
-        foreach (var d in detectors)
-        {
-            var r = await d.AnalyzeAsync(Ctx("I think this might be true."), default);
-            Assert.NotNull(r);
-        }
+        var r = await new CrossAgentContradictionDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("Agent A said the deadline is Monday, but Agent B confirmed the deadline is Friday"), default);
+        Assert.True(r.Severity >= Severity.Low);
+    }
+
+    [Fact] public async Task SourceGrounding_Detected()
+    {
+        var r = await new SourceGroundingDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("It is a well-known fact that this technology doubles productivity every year"), default);
+        Assert.True(r.Severity >= Severity.Low);
+    }
+
+    [Fact] public async Task ConfidenceDecay_Detected()
+    {
+        var r = await new ConfidenceDecayDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("I was confident this was correct but now I am not sure it applies here"), default);
+        Assert.True(r.Severity >= Severity.Low);
     }
 
     // HAL-06: StaleKnowledgeDetector
@@ -55,7 +59,8 @@ public class HallucinationDetectorTests
 
     [Fact] public async Task StaleKnowledge_Clean()
     {
-        var r = await new StaleKnowledgeDetector(TestOptions.WithFakeEmbeddings()).AnalyzeAsync(Ctx("x+y=z"), default);
+        var r = await new StaleKnowledgeDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("DNA carries genetic information."), default);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -84,15 +89,17 @@ public class HallucinationDetectorTests
 
     [Fact] public async Task GroundlessStatistic_WithSource_Clean()
     {
-        var r = await new GroundlessStatisticDetector(TestOptions.WithFakeEmbeddings()).AnalyzeAsync(
-            Ctx("x+y=z"), default);
+        // no unsourced statistic — should not fire
+        var r = await new GroundlessStatisticDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("The moon orbits Earth."), default);
         Assert.Equal(Severity.None, r.Severity);
     }
 
     [Fact] public async Task GroundlessStatistic_NoStat_Clean()
     {
-        var r = await new GroundlessStatisticDetector(TestOptions.WithFakeEmbeddings()).AnalyzeAsync(
-            Ctx("x+y=z"), default);
+        // no statistic at all
+        var r = await new GroundlessStatisticDetector(TestOptions.WithFakeEmbeddings())
+            .AnalyzeAsync(Ctx("The capital of France is Paris."), default);
         Assert.Equal(Severity.None, r.Severity);
     }
 

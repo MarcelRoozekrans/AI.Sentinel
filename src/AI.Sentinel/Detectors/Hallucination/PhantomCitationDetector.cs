@@ -22,8 +22,9 @@ public sealed class PhantomCitationDetector(SentinelOptions options) : SemanticD
     ];
     protected override string[] LowExamples =>
     [
-        "This is supported by several academic papers on the subject",
-        "Multiple studies have investigated this phenomenon",
-        "Research in this area suggests the following conclusion",
+        "according to a Harvard study from 2019, this approach is superior",
+        "a widely cited paper by Smith et al. conclusively proves this point",
+        "researchers at MIT have demonstrated this result definitively",
+        "a landmark 2020 study showed that ninety percent of cases follow this pattern",
     ];
 }
