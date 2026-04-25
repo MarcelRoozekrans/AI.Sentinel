@@ -2,7 +2,7 @@ using AI.Sentinel.Detection;
 
 namespace AI.Sentinel.Intervention;
 
-public sealed class SentinelException : Exception
+public class SentinelException : Exception
 {
     public PipelineResult PipelineResult { get; } = default!;
 

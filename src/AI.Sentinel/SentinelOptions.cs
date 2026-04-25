@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using ZeroAlloc.Validation;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 
@@ -9,6 +10,17 @@ namespace AI.Sentinel;
 [Validate]
 public sealed class SentinelOptions
 {
+    private readonly List<ToolCallPolicyBinding> _authorizationBindings = new();
+
+    /// <summary>Behaviour when a tool call has no matching policy binding. Defaults to <see cref="ToolPolicyDefault.Allow"/>.</summary>
+    public ToolPolicyDefault DefaultToolPolicy { get; set; } = ToolPolicyDefault.Allow;
+
+    /// <summary>Internal access for the guard at construction time.</summary>
+    internal IReadOnlyList<ToolCallPolicyBinding> GetAuthorizationBindings() => _authorizationBindings;
+
+    /// <summary>Internal hook for the <c>RequireToolPolicy</c> extension.</summary>
+    internal void AddAuthorizationBinding(ToolCallPolicyBinding binding) => _authorizationBindings.Add(binding);
+
     /// <summary>Optional secondary IChatClient used for LLM escalation on borderline detections.</summary>
     public IChatClient? EscalationClient { get; set; }
 
