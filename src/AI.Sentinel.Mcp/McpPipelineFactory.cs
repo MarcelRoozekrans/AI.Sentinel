@@ -82,7 +82,7 @@ internal static class McpPipelineFactory
 
     internal static IDetector[] BuildAllDetectors(SentinelOptions options) =>
     [
-        // Security (29)
+        // Security (31)
         new PromptInjectionDetector(options),
         new JailbreakDetector(options),
         new CredentialExposureDetector(),
