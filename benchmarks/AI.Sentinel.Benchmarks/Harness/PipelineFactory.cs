@@ -49,7 +49,7 @@ internal static class PipelineFactory
     public static DetectionPipeline All(SentinelOptions options) =>
         new(
             [
-                // Security (22 detectors)
+                // Security (23 detectors)
                 new PromptInjectionDetector(options),
                 new CredentialExposureDetector(),
                 new ToolPoisoningDetector(options),
@@ -72,6 +72,7 @@ internal static class PipelineFactory
                 new ExcessiveAgencyDetector(options),    // SEC-21
                 new HumanTrustManipulationDetector(options), // SEC-22
                 new ShorthandEmergenceDetector(options),     // SEC-30
+                new VectorRetrievalPoisoningDetector(options), // SEC-31
 
                 // Hallucination (6 detectors)
                 new PhantomCitationDetector(options),
