@@ -10,9 +10,11 @@ namespace AI.Sentinel.Benchmarks;
 [BenchmarkCategory("Pipeline")]
 public class PipelineBenchmarks
 {
-    private DetectionPipeline _empty    = null!;
-    private DetectionPipeline _security = null!;
-    private DetectionPipeline _all      = null!;
+    private DetectionPipeline _empty           = null!;
+    private DetectionPipeline _security        = null!;
+    private DetectionPipeline _all             = null!;
+    private DetectionPipeline _securitySemantic = null!;
+    private DetectionPipeline _allSemantic      = null!;
 
     private SentinelContext _cleanCtx    = null!;
     private SentinelContext _maliciousCtx = null!;
@@ -23,6 +25,10 @@ public class PipelineBenchmarks
         _empty    = PipelineFactory.Empty();
         _security = PipelineFactory.SecurityOnly();
         _all      = PipelineFactory.All();
+
+        var semanticOpts  = SentinelOptionsFactory.WithSemanticDetection();
+        _securitySemantic = PipelineFactory.SecurityOnly(semanticOpts);
+        _allSemantic      = PipelineFactory.All(semanticOpts);
 
         _cleanCtx     = BuildContext(MessageFactory.CleanShort);
         _maliciousCtx = BuildContext(MessageFactory.Malicious);
@@ -47,6 +53,14 @@ public class PipelineBenchmarks
     [Benchmark(Description = "All detectors / malicious")]
     public ValueTask<PipelineResult> All_Malicious() =>
         _all.RunAsync(_maliciousCtx, CancellationToken.None);
+
+    [Benchmark(Description = "Security-only / semantic / clean (cache cold)")]
+    public ValueTask<PipelineResult> SecurityOnly_Semantic_Clean() =>
+        _securitySemantic.RunAsync(_cleanCtx, CancellationToken.None);
+
+    [Benchmark(Description = "All detectors / semantic / clean (cache cold)")]
+    public ValueTask<PipelineResult> All_Semantic_Clean() =>
+        _allSemantic.RunAsync(_cleanCtx, CancellationToken.None);
 
     private static SentinelContext BuildContext(IReadOnlyList<ChatMessage> msgs) =>
         new(new AgentId("user"), new AgentId("assistant"),

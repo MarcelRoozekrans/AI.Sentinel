@@ -13,7 +13,7 @@ namespace AI.Sentinel.Benchmarks;
 [BenchmarkCategory("Detector")]
 public class DetectorBenchmarks
 {
-    // Security — rule-based
+    // Security — SemanticDetectorBase (null EmbeddingGenerator → fast-path Clean)
     private PromptInjectionDetector   _promptInjection   = null!;
     private CredentialExposureDetector _credentialExposure = null!;
     private ToolPoisoningDetector     _toolPoisoning     = null!;
@@ -21,7 +21,7 @@ public class DetectorBenchmarks
     private JailbreakDetector         _jailbreak         = null!;
     private PrivilegeEscalationDetector _privilegeEscalation = null!;
 
-    // Hallucination — rule-based
+    // Hallucination — SemanticDetectorBase (null EmbeddingGenerator → fast-path Clean)
     private PhantomCitationDetector   _phantomCitation   = null!;
     private SelfConsistencyDetector   _selfConsistency   = null!;
 
@@ -30,6 +30,11 @@ public class DetectorBenchmarks
     private RepetitionLoopDetector    _repetitionLoop    = null!;
     private IncompleteCodeBlockDetector _incompleteCodeBlock = null!;
     private PlaceholderTextDetector   _placeholderText   = null!;
+
+    // Security — SemanticDetectorBase with embedding generator (realistic performance)
+    private PromptInjectionDetector          _promptInjectionSemantic     = null!;
+    private JailbreakDetector                _jailbreakSemantic           = null!;
+    private VectorRetrievalPoisoningDetector _vectorPoisoningSemantic     = null!;
 
     private SentinelContext _cleanCtx     = null!;
     private SentinelContext _maliciousCtx = null!;
@@ -52,6 +57,11 @@ public class DetectorBenchmarks
         _repetitionLoop     = new RepetitionLoopDetector();
         _incompleteCodeBlock = new IncompleteCodeBlockDetector();
         _placeholderText    = new PlaceholderTextDetector();
+
+        var semanticOpts         = SentinelOptionsFactory.WithSemanticDetection();
+        _promptInjectionSemantic = new PromptInjectionDetector(semanticOpts);
+        _jailbreakSemantic       = new JailbreakDetector(semanticOpts);
+        _vectorPoisoningSemantic = new VectorRetrievalPoisoningDetector(semanticOpts);
 
         _cleanCtx     = BuildContext(MessageFactory.CleanShort);
         _maliciousCtx = BuildContext(MessageFactory.Malicious);
@@ -114,6 +124,20 @@ public class DetectorBenchmarks
     [Benchmark(Description = "PlaceholderText / clean")]
     public ValueTask<DetectionResult> PlaceholderText_Clean() =>
         _placeholderText.AnalyzeAsync(_cleanCtx, CancellationToken.None);
+
+    // --- Semantic (with EmbeddingGenerator, cache cold first run) ---
+
+    [Benchmark(Description = "PromptInjection / semantic / clean")]
+    public ValueTask<DetectionResult> PromptInjection_Semantic_Clean() =>
+        _promptInjectionSemantic.AnalyzeAsync(_cleanCtx, CancellationToken.None);
+
+    [Benchmark(Description = "Jailbreak / semantic / clean")]
+    public ValueTask<DetectionResult> Jailbreak_Semantic_Clean() =>
+        _jailbreakSemantic.AnalyzeAsync(_cleanCtx, CancellationToken.None);
+
+    [Benchmark(Description = "VectorRetrievalPoisoning / semantic / clean")]
+    public ValueTask<DetectionResult> VectorRetrievalPoisoning_Semantic_Clean() =>
+        _vectorPoisoningSemantic.AnalyzeAsync(_cleanCtx, CancellationToken.None);
 
     private static SentinelContext BuildContext(IReadOnlyList<ChatMessage> msgs) =>
         new(new AgentId("user"), new AgentId("assistant"),
