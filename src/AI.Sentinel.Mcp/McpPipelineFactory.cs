@@ -126,19 +126,19 @@ internal static class McpPipelineFactory
         // Operational (15)
         new BlankResponseDetector(),
         new RepetitionLoopDetector(),
-        new ContextCollapseDetector(),
-        new AgentProbingDetector(),
-        new QueryIntentDetector(),
+        new ContextCollapseDetector(options),
+        new AgentProbingDetector(options),
+        new QueryIntentDetector(options),
         new IncompleteCodeBlockDetector(),
         new PlaceholderTextDetector(),
-        new ResponseCoherenceDetector(),
-        new PersonaDriftDetector(),
-        new SemanticRepetitionDetector(),
-        new SycophancyDetector(),
+        new ResponseCoherenceDetector(options),
+        new PersonaDriftDetector(options),
+        new SemanticRepetitionDetector(options),
+        new SycophancyDetector(options),
         new WrongLanguageDetector(),
         new TruncatedOutputDetector(),
         new UnboundedConsumptionDetector(),
-        new WaitingForContextDetector(),
+        new WaitingForContextDetector(options),
     ];
 
     // IChatClient satisfying SentinelPipeline's signature. Never invoked because

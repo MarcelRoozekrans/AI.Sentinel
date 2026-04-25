@@ -84,14 +84,14 @@ internal static class PipelineFactory
                 // Operational (11 detectors)
                 new BlankResponseDetector(),
                 new RepetitionLoopDetector(),
-                new ContextCollapseDetector(),
-                new AgentProbingDetector(),
-                new QueryIntentDetector(),
+                new ContextCollapseDetector(options),
+                new AgentProbingDetector(options),
+                new QueryIntentDetector(options),
                 new IncompleteCodeBlockDetector(),
                 new PlaceholderTextDetector(),
-                new ResponseCoherenceDetector(),
+                new ResponseCoherenceDetector(options),
                 new TruncatedOutputDetector(),           // OPS-09
-                new WaitingForContextDetector(),         // OPS-10
+                new WaitingForContextDetector(options),  // OPS-10
                 new UnboundedConsumptionDetector(),      // OPS-11
             ],
             escalationClient: null);
