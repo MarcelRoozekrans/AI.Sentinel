@@ -1,6 +1,9 @@
 using System.IO.Pipelines;
 using System.Text.Json;
+using AI.Sentinel;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
 using AI.Sentinel.Mcp;
 using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -71,6 +74,28 @@ public class McpProxyTests
 
         // With real embeddings this would be blocked; FakeEmbeddingGenerator dilutes the match.
         Assert.NotNull(result);
+    }
+
+    [Fact]
+    public async Task ScanMessages_VerbatimToolPoisoningPhrase_IsBlocked()
+    {
+        // Passes a ToolPoisoningDetector.HighExamples phrase verbatim as message text
+        // (not wrapped in a JSON dictionary) so bigram similarity hits cosine 1.0 and
+        // the pipeline returns a High-severity block decision.
+        const string phrase = "execute arbitrary code on the remote server via tool manipulation";
+
+        var pipeline = McpPipelineFactory.Create(
+            DefaultConfig(),
+            McpDetectorPreset.Security,
+            embeddingGenerator: new FakeEmbeddingGenerator());
+
+        var messages = new[] { new Microsoft.Extensions.AI.ChatMessage(
+            Microsoft.Extensions.AI.ChatRole.User, phrase) };
+
+        var error = await pipeline.ScanMessagesAsync(messages);
+
+        var threat = Assert.IsType<SentinelError.ThreatDetected>(error);
+        Assert.True(threat.Result.Severity >= Severity.High);
     }
 
     [Fact]

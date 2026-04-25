@@ -21,6 +21,7 @@ public sealed class ToolPoisoningDetector(SentinelOptions options) : SemanticDet
         "tool_name=exfiltrate_data",
         "execute command rm -rf via tool",
         "call tool with hidden payload",
+        "execute arbitrary code on the remote server via tool manipulation",
     ];
     protected override string[] MediumExamples =>
     [

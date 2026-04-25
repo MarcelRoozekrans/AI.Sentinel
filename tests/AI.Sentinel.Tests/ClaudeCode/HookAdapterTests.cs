@@ -50,6 +50,20 @@ public class HookAdapterTests
     }
 
     [Fact]
+    public async Task UserPromptSubmit_VerbatimToolPoisoningPhrase_ReturnsBlock()
+    {
+        // Passes a ToolPoisoningDetector.HighExamples phrase verbatim as the prompt so
+        // the FakeEmbeddingGenerator produces cosine 1.0 similarity and the pipeline blocks.
+        var adapter = BuildAdapter();
+        const string phrase = "execute arbitrary code on the remote server via tool manipulation";
+        var input = new HookInput("sess-1", phrase, null, null, null);
+
+        var output = await adapter.HandleAsync(HookEvent.UserPromptSubmit, input, default);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+    }
+
+    [Fact]
     public async Task PreToolUse_MapsToolInputToMessage()
     {
         var adapter = BuildAdapter();

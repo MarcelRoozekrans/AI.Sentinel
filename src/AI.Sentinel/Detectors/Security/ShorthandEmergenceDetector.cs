@@ -11,6 +11,11 @@ public sealed class ShorthandEmergenceDetector(SentinelOptions options) : Semant
     public override DetectorId Id       => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    // Original regex-based detector could only return Medium or Low.
+    // Cap severity so migration to SemanticDetectorBase preserves the original contract.
+    protected override Severity HighSeverity   => Severity.Medium;
+    protected override Severity MediumSeverity => Severity.Low;
+
     protected override string[] HighExamples =>
     [
         "XMSG AGNT BKND FWRD ENCR ZYNC protocol exchange",
