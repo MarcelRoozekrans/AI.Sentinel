@@ -129,11 +129,11 @@ public class OperationalDetectorTests
     {
         var messages = new List<ChatMessage>
         {
-            new(ChatRole.User,      "Help"),
-            new(ChatRole.Assistant, "Could you clarify what you need help with?"),
+            new(ChatRole.User,      "What is 2+2?"),
+            new(ChatRole.Assistant, "The capital of France is Paris."),
         };
         var r = await new WaitingForContextDetector(TestOptions.WithFakeEmbeddings()).AnalyzeAsync(CtxMessages(messages), default);
-        Assert.True(r.IsClean || r.Severity >= Severity.None);
+        Assert.True(r.IsClean);
     }
 
     [Fact] public async Task WaitingForContext_ExactLowPhrase_Detected()
@@ -147,7 +147,7 @@ public class OperationalDetectorTests
     {
         var r = await new WaitingForContextDetector(TestOptions.WithFakeEmbeddings())
             .AnalyzeAsync(Ctx("Please provide more details and could you also clarify what you mean by that"), default);
-        Assert.True(r.Severity >= Severity.Low);
+        Assert.True(r.Severity >= Severity.Medium);
     }
 
     // OPS-11: UnboundedConsumptionDetector

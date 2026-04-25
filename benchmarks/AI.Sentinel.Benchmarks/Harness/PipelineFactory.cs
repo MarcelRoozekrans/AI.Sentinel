@@ -81,7 +81,7 @@ internal static class PipelineFactory
                 new CrossAgentContradictionDetector(options),
                 new UncertaintyPropagationDetector(options),    // HAL-09
 
-                // Operational (11 detectors)
+                // Operational (14 detectors)
                 new BlankResponseDetector(),
                 new RepetitionLoopDetector(),
                 new ContextCollapseDetector(options),
@@ -93,6 +93,9 @@ internal static class PipelineFactory
                 new TruncatedOutputDetector(),           // OPS-09
                 new WaitingForContextDetector(options),  // OPS-10
                 new UnboundedConsumptionDetector(),      // OPS-11
+                new PersonaDriftDetector(options),       // OPS-13
+                new SemanticRepetitionDetector(options), // OPS-12
+                new SycophancyDetector(options),         // OPS-14
             ],
             escalationClient: null);
 }
