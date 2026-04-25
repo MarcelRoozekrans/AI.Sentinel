@@ -74,6 +74,8 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 | Feature | Description |
 |---|---|
 | **Detector test helpers** | `SentinelTestBuilder.WithPrompt(...).ExpectDetection<T>(Severity.High)` — xUnit/NUnit-friendly fluent API for unit-testing detectors with known inputs |
+| **Multi-language detection tests** | Add tests with French, German, and Chinese threat phrases to `SemanticDetectorBaseTests` and at least two semantic detectors — confirms the embedding layer is truly language-agnostic and catches future regressions if example phrases accidentally become language-specific |
+| **Semantic detector e2e benchmark with simulated latency** | `PipelineBenchmarks` already has `WithSemanticDetectionSimulated()` (10 ms per embedding). Add a `WithSemanticDetectionSimulated` variant to `E2EBenchmarks` and `SentinelPipelineBenchmarks` to measure full round-trip cost including intervention engine overhead on top of embedding latency |
 | **Benchmark CI gate** | MSBuild target that runs the benchmark suite and fails the build if any detector regresses past a configurable latency threshold |
 | **`AI.Sentinel.Analyzers`** | Roslyn diagnostic package that catches misconfiguration at build time: warn when `EscalationClient` is unset but LLM-escalation detectors are active, warn when `OnCritical = PassThrough`, warn on zero audit capacity |
 | **Source-generated detector registration** | `[SentinelDetector]` attribute on a custom detector class → source generator emits the `opts.AddDetector<T>()` call — complements the custom detector SDK with zero-boilerplate registration |
