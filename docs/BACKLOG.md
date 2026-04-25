@@ -19,12 +19,13 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 | Feature | Description |
 |---|---|
 | **Prompt hardening prefix** | Preventive (not detective) control: `SentinelOptions.SystemPrefix` prepends a hardening system-message to every outbound `IChatClient` call, instructing the model to treat retrieved/untrusted content strictly as data, never as instructions. Lightweight port of Rag.NET's `PromptHardeningAnswerEngineDecorator` — one new option + a pipeline step that mutates the `ChatMessage[]` before the downstream client sees it. First-line mitigation against OWASP LLM01 (prompt injection); complements existing detection. Minimum viable: ~60 LOC + tests. |
-| **Tool-call authorization (`IToolCallGuard`)** | RBAC-style policy layer for LLM tool invocations — answers *"is this caller allowed to invoke this tool with these arguments?"* Introduces `IToolCallGuard`, `ICallerContext` (role/trust-level source), and `ToolCallPolicy` (rule set). Guard runs before each tool executes and returns allow / deny / require-approval; deny records an audit entry and optionally raises a detector hit for the dashboard. Conceptually analogous to Rag.NET's `UseRbac()` for retrieved chunks, applied instead to tool calls. Fills a real gap: Microsoft.Extensions.AI has no authorization story for tool calls today. |
-| **Tool-call guard — `FunctionInvokingChatClient` integration** | Surface #1 (recommended MVP): wrap `FunctionInvokingChatClient` so every in-process `AIFunction` call passes through `IToolCallGuard` before executing. Zero new infrastructure — sits in the same pipeline as `.UseAISentinel()`. Abstraction that falls out of this surface is reused by the other three without rework. |
-| **Tool-call guard — Claude Code `PreToolUse` hook** | Surface #2: reuse `IToolCallGuard` inside `AI.Sentinel.ClaudeCode` so the hook can deny/approve tool calls issued by Claude in-IDE. Deny action maps to Claude's hook block response. Reuses the policy evaluation from the MVP. |
-| **Tool-call guard — Copilot `preToolUse` hook** | Surface #3: same as above for `AI.Sentinel.Copilot` — reuse `IToolCallGuard` at the Copilot hook boundary. |
-| **Tool-call guard — MCP proxy `tools/call` interception** | Surface #4: once `AI.Sentinel.Mcp` is fully wired (Tasks 7-10 from the MCP plan), reuse `IToolCallGuard` inside the proxy so MCP server tool invocations are gated. Highest strategic value — single control point for every MCP-speaking client (Cursor, Continue, Cline, Windsurf, Copilot's MCP path). Depends on the MCP proxy adapter item below. |
-| **ASP.NET Core `ICallerContext` bridge** | Out-of-the-box `ICallerContext` implementation that extracts roles/claims from `HttpContext.User` — drop-in for web apps. Mirrors Rag.NET's `Rag.NET.Security.AspNetCore.ClaimsPrincipalCallerContext`. |
+| **PIM-style approval workflow** | Adds `RequireApproval` decision tier to `IToolCallGuard` for high-stakes tools (e.g. `delete_database`, `send_payment`). Pluggable `IApprovalStore` (in-memory + persistent backends), time-bound grants with TTL, dashboard Approve/Deny UI with justification, Mediator pending-approval notification, per-surface wait strategies. Strictly additive — doesn't break the binary v1 contract. |
+| **`ZeroAlloc.Authorization.Abstractions` extraction** | Once `ZeroAlloc.Mediator.Authorization` ships, extract `ISecurityContext` / `IAuthorizationPolicy` / `[Authorize]` / `[AuthorizationPolicy]` into a shared package so AI.Sentinel and ZeroAlloc.Mediator share primitives. One `IAuthorizationPolicy` class works for both worlds. |
+| **Async `IAuthorizationPolicy`** | Add `Task<bool> IsAuthorizedAsync(ISecurityContext)` overload. Coordinate with ZeroAlloc.Mediator.Authorization design before changing the interface. |
+| **Source-gen-driven policy name lookup** | Replace startup reflection scan in `DefaultToolCallGuard` registration with a generated `name → factory` table. Cold-start performance optimisation. |
+| **Policy timeout** | `opts.PolicyTimeout` with deny-on-timeout for I/O-bound policies (tenant lookup, etc.). |
+| **`opts.AuditAllows`** | Opt-in compliance mode that also audits Allow decisions. |
+| **`[Authorize]` attribute discovery for AIFunction-bound methods** | Translate method-level `[Authorize("policy")]` to a `RequireToolPolicy(funcName, "policy")` binding at AIFunction registration time. (Deferred from Task 8 to keep the in-process surface scope tight.) |
 
 ---
 
@@ -66,6 +67,7 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 | Severity trend chart | Rolling line chart of `ThreatRiskScore` distribution over time — baseline deviation visible at a glance |
 | Dark mode | System-preference-aware theme toggle via CSS `prefers-color-scheme` |
 | Multi-instance aggregation | Federate audit logs from N app instances into a single dashboard view via a shared persistent store |
+| **Dashboard category chips** | Add `Security` / `Hallucination` / `Operational` filter chips alongside the new `Authorization` chip — Task 12 shipped only `All` + `Authorization` because the others were never implemented. Decide category-mapping logic (likely a `DetectorCategory` switch on `DetectorId` prefix) and wire chips. |
 
 ---
 

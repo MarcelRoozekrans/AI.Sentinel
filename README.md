@@ -205,6 +205,45 @@ Detectors run in three modes:
 
 ---
 
+## Tool-Call Authorization
+
+AI.Sentinel ships with `IToolCallGuard` — a preventive control evaluated before every tool
+call across all four surfaces. Decision model is binary `Allow | Deny`. Same policy
+abstraction (`IAuthorizationPolicy`) as planned `ZeroAlloc.Mediator.Authorization`.
+
+```csharp
+[AuthorizationPolicy("admin-only")]
+public sealed class AdminOnlyPolicy : IAuthorizationPolicy
+{
+    public bool IsAuthorized(ISecurityContext ctx) => ctx.Roles.Contains("admin");
+}
+
+services.AddSingleton<IAuthorizationPolicy, AdminOnlyPolicy>();
+services.AddAISentinel(opts =>
+{
+    opts.RequireToolPolicy("Bash",       "admin-only");
+    opts.RequireToolPolicy("delete_*",   "admin-only");
+    opts.DefaultToolPolicy = ToolPolicyDefault.Allow; // default
+});
+
+builder.Services.AddChatClient(pipeline =>
+    pipeline.UseAISentinel()
+            .UseToolCallAuthorization()
+            .UseFunctionInvocation()
+            .Use(new OpenAIChatClient(...)));
+```
+
+| Surface | Caller resolution default | Deny semantics |
+|---|---|---|
+| In-process | `IServiceProvider.GetService<ISecurityContext>()` → Anonymous | throw `ToolCallAuthorizationException` |
+| Claude Code | `HookConfig.CallerContextProvider` → Anonymous | `HookOutput(Block, reason)` |
+| Copilot | `CopilotHookConfig.CallerContextProvider` → Anonymous | `HookOutput(Block, reason)` |
+| MCP proxy | DI provider → `SENTINEL_MCP_CALLER_ID/_ROLES` env → Anonymous | `McpException(InvalidRequest, reason)` |
+
+Default behaviour: if no policies are registered, every call is allowed (drop-in upgrade).
+
+---
+
 ## Configuration
 
 ```csharp
