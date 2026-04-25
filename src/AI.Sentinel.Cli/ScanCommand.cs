@@ -1,4 +1,5 @@
 using System.CommandLine;
+using Microsoft.Extensions.AI;
 using AI.Sentinel.Detection;
 
 namespace AI.Sentinel.Cli;
@@ -73,7 +74,8 @@ public static class ScanCommand
         CancellationToken ct,
         IReadOnlyList<string>? expectedDetectors = null,
         Severity? minSeverity = null,
-        string? baselinePath = null)
+        string? baselinePath = null,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
     {
         ArgumentNullException.ThrowIfNull(stdout);
         ArgumentNullException.ThrowIfNull(stderr);
@@ -84,7 +86,7 @@ public static class ScanCommand
             var replayResponses = conversation.Turns.Select(t => t.Response).ToArray();
             var replayClient = new SentinelReplayClient(replayResponses);
 
-            var (provider, pipeline) = ForensicsPipelineFactory.Build(replayClient);
+            var (provider, pipeline) = ForensicsPipelineFactory.Build(replayClient, embeddingGenerator);
             await using var _ = provider.ConfigureAwait(false);
 
             var result = await ReplayRunner.RunAsync(file, conversation, pipeline, ct).ConfigureAwait(false);

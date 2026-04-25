@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Audit;
+using AI.Sentinel.Tests.Helpers;
 
 namespace AI.Sentinel.Tests.Integration;
 
@@ -12,8 +13,11 @@ public class EndToEndTests
     [Fact] public async Task PromptInjection_IsQuarantined_EndToEnd()
     {
         var services = new ServiceCollection();
-        AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services,
-            opts => opts.OnCritical = SentinelAction.Quarantine);
+        AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services, opts =>
+        {
+            opts.OnCritical = SentinelAction.Quarantine;
+            opts.EmbeddingGenerator = new FakeEmbeddingGenerator();
+        });
 
         services.AddChatClient(_ => (IChatClient)new FakeInnerClient("all good"))
                 .UseAISentinel();
@@ -46,8 +50,11 @@ public class EndToEndTests
     [Fact] public async Task AuditStore_ReceivesEntries_AfterThreat()
     {
         var services = new ServiceCollection();
-        AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services,
-            opts => opts.OnCritical = SentinelAction.Log); // Don't quarantine — let it through to audit
+        AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services, opts =>
+        {
+            opts.OnCritical = SentinelAction.Log; // Don't quarantine — let it through to audit
+            opts.EmbeddingGenerator = new FakeEmbeddingGenerator();
+        });
 
         services.AddChatClient(_ => (IChatClient)new FakeInnerClient("ok"))
                 .UseAISentinel();

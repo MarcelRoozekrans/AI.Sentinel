@@ -4,6 +4,7 @@ using AI.Sentinel;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Mcp;
+using AI.Sentinel.Tests.Helpers;
 
 namespace AI.Sentinel.Tests.Mcp;
 
@@ -35,7 +36,8 @@ public class McpPipelineFactoryTests
     [Fact]
     public async Task Create_SecurityPreset_DetectsPromptInjectionInMessage()
     {
-        var pipeline = McpPipelineFactory.Create(BuildConfig(), McpDetectorPreset.Security);
+        var pipeline = McpPipelineFactory.Create(BuildConfig(), McpDetectorPreset.Security,
+            new FakeEmbeddingGenerator());
 
         var messages = new[]
         {

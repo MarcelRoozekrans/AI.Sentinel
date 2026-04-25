@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel;
 using AI.Sentinel.ClaudeCode;
@@ -12,11 +13,12 @@ public static class Program
         => await RunAsync(args, Console.In, Console.Out, Console.Error).ConfigureAwait(false);
 
     public static async Task<int> RunAsync(
-        string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr)
+        string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
     {
         try
         {
-            return await RunCoreAsync(args, stdin, stdout, stderr).ConfigureAwait(false);
+            return await RunCoreAsync(args, stdin, stdout, stderr, embeddingGenerator).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -29,7 +31,8 @@ public static class Program
     }
 
     private static async Task<int> RunCoreAsync(
-        string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr)
+        string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
     {
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
@@ -68,6 +71,7 @@ public static class Program
             opts.OnHigh = SentinelAction.Quarantine;
             opts.OnMedium = SentinelAction.Quarantine;
             opts.OnLow = SentinelAction.Quarantine;
+            opts.EmbeddingGenerator = embeddingGenerator;
         });
         var provider = services.BuildServiceProvider();
         await using var _ = provider.ConfigureAwait(false);

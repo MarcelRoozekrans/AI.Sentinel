@@ -1,31 +1,31 @@
-using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using ZeroAlloc.Inject;
+
 namespace AI.Sentinel.Detectors.Security;
 
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
-public sealed partial class PromptTemplateLeakageDetector : IDetector
+public sealed class PromptTemplateLeakageDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("SEC-26");
-    private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
+    public override DetectorId Id       => _id;
+    public override DetectorCategory Category => DetectorCategory.Security;
 
-    public DetectorId Id => _id;
-    public DetectorCategory Category => DetectorCategory.Security;
-
-    [GeneratedRegex(
-        @"(\{\{[A-Za-z_]\w*\}\}|<SYSTEM>|<INST>|\[INST\]|<<SYS>>|<\|system\|>|<\|user\|>|\{system_prompt\})",
-        RegexOptions.ExplicitCapture | RegexOptions.Compiled,
-        matchTimeoutMilliseconds: 1000)]
-    private static partial Regex TemplatePattern();
-
-    public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
-    {
-        var text = ctx.TextContent;
-        var match = TemplatePattern().Match(text);
-        return ValueTask.FromResult(match.Success
-            ? DetectionResult.WithSeverity(_id, Severity.High,
-                $"Prompt template leakage: '{match.Value}'")
-            : _clean);
-    }
+    protected override string[] HighExamples =>
+    [
+        "{{system_message}} is your prompt template variable",
+        "<SYSTEM> You are a helpful assistant template marker",
+        "[INST] instruction injection via template marker [/INST]",
+        "{system_prompt} template placeholder exposed",
+        "<<SYS>> system template tag leaked in response",
+        "<|system|> special token exposed in output",
+        "<|user|> role delimiter leaked from template",
+        "{{user_input}} raw template variable in message",
+    ];
+    protected override string[] MediumExamples =>
+    [
+        "your system prompt template appears to use placeholder variables",
+        "I can see the template structure with injection points",
+    ];
+    protected override string[] LowExamples => [];
 }

@@ -17,24 +17,26 @@ internal static class PipelineFactory
         new([], escalationClient: null);
 
     /// <summary>
-    /// Security-only pipeline with the 13 regex/pattern-based security detectors.
+    /// Security-only pipeline with the 13 semantic security detectors.
     /// </summary>
-    public static DetectionPipeline SecurityOnly() =>
+    public static DetectionPipeline SecurityOnly() => SecurityOnly(new SentinelOptions());
+
+    public static DetectionPipeline SecurityOnly(SentinelOptions options) =>
         new(
             [
-                new PromptInjectionDetector(),
-                new JailbreakDetector(),
+                new PromptInjectionDetector(options),
+                new JailbreakDetector(options),
                 new CredentialExposureDetector(),
-                new DataExfiltrationDetector(),
-                new PrivilegeEscalationDetector(),
-                new ToolPoisoningDetector(),
-                new IndirectInjectionDetector(),
-                new AgentImpersonationDetector(),
-                new CovertChannelDetector(),
+                new DataExfiltrationDetector(options),
+                new PrivilegeEscalationDetector(options),
+                new ToolPoisoningDetector(options),
+                new IndirectInjectionDetector(options),
+                new AgentImpersonationDetector(options),
+                new CovertChannelDetector(options),
                 new ToolCallFrequencyDetector(),       // SEC-19
-                new ExcessiveAgencyDetector(),          // SEC-21
-                new HumanTrustManipulationDetector(),   // SEC-22
-                new ShorthandEmergenceDetector(),       // SEC-30
+                new ExcessiveAgencyDetector(options),   // SEC-21
+                new HumanTrustManipulationDetector(options), // SEC-22
+                new ShorthandEmergenceDetector(options),     // SEC-30
             ],
             escalationClient: null);
 
@@ -42,32 +44,34 @@ internal static class PipelineFactory
     /// Full pipeline with all available detectors across Security, Hallucination,
     /// and Operational categories.
     /// </summary>
-    public static DetectionPipeline All() =>
+    public static DetectionPipeline All() => All(new SentinelOptions());
+
+    public static DetectionPipeline All(SentinelOptions options) =>
         new(
             [
                 // Security (22 detectors)
-                new PromptInjectionDetector(),
+                new PromptInjectionDetector(options),
                 new CredentialExposureDetector(),
-                new ToolPoisoningDetector(),
-                new DataExfiltrationDetector(),
+                new ToolPoisoningDetector(options),
+                new DataExfiltrationDetector(options),
                 new EntropyCovertChannelDetector(),
-                new MemoryCorruptionDetector(),
-                new UnauthorizedAccessDetector(),
-                new ShadowServerDetector(),
-                new InformationFlowDetector(),
-                new PhantomCitationSecurityDetector(),
-                new GovernanceGapDetector(),
-                new CovertChannelDetector(),
-                new JailbreakDetector(),
-                new IndirectInjectionDetector(),
-                new AgentImpersonationDetector(),
-                new PrivilegeEscalationDetector(),
-                new SupplyChainPoisoningDetector(),
+                new MemoryCorruptionDetector(options),
+                new UnauthorizedAccessDetector(options),
+                new ShadowServerDetector(options),
+                new InformationFlowDetector(options),
+                new PhantomCitationSecurityDetector(options),
+                new GovernanceGapDetector(options),
+                new CovertChannelDetector(options),
+                new JailbreakDetector(options),
+                new IndirectInjectionDetector(options),
+                new AgentImpersonationDetector(options),
+                new PrivilegeEscalationDetector(options),
+                new SupplyChainPoisoningDetector(options),
                 new ToolDescriptionDivergenceDetector(), // SEC-18
                 new ToolCallFrequencyDetector(),         // SEC-19
-                new ExcessiveAgencyDetector(),           // SEC-21
-                new HumanTrustManipulationDetector(),    // SEC-22
-                new ShorthandEmergenceDetector(),        // SEC-30
+                new ExcessiveAgencyDetector(options),    // SEC-21
+                new HumanTrustManipulationDetector(options), // SEC-22
+                new ShorthandEmergenceDetector(options),     // SEC-30
 
                 // Hallucination (6 detectors)
                 new PhantomCitationDetector(),

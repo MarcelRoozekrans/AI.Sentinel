@@ -1,5 +1,6 @@
 using Xunit;
 using AI.Sentinel.ClaudeCode.Cli;
+using AI.Sentinel.Tests.Helpers;
 
 namespace AI.Sentinel.Tests.ClaudeCode;
 
@@ -25,7 +26,8 @@ public class HookCliTests
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+        var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr,
+            new FakeEmbeddingGenerator());
 
         Assert.Equal(2, exit);
         Assert.Contains("SEC-01", stderr.ToString(), StringComparison.Ordinal);
@@ -115,7 +117,8 @@ public class HookCliTests
             var stdout = new StringWriter();
             var stderr = new StringWriter();
 
-            var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+            var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr,
+                new FakeEmbeddingGenerator());
 
             Assert.Equal(2, exit);
             var err = stderr.ToString();

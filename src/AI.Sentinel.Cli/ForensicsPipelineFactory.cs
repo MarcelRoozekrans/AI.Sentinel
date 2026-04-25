@@ -17,7 +17,9 @@ public static class ForensicsPipelineFactory
 {
     /// <summary>Builds a service provider + pipeline wired for forensics replay using the supplied inner chat client.</summary>
     /// <returns>The provider (for disposal) and the pipeline.</returns>
-    public static (ServiceProvider Provider, SentinelPipeline Pipeline) Build(IChatClient innerClient)
+    public static (ServiceProvider Provider, SentinelPipeline Pipeline) Build(
+        IChatClient innerClient,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
     {
         ArgumentNullException.ThrowIfNull(innerClient);
 
@@ -28,6 +30,7 @@ public static class ForensicsPipelineFactory
             opts.OnHigh = SentinelAction.Quarantine;
             opts.OnMedium = SentinelAction.Quarantine;
             opts.OnLow = SentinelAction.Quarantine;
+            opts.EmbeddingGenerator = embeddingGenerator;
         });
         var provider = services.BuildServiceProvider();
         var pipeline = provider.BuildSentinelPipeline(innerClient);

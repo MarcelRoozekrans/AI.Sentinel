@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.AI;
 using AI.Sentinel.ClaudeCode;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Client;
@@ -29,7 +30,8 @@ public static class McpProxy
         McpDetectorPreset preset,
         int maxScanBytes,
         TextWriter stderr,
-        CancellationToken ct)
+        CancellationToken ct,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
     {
         ArgumentNullException.ThrowIfNull(hostTransport);
         ArgumentNullException.ThrowIfNull(targetTransport);
@@ -43,7 +45,7 @@ public static class McpProxy
             cancellationToken: ct).ConfigureAwait(false);
         await using var _targetDispose = targetClient.ConfigureAwait(false);
 
-        var pipeline = McpPipelineFactory.Create(config, preset);
+        var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator);
 
         var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr);
 

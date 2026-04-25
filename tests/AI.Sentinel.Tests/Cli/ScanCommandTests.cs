@@ -1,6 +1,7 @@
 using AI.Sentinel.Cli;
 using AI.Sentinel.Detection;
 using Xunit;
+using AI.Sentinel.Tests.Helpers;
 
 namespace AI.Sentinel.Tests.Cli;
 
@@ -101,7 +102,8 @@ public class ScanCommandTests
             stdout,
             stderr,
             default,
-            expectedDetectors: ["SEC-01"]);
+            expectedDetectors: ["SEC-01"],
+            embeddingGenerator: new FakeEmbeddingGenerator());
 
         Assert.Equal(0, exit);
     }
@@ -207,7 +209,8 @@ public class ScanCommandTests
                 stdout,
                 stderr,
                 default,
-                baselinePath: tempBaseline);
+                baselinePath: tempBaseline,
+                embeddingGenerator: new FakeEmbeddingGenerator());
 
             Assert.Equal(0, exit);
             Assert.Contains("NEW", stdout.ToString(), StringComparison.Ordinal);

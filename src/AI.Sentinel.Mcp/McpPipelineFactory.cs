@@ -17,22 +17,24 @@ namespace AI.Sentinel.Mcp;
 /// </remarks>
 internal static class McpPipelineFactory
 {
-    public static SentinelPipeline Create(HookConfig config, McpDetectorPreset preset)
+    public static SentinelPipeline Create(HookConfig config, McpDetectorPreset preset,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var options = new SentinelOptions
         {
-            OnCritical = MapDecision(config.OnCritical),
-            OnHigh     = MapDecision(config.OnHigh),
-            OnMedium   = MapDecision(config.OnMedium),
-            OnLow      = MapDecision(config.OnLow),
+            OnCritical         = MapDecision(config.OnCritical),
+            OnHigh             = MapDecision(config.OnHigh),
+            OnMedium           = MapDecision(config.OnMedium),
+            OnLow              = MapDecision(config.OnLow),
+            EmbeddingGenerator = embeddingGenerator,
         };
 
         var detectors = preset switch
         {
             McpDetectorPreset.All => BuildAllDetectors(options),
-            _                     => BuildSecurityDetectors(),
+            _                     => BuildSecurityDetectors(options),
         };
 
         return new SentinelPipeline(
@@ -50,23 +52,25 @@ internal static class McpPipelineFactory
         _                  => SentinelAction.PassThrough,
     };
 
-    // 13 regex/pattern-based security detectors — mirrors
+    // 13 semantic security detectors — mirrors
     // benchmarks/AI.Sentinel.Benchmarks/Harness/PipelineFactory.SecurityOnly().
-    internal static IDetector[] BuildSecurityDetectors() =>
+    internal static IDetector[] BuildSecurityDetectors() => BuildSecurityDetectors(new SentinelOptions());
+
+    internal static IDetector[] BuildSecurityDetectors(SentinelOptions options) =>
     [
-        new PromptInjectionDetector(),
-        new JailbreakDetector(),
+        new PromptInjectionDetector(options),
+        new JailbreakDetector(options),
         new CredentialExposureDetector(),
-        new DataExfiltrationDetector(),
-        new PrivilegeEscalationDetector(),
-        new ToolPoisoningDetector(),
-        new IndirectInjectionDetector(),
-        new AgentImpersonationDetector(),
-        new CovertChannelDetector(),
+        new DataExfiltrationDetector(options),
+        new PrivilegeEscalationDetector(options),
+        new ToolPoisoningDetector(options),
+        new IndirectInjectionDetector(options),
+        new AgentImpersonationDetector(options),
+        new CovertChannelDetector(options),
         new ToolCallFrequencyDetector(),      // SEC-19
-        new ExcessiveAgencyDetector(),         // SEC-21
-        new HumanTrustManipulationDetector(),  // SEC-22
-        new ShorthandEmergenceDetector(),      // SEC-30
+        new ExcessiveAgencyDetector(options),  // SEC-21
+        new HumanTrustManipulationDetector(options), // SEC-22
+        new ShorthandEmergenceDetector(options),     // SEC-30
     ];
 
     // 54 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
@@ -79,36 +83,36 @@ internal static class McpPipelineFactory
     internal static IDetector[] BuildAllDetectors(SentinelOptions options) =>
     [
         // Security (28)
-        new PromptInjectionDetector(),
-        new JailbreakDetector(),
+        new PromptInjectionDetector(options),
+        new JailbreakDetector(options),
         new CredentialExposureDetector(),
-        new DataExfiltrationDetector(),
-        new PrivilegeEscalationDetector(),
-        new ToolPoisoningDetector(),
-        new IndirectInjectionDetector(),
-        new AgentImpersonationDetector(),
-        new CovertChannelDetector(),
+        new DataExfiltrationDetector(options),
+        new PrivilegeEscalationDetector(options),
+        new ToolPoisoningDetector(options),
+        new IndirectInjectionDetector(options),
+        new AgentImpersonationDetector(options),
+        new CovertChannelDetector(options),
         new EntropyCovertChannelDetector(),
-        new MemoryCorruptionDetector(),
-        new UnauthorizedAccessDetector(),
-        new ShadowServerDetector(),
-        new InformationFlowDetector(),
-        new PhantomCitationSecurityDetector(),
-        new GovernanceGapDetector(),
-        new SupplyChainPoisoningDetector(),
+        new MemoryCorruptionDetector(options),
+        new UnauthorizedAccessDetector(options),
+        new ShadowServerDetector(options),
+        new InformationFlowDetector(options),
+        new PhantomCitationSecurityDetector(options),
+        new GovernanceGapDetector(options),
+        new SupplyChainPoisoningDetector(options),
         new AdversarialUnicodeDetector(),
-        new CodeInjectionDetector(),
-        new LanguageSwitchAttackDetector(),
+        new CodeInjectionDetector(options),
+        new LanguageSwitchAttackDetector(options),
         new OutputSchemaDetector(options),
         new PiiLeakageDetector(),
-        new PromptTemplateLeakageDetector(),
-        new RefusalBypassDetector(),
-        new SystemPromptLeakageDetector(),
+        new PromptTemplateLeakageDetector(options),
+        new RefusalBypassDetector(options),
+        new SystemPromptLeakageDetector(options),
         new ToolDescriptionDivergenceDetector(),
         new ToolCallFrequencyDetector(),
-        new ExcessiveAgencyDetector(),
-        new HumanTrustManipulationDetector(),
-        new ShorthandEmergenceDetector(),
+        new ExcessiveAgencyDetector(options),
+        new HumanTrustManipulationDetector(options),
+        new ShorthandEmergenceDetector(options),
         // Hallucination (9)
         new PhantomCitationDetector(),
         new SelfConsistencyDetector(),

@@ -37,12 +37,13 @@ public class DetectorBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        _promptInjection    = new PromptInjectionDetector();
+        var opts            = new SentinelOptions();
+        _promptInjection    = new PromptInjectionDetector(opts);
         _credentialExposure = new CredentialExposureDetector();
-        _toolPoisoning      = new ToolPoisoningDetector();
-        _dataExfiltration   = new DataExfiltrationDetector();
-        _jailbreak          = new JailbreakDetector();
-        _privilegeEscalation = new PrivilegeEscalationDetector();
+        _toolPoisoning      = new ToolPoisoningDetector(opts);
+        _dataExfiltration   = new DataExfiltrationDetector(opts);
+        _jailbreak          = new JailbreakDetector(opts);
+        _privilegeEscalation = new PrivilegeEscalationDetector(opts);
 
         _phantomCitation    = new PhantomCitationDetector();
         _selfConsistency    = new SelfConsistencyDetector();
