@@ -73,7 +73,7 @@ internal static class McpPipelineFactory
         new ShorthandEmergenceDetector(options),     // SEC-30
     ];
 
-    // 54 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
+    // 55 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
     // source-gen. Keep these in sync whenever a new detector is decorated with
     // [Singleton(As = typeof(IDetector), AllowMultiple = true)]. The drift-
     // detection test BuildAllDetectors_CountMatchesRegisteredIDetectorCount
@@ -82,7 +82,7 @@ internal static class McpPipelineFactory
 
     internal static IDetector[] BuildAllDetectors(SentinelOptions options) =>
     [
-        // Security (28)
+        // Security (29)
         new PromptInjectionDetector(options),
         new JailbreakDetector(options),
         new CredentialExposureDetector(),
@@ -113,6 +113,7 @@ internal static class McpPipelineFactory
         new ExcessiveAgencyDetector(options),
         new HumanTrustManipulationDetector(options),
         new ShorthandEmergenceDetector(options),
+        new VectorRetrievalPoisoningDetector(options),
         // Hallucination (9)
         new PhantomCitationDetector(options),
         new SelfConsistencyDetector(options),
