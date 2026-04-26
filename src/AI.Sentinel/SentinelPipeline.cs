@@ -220,7 +220,7 @@ public sealed class SentinelPipeline(
     private IReadOnlyList<ChatMessage> ApplyHardening(IReadOnlyList<ChatMessage> messages)
     {
         var prefix = options.SystemPrefix;
-        if (string.IsNullOrEmpty(prefix))
+        if (string.IsNullOrWhiteSpace(prefix))
             return messages;
 
         var copy = new List<ChatMessage>(messages.Count + 1);
