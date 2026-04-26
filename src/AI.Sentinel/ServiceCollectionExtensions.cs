@@ -41,10 +41,11 @@ public static class ServiceCollectionExtensions
             new DetectionPipelineInstrumented(
                 new DetectionPipeline(sp.GetServices<IDetector>(), opts.EscalationClient, sp.GetService<ILogger<DetectionPipeline>>())));
 
-        var hasSecurityContext = services.Any(d => d.ServiceType == typeof(ISecurityContext));
-
         services.AddSingleton<IToolCallGuard>(sp =>
         {
+            // Re-check at factory time (not at AddAISentinel time) so users can add ISecurityContext after AddAISentinel.
+            var hasSecurityContext = services.Any(d => d.ServiceType == typeof(ISecurityContext));
+
             var policyByName = new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal);
             foreach (var p in sp.GetServices<IAuthorizationPolicy>())
             {

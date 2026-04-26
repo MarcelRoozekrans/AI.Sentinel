@@ -1,3 +1,5 @@
+using System.Collections.Frozen;
+
 namespace AI.Sentinel.Authorization;
 
 /// <summary>Singleton anonymous caller — no Id, no roles, no claims. Default when no provider configured.</summary>
@@ -12,8 +14,8 @@ public sealed class AnonymousSecurityContext : ISecurityContext
     public string Id => "anonymous";
 
     /// <inheritdoc />
-    public IReadOnlySet<string> Roles { get; } = new HashSet<string>(StringComparer.Ordinal);
+    public IReadOnlySet<string> Roles { get; } = FrozenSet<string>.Empty;
 
     /// <inheritdoc />
-    public IReadOnlyDictionary<string, string> Claims { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, string> Claims { get; } = FrozenDictionary<string, string>.Empty;
 }
