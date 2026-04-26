@@ -15,15 +15,16 @@ namespace AI.Sentinel.Mcp;
 /// ⇆ client side ⇆ target.
 /// </summary>
 /// <remarks>
-/// Forward-only in v1 Task 6: every <c>tools/list</c>, <c>tools/call</c>,
-/// <c>prompts/list</c>, and <c>prompts/get</c> request is forwarded to the
-/// upstream client verbatim. Resources (<c>resources/list</c>,
-/// <c>resources/read</c>) are deferred to v2 — the proxy does not advertise
-/// the capability, so the SDK replies with <c>MethodNotFound</c> (-32601).
-/// Sentinel filters land in Tasks 7 and 8. When an
-/// <see cref="IToolCallGuard"/> is supplied via the <paramref name="guard"/>
-/// parameter on <see cref="RunAsync"/>, an authorization gate runs before the
-/// detection pipeline on every <c>tools/call</c>.
+/// Capabilities are mirrored from the upstream target: <c>tools/*</c>,
+/// <c>prompts/*</c>, and <c>resources/*</c> are advertised to the host
+/// only when the target also advertises them. <c>tools/call</c>,
+/// <c>prompts/get</c>, and <c>resources/read</c> are pre/post-scanned by
+/// <see cref="ToolCallInterceptor"/>, <see cref="PromptGetInterceptor"/>,
+/// and <see cref="ResourceReadInterceptor"/> respectively; list/template
+/// metadata calls forward verbatim. When an <see cref="IToolCallGuard"/>
+/// is supplied via the <paramref name="guard"/> parameter on <see cref="RunAsync"/>,
+/// an authorization gate runs before the detection pipeline on every
+/// <c>tools/call</c>.
 /// </remarks>
 public static class McpProxy
 {
@@ -83,57 +84,113 @@ public static class McpProxy
         TextWriter stderr,
         IToolCallGuard? guard,
         IAuditStore? auditStore,
-        Func<CallToolRequestParams, ISecurityContext>? callerResolver) => new()
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver)
     {
-        ServerInfo = new Implementation { Name = "sentinel-mcp", Version = "0.1.0" },
-        Capabilities = new ServerCapabilities
-        {
-            Tools   = new ToolsCapability(),
-            Prompts = new PromptsCapability(),
-        },
-        Handlers = BuildForwardingHandlers(targetClient),
-        Filters  = new McpServerFilters
-        {
-            Request = new McpRequestFilters
-            {
-                CallToolFilters =
-                {
-                    ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver),
-                },
-                GetPromptFilters =
-                {
-                    PromptGetInterceptor.Create(pipeline, maxScanBytes, stderr),
-                },
-            },
-        },
-    };
+        var targetCaps = targetClient.ServerCapabilities;
+        var capabilities = new ServerCapabilities();
+        var handlers = new McpServerHandlers();
+        var requestFilters = new McpRequestFilters();
 
-    private static McpServerHandlers BuildForwardingHandlers(McpClient targetClient) => new()
+        if (targetCaps.Tools is not null)
+        {
+            WireTools(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver,
+                capabilities, handlers, requestFilters);
+        }
+
+        if (targetCaps.Prompts is not null)
+        {
+            WirePrompts(targetClient, pipeline, maxScanBytes, stderr,
+                capabilities, handlers, requestFilters);
+        }
+
+        if (targetCaps.Resources is not null)
+        {
+            WireResources(targetClient, pipeline, targetCaps.Resources,
+                capabilities, handlers, requestFilters);
+        }
+
+        return new McpServerOptions
+        {
+            ServerInfo   = new Implementation { Name = "sentinel-mcp", Version = "0.1.0" },
+            Capabilities = capabilities,
+            Handlers     = handlers,
+            Filters      = new McpServerFilters { Request = requestFilters },
+        };
+    }
+
+    private static void WireTools(
+        McpClient targetClient,
+        SentinelPipeline pipeline,
+        int maxScanBytes,
+        TextWriter stderr,
+        IToolCallGuard? guard,
+        IAuditStore? auditStore,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver,
+        ServerCapabilities capabilities,
+        McpServerHandlers handlers,
+        McpRequestFilters requestFilters)
     {
-        CallToolHandler = async (req, c) =>
-            await targetClient.CallToolAsync(
+        capabilities.Tools = new ToolsCapability();
+        handlers.CallToolHandler = (req, c) =>
+            targetClient.CallToolAsync(
                 toolName: req.Params!.Name,
                 arguments: ToObjectDictionary(req.Params.Arguments),
-                cancellationToken: c).ConfigureAwait(false),
-
-        GetPromptHandler = async (req, c) =>
-            await targetClient.GetPromptAsync(
-                name: req.Params!.Name,
-                arguments: ToObjectDictionary(req.Params.Arguments),
-                cancellationToken: c).ConfigureAwait(false),
-
-        ListToolsHandler = async (req, c) =>
+                cancellationToken: c);
+        handlers.ListToolsHandler = async (req, c) =>
         {
             var tools = await targetClient.ListToolsAsync(cancellationToken: c).ConfigureAwait(false);
             return new ListToolsResult { Tools = tools.Select(t => t.ProtocolTool).ToList() };
-        },
+        };
+        requestFilters.CallToolFilters.Add(
+            ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver));
+    }
 
-        ListPromptsHandler = async (req, c) =>
+    private static void WirePrompts(
+        McpClient targetClient,
+        SentinelPipeline pipeline,
+        int maxScanBytes,
+        TextWriter stderr,
+        ServerCapabilities capabilities,
+        McpServerHandlers handlers,
+        McpRequestFilters requestFilters)
+    {
+        capabilities.Prompts = new PromptsCapability();
+        handlers.GetPromptHandler = (req, c) =>
+            targetClient.GetPromptAsync(
+                name: req.Params!.Name,
+                arguments: ToObjectDictionary(req.Params.Arguments),
+                cancellationToken: c);
+        handlers.ListPromptsHandler = async (req, c) =>
         {
             var prompts = await targetClient.ListPromptsAsync(cancellationToken: c).ConfigureAwait(false);
             return new ListPromptsResult { Prompts = prompts.Select(p => p.ProtocolPrompt).ToList() };
-        },
-    };
+        };
+        requestFilters.GetPromptFilters.Add(
+            PromptGetInterceptor.Create(pipeline, maxScanBytes, stderr));
+    }
+
+    private static void WireResources(
+        McpClient targetClient,
+        SentinelPipeline pipeline,
+        ResourcesCapability targetResources,
+        ServerCapabilities capabilities,
+        McpServerHandlers handlers,
+        McpRequestFilters requestFilters)
+    {
+        capabilities.Resources = new ResourcesCapability
+        {
+            ListChanged = targetResources.ListChanged,
+            Subscribe   = targetResources.Subscribe,
+        };
+        handlers.ListResourcesHandler = (req, c) =>
+            targetClient.ListResourcesAsync(req.Params, c);
+        handlers.ListResourceTemplatesHandler = (req, c) =>
+            targetClient.ListResourceTemplatesAsync(req.Params, c);
+        handlers.ReadResourceHandler = (req, c) =>
+            targetClient.ReadResourceAsync(req.Params!, c);
+        requestFilters.ReadResourceFilters.Add(
+            ResourceReadInterceptor.Create(pipeline));
+    }
 
     private static Dictionary<string, object?> ToObjectDictionary(
         IDictionary<string, JsonElement>? args)

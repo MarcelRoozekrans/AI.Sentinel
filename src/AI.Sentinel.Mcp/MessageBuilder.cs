@@ -51,6 +51,17 @@ internal static class MessageBuilder
         ];
     }
 
+    /// <summary>Builds a single tool-output <see cref="ChatMessage"/> representing one
+    /// retrieved resource content item, for scanning via <see cref="SentinelPipeline"/>.</summary>
+    /// <remarks>
+    /// Resource bodies arrive already-typed as text (<see cref="ModelContextProtocol.Protocol.TextResourceContents"/>);
+    /// the caller is responsible for filtering out non-text (blob) variants and applying any
+    /// MIME allowlist / oversize gates before invoking this helper. Truncation has already
+    /// been applied by the interceptor against the UTF-8 byte budget.
+    /// </remarks>
+    public static ChatMessage BuildResourceRead(string text)
+        => new(ChatRole.Tool, text);
+
     /// <summary>Builds the scan payload for a <c>prompts/get</c> response.</summary>
     /// <param name="result">The prompt result to scan.</param>
     /// <param name="maxScanBytes">
