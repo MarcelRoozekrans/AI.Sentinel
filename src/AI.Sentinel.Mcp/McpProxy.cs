@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Audit;
@@ -62,20 +63,64 @@ public static class McpProxy
             clientOptions: null,
             loggerFactory: NullLoggerFactory.Instance,
             cancellationToken: ct).ConfigureAwait(false);
-        await using var _targetDispose = targetClient.ConfigureAwait(false);
+        try
+        {
+            var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator, out var auditStore);
 
-        var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator, out var auditStore);
+            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver);
 
-        var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver);
+            var server = McpServer.Create(
+                hostTransport,
+                serverOptions,
+                loggerFactory: NullLoggerFactory.Instance,
+                serviceProvider: null);
+            await using var _serverDispose = server.ConfigureAwait(false);
 
-        var server = McpServer.Create(
-            hostTransport,
-            serverOptions,
-            loggerFactory: NullLoggerFactory.Instance,
-            serviceProvider: null);
-        await using var _serverDispose = server.ConfigureAwait(false);
+            await server.RunAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            // Wrap target client disposal (which owns the upstream transport / child process)
+            // with a grace period so a hung target can't deadlock proxy shutdown.
+            await DisposeWithGraceAsync(targetClient, GetShutdownGrace()).ConfigureAwait(false);
+        }
+    }
 
-        await server.RunAsync(ct).ConfigureAwait(false);
+    /// <summary>
+    /// Subprocess shutdown grace from <c>SENTINEL_MCP_TIMEOUT_SEC</c>; defaults to 5 seconds.
+    /// Falls back to default on garbage / non-positive values.
+    /// </summary>
+    internal static TimeSpan GetShutdownGrace()
+    {
+        var raw = Environment.GetEnvironmentVariable("SENTINEL_MCP_TIMEOUT_SEC");
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v > 0)
+        {
+            return TimeSpan.FromSeconds(v);
+        }
+        return TimeSpan.FromSeconds(5);
+    }
+
+    /// <summary>
+    /// Disposes <paramref name="transport"/> with a grace period. If disposal doesn't complete
+    /// within <paramref name="grace"/>, logs and returns. Does NOT kill the child process —
+    /// that requires SDK transport wrapping (deferred to backlog).
+    /// </summary>
+    internal static async Task DisposeWithGraceAsync(IAsyncDisposable transport, TimeSpan grace)
+    {
+        ArgumentNullException.ThrowIfNull(transport);
+
+        var disposeTask = transport.DisposeAsync().AsTask();
+        var graceTask   = Task.Delay(grace);
+        var winner      = await Task.WhenAny(disposeTask, graceTask).ConfigureAwait(false);
+        if (winner != disposeTask)
+        {
+            StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["event"]   = "transport_dispose",
+                ["action"]  = "grace_expired",
+                ["grace_s"] = grace.TotalSeconds.ToString("0", CultureInfo.InvariantCulture),
+            });
+        }
     }
 
     private static McpServerOptions BuildServerOptions(
