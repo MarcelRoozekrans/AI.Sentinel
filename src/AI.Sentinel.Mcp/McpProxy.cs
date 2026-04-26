@@ -271,14 +271,17 @@ public static class McpProxy
 
         if (IsHttpUrl(target))
         {
-            var headers = ParseHttpHeaders(Environment.GetEnvironmentVariable("SENTINEL_MCP_HTTP_HEADERS"));
-            StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
+            var headers = ParseHttpHeaders(Environment.GetEnvironmentVariable("SENTINEL_MCP_HTTP_HEADERS"), out var skipped);
+            var initLog = new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["event"]     = "transport_init",
                 ["transport"] = "http",
                 ["endpoint"]  = target,
                 ["headers"]   = headers.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            });
+            };
+            if (skipped > 0)
+                initLog["headers_skipped"] = skipped.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            StderrLogger.Log(initLog);
             return new HttpClientTransport(new HttpClientTransportOptions
             {
                 Endpoint          = new Uri(target),
@@ -303,31 +306,45 @@ public static class McpProxy
             loggerFactory: null);
     }
 
-    /// <summary>True when the target string is an HTTP/HTTPS URL.</summary>
+    /// <summary>True when the target string is an HTTP/HTTPS URL. Scheme match is case-insensitive per RFC 3986.</summary>
     internal static bool IsHttpUrl(string target)
     {
         if (string.IsNullOrWhiteSpace(target)) return false;
-        return target.StartsWith("http://", StringComparison.Ordinal)
-            || target.StartsWith("https://", StringComparison.Ordinal);
+        return target.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || target.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
     /// Parses a <c>SENTINEL_MCP_HTTP_HEADERS</c> string of the form <c>key=value;key=value</c>
-    /// into a header dictionary. Malformed pairs (no <c>=</c>) are skipped silently.
+    /// into a header dictionary. Malformed pairs (no <c>=</c>) are dropped and counted in
+    /// the returned <paramref name="skipped"/>; callers may surface that count via stderr.
     /// </summary>
-    internal static IDictionary<string, string> ParseHttpHeaders(string? raw)
+    internal static IDictionary<string, string> ParseHttpHeaders(string? raw, out int skipped)
     {
+        skipped = 0;
         var d = new Dictionary<string, string>(StringComparer.Ordinal);
         if (string.IsNullOrWhiteSpace(raw)) return d;
         foreach (var pair in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
             var idx = pair.IndexOf('=', StringComparison.Ordinal);
-            if (idx <= 0) continue; // no `=` or pair starts with `=` → skip
+            if (idx <= 0)
+            {
+                skipped++;
+                continue;
+            }
             var key   = pair[..idx].Trim();
             var value = pair[(idx + 1)..].Trim();
-            if (key.Length == 0) continue;
+            if (key.Length == 0)
+            {
+                skipped++;
+                continue;
+            }
             d[key] = value;
         }
         return d;
     }
+
+    /// <summary>Convenience overload that discards the <c>skipped</c> count. Used by tests that don't care.</summary>
+    internal static IDictionary<string, string> ParseHttpHeaders(string? raw)
+        => ParseHttpHeaders(raw, out _);
 }
