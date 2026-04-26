@@ -1,5 +1,5 @@
-using System.Globalization;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.Mcp.Logging;
 
 namespace AI.Sentinel.Mcp.Cli;
 
@@ -34,10 +34,14 @@ public static class SeverityFlagParser
             if (Enum.TryParse<HookDecision>(raw, ignoreCase: true, out var v))
                 return v;
 
-            // Garbage CLI value — log and fall through to env/fallback.
-            Console.Error.WriteLine(string.Create(
-                CultureInfo.InvariantCulture,
-                $"event=cli_severity_parse flag={flagName} value={raw} error=invalid_value"));
+            // Garbage CLI value — log via StderrLogger and fall through to env/fallback.
+            StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["event"] = "cli_severity_parse",
+                ["flag"]  = flagName,
+                ["value"] = raw,
+                ["error"] = "invalid_value",
+            });
             break;
         }
 
