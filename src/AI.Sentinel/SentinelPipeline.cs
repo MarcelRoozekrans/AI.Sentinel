@@ -60,7 +60,9 @@ public sealed class SentinelPipeline(
         ChatResponse response;
         try
         {
-            response = await innerClient.GetResponseAsync(messageList, chatOptions, ct).ConfigureAwait(false);
+            response = await innerClient
+                .GetResponseAsync(ApplyHardening(messageList), chatOptions, ct)
+                .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -105,7 +107,7 @@ public sealed class SentinelPipeline(
         try
         {
             await foreach (var update in innerClient
-                .GetStreamingResponseAsync(messageList, chatOptions, ct)
+                .GetStreamingResponseAsync(ApplyHardening(messageList), chatOptions, ct)
                 .ConfigureAwait(false))
                 buffer.Add(update);
         }
@@ -207,6 +209,32 @@ public sealed class SentinelPipeline(
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Returns a copy of <paramref name="messages"/> with the configured <see cref="SentinelOptions.SystemPrefix"/>
+    /// prepended/merged into the leading system message. If <c>SystemPrefix</c> is null or empty, the original
+    /// list is returned unchanged. Detection always runs on the unmodified <paramref name="messages"/> — this
+    /// substitution applies only at the forward point to the inner <see cref="IChatClient"/>.
+    /// </summary>
+    private IReadOnlyList<ChatMessage> ApplyHardening(IReadOnlyList<ChatMessage> messages)
+    {
+        var prefix = options.SystemPrefix;
+        if (string.IsNullOrEmpty(prefix))
+            return messages;
+
+        var copy = new List<ChatMessage>(messages.Count + 1);
+        copy.AddRange(messages);
+        if (copy.Count > 0 && copy[0].Role == ChatRole.System)
+        {
+            var original = copy[0].Text ?? string.Empty;
+            copy[0] = new ChatMessage(ChatRole.System, $"{prefix}\n\n{original}");
+        }
+        else
+        {
+            copy.Insert(0, new ChatMessage(ChatRole.System, prefix));
+        }
+        return copy;
     }
 
     private SentinelError? CheckRateLimit(ChatOptions? chatOptions)
