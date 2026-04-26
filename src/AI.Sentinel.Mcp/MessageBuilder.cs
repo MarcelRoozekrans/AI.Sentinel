@@ -152,10 +152,8 @@ internal static class MessageBuilder
     /// <paramref name="maxScanBytes"/>. Always &lt;= <c>text.Length</c>.</summary>
     private static int ApproximateCharLimit(string text, int maxScanBytes)
     {
-        // UTF-8 emits at most 3 bytes per UTF-16 code unit (surrogate pairs share a 4-byte
-        // sequence across two code units, i.e. 2 bytes per code unit). So
-        // (maxScanBytes / 1) is a safe upper bound on chars; we take the smaller of that
-        // and text.Length to skip pointless work.
+        // Every UTF-16 code unit is ≥ 1 UTF-8 byte, so maxScanBytes is a safe upper bound
+        // on the char count. Min with text.Length to skip pointless walk-back iterations.
         return maxScanBytes < text.Length ? maxScanBytes : text.Length;
     }
 }
