@@ -17,7 +17,8 @@ public static class Program
         }
 
         using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
+        ConsoleCancelEventHandler handler = (_, e) => { e.Cancel = true; cts.Cancel(); };
+        Console.CancelKeyPress += handler;
 
         try
         {
@@ -29,6 +30,10 @@ public static class Program
                 $"sentinel-mcp: internal error: {ex.GetType().Name}: {ex.Message}"
             ).ConfigureAwait(false);
             return 1;
+        }
+        finally
+        {
+            Console.CancelKeyPress -= handler;
         }
     }
 }

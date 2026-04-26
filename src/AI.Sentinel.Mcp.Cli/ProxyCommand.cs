@@ -24,7 +24,7 @@ internal static class ProxyCommand
         var targetArgs = args.Length > 3 ? args[3..] : Array.Empty<string>();
 
         var envVars = ReadSentinelEnvironment();
-        var config = HookConfig.FromEnvironment(envVars);
+        var config = ResolveHookConfig(args, envVars);
         var preset = ParsePreset(envVars);
         var maxScanBytes = ParseMaxScanBytes(envVars);
 
@@ -71,6 +71,24 @@ internal static class ProxyCommand
                 e => (string)e.Key,
                 e => e.Value as string,
                 StringComparer.Ordinal);
+
+    /// <summary>
+    /// Builds the <see cref="HookConfig"/> with CLI-flag-takes-precedence-over-env semantics.
+    /// CLI flags (<c>--on-critical</c>/<c>--on-high</c>/<c>--on-medium</c>/<c>--on-low</c>)
+    /// override the corresponding <c>SENTINEL_MCP_ON_*</c> env vars, which fall back to the
+    /// existing <c>SENTINEL_HOOK_ON_*</c> env vars consumed by <see cref="HookConfig.FromEnvironment"/>.
+    /// </summary>
+    private static HookConfig ResolveHookConfig(string[] args, IReadOnlyDictionary<string, string?> envVars)
+    {
+        var envBaseline = HookConfig.FromEnvironment(envVars);
+        return envBaseline with
+        {
+            OnCritical = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_CRITICAL", envBaseline.OnCritical),
+            OnHigh     = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_HIGH",     envBaseline.OnHigh),
+            OnMedium   = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_MEDIUM",   envBaseline.OnMedium),
+            OnLow      = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_LOW",      envBaseline.OnLow),
+        };
+    }
 
     private static McpDetectorPreset ParsePreset(IReadOnlyDictionary<string, string?> env)
     {
