@@ -505,9 +505,45 @@ The proxy spawns the target command as a subprocess, intercepts `tools/call` and
 | Variable | Default | Values |
 |---|---|---|
 | `SENTINEL_MCP_DETECTORS` | `security` | `security` (9 regex security detectors) or `all` (every detector — higher false-positive rate on structured data) |
-| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Truncation cap on tool-result text passed to the detector pipeline. Full content still forwarded to the host. |
+| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Truncation cap on tool-result text passed to the detector pipeline. Counts UTF-8 bytes (see v1.1 note below). Full content still forwarded to the host. |
 
-**Lifecycle note:** the proxy's subprocess cleanup relies on the target honoring stdin EOF on dispose. If your target server hangs rather than exiting on EOF, the MCP host's own timeout/kill policy is your second line of defence. Future work: explicit kill-after-grace-period (tracked in BACKLOG).
+#### MCP proxy v1.1
+
+In addition to `tools/call` and `prompts/get`, the proxy now intercepts `resources/read`,
+mirrors target server capabilities (only advertises `tools` / `prompts` / `resources` to the
+host when the upstream target advertises them), and supports HTTP transports alongside
+stdio.
+
+**New environment variables:**
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SENTINEL_MCP_SCAN_MIMES` | `text/,application/json,application/xml,application/yaml` | MIME allowlist for `resources/read` scanning. Comma-separated. A trailing `/` matches any subtype (e.g. `text/` matches `text/plain` and `text/html`). Resources outside the allowlist forward verbatim without scanning. |
+| `SENTINEL_MCP_HTTP_HEADERS` | (none) | `key=value;key=value` headers applied to every HTTP-transport request. Use for static-token auth (e.g. `Authorization=Bearer xyz`). Malformed pairs are skipped silently. |
+| `SENTINEL_MCP_TIMEOUT_SEC` | `5` | Subprocess shutdown grace in seconds. After this window the proxy logs `transport_dispose action=grace_expired` and returns; the MCP host's own kill policy is the second line of defence. |
+| `SENTINEL_MCP_LOG_JSON` | (off) | Set to `1` for NDJSON stderr output. Default is `key=value` lines. Useful when piping proxy logs into a log aggregator. |
+
+**New CLI flags:**
+
+```
+sentinel-mcp proxy [--on-critical Block|Warn|Allow]
+                   [--on-high     Block|Warn|Allow]
+                   [--on-medium   Block|Warn|Allow]
+                   [--on-low      Block|Warn|Allow]
+                   --target /path/to/server arg1 ...        # stdio mode (existing)
+sentinel-mcp proxy [...flags...] --target https://example.com/mcp   # HTTP mode (new)
+```
+
+Precedence: CLI flag > `SENTINEL_MCP_ON_*` env var > existing shared `SENTINEL_HOOK_ON_*`
+env var > default. The shared `SENTINEL_HOOK_ON_*` env vars continue to work unchanged.
+
+When `--target` starts with `http://` or `https://` the proxy uses
+`HttpClientTransport` (Streamable HTTP with automatic SSE fallback) instead of spawning
+a subprocess. Combine with `SENTINEL_MCP_HTTP_HEADERS` for token auth.
+
+**Behaviour change in v1.1:** `SENTINEL_MCP_MAX_SCAN_BYTES` now counts UTF-8 bytes
+(was a `char` count, which double-counted for multi-byte characters). ASCII content
+is unchanged; emoji / CJK / accented text reaches the cap sooner.
 
 ### Severity → action mapping
 

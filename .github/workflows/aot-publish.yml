@@ -106,3 +106,118 @@ jobs:
             Write-Host "Exit: $code; stdout: $out"
             if ($code -ne 0) { Write-Error "Native binary smoke test failed (exit $code)"; exit 1 }
           }
+
+      - name: AOT nested-JSON CallToolAsync round-trip (MCP only)
+        if: contains(matrix.project, 'AI.Sentinel.Mcp.Cli')
+        shell: pwsh
+        run: |
+          # End-to-end smoke: drive the AOT-published proxy with a real MCP host transcript
+          # against a Python stub MCP target. Exercises the AOT-sensitive path -—
+          # ToObjectDictionary / nested-JSON CallToolAsync forwarding -— that the basic
+          # `--help` smoke test does not cover. If reflection-based JSON serialisation in
+          # the SDK regresses on AOT, this step fails because the nested-arg payload won't
+          # round-trip back through the proxy.
+          $exe = (Get-ChildItem aot-out -Filter "*.exe" |
+                  Where-Object { $_.Name -notlike "createdump*" } |
+                  Select-Object -First 1).FullName
+
+          # Python stub MCP server: newline-delimited JSON-RPC over stdio, MCP 2024-11-05.
+          # Responds to initialize / tools/list / tools/call (echoes nested args back as text).
+          $stub = Join-Path $env:RUNNER_TEMP 'stub_mcp.py'
+          @'
+          import json, sys
+          for line in sys.stdin:
+              line = line.strip()
+              if not line:
+                  continue
+              try:
+                  msg = json.loads(line)
+              except Exception:
+                  continue
+              method = msg.get('method', '')
+              mid = msg.get('id')
+              if method == 'initialize':
+                  resp = {"jsonrpc":"2.0","id":mid,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"stub","version":"0.1"}}}
+                  sys.stdout.write(json.dumps(resp) + "\n"); sys.stdout.flush()
+              elif method == 'notifications/initialized':
+                  pass
+              elif method == 'tools/list':
+                  resp = {"jsonrpc":"2.0","id":mid,"result":{"tools":[{"name":"echo","description":"echo args","inputSchema":{"type":"object","properties":{"path":{"type":"object"},"flat":{"type":"string"}}}}]}}
+                  sys.stdout.write(json.dumps(resp) + "\n"); sys.stdout.flush()
+              elif method == 'tools/call':
+                  args = msg.get('params', {}).get('arguments', {})
+                  text = json.dumps(args)
+                  resp = {"jsonrpc":"2.0","id":mid,"result":{"content":[{"type":"text","text":text}],"isError":False}}
+                  sys.stdout.write(json.dumps(resp) + "\n"); sys.stdout.flush()
+              else:
+                  if mid is not None:
+                      resp = {"jsonrpc":"2.0","id":mid,"error":{"code":-32601,"message":"not implemented"}}
+                      sys.stdout.write(json.dumps(resp) + "\n"); sys.stdout.flush()
+          '@ | Set-Content -Path $stub -Encoding UTF8
+
+          # Host transcript: initialize -> initialized -> tools/call with nested-JSON args.
+          $hostInput = Join-Path $env:RUNNER_TEMP 'host_in.jsonl'
+          @(
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"0.1"}}}'
+            '{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}'
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"echo","arguments":{"path":{"nested":"value","deep":{"k":1}},"flat":"x"}}}'
+          ) | Set-Content -Path $hostInput -Encoding ASCII
+
+          $hostOutput = Join-Path $env:RUNNER_TEMP 'host_out.jsonl'
+          $hostErr    = Join-Path $env:RUNNER_TEMP 'host_err.log'
+
+          # Disable any inherited severity env that would block the round-trip.
+          $env:SENTINEL_HOOK_ON_CRITICAL = 'Allow'
+          $env:SENTINEL_HOOK_ON_HIGH     = 'Allow'
+          $env:SENTINEL_HOOK_ON_MEDIUM   = 'Allow'
+          $env:SENTINEL_HOOK_ON_LOW      = 'Allow'
+
+          # Spawn the proxy with the python stub as target. Pipe the host transcript via stdin.
+          # Shut down after a short wait: the host transcript ends without an explicit shutdown,
+          # so we kill the proxy after responses settle.
+          $py = (Get-Command python -ErrorAction SilentlyContinue) ?? (Get-Command python3 -ErrorAction SilentlyContinue)
+          if (-not $py) { Write-Error 'Python not available on runner'; exit 1 }
+          Write-Host "Using python: $($py.Source)"
+
+          $psi = New-Object System.Diagnostics.ProcessStartInfo
+          $psi.FileName = $exe
+          foreach ($a in @('proxy','--target',$py.Source,$stub)) { [void]$psi.ArgumentList.Add($a) }
+          $psi.RedirectStandardInput  = $true
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError  = $true
+          $psi.UseShellExecute        = $false
+
+          $proc = [System.Diagnostics.Process]::Start($psi)
+          $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+          $stderrTask = $proc.StandardError.ReadToEndAsync()
+
+          $payload = Get-Content $hostInput -Raw
+          $proc.StandardInput.Write($payload)
+          # Give the proxy time to forward the nested-JSON tools/call and receive the echo.
+          Start-Sleep -Seconds 4
+          $proc.StandardInput.Close()
+          if (-not $proc.WaitForExit(8000)) {
+            Write-Host 'Proxy did not exit within 8s; killing.'
+            $proc.Kill($true)
+          }
+
+          $stdout = $stdoutTask.Result
+          $stderr = $stderrTask.Result
+          Set-Content -Path $hostOutput -Value $stdout -Encoding ASCII
+          Set-Content -Path $hostErr    -Value $stderr -Encoding ASCII
+
+          Write-Host '--- proxy stdout ---'
+          Write-Host $stdout
+          Write-Host '--- proxy stderr ---'
+          Write-Host $stderr
+
+          # Assert: the tools/call response (id=2) round-tripped the nested-JSON arg back.
+          if ($stdout -notmatch '"nested"\s*:\s*"value"') {
+            Write-Error 'AOT nested-JSON CallToolAsync round-trip failed: nested arg not echoed in stdout'
+            exit 1
+          }
+          if ($stdout -notmatch '"id"\s*:\s*2') {
+            Write-Error 'AOT nested-JSON CallToolAsync round-trip failed: tools/call response (id=2) missing'
+            exit 1
+          }
+          Write-Host 'AOT nested-JSON CallToolAsync round-trip passed.'
