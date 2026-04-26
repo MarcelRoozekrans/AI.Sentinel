@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.Mcp.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -211,4 +212,77 @@ public static class McpProxy
 
     private static readonly Dictionary<string, object?> EmptyArgs =
         new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Constructs the appropriate <see cref="IClientTransport"/> for <paramref name="target"/>.
+    /// HTTP/HTTPS URLs return an <see cref="HttpClientTransport"/> (Streamable HTTP / SSE auto-detect)
+    /// with optional headers from <c>SENTINEL_MCP_HTTP_HEADERS</c>; anything else returns a
+    /// <see cref="StdioClientTransport"/> launching <paramref name="target"/> with <paramref name="arguments"/>.
+    /// Emits a <c>transport_init</c> log line on stderr.
+    /// </summary>
+    public static IClientTransport CreateClientTransport(string target, IList<string>? arguments = null)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+
+        if (IsHttpUrl(target))
+        {
+            var headers = ParseHttpHeaders(Environment.GetEnvironmentVariable("SENTINEL_MCP_HTTP_HEADERS"));
+            StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["event"]     = "transport_init",
+                ["transport"] = "http",
+                ["endpoint"]  = target,
+                ["headers"]   = headers.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            });
+            return new HttpClientTransport(new HttpClientTransportOptions
+            {
+                Endpoint          = new Uri(target),
+                AdditionalHeaders = headers,
+                Name              = target,
+            });
+        }
+
+        StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["event"]     = "transport_init",
+            ["transport"] = "stdio",
+            ["command"]   = target,
+        });
+        return new StdioClientTransport(
+            new StdioClientTransportOptions
+            {
+                Command   = target,
+                Arguments = arguments ?? Array.Empty<string>(),
+                Name      = target,
+            },
+            loggerFactory: null);
+    }
+
+    /// <summary>True when the target string is an HTTP/HTTPS URL.</summary>
+    internal static bool IsHttpUrl(string target)
+    {
+        if (string.IsNullOrWhiteSpace(target)) return false;
+        return target.StartsWith("http://", StringComparison.Ordinal)
+            || target.StartsWith("https://", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Parses a <c>SENTINEL_MCP_HTTP_HEADERS</c> string of the form <c>key=value;key=value</c>
+    /// into a header dictionary. Malformed pairs (no <c>=</c>) are skipped silently.
+    /// </summary>
+    internal static IDictionary<string, string> ParseHttpHeaders(string? raw)
+    {
+        var d = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (string.IsNullOrWhiteSpace(raw)) return d;
+        foreach (var pair in raw.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var idx = pair.IndexOf('=', StringComparison.Ordinal);
+            if (idx <= 0) continue; // no `=` or pair starts with `=` → skip
+            var key   = pair[..idx].Trim();
+            var value = pair[(idx + 1)..].Trim();
+            if (key.Length == 0) continue;
+            d[key] = value;
+        }
+        return d;
+    }
 }

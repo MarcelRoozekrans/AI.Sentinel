@@ -1,7 +1,6 @@
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp;
 using Microsoft.Extensions.Logging.Abstractions;
-using ModelContextProtocol.Client;
 using ModelContextProtocol.Server;
 
 namespace AI.Sentinel.Mcp.Cli;
@@ -29,14 +28,7 @@ internal static class ProxyCommand
         var preset = ParsePreset(envVars);
         var maxScanBytes = ParseMaxScanBytes(envVars);
 
-        var targetTransport = new StdioClientTransport(
-            new StdioClientTransportOptions
-            {
-                Command = targetCommand,
-                Arguments = targetArgs,
-                Name = targetCommand,
-            },
-            loggerFactory: null);
+        var targetTransport = McpProxy.CreateClientTransport(targetCommand, targetArgs);
 
         // StdioServerTransport(string serverName, ILoggerFactory?) uses Console.In/Out internally.
         var hostTransport = new StdioServerTransport(
