@@ -161,4 +161,27 @@ public class MessageBuilderTests
         Assert.DoesNotContain("[truncated", messages[1].Text, StringComparison.Ordinal);
         Assert.Contains(exactText, messages[1].Text, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void BuildToolCallResponse_OversizeMultiByteText_TruncatedByUtf8ByteCount()
+    {
+        // 80 unicorn emoji. Each is a UTF-16 surrogate pair (string.Length == 2 per emoji
+        // → 160 chars total) and 4 UTF-8 bytes (320 bytes total). With a 200-byte cap:
+        //   - char-count check (old): 160 <= 200 → NOT truncated (incorrect).
+        //   - UTF-8 byte count (new): 320 > 200 → truncated (correct).
+        var req = new CallToolRequestParams { Name = "read_emoji" };
+        var emoji = new System.Text.StringBuilder(capacity: 160);
+        for (var i = 0; i < 80; i++) emoji.Append("\U0001F984");  // 🦄
+        var oversize = emoji.ToString();
+        var result = new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = oversize }],
+        };
+
+        var messages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes: 200);
+
+        Assert.Equal(2, messages.Length);
+        Assert.Contains("[truncated", messages[1].Text, StringComparison.Ordinal);
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount(messages[1].Text) < 320 + 64);
+    }
 }

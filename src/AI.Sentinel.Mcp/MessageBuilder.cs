@@ -15,8 +15,8 @@ internal static class MessageBuilder
     /// <summary>Builds the request-side scan payload for a <c>tools/call</c> invocation.</summary>
     /// <param name="req">The incoming tool-call request.</param>
     /// <param name="maxScanBytes">
-    /// Upper bound on the serialized-argument length that is forwarded to the detector
-    /// pipeline. See <see cref="TruncateIfNeeded"/> for the char-vs-byte caveat.
+    /// Upper bound (UTF-8 bytes) on the serialized-argument length that is forwarded to the
+    /// detector pipeline. See <see cref="TruncateIfNeeded"/>.
     /// </param>
     public static ChatMessage[] BuildToolCallRequest(CallToolRequestParams req, int maxScanBytes)
     {
@@ -29,8 +29,8 @@ internal static class MessageBuilder
     /// <param name="req">The original tool-call request (for argument context).</param>
     /// <param name="result">The tool-call result to scan.</param>
     /// <param name="maxScanBytes">
-    /// Upper bound applied to both the serialized arguments and the flattened result text.
-    /// See <see cref="TruncateIfNeeded"/> for the char-vs-byte caveat.
+    /// Upper bound (UTF-8 bytes) applied to both the serialized arguments and the flattened
+    /// result text. See <see cref="TruncateIfNeeded"/>.
     /// </param>
     public static ChatMessage[] BuildToolCallResponse(
         CallToolRequestParams req, CallToolResult result, int maxScanBytes)
@@ -54,8 +54,8 @@ internal static class MessageBuilder
     /// <summary>Builds the scan payload for a <c>prompts/get</c> response.</summary>
     /// <param name="result">The prompt result to scan.</param>
     /// <param name="maxScanBytes">
-    /// Upper bound on the flattened prompt-message text.
-    /// See <see cref="TruncateIfNeeded"/> for the char-vs-byte caveat.
+    /// Upper bound (UTF-8 bytes) on the flattened prompt-message text.
+    /// See <see cref="TruncateIfNeeded"/>.
     /// </param>
     public static ChatMessage[] BuildPromptGetResponse(
         GetPromptResult result, int maxScanBytes)
@@ -113,20 +113,49 @@ internal static class MessageBuilder
         return TruncateIfNeeded(sb.ToString(), maxScanBytes);
     }
 
-    /// <summary>Truncates <paramref name="text"/> to at most <paramref name="maxScanBytes"/> characters.</summary>
+    /// <summary>Truncates <paramref name="text"/> so its UTF-8 byte length is at most
+    /// <paramref name="maxScanBytes"/>.</summary>
     /// <remarks>
-    /// Despite the parameter name, the cap is currently enforced against
-    /// <see cref="string.Length"/> (UTF-16 char count), not the UTF-8 byte count implied by
-    /// the <c>SENTINEL_MCP_MAX_SCAN_BYTES</c> environment variable. For ASCII input the two
-    /// are identical; for multi-byte UTF-8 content the effective byte cap may be 2-4x the
-    /// configured value. A future change may switch to <c>Encoding.UTF8.GetByteCount</c> for
-    /// a true byte-accurate bound.
+    /// The cap is enforced against <see cref="Encoding.UTF8.GetByteCount(string)"/> as the
+    /// <c>SENTINEL_MCP_MAX_SCAN_BYTES</c> environment variable name implies. For ASCII input
+    /// this is identical to char-count; for multi-byte content (emoji, CJK, etc.) the cap
+    /// fires sooner. The trailing marker reports removed UTF-8 bytes.
     /// </remarks>
     private static string TruncateIfNeeded(string text, int maxScanBytes)
     {
-        if (text.Length <= maxScanBytes) return text;
-        var truncated = text[..maxScanBytes];
-        var removed = text.Length - maxScanBytes;
-        return $"{truncated}{TruncationMarkerPrefix}{removed} chars]";
+        var totalBytes = Encoding.UTF8.GetByteCount(text);
+        if (totalBytes <= maxScanBytes) return text;
+
+        // Slice on a UTF-16 code-unit boundary that keeps the resulting prefix at or below
+        // the byte budget. We walk text spans whose byte counts we can compute cheaply, and
+        // step back one char at a time if the chosen split lands in the middle of a
+        // surrogate pair.
+        var charCount = ApproximateCharLimit(text, maxScanBytes);
+        while (charCount > 0 && Encoding.UTF8.GetByteCount(text.AsSpan(0, charCount)) > maxScanBytes)
+        {
+            charCount--;
+        }
+        // Avoid splitting a surrogate pair (would corrupt the unicorn 🦄 etc.).
+        if (charCount > 0 && charCount < text.Length
+            && char.IsHighSurrogate(text[charCount - 1])
+            && char.IsLowSurrogate(text[charCount]))
+        {
+            charCount--;
+        }
+
+        var truncated = text[..charCount];
+        var removed = totalBytes - Encoding.UTF8.GetByteCount(truncated);
+        return $"{truncated}{TruncationMarkerPrefix}{removed} bytes]";
+    }
+
+    /// <summary>Initial guess for the char-count whose UTF-8 encoding fits in
+    /// <paramref name="maxScanBytes"/>. Always &lt;= <c>text.Length</c>.</summary>
+    private static int ApproximateCharLimit(string text, int maxScanBytes)
+    {
+        // UTF-8 emits at most 3 bytes per UTF-16 code unit (surrogate pairs share a 4-byte
+        // sequence across two code units, i.e. 2 bytes per code unit). So
+        // (maxScanBytes / 1) is a safe upper bound on chars; we take the smaller of that
+        // and text.Length to skip pointless work.
+        return maxScanBytes < text.Length ? maxScanBytes : text.Length;
     }
 }
