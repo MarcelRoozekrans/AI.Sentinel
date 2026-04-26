@@ -244,6 +244,27 @@ Default behaviour: if no policies are registered, every call is allowed (drop-in
 
 ---
 
+## Prompt hardening (OWASP LLM01 — preventive)
+
+`SentinelOptions.SystemPrefix` prepends a hardening system message to every outbound chat call,
+telling the model to treat retrieved/external content as *data, not instructions*. Detection still
+runs on the user's raw prompt; the model receives the hardened version. The caller's `ChatMessage`
+collection is never mutated — a hardened copy is forwarded to the inner client.
+
+```csharp
+services.AddAISentinel(opts =>
+{
+    // First-line OWASP LLM01 mitigation. English default; override for other languages.
+    opts.SystemPrefix = SentinelOptions.DefaultSystemPrefix;
+});
+```
+
+Default behaviour: `SystemPrefix == null` (no hardening) — opt-in, drop-in upgrade for existing
+AI.Sentinel users. If the caller's messages already start with a system message, the prefix is
+merged into it as `"{SystemPrefix}\n\n{original system text}"` — single system message preserved.
+
+---
+
 ## Configuration
 
 ```csharp

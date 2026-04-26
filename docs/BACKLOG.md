@@ -18,7 +18,6 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 
 | Feature | Description |
 |---|---|
-| **Prompt hardening prefix** | Preventive (not detective) control: `SentinelOptions.SystemPrefix` prepends a hardening system-message to every outbound `IChatClient` call, instructing the model to treat retrieved/untrusted content strictly as data, never as instructions. Lightweight port of Rag.NET's `PromptHardeningAnswerEngineDecorator` — one new option + a pipeline step that mutates the `ChatMessage[]` before the downstream client sees it. First-line mitigation against OWASP LLM01 (prompt injection); complements existing detection. Minimum viable: ~60 LOC + tests. |
 | **PIM-style approval workflow** | Adds `RequireApproval` decision tier to `IToolCallGuard` for high-stakes tools (e.g. `delete_database`, `send_payment`). Pluggable `IApprovalStore` (in-memory + persistent backends), time-bound grants with TTL, dashboard Approve/Deny UI with justification, Mediator pending-approval notification, per-surface wait strategies. Strictly additive — doesn't break the binary v1 contract. |
 | **`ZeroAlloc.Authorization.Abstractions` extraction** | Once `ZeroAlloc.Mediator.Authorization` ships, extract `ISecurityContext` / `IAuthorizationPolicy` / `[Authorize]` / `[AuthorizationPolicy]` into a shared package so AI.Sentinel and ZeroAlloc.Mediator share primitives. One `IAuthorizationPolicy` class works for both worlds. |
 | **Async `IAuthorizationPolicy`** | Add `Task<bool> IsAuthorizedAsync(ISecurityContext)` overload. Coordinate with ZeroAlloc.Mediator.Authorization design before changing the interface. |
@@ -26,6 +25,7 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 | **Policy timeout** | `opts.PolicyTimeout` with deny-on-timeout for I/O-bound policies (tenant lookup, etc.). |
 | **`opts.AuditAllows`** | Opt-in compliance mode that also audits Allow decisions. |
 | **`[Authorize]` attribute discovery for AIFunction-bound methods** | Translate method-level `[Authorize("policy")]` to a `RequireToolPolicy(funcName, "policy")` binding at AIFunction registration time. (Deferred from Task 8 to keep the in-process surface scope tight.) |
+| **Localized hardening bundle** | `SentinelOptions.SystemPrefixes` keyed by culture code with a simple language-detection step + fallback. Lifts `SystemPrefix` from English-only to multilingual. Future-additive — current single-string property remains the default. Driven by a real customer asking for non-English support. |
 
 ---
 
