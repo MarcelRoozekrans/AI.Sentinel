@@ -76,7 +76,6 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 
 | Feature | Description |
 |---|---|
-| **`DetectorTestBuilder` fluent assertion API** | Sit on top of v1's `SentinelContextBuilder` + `FakeEmbeddingGenerator` with a fluent assertion layer: `new DetectorTestBuilder().WithPrompt("...").ExpectDetection<T>(Severity.High)`. Closes the original "detector test helpers" backlog framing. Separate design discussion (assertion API shape, async vs sync, parameterized tests). |
 | **Detector ID prefix convention enforcement** | Roslyn analyzer that warns when a third-party detector class uses an ID prefix matching official ones (`SEC-`, `HAL-`, `OPS-`, `AUTHZ-`). Prevents collisions before they become support tickets. |
 | **Public `StubDetector`** | Promote the internal `StubDetector` to public if a third party requests it. Currently used internally as a placeholder for not-yet-implemented detectors; not a 3rd-party need today. |
 | **SemVer commitment for `AI.Sentinel.Detectors.Sdk`** | Formal stability policy once the project hits 1.0. Until then, "we'll try not to break minor versions" is the implicit contract. |
