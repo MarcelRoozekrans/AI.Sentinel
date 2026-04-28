@@ -86,6 +86,10 @@ public sealed class DetectionPipeline : IDetectionPipeline
             ArrayPool<ValueTask<DetectionResult>>.Shared.Return(vTasks);
         }
 
+        // Apply per-detector severity clamp (Floor/Cap) before LLM escalation,
+        // so that Cap correctly suppresses escalation and Floor doesn't trigger it.
+        ApplySeverityClamp(results);
+
         // LLM escalation (unchanged logic)
         if (_escalationClient is not null)
         {
@@ -104,6 +108,24 @@ public sealed class DetectionPipeline : IDetectionPipeline
         }
 
         return BuildResult(results);
+    }
+
+    private void ApplySeverityClamp(DetectionResult[] results)
+    {
+        for (int i = 0; i < results.Length; i++)
+        {
+            var cfg = _configurations[i];
+            if (cfg is null || results[i].IsClean) continue;
+
+            var clamped = results[i].Severity;
+            if (cfg.SeverityFloor is { } floor && clamped < floor) clamped = floor;
+            if (cfg.SeverityCap is { } cap && clamped > cap) clamped = cap;
+
+            if (clamped != results[i].Severity)
+            {
+                results[i] = results[i] with { Severity = clamped };
+            }
+        }
     }
 
     private static bool AllCompletedSuccessfully(ValueTask<DetectionResult>[] tasks, int count)
