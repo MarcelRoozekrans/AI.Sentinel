@@ -265,6 +265,74 @@ merged into it as `"{SystemPrefix}\n\n{original system text}"` — single system
 
 ---
 
+## Audit storage + forwarding
+
+AI.Sentinel ships with two related capabilities for audit data:
+
+- **Storage** (`IAuditStore`) — singular, queryable, source of truth. Default is in-memory ring buffer; opt into SQLite for persistence across restarts.
+- **Forwarding** (`IAuditForwarder`) — plural, fire-and-forget, mirrors every audit entry to one or more external systems (NDJSON file, Azure Sentinel, OpenTelemetry).
+
+Default behaviour (no extra registration): in-memory ring buffer + zero forwarders. Existing AI.Sentinel users see no behaviour change.
+
+### Persistent storage with SQLite
+
+```csharp
+services.AddAISentinel(opts => { ... });
+services.AddSentinelSqliteStore(opts =>
+{
+    opts.DatabasePath    = "/var/lib/ai-sentinel/audit.db";
+    opts.RetentionPeriod = TimeSpan.FromDays(90); // optional time-based cleanup
+});
+```
+
+Single-file SQLite DB. WAL mode enabled (concurrent reads while writer active). Hash chain survives restarts. Last-registration-wins for `IAuditStore`.
+
+### Forwarding to external systems
+
+Forwarders are fire-and-forget — never block the proxy, never throw. Failures swallow + log to stderr + increment `audit.forward.dropped` counter.
+
+```csharp
+// NDJSON file (in core, zero dependencies — direct file append, no buffering)
+services.AddSentinelNdjsonFileForwarder(opts =>
+    opts.FilePath = "/var/log/ai-sentinel/audit.ndjson");
+```
+Operators ship the NDJSON file via Filebeat / Vector / Fluent Bit — universal coverage.
+
+```csharp
+// Azure Sentinel (auto-wrapped with BufferingAuditForwarder<T>)
+services.AddSentinelAzureSentinelForwarder(opts =>
+{
+    opts.DcrEndpoint    = new Uri("https://my-dce.westus2.ingest.monitor.azure.com");
+    opts.DcrImmutableId = "dcr-abc123";
+    opts.StreamName     = "Custom-AISentinelAudit_CL";
+    // opts.Credential default = new DefaultAzureCredential()
+});
+```
+Direct Logs Ingestion API. Static-token auth supported via DCR; OAuth2 / mTLS not in v1 (see backlog). Requires DCR + custom table set up in your Log Analytics workspace.
+
+```csharp
+// OpenTelemetry (vendor-neutral; OTel SDK handles batching)
+services.AddSentinelOpenTelemetryForwarder();
+services.AddOpenTelemetry().WithLogging(b => b.AddOtlpExporter());
+```
+Routes to any OTLP-speaking backend: Splunk, Datadog, Elastic, NewRelic, more. Uses your existing OTel logging pipeline.
+
+### Buffering decorator
+
+`AzureSentinelAuditForwarder` is automatically wrapped — per-entry HTTP roundtrips would crater throughput. Default buffering: batch=100, interval=5s, channel capacity=10000. Drops on overflow with rate-limited stderr log + `audit.forward.dropped` counter for monitoring. Override via `.WithBuffering(...)` in the future (currently a v1.1 backlog item).
+
+`NdjsonFileAuditForwarder` and `OpenTelemetryAuditForwarder` are NOT auto-buffered — direct file append is already fast, and the OTel SDK does its own `BatchLogRecordExportProcessor` batching.
+
+### New packages
+
+| Package | Purpose | Dependencies |
+|---|---|---|
+| `AI.Sentinel.Sqlite` | Persistent `SqliteAuditStore` | `Microsoft.Data.Sqlite` |
+| `AI.Sentinel.AzureSentinel` | `AzureSentinelAuditForwarder` | `Azure.Monitor.Ingestion`, `Azure.Identity` |
+| `AI.Sentinel.OpenTelemetry` | `OpenTelemetryAuditForwarder` | `OpenTelemetry`, `Microsoft.Extensions.Logging.Abstractions` |
+
+---
+
 ## Configuration
 
 ```csharp
