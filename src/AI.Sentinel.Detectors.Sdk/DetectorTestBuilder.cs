@@ -47,7 +47,13 @@ public sealed class DetectorTestBuilder
 
     /// <summary>Mutate the internal <see cref="SentinelOptions"/> before the detector is constructed.
     /// Useful for swapping the embedding generator, attaching a cache, or tuning thresholds via options.
-    /// Each call mutates the same options instance — multiple calls are additive.</summary>
+    /// Each call mutates the same options instance — multiple calls are additive.
+    /// <para>
+    /// Only affects detectors constructed via the factory overload <see cref="WithDetector{T}(Func{SentinelOptions, T})"/>.
+    /// The parameterless <see cref="WithDetector{T}()"/> and instance <see cref="WithDetector(IDetector)"/> overloads
+    /// do not see options changes — pass options to the detector's constructor yourself.
+    /// </para>
+    /// </summary>
     public DetectorTestBuilder WithOptions(Action<SentinelOptions> configure)
     {
         ArgumentNullException.ThrowIfNull(configure);
@@ -128,5 +134,7 @@ public sealed class DetectorTestBuilder
     }
 
     private static string DescribeObserved(DetectionResult r)
-        => r.IsClean ? $"Severity.{r.Severity} (Clean)" : $"Severity.{r.Severity}";
+        => r.IsClean
+            ? $"Severity.{r.Severity} (Clean)"
+            : $"Severity.{r.Severity} — reason: '{r.Reason}'";
 }

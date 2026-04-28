@@ -179,6 +179,7 @@ public class DetectorTestBuilderTests
         Assert.Contains("MYORG-JB-01", ex.Message, StringComparison.Ordinal);
         Assert.Contains(">= High", ex.Message, StringComparison.Ordinal);
         Assert.Contains("Severity.Low", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("stub", ex.Message, StringComparison.Ordinal);  // detector's Reason surfaced
     }
 
     [Fact]
@@ -210,6 +211,7 @@ public class DetectorTestBuilderTests
 
         Assert.Contains("== High", ex.Message, StringComparison.Ordinal);
         Assert.Contains("Severity.Critical", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("stub", ex.Message, StringComparison.Ordinal);  // detector's Reason surfaced
     }
 
     [Fact]

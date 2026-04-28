@@ -153,6 +153,10 @@ public Task FiresOnExactJailbreakPhrase() =>
 .WithOptions(o => o.EmbeddingGenerator = realGenerator)
 ```
 
+`WithOptions` only reaches detectors constructed via the factory overload `WithDetector<T>(opts => ...)`.
+The parameterless `WithDetector<T>()` and instance `WithDetector(IDetector)` overloads do not see options
+changes — pass options to the detector's constructor yourself.
+
 `WithPrompt` and `WithContext` are additive in call order. `WithDetector` is last-wins.
 
 ## Semantic detectors
