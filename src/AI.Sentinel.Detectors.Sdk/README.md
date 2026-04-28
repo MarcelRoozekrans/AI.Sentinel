@@ -109,7 +109,9 @@ public sealed class MyJailbreakDetector(SentinelOptions options) : SemanticDetec
 }
 ```
 
-For testing semantic detectors, use `FakeEmbeddingGenerator` to avoid API keys:
+For testing semantic detectors, use `FakeEmbeddingGenerator` to avoid API keys.
+**Set `EmbeddingGenerator` on `SentinelOptions` before constructing the detector** —
+`SemanticDetectorBase` captures it in its constructor and won't observe later changes:
 
 ```csharp
 [Fact]

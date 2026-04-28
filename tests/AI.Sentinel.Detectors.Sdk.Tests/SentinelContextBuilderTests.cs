@@ -1,3 +1,5 @@
+using AI.Sentinel.Audit;
+using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Sdk;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
@@ -55,5 +57,52 @@ public class SentinelContextBuilderTests
         var ctx = new SentinelContextBuilder().WithSession(session).Build();
 
         Assert.Equal("custom-session", ctx.SessionId.Value, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void WithSenderAndReceiver_OverrideDefaults()
+    {
+        var ctx = new SentinelContextBuilder()
+            .WithSender(new AgentId("alice"))
+            .WithReceiver(new AgentId("bob"))
+            .Build();
+
+        Assert.Equal("alice", ctx.SenderId.Value, StringComparer.Ordinal);
+        Assert.Equal("bob", ctx.ReceiverId.Value, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void WithMessage_AppendsArbitraryChatMessage()
+    {
+        var system = new ChatMessage(ChatRole.System, "you are a helpful assistant");
+        var ctx = new SentinelContextBuilder().WithMessage(system).Build();
+
+        Assert.Single(ctx.Messages);
+        Assert.Equal(ChatRole.System, ctx.Messages[0].Role);
+        Assert.Equal("you are a helpful assistant", ctx.Messages[0].Text, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void WithHistoryEntry_AppendsToHistoryInOrder()
+    {
+        var first = new AuditEntry("1", DateTimeOffset.UnixEpoch, "h1", null, Severity.Low, "OPS-01", "first");
+        var second = new AuditEntry("2", DateTimeOffset.UnixEpoch, "h2", "h1", Severity.High, "SEC-01", "second");
+
+        var ctx = new SentinelContextBuilder()
+            .WithHistoryEntry(first)
+            .WithHistoryEntry(second)
+            .Build();
+
+        Assert.Equal(2, ctx.History.Count);
+        Assert.Equal("1", ctx.History[0].Id, StringComparer.Ordinal);
+        Assert.Equal("2", ctx.History[1].Id, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void WithLlmId_SetsValue()
+    {
+        var ctx = new SentinelContextBuilder().WithLlmId("gpt-4o").Build();
+
+        Assert.Equal("gpt-4o", ctx.LlmId, StringComparer.Ordinal);
     }
 }
