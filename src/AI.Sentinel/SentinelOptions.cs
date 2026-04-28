@@ -11,6 +11,7 @@ namespace AI.Sentinel;
 public sealed class SentinelOptions
 {
     private readonly List<ToolCallPolicyBinding> _authorizationBindings = new();
+    private readonly List<DetectorRegistration> _detectorRegistrations = new();
 
     /// <summary>Behaviour when a tool call has no matching policy binding. Defaults to <see cref="ToolPolicyDefault.Allow"/>.</summary>
     public ToolPolicyDefault DefaultToolPolicy { get; set; } = ToolPolicyDefault.Allow;
@@ -20,6 +21,15 @@ public sealed class SentinelOptions
 
     /// <summary>Internal hook for the <c>RequireToolPolicy</c> extension.</summary>
     internal void AddAuthorizationBinding(ToolCallPolicyBinding binding) => _authorizationBindings.Add(binding);
+
+    /// <summary>Internal access for <see cref="ServiceCollectionExtensions.AddAISentinel"/> to read user-registered detectors.</summary>
+    internal IReadOnlyList<DetectorRegistration> GetDetectorRegistrations() => _detectorRegistrations;
+
+    /// <summary>Internal hook for <c>AddDetector&lt;T&gt;</c> extension.</summary>
+    internal void AddDetectorRegistration(DetectorRegistration registration) => _detectorRegistrations.Add(registration);
+
+    /// <summary>Internal accumulator entry describing a user-registered <see cref="IDetector"/>.</summary>
+    internal sealed record DetectorRegistration(Type DetectorType, Func<IServiceProvider, IDetector>? Factory);
 
     /// <summary>Optional secondary IChatClient used for LLM escalation on borderline detections.</summary>
     public IChatClient? EscalationClient { get; set; }

@@ -36,6 +36,7 @@ public static class ServiceCollectionExtensions
             logger: sp.GetService<ILogger<InterventionEngine>>()));
 
         services.AddAISentinelDetectors();
+        RegisterUserDetectors(services, opts);
 
         services.AddSingleton<IDetectionPipeline>(sp =>
             new DetectionPipelineInstrumented(
@@ -65,6 +66,21 @@ public static class ServiceCollectionExtensions
         });
 
         return services;
+    }
+
+    private static void RegisterUserDetectors(IServiceCollection services, SentinelOptions opts)
+    {
+        foreach (var reg in opts.GetDetectorRegistrations())
+        {
+            if (reg.Factory is null)
+            {
+                services.AddSingleton(typeof(IDetector), reg.DetectorType);
+            }
+            else
+            {
+                services.AddSingleton<IDetector>(sp => reg.Factory(sp));
+            }
+        }
     }
 
     private static void EmitAuthorizationStartupWarnings(
