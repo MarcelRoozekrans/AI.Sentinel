@@ -18,6 +18,36 @@ public static class ServiceCollectionExtensions
         return RegisterPipeline(services, name: null, configure);
     }
 
+    /// <summary>Registers a named AI.Sentinel pipeline with isolated <see cref="SentinelOptions"/>,
+    /// <see cref="IDetectionPipeline"/>, and <see cref="InterventionEngine"/>. Audit store, forwarders,
+    /// and alert sink are shared with the default pipeline (and other named pipelines).
+    /// Resolve via <see cref="UseAISentinel(ChatClientBuilder, string)"/>.</summary>
+    /// <exception cref="ArgumentNullException">name is null.</exception>
+    /// <exception cref="ArgumentException">name is empty or whitespace.</exception>
+    /// <exception cref="InvalidOperationException">A pipeline with this name is already registered.</exception>
+    public static IServiceCollection AddAISentinel(
+        this IServiceCollection services,
+        string name,
+        Action<SentinelOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(name);
+        ArgumentNullException.ThrowIfNull(configure);
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            throw new ArgumentException("AI.Sentinel pipeline name must not be empty or whitespace.", nameof(name));
+        }
+
+        if (services.Any(d => d.IsKeyedService && d.ServiceKey is string k
+            && string.Equals(k, name, StringComparison.Ordinal)
+            && d.ServiceType == typeof(SentinelOptions)))
+        {
+            throw new InvalidOperationException($"AI.Sentinel pipeline '{name}' is already registered.");
+        }
+
+        return RegisterPipeline(services, name, configure);
+    }
+
     private static IServiceCollection RegisterPipeline(
         IServiceCollection services,
         string? name,
@@ -40,10 +70,19 @@ public static class ServiceCollectionExtensions
         }
         else
         {
-            // Named pipeline — Task 2 fills this branch
-#pragma warning disable MA0025 // Placeholder for Task 2
-            throw new NotImplementedException("Named pipelines arrive in Task 2.");
-#pragma warning restore MA0025
+            // Named pipeline — keyed singletons for SentinelOptions, IDetectionPipeline, InterventionEngine.
+            // Audit/forwarder/alert/detector-pool/IToolCallGuard stay shared across all pipelines (registered
+            // by the default unnamed AddAISentinel call, or absent if the user only registered named pipelines).
+            services.AddKeyedSingleton(name, opts);
+            services.AddKeyedSingleton(name, (sp, _) => BuildInterventionEngine(opts, sp));
+
+            // Detectors registered globally — official via source-gen (idempotent), user detectors via
+            // RegisterUserDetectors (adds to the global IDetector pool). User-added detectors from any
+            // named pipeline are visible to ALL pipelines; per-name customization rides on Configure<T>.
+            services.AddAISentinelDetectors();
+            RegisterUserDetectors(services, opts);
+
+            services.AddKeyedSingleton<IDetectionPipeline>(name, (sp, _) => BuildDetectionPipeline(opts, sp));
         }
 
         return services;
