@@ -71,6 +71,46 @@ catch (SentinelException ex)
 }
 ```
 
+### Named pipelines
+
+Register multiple isolated pipelines under string names; pick one per chat client at
+construction time. Useful for multi-LLM-endpoint apps and dev/staging/prod tier configurations.
+
+```csharp
+// Default + two named variants
+services.AddAISentinel(opts => opts.EmbeddingGenerator = realGen);
+services.AddAISentinel("strict", opts =>
+{
+    opts.OnCritical = SentinelAction.Quarantine;
+    opts.Configure<JailbreakDetector>(c => c.SeverityFloor = Severity.High);
+});
+services.AddAISentinel("lenient", opts =>
+{
+    opts.OnCritical = SentinelAction.Log;
+    opts.Configure<RepetitionLoopDetector>(c => c.Enabled = false);
+});
+
+// Pick one per chat client
+services.AddChatClient("openai-strict", b =>
+    b.UseAISentinel("strict").Use(new OpenAIChatClient(...)));
+services.AddChatClient("openai-lenient", b =>
+    b.UseAISentinel("lenient").Use(new OpenAIChatClient(...)));
+```
+
+Each named pipeline gets its own `SentinelOptions`, `IDetectionPipeline`, and `InterventionEngine`.
+The audit store, forwarders, and alert sink are shared — operational dashboards see all pipelines
+through one feed. User-added detectors via `opts.AddDetector<T>()` register globally; per-pipeline
+detector tuning rides on `opts.Configure<T>(c => ...)`.
+
+Each named pipeline starts from a fresh `SentinelOptions()` — no inheritance from the default.
+For shared base config, extract a helper:
+
+```csharp
+Action<SentinelOptions> baseCfg = opts => opts.EmbeddingGenerator = realGen;
+services.AddAISentinel(baseCfg);
+services.AddAISentinel("strict", opts => { baseCfg(opts); opts.OnCritical = SentinelAction.Quarantine; });
+```
+
 ---
 
 ## How it works

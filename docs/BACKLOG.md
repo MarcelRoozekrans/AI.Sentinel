@@ -48,7 +48,6 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 | **Live integration test for `AzureSentinelAuditForwarder`** | Gated on a CI secret with a real Sentinel workspace + DCR. Validates DCR setup + Logs Ingestion round-trip end-to-end. Out of scope for unit tests. |
 | **Live OpenTelemetry collector integration test** | Docker-Compose-spun-up OTel collector + verify round-trip from `OpenTelemetryAuditForwarder` through the collector to a stub backend. Out of scope for unit tests. |
 | **`BufferingAuditForwarder` configurable per registration** | Today `AddSentinelAzureSentinelForwarder` uses default buffering options (batch=100, interval=5s). Add a `.WithBuffering(maxBatch, maxInterval)` builder pattern so operators can tune for their SIEM's ingestion rate limits. |
-| **Per-pipeline configuration** | Register multiple named `SentinelOptions` instances so different endpoints get different detector sets, thresholds, or `EscalationClient`s |
 | **Detector result caching** | Short-TTL cache keyed on content hash — avoids re-running all detectors when identical prompts are sent in quick succession |
 
 ---

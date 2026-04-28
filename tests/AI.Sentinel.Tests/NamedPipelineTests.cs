@@ -3,6 +3,7 @@ using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -169,5 +170,60 @@ public class NamedPipelineTests
         var strictEngine = sp.GetRequiredKeyedService<InterventionEngine>("strict");
 
         Assert.NotSame(defaultEngine, strictEngine);
+    }
+
+    private sealed class AlwaysFiringHighDetector : IDetector
+    {
+        private static readonly DetectorId _id = new("E2E-NAMED-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Operational;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+            => ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.High, "e2e fired"));
+    }
+
+    private sealed class NoopChatClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "ok")));
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public object? GetService(Type serviceType, object? key = null) => null;
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task EndToEnd_NamedPipelineRoutesThroughSentinelChatClient()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(opts =>
+        {
+            opts.AddDetector<AlwaysFiringHighDetector>();
+            opts.OnHigh = SentinelAction.Log;
+        });
+        services.AddAISentinel("strict", opts =>
+        {
+            opts.OnHigh = SentinelAction.Log;
+            opts.Configure<AlwaysFiringHighDetector>(c => c.SeverityCap = Severity.Low);
+        });
+
+        services.AddChatClient(_ => (IChatClient)new NoopChatClient())
+                .UseAISentinel("strict");
+
+        var sp = services.BuildServiceProvider();
+        var client = sp.GetRequiredService<IChatClient>();
+
+        await client.GetResponseAsync(new List<ChatMessage> { new(ChatRole.User, "hi") });
+
+        var store = sp.GetRequiredService<IAuditStore>();
+        var entries = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(), CancellationToken.None))
+        {
+            entries.Add(e);
+        }
+
+        // Strict pipeline applied SeverityCap = Low to the Always-High firing.
+        Assert.Contains(entries, e =>
+            string.Equals(e.DetectorId, "E2E-NAMED-01", StringComparison.Ordinal)
+            && e.Severity == Severity.Low);
     }
 }
