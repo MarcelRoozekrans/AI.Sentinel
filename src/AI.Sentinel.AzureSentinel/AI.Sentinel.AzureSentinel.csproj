@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
     <PackageId>AI.Sentinel.AzureSentinel</PackageId>
     <Description>Forward AI.Sentinel audit entries to Azure Sentinel via the Logs Ingestion API.</Description>
     <Version>0.1.0</Version>
