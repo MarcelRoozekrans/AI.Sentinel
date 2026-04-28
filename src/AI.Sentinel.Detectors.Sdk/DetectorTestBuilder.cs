@@ -1,0 +1,44 @@
+using AI.Sentinel.Detection;
+using Microsoft.Extensions.AI;
+
+namespace AI.Sentinel.Detectors.Sdk;
+
+/// <summary>
+/// Fluent helper for unit-testing custom detectors. Configure a detector + prompt, then call one
+/// of the <c>Expect*</c> terminals (or <see cref="RunAsync"/>) to invoke it and assert on the result.
+/// </summary>
+/// <remarks>
+/// Defaults: a fresh <see cref="SentinelOptions"/> with a <see cref="FakeEmbeddingGenerator"/> pre-wired
+/// (so semantic detectors work without API keys), and an empty <see cref="SentinelContextBuilder"/>.
+/// One builder per test — not thread-safe, not designed for reuse across tests.
+/// </remarks>
+public sealed class DetectorTestBuilder
+{
+    private readonly SentinelOptions _options = new() { EmbeddingGenerator = new FakeEmbeddingGenerator() };
+    private readonly SentinelContextBuilder _contextBuilder = new();
+    private Func<SentinelOptions, IDetector>? _detectorResolver;
+
+    /// <summary>Use a pre-constructed detector instance. Escape hatch for detectors with exotic constructors,
+    /// DI-injected dependencies, or a custom <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/>.</summary>
+    public DetectorTestBuilder WithDetector(IDetector detector)
+    {
+        ArgumentNullException.ThrowIfNull(detector);
+        _detectorResolver = _ => detector;
+        return this;
+    }
+
+    /// <summary>Invokes the detector and returns the raw <see cref="DetectionResult"/> for custom assertions.
+    /// Use the <c>Expect*</c> terminals for the common cases.</summary>
+    public async Task<DetectionResult> RunAsync(CancellationToken ct = default)
+    {
+        if (_detectorResolver is null)
+        {
+            throw new InvalidOperationException(
+                "Call WithDetector<T>() or WithDetector(IDetector) before asserting.");
+        }
+
+        var detector = _detectorResolver(_options);
+        var ctx = _contextBuilder.Build();
+        return await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
+    }
+}
