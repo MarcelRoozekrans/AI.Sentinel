@@ -198,7 +198,7 @@ internal static class ResourceReadInterceptor
             : DefaultMaxScanBytes;
     }
 
-    private static bool IsAllowedMime(string? mime, HashSet<string> allowed)
+    internal static bool IsAllowedMime(string? mime, HashSet<string> allowed)
     {
         if (string.IsNullOrWhiteSpace(mime)) return false;
         foreach (var pattern in allowed)

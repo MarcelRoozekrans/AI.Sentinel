@@ -132,7 +132,7 @@ internal static class MessageBuilder
     /// this is identical to char-count; for multi-byte content (emoji, CJK, etc.) the cap
     /// fires sooner. The trailing marker reports removed UTF-8 bytes.
     /// </remarks>
-    private static string TruncateIfNeeded(string text, int maxScanBytes)
+    internal static string TruncateIfNeeded(string text, int maxScanBytes)
     {
         var totalBytes = Encoding.UTF8.GetByteCount(text);
         if (totalBytes <= maxScanBytes) return text;
