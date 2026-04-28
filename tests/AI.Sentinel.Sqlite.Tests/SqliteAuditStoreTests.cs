@@ -114,4 +114,43 @@ public sealed class SqliteAuditStoreTests : IDisposable
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
         Assert.Equal(1, version);
     }
+
+    [Fact]
+    public async Task RetentionPeriod_DeletesOldEntries()
+    {
+        var oldEntry = new AuditEntry(
+            "old-1",
+            DateTimeOffset.UtcNow - TimeSpan.FromDays(10),
+            "h-old-1",
+            null,
+            Severity.High,
+            "SEC-01",
+            "old summary");
+        var freshEntry = new AuditEntry(
+            "fresh-1",
+            DateTimeOffset.UtcNow,
+            "h-fresh-1",
+            "h-old-1",
+            Severity.High,
+            "SEC-01",
+            "fresh summary");
+
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            RetentionPeriod = TimeSpan.FromDays(7),
+        });
+        await store.AppendAsync(oldEntry, CancellationToken.None);
+        await store.AppendAsync(freshEntry, CancellationToken.None);
+
+        await store.RunRetentionForTestingAsync(CancellationToken.None);
+
+        var results = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(), CancellationToken.None))
+        {
+            results.Add(e);
+        }
+        Assert.Single(results);
+        Assert.Equal(freshEntry.Id, results[0].Id);
+    }
 }

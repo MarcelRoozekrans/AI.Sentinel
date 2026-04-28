@@ -28,9 +28,11 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
             return;
         }
 
-        await _lock.WaitAsync(ct).ConfigureAwait(false);
+        var locked = false;
         try
         {
+            await _lock.WaitAsync(ct).ConfigureAwait(false);
+            locked = true;
             foreach (var entry in batch)
             {
                 var line = JsonSerializer.Serialize(entry, AuditJsonContext.Default.AuditEntry);
@@ -41,7 +43,7 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
 #pragma warning disable CA1031 // IAuditForwarder.SendAsync MUST NOT throw — fail-open contract.
         catch (Exception ex)
         {
-            // Surface IO / serialization failures via stderr; never propagate.
+            // Surface IO / serialization / post-dispose failures via stderr; never propagate.
             // Matches the swallow-and-log posture of BufferingAuditForwarder.FlushAsync
             // and AzureSentinelAuditForwarder.SendAsync.
             Console.Error.WriteLine($"event=audit_forward action=send_error forwarder=NdjsonFile error={ex.GetType().Name}");
@@ -49,7 +51,11 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
 #pragma warning restore CA1031
         finally
         {
-            _lock.Release();
+            if (locked)
+            {
+                try { _lock.Release(); }
+                catch (ObjectDisposedException) { /* lock disposed concurrently; nothing to release */ }
+            }
         }
     }
 

@@ -83,4 +83,14 @@ public class NdjsonFileAuditForwarderTests : IDisposable
         Assert.Equal(2, lines.Length);
         Assert.Contains("existing", lines[0], StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task SendAsync_AfterDispose_DoesNotThrow()
+    {
+        var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath });
+        await f.DisposeAsync();
+        // After dispose, writing should NOT throw — the IAuditForwarder contract says MUST NOT throw.
+        // The new try/catch in SendAsync swallows the ObjectDisposedException.
+        await f.SendAsync([MakeEntry("e1")], default);
+    }
 }

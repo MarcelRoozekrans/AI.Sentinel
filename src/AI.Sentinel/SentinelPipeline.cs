@@ -14,6 +14,13 @@ using ZeroAlloc.Results;
 namespace AI.Sentinel;
 
 /// <summary>Wraps an <see cref="IChatClient"/> with threat detection, intervention, and auditing for both prompt and response messages.</summary>
+/// <param name="innerClient">The underlying <see cref="IChatClient"/> the pipeline forwards sanitized requests to.</param>
+/// <param name="pipeline">Detection pipeline that scans prompt and response messages.</param>
+/// <param name="auditStore">Synchronous audit store that receives every audit entry on the hot path.</param>
+/// <param name="interventionEngine">Intervention engine that applies the configured action when threats are detected.</param>
+/// <param name="options">Sentinel configuration (rate limits, thresholds, hardening prefix, etc.).</param>
+/// <param name="alertSink">Optional alert sink invoked fire-and-forget when an action escalates to <c>Quarantine</c> or <c>Alert</c>.</param>
+/// <param name="forwarders">Optional audit forwarders that mirror every audit entry to external systems fire-and-forget. Default empty.</param>
 public sealed class SentinelPipeline(
     IChatClient innerClient,
     IDetectionPipeline pipeline,

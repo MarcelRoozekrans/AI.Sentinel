@@ -116,4 +116,25 @@ public sealed class OpenTelemetryAuditForwarderTests
         Assert.Throws<ArgumentException>(() =>
             new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions()));
     }
+
+    [Fact]
+    public async Task SendAsync_OutOfRangeSeverity_DoesNotCrash_MapsToDebug()
+    {
+        var records = new List<LogRecord>();
+        using var loggerFactory = LoggerFactory.Create(b => b
+            .SetMinimumLevel(LogLevel.Trace)
+            .AddOpenTelemetry(o =>
+            {
+                o.IncludeScopes = true;
+                o.AddInMemoryExporter(records);
+            }));
+
+        var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
+        var entry = Make("e1") with { Severity = (Severity)999 }; // out of enum range
+        await f.SendAsync(new[] { entry }, default);
+
+        loggerFactory.Dispose();
+        Assert.Single(records);
+        Assert.Equal(LogLevel.Debug, records[0].LogLevel); // default arm of the switch
+    }
 }

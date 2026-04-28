@@ -59,6 +59,40 @@ public class PipelineForwarderIntegrationTests
     }
 
     [Fact]
+    public async Task NdjsonForwarder_PlusRecordingForwarder_BothReceiveEntry_ViaRealDI()
+    {
+        // Already covered: 2 RecordingForwarders. New angle: NdjsonFileAuditForwarder (real impl) + RecordingForwarder.
+        var ndjsonPath = Path.Combine(Path.GetTempPath(), $"sentinel-fanout-{Guid.NewGuid():N}.ndjson");
+        try
+        {
+            var recording = new RecordingForwarder();
+            var services = new ServiceCollection();
+            services.AddAISentinel(opts => { });
+            services.AddSentinelNdjsonFileForwarder(opts => opts.FilePath = ndjsonPath);
+            services.AddSingleton<IAuditForwarder>(recording);
+            var sp = services.BuildServiceProvider();
+
+            var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
+            await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+            await Task.Delay(200);
+
+            Assert.NotEmpty(recording.Batches);
+            // Wait briefly for the NDJSON file write to flush
+            await Task.Delay(200);
+            // Dispose so the FileStream releases the file before reading
+            await ((IAsyncDisposable)sp).DisposeAsync();
+            var lines = File.ReadAllLines(ndjsonPath);
+            Assert.NotEmpty(lines);
+        }
+        finally
+        {
+            try { File.Delete(ndjsonPath); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+    }
+
+    [Fact]
     public async Task SlowForwarder_DoesNotBlockPipeline()
     {
         var slow = new SlowForwarder(TimeSpan.FromSeconds(2));

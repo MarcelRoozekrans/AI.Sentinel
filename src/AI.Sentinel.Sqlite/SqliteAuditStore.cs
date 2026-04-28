@@ -212,6 +212,15 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
     }
 
+    /// <summary>Runs a single retention sweep synchronously. Test hook so the timer-driven sweep
+    /// can be exercised deterministically without sleeping on the timer interval.</summary>
+    internal Task RunRetentionForTestingAsync(CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        SweepRetention();
+        return Task.CompletedTask;
+    }
+
     internal async Task<int> GetSchemaVersionForTestingAsync(CancellationToken ct)
     {
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
