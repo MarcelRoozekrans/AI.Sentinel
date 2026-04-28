@@ -541,6 +541,10 @@ When `--target` starts with `http://` or `https://` the proxy uses
 `HttpClientTransport` (Streamable HTTP with automatic SSE fallback) instead of spawning
 a subprocess. Combine with `SENTINEL_MCP_HTTP_HEADERS` for token auth.
 
+**Auth scope:** `SENTINEL_MCP_HTTP_HEADERS` covers static-token auth only
+(bearer tokens, API keys, tenant headers). OAuth2 flows and mTLS client certificates
+are **not** supported in v1.1 — see the deferred items in `docs/BACKLOG.md` if you need them.
+
 **Behaviour change in v1.1:** `SENTINEL_MCP_MAX_SCAN_BYTES` now counts UTF-8 bytes
 (was a `char` count, which double-counted for multi-byte characters). ASCII content
 is unchanged; emoji / CJK / accented text reaches the cap sooner.
