@@ -14,7 +14,10 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.FilePath, nameof(options));
         _stream = new FileStream(options.FilePath, FileMode.Append, FileAccess.Write, FileShare.Read);
-        _writer = new StreamWriter(_stream) { AutoFlush = false };
+        // NewLine = "\n" forces LF terminators so NDJSON output is identical on
+        // Windows + Linux + macOS. SIEMs accept either, but byte-identical output
+        // simplifies debugging cross-platform deployments.
+        _writer = new StreamWriter(_stream) { AutoFlush = false, NewLine = "\n" };
     }
 
     public async ValueTask SendAsync(IReadOnlyList<AuditEntry> batch, CancellationToken ct)
