@@ -1,0 +1,41 @@
+using AI.Sentinel.Detectors.Sdk;
+using Xunit;
+
+namespace AI.Sentinel.Detectors.Sdk.Tests;
+
+public class FakeEmbeddingGeneratorTests
+{
+    [Fact]
+    public async Task IdenticalStrings_YieldCosineNearOne()
+    {
+        var gen = new FakeEmbeddingGenerator();
+        var r1 = await gen.GenerateAsync(["the quick brown fox"]);
+        var r2 = await gen.GenerateAsync(["the quick brown fox"]);
+        var cosine = Cosine(r1[0].Vector.Span, r2[0].Vector.Span);
+
+        Assert.True(cosine > 0.999f, $"Expected cosine >= 0.999, got {cosine}");
+    }
+
+    [Fact]
+    public async Task UnrelatedStrings_YieldLowSimilarity()
+    {
+        var gen = new FakeEmbeddingGenerator();
+        var r1 = await gen.GenerateAsync(["the quick brown fox"]);
+        var r2 = await gen.GenerateAsync(["completely different unrelated text 12345"]);
+        var cosine = Cosine(r1[0].Vector.Span, r2[0].Vector.Span);
+
+        Assert.True(cosine < 0.5f, $"Expected cosine < 0.5 (low similarity), got {cosine}");
+    }
+
+    private static float Cosine(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
+    {
+        float dot = 0f, na = 0f, nb = 0f;
+        for (var i = 0; i < a.Length; i++)
+        {
+            dot += a[i] * b[i];
+            na += a[i] * a[i];
+            nb += b[i] * b[i];
+        }
+        return dot / (MathF.Sqrt(na) * MathF.Sqrt(nb));
+    }
+}

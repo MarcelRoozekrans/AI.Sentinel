@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <PackageId>AI.Sentinel.Detectors.Sdk</PackageId>
+    <Description>SDK for writing and testing custom AI.Sentinel detectors. Provides public test helpers (SentinelContextBuilder, FakeEmbeddingGenerator) that mirror the internal test infrastructure.</Description>
+    <Version>0.1.0</Version>
+    <Authors>ZeroAlloc-Net</Authors>
+    <PackageTags>ai;security;chatclient;detector;sdk;testing</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>AI.Sentinel.Detectors.Sdk.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

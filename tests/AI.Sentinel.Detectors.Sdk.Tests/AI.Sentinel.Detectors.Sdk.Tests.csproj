@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <IsPackable>false</IsPackable>
+    <RollForward>LatestMajor</RollForward>
+    <!-- xUnit1030: ConfigureAwait(false) forbidden in test methods -->
+    <!-- HLQ005: bans Single() but xUnit2013 wants Assert.Single -->
+    <NoWarn>$(NoWarn);MA0004;HLQ005</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AI.Sentinel.Detectors.Sdk\AI.Sentinel.Detectors.Sdk.csproj" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+  </ItemGroup>
+</Project>
