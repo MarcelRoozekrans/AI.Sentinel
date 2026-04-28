@@ -13,7 +13,7 @@ public class SentinelPipelineRateLimitTests
     private static SentinelPipeline Build(int? maxCallsPerSecond, int? burstSize = null)
     {
         var opts = new SentinelOptions { MaxCallsPerSecond = maxCallsPerSecond, BurstSize = burstSize };
-        var pipeline = new DetectionPipeline([], null);
+        var pipeline = new DetectionPipeline([], configurations: null, escalationClient: null);
         var audit = new RingBufferAuditStore(100);
         var engine = new InterventionEngine(opts, null);
         return new SentinelPipeline(new NoOpChatClient(), pipeline, audit, engine, opts);
@@ -118,7 +118,7 @@ public class SentinelPipelineRateLimitTests
             BurstSize = 1,
             SessionIdleTimeout = TimeSpan.FromMilliseconds(50)
         };
-        var pipeline = new DetectionPipeline([], null);
+        var pipeline = new DetectionPipeline([], configurations: null, escalationClient: null);
         var audit = new RingBufferAuditStore(100);
         var engine = new InterventionEngine(opts, null);
         var sentinel = new SentinelPipeline(new NoOpChatClient(), pipeline, audit, engine, opts);

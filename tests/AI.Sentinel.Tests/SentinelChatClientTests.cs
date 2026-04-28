@@ -17,7 +17,7 @@ public class SentinelChatClientTests
     {
         var options = opts ?? new SentinelOptions();
         var pipeline = new DetectionPipeline(
-            detectors ?? [new BlankResponseDetector()], null);
+            detectors ?? [new BlankResponseDetector()], configurations: null, escalationClient: null);
         var store = new RingBufferAuditStore();
         var engine = new InterventionEngine(options, mediator: null);
         return new SentinelChatClient(inner, pipeline, store, engine, options);

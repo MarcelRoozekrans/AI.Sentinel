@@ -54,7 +54,7 @@ internal static class McpPipelineFactory
 
         return new SentinelPipeline(
             innerClient:        UnusedChatClient.Instance,
-            pipeline:           new DetectionPipeline(detectors, escalationClient: null),
+            pipeline:           new DetectionPipeline(detectors, configurations: null, escalationClient: null),
             auditStore:         ringBuffer,
             interventionEngine: new InterventionEngine(options, mediator: null),
             options:            options);

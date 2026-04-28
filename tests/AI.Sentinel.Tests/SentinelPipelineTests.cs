@@ -18,7 +18,7 @@ public class SentinelPipelineTests
         IAlertSink? alertSink = null)
     {
         var opts = new SentinelOptions();
-        var pipeline = new DetectionPipeline(detectors ?? [], null);
+        var pipeline = new DetectionPipeline(detectors ?? [], configurations: null, escalationClient: null);
         var audit = new RingBufferAuditStore(100);
         var engine = new InterventionEngine(opts, null);
         return new SentinelPipeline(inner ?? new TestChatClient("hello"), pipeline, audit, engine, opts, alertSink);
@@ -174,7 +174,7 @@ public class SentinelPipelineTests
     public async Task ScanMessagesAsync_RateLimitExceeded_ReturnsRateLimitError()
     {
         var opts = new SentinelOptions { MaxCallsPerSecond = 1, BurstSize = 1 };
-        var pipeline = new DetectionPipeline([], null);
+        var pipeline = new DetectionPipeline([], configurations: null, escalationClient: null);
         var audit = new RingBufferAuditStore(100);
         var engine = new InterventionEngine(opts, null);
         var sentinel = new SentinelPipeline(
@@ -199,7 +199,7 @@ public class SentinelPipelineTests
         };
 
         var detector = new OutputSchemaDetector(opts, new SerializerDispatcher());
-        var pipeline = new DetectionPipeline([detector], null);
+        var pipeline = new DetectionPipeline([detector], configurations: null, escalationClient: null);
         var audit = new RingBufferAuditStore(100);
         var engine = new InterventionEngine(opts, null);
         var sentinel = new SentinelPipeline(inner, pipeline, audit, engine, opts);

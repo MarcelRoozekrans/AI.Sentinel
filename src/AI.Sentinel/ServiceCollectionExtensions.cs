@@ -40,7 +40,11 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton<IDetectionPipeline>(sp =>
             new DetectionPipelineInstrumented(
-                new DetectionPipeline(sp.GetServices<IDetector>(), opts.EscalationClient, sp.GetService<ILogger<DetectionPipeline>>())));
+                new DetectionPipeline(
+                    sp.GetServices<IDetector>(),
+                    opts.GetDetectorConfigurations(),
+                    opts.EscalationClient,
+                    sp.GetService<ILogger<DetectionPipeline>>())));
 
         services.AddSingleton<IToolCallGuard>(sp =>
         {

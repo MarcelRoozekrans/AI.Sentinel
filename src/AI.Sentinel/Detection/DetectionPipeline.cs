@@ -8,15 +8,37 @@ namespace AI.Sentinel.Detection;
 public sealed class DetectionPipeline : IDetectionPipeline
 {
     private readonly IDetector[] _detectors;
+    private readonly DetectorConfiguration?[] _configurations;
     private readonly IChatClient? _escalationClient;
     private readonly ILogger<DetectionPipeline>? _logger;
 
     public DetectionPipeline(
         IEnumerable<IDetector> detectors,
+        IReadOnlyDictionary<Type, DetectorConfiguration>? configurations,
         IChatClient? escalationClient,
         ILogger<DetectionPipeline>? logger = null)
     {
-        _detectors        = detectors.ToArray();
+        var enabled = new List<IDetector>();
+        var enabledConfigs = new List<DetectorConfiguration?>();
+        foreach (var d in detectors)
+        {
+            DetectorConfiguration? cfg = null;
+            if (configurations is not null)
+            {
+                configurations.TryGetValue(d.GetType(), out cfg);
+            }
+
+            if (cfg is not null && !cfg.Enabled)
+            {
+                continue;  // skip disabled detector entirely — zero CPU on the hot path
+            }
+
+            enabled.Add(d);
+            enabledConfigs.Add(cfg);
+        }
+
+        _detectors        = enabled.ToArray();
+        _configurations   = enabledConfigs.ToArray();
         _escalationClient = escalationClient;
         _logger           = logger;
     }

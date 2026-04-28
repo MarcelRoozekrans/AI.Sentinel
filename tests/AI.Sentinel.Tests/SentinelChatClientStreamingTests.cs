@@ -17,7 +17,7 @@ public class SentinelChatClientStreamingTests
         IDetector[]? detectors = null)
     {
         var options = opts ?? new SentinelOptions();
-        var pipeline = new DetectionPipeline(detectors ?? [], null);
+        var pipeline = new DetectionPipeline(detectors ?? [], configurations: null, escalationClient: null);
         var store = new RingBufferAuditStore();
         var engine = new InterventionEngine(options, mediator: null);
         return new SentinelChatClient(inner, pipeline, store, engine, options);
@@ -75,7 +75,7 @@ public class SentinelChatClientStreamingTests
     {
         var store = new RingBufferAuditStore(100);
         var opts = new SentinelOptions { OnCritical = SentinelAction.Alert };
-        var pipeline = new DetectionPipeline([new AlwaysCriticalDetector()], null);
+        var pipeline = new DetectionPipeline([new AlwaysCriticalDetector()], configurations: null, escalationClient: null);
         var engine = new InterventionEngine(opts, null);
         var client = new SentinelChatClient(
             new StreamingFakeClient("ok"), pipeline, store, engine, opts);

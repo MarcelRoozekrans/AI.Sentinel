@@ -20,7 +20,7 @@ public class DetectionPipelineTests
             new FakeDetector("SEC-01", Severity.None),
             new FakeDetector("OPS-01", Severity.None),
         };
-        var pipeline = new DetectionPipeline(detectors, escalationClient: null);
+        var pipeline = new DetectionPipeline(detectors, configurations: null, escalationClient: null);
         var result = await pipeline.RunAsync(FakeContext(), CancellationToken.None);
         Assert.Equal(0, result.Score.Value);
         Assert.True(result.IsClean);
@@ -33,7 +33,7 @@ public class DetectionPipelineTests
             new FakeDetector("SEC-01", Severity.High),
             new FakeDetector("OPS-01", Severity.None),
         };
-        var pipeline = new DetectionPipeline(detectors, escalationClient: null);
+        var pipeline = new DetectionPipeline(detectors, configurations: null, escalationClient: null);
         var result = await pipeline.RunAsync(FakeContext(), CancellationToken.None);
         Assert.True(result.Score.Value > 0);
         Assert.False(result.IsClean);
@@ -47,7 +47,7 @@ public class DetectionPipelineTests
             new FakeDetector("SEC-01", Severity.Medium),
             new FakeDetector("SEC-02", Severity.Critical),
         };
-        var pipeline = new DetectionPipeline(detectors, escalationClient: null);
+        var pipeline = new DetectionPipeline(detectors, configurations: null, escalationClient: null);
         var result = await pipeline.RunAsync(FakeContext(), CancellationToken.None);
         Assert.Equal(Severity.Critical, result.MaxSeverity);
     }
@@ -66,7 +66,7 @@ public class DetectionPipelineTests
             capturedMessages,
             """{"severity":"Medium","reason":"confirmed"}""");
 
-        var pipeline = new DetectionPipeline([fakeDetector], capturedClient);
+        var pipeline = new DetectionPipeline([fakeDetector], configurations: null, escalationClient: capturedClient);
 
         var ctx = new SentinelContext(
             new AgentId("sender"), new AgentId("receiver"),

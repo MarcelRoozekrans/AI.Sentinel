@@ -104,7 +104,7 @@ public class TelemetryTests
     private static SentinelPipeline BuildPipeline(IDetector[] detectors)
     {
         var opts = new SentinelOptions();
-        IDetectionPipeline inner = new DetectionPipeline(detectors, null);
+        IDetectionPipeline inner = new DetectionPipeline(detectors, configurations: null, escalationClient: null);
         var pipeline = new DetectionPipelineInstrumented(inner);
         IAuditStore innerAudit = new RingBufferAuditStore(100);
         var audit = new AuditStoreInstrumented(innerAudit);
