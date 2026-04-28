@@ -155,4 +155,108 @@ public class DetectorTestBuilderTests
         Assert.Equal("third", detector.LastContext.Messages[2].Text, StringComparer.Ordinal);
         Assert.Equal("fourth", detector.LastContext.Messages[3].Text, StringComparer.Ordinal);
     }
+
+    [Fact]
+    public async Task ExpectDetection_PassesWhenSeverityAtOrAboveMinimum()
+    {
+        await new DetectorTestBuilder()
+            .WithDetector(new StubDetector(Severity.High))
+            .ExpectDetection(Severity.High);
+
+        await new DetectorTestBuilder()
+            .WithDetector(new StubDetector(Severity.Critical))
+            .ExpectDetection(Severity.High);  // Critical satisfies >= High
+    }
+
+    [Fact]
+    public async Task ExpectDetection_FailsWhenSeverityBelowMinimum()
+    {
+        var ex = await Assert.ThrowsAsync<DetectorAssertionException>(() =>
+            new DetectorTestBuilder()
+                .WithDetector(new StubDetector(Severity.Low, "MYORG-JB-01"))
+                .ExpectDetection(Severity.High));
+
+        Assert.Contains("MYORG-JB-01", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(">= High", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Severity.Low", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExpectDetection_FailsOnCleanDetector_MessageMentionsClean()
+    {
+        var ex = await Assert.ThrowsAsync<DetectorAssertionException>(() =>
+            new DetectorTestBuilder()
+                .WithDetector(new StubDetector(Severity.None, "MYORG-JB-01"))
+                .ExpectDetection(Severity.High));
+
+        Assert.Contains("Clean", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExpectDetectionExactly_PassesOnExactMatch()
+    {
+        await new DetectorTestBuilder()
+            .WithDetector(new StubDetector(Severity.High))
+            .ExpectDetectionExactly(Severity.High);
+    }
+
+    [Fact]
+    public async Task ExpectDetectionExactly_FailsOnNearMiss()
+    {
+        var ex = await Assert.ThrowsAsync<DetectorAssertionException>(() =>
+            new DetectorTestBuilder()
+                .WithDetector(new StubDetector(Severity.Critical, "MYORG-JB-01"))
+                .ExpectDetectionExactly(Severity.High));
+
+        Assert.Contains("== High", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Severity.Critical", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ExpectClean_PassesWhenDetectorReturnsClean()
+    {
+        await new DetectorTestBuilder()
+            .WithDetector(new StubDetector(Severity.None))
+            .ExpectClean();
+    }
+
+    [Fact]
+    public async Task ExpectClean_FailsWhenDetectorFires_MessageIncludesReason()
+    {
+        var ex = await Assert.ThrowsAsync<DetectorAssertionException>(() =>
+            new DetectorTestBuilder()
+                .WithDetector(new StubDetector(Severity.High, "MYORG-JB-01"))
+                .ExpectClean());
+
+        Assert.Contains("MYORG-JB-01", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Clean", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Severity.High", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("stub", ex.Message, StringComparison.Ordinal);  // the reason from StubDetector
+    }
+
+    private sealed class SlowDetector : IDetector
+    {
+        private static readonly DetectorId _id = new("SLOW-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Operational;
+        public async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(30), ct).ConfigureAwait(false);
+            return DetectionResult.Clean(_id);
+        }
+    }
+
+    [Fact]
+    public async Task Cancellation_PropagatesToDetector()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var slowDetector = new SlowDetector();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            new DetectorTestBuilder()
+                .WithDetector(slowDetector)
+                .ExpectDetection(Severity.High, cts.Token));
+    }
 }

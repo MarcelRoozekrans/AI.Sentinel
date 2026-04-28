@@ -74,6 +74,44 @@ public sealed class DetectorTestBuilder
         return this;
     }
 
+    /// <summary>Assert the detector fires with severity at or above <paramref name="minSeverity"/>.
+    /// Throws <see cref="DetectorAssertionException"/> on mismatch. The most common assertion shape —
+    /// most detectors guarantee "at least" a level, not exact equality.</summary>
+    public async Task ExpectDetection(Severity minSeverity, CancellationToken ct = default)
+    {
+        var result = await RunAsync(ct).ConfigureAwait(false);
+        if (result.Severity < minSeverity)
+        {
+            throw new DetectorAssertionException(
+                $"Expected detector '{result.DetectorId.Value}' to fire with Severity >= {minSeverity} but got {DescribeObserved(result)}.");
+        }
+    }
+
+    /// <summary>Assert the detector fires with exactly <paramref name="severity"/>. Stricter than
+    /// <see cref="ExpectDetection"/> — useful for boundary tests where the difference between
+    /// High and Critical matters.</summary>
+    public async Task ExpectDetectionExactly(Severity severity, CancellationToken ct = default)
+    {
+        var result = await RunAsync(ct).ConfigureAwait(false);
+        if (result.Severity != severity)
+        {
+            throw new DetectorAssertionException(
+                $"Expected detector '{result.DetectorId.Value}' to fire with Severity == {severity} but got {DescribeObserved(result)}.");
+        }
+    }
+
+    /// <summary>Assert the detector returns <see cref="DetectionResult.IsClean"/> (no detection).
+    /// Distinct semantic from <c>ExpectDetectionExactly(Severity.None)</c> — clearer at the call site.</summary>
+    public async Task ExpectClean(CancellationToken ct = default)
+    {
+        var result = await RunAsync(ct).ConfigureAwait(false);
+        if (!result.IsClean)
+        {
+            throw new DetectorAssertionException(
+                $"Expected detector '{result.DetectorId.Value}' to be Clean but got Severity.{result.Severity} — reason: '{result.Reason}'.");
+        }
+    }
+
     /// <summary>Invokes the detector and returns the raw <see cref="DetectionResult"/> for custom assertions.
     /// Use the <c>Expect*</c> terminals for the common cases.</summary>
     public async Task<DetectionResult> RunAsync(CancellationToken ct = default)
@@ -88,4 +126,7 @@ public sealed class DetectorTestBuilder
         var ctx = _contextBuilder.Build();
         return await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
     }
+
+    private static string DescribeObserved(DetectionResult r)
+        => r.IsClean ? $"Severity.{r.Severity} (Clean)" : $"Severity.{r.Severity}";
 }
