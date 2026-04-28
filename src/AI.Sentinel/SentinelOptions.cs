@@ -31,6 +31,23 @@ public sealed class SentinelOptions
     /// <summary>Internal accumulator entry describing a user-registered <see cref="IDetector"/>.</summary>
     internal sealed record DetectorRegistration(Type DetectorType, Func<IServiceProvider, IDetector>? Factory);
 
+    private readonly Dictionary<Type, DetectorConfiguration> _detectorConfigurations = new();
+
+    /// <summary>Internal access for the pipeline to read per-detector configurations.</summary>
+    internal IReadOnlyDictionary<Type, DetectorConfiguration> GetDetectorConfigurations() => _detectorConfigurations;
+
+    /// <summary>Internal hook for the <c>Configure&lt;T&gt;</c> extension. Returns the existing
+    /// configuration for <paramref name="detectorType"/> or creates a fresh one with defaults.</summary>
+    internal DetectorConfiguration GetOrCreateDetectorConfiguration(Type detectorType)
+    {
+        if (!_detectorConfigurations.TryGetValue(detectorType, out var cfg))
+        {
+            cfg = new DetectorConfiguration();
+            _detectorConfigurations[detectorType] = cfg;
+        }
+        return cfg;
+    }
+
     /// <summary>Optional secondary IChatClient used for LLM escalation on borderline detections.</summary>
     public IChatClient? EscalationClient { get; set; }
 
