@@ -414,6 +414,28 @@ To use a persistent or shared cache, implement `IEmbeddingCache` and set it on
 options.EmbeddingCache = new MyRedisEmbeddingCache(redis, ttl: TimeSpan.FromHours(1));
 ```
 
+### Tuning individual detectors
+
+Use `opts.Configure<T>(c => ...)` to disable a detector or clamp its severity output:
+
+```csharp
+services.AddAISentinel(opts =>
+{
+    // Disable a detector entirely — zero CPU cost, no audit entries
+    opts.Configure<WrongLanguageDetector>(c => c.Enabled = false);
+
+    // Elevate any firing of JailbreakDetector to at least High
+    opts.Configure<JailbreakDetector>(c => c.SeverityFloor = Severity.High);
+
+    // Cap a noisy detector's output to Low
+    opts.Configure<RepetitionLoopDetector>(c => c.SeverityCap = Severity.Low);
+});
+```
+
+`Floor` and `Cap` apply only to *firing* results — Clean results pass through unchanged
+(no fabricated findings). Multiple `Configure<T>` calls for the same detector merge by
+mutation, so base configuration and per-environment overrides compose naturally.
+
 ---
 
 ## Dashboard

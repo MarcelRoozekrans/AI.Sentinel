@@ -1,5 +1,9 @@
+using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
+using AI.Sentinel.Intervention;
+using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace AI.Sentinel.Tests.Detection;
@@ -203,5 +207,70 @@ public class PipelineDetectorConfigTests
         public DetectorCategory Category => DetectorCategory.Operational;
         public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
             => ValueTask.FromResult(DetectionResult.Clean(_id));
+    }
+
+    // E2E smoke: custom detector + Configure<T>(SeverityFloor = High) flows
+    // through SentinelChatClient and the elevated severity reaches the audit store.
+    private sealed class AlwaysFiringLowDetector : IDetector
+    {
+        private static readonly DetectorId _id = new("E2E-FLOOR-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Operational;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+            => ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Low, "e2e-stub"));
+    }
+
+    private sealed class NoopChatClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "ok")));
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+
+        public object? GetService(Type serviceType, object? key = null) => null;
+        public void Dispose() { }
+    }
+
+    [Fact]
+    public async Task Configure_SeverityFloor_FlowsThroughSentinelChatClientToAudit()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(opts =>
+        {
+            // Don't quarantine — let it through to the audit store.
+            opts.OnHigh = SentinelAction.Log;
+            opts.OnLow = SentinelAction.Log;
+
+            opts.AddDetector<AlwaysFiringLowDetector>();
+            opts.Configure<AlwaysFiringLowDetector>(c => c.SeverityFloor = Severity.High);
+        });
+
+        services.AddChatClient(_ => (IChatClient)new NoopChatClient())
+                .UseAISentinel();
+
+        var sp = services.BuildServiceProvider();
+        var client = sp.GetRequiredService<IChatClient>();
+        var store = sp.GetRequiredService<IAuditStore>();
+
+        await client.GetResponseAsync(new List<ChatMessage>
+        {
+            new(ChatRole.User, "anything")
+        });
+
+        var entries = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(), CancellationToken.None))
+            entries.Add(e);
+
+        // The Low-firing detector should appear at High after floor is applied.
+        Assert.Contains(entries, e =>
+            string.Equals(e.DetectorId, "E2E-FLOOR-01", StringComparison.Ordinal) &&
+            e.Severity == Severity.High);
     }
 }

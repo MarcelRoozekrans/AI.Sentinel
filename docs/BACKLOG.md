@@ -50,7 +50,6 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 | **`BufferingAuditForwarder` configurable per registration** | Today `AddSentinelAzureSentinelForwarder` uses default buffering options (batch=100, interval=5s). Add a `.WithBuffering(maxBatch, maxInterval)` builder pattern so operators can tune for their SIEM's ingestion rate limits. |
 | **Per-pipeline configuration** | Register multiple named `SentinelOptions` instances so different endpoints get different detector sets, thresholds, or `EscalationClient`s |
 | **Detector result caching** | Short-TTL cache keyed on content hash — avoids re-running all detectors when identical prompts are sent in quick succession |
-| **Fluent per-detector config** | `opts.Configure<PromptInjectionDetector>(d => d.Severity = Severity.High)` — tune or disable individual detectors without removing them from the pipeline |
 
 ---
 
