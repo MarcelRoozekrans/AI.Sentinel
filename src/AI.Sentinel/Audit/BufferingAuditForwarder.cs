@@ -191,12 +191,17 @@ public sealed class BufferingAuditForwarder<TInner> : IAuditForwarder, IAsyncDis
     public async ValueTask DisposeAsync()
     {
         _channel.Writer.Complete();
+        // Signal cancellation BEFORE waiting so a hung inner forwarder can observe the
+        // token and abort within the 2-second budget. Without this, a stuck SendAsync
+        // would force WaitAsync to throw TimeoutException and leave the reader task
+        // running detached against a CTS we're about to dispose.
+        _cts.Cancel();
         try
         {
             await _readerTask.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
         }
         catch (TimeoutException) { /* reader stuck — give up */ }
-        _cts.Cancel();
+        catch (OperationCanceledException) { /* expected when cancellation propagates */ }
         _cts.Dispose();
     }
 }
