@@ -9,6 +9,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\AI.Sentinel\AI.Sentinel.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Mcp\AI.Sentinel.Mcp.csproj" />
+    <ProjectReference Include="..\..\src\AI.Sentinel.Sqlite\AI.Sentinel.Sqlite.csproj" />
     <PackageReference Include="BenchmarkDotNet" Version="0.14.*" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.*" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.*" />
