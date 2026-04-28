@@ -15,61 +15,86 @@ public static class ServiceCollectionExtensions
         this IServiceCollection services,
         Action<SentinelOptions>? configure = null)
     {
+        return RegisterPipeline(services, name: null, configure);
+    }
+
+    private static IServiceCollection RegisterPipeline(
+        IServiceCollection services,
+        string? name,
+        Action<SentinelOptions>? configure)
+    {
         var opts = new SentinelOptions();
         configure?.Invoke(opts);
-        services.AddSingleton(opts);
-        services.AddSingleton<IAlertSink>(_ =>
+
+        if (name is null)
         {
-            IAlertSink raw = opts.AlertWebhook is not null
-                ? new WebhookAlertSink(opts.AlertWebhook)
-                : NullAlertSink.Instance;
-            return new DeduplicatingAlertSink(
-                new AlertSinkInstrumented(raw),
-                opts.AlertDeduplicationWindow,
-                opts.SessionIdleTimeout);
-        });
-        services.AddSingleton<IAuditStore>(
-            new AuditStoreInstrumented(new RingBufferAuditStore(opts.AuditCapacity)));
-        services.AddSingleton(sp => new InterventionEngine(
-            opts,
-            mediator: sp.GetService<IMediator>(),
-            logger: sp.GetService<ILogger<InterventionEngine>>()));
-
-        services.AddAISentinelDetectors();
-        RegisterUserDetectors(services, opts);
-
-        services.AddSingleton<IDetectionPipeline>(sp =>
-            new DetectionPipelineInstrumented(
-                new DetectionPipeline(
-                    sp.GetServices<IDetector>(),
-                    opts.GetDetectorConfigurations(),
-                    opts.EscalationClient,
-                    sp.GetService<ILogger<DetectionPipeline>>())));
-
-        services.AddSingleton<IToolCallGuard>(sp =>
+            // Default (unnamed) pipeline — unkeyed singletons, full v1.0 backward compat
+            services.AddSingleton(opts);
+            services.AddSingleton<IAlertSink>(_ => BuildAlertSink(opts));
+            services.AddSingleton<IAuditStore>(BuildAuditStore(opts));
+            services.AddSingleton(sp => BuildInterventionEngine(opts, sp));
+            services.AddAISentinelDetectors();
+            RegisterUserDetectors(services, opts);
+            services.AddSingleton<IDetectionPipeline>(sp => BuildDetectionPipeline(opts, sp));
+            services.AddSingleton<IToolCallGuard>(sp => BuildToolCallGuard(services, opts, sp));
+        }
+        else
         {
-            // Re-check at factory time (not at AddAISentinel time) so users can add ISecurityContext after AddAISentinel.
-            var hasSecurityContext = services.Any(d => d.ServiceType == typeof(ISecurityContext));
-
-            var policyByName = new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal);
-            foreach (var p in sp.GetServices<IAuthorizationPolicy>())
-            {
-                var attrs = p.GetType().GetCustomAttributes(typeof(AuthorizationPolicyAttribute), inherit: false);
-                if (attrs.Length == 0) continue;
-                var attr = (AuthorizationPolicyAttribute)attrs[0];
-                policyByName[attr.Name] = p;
-            }
-
-            var bindings = opts.GetAuthorizationBindings();
-            var logger = sp.GetService<ILogger<DefaultToolCallGuard>>();
-            var pipelineLogger = sp.GetService<ILogger<SentinelPipeline>>();
-
-            EmitAuthorizationStartupWarnings(opts, bindings, policyByName, hasSecurityContext, pipelineLogger);
-
-            return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, logger);
-        });
+            // Named pipeline — Task 2 fills this branch
+#pragma warning disable MA0025 // Placeholder for Task 2
+            throw new NotImplementedException("Named pipelines arrive in Task 2.");
+#pragma warning restore MA0025
+        }
 
         return services;
+    }
+
+    private static IAlertSink BuildAlertSink(SentinelOptions opts)
+    {
+        IAlertSink raw = opts.AlertWebhook is not null
+            ? new WebhookAlertSink(opts.AlertWebhook)
+            : NullAlertSink.Instance;
+        return new DeduplicatingAlertSink(
+            new AlertSinkInstrumented(raw),
+            opts.AlertDeduplicationWindow,
+            opts.SessionIdleTimeout);
+    }
+
+    private static IAuditStore BuildAuditStore(SentinelOptions opts)
+        => new AuditStoreInstrumented(new RingBufferAuditStore(opts.AuditCapacity));
+
+    private static InterventionEngine BuildInterventionEngine(SentinelOptions opts, IServiceProvider sp)
+        => new(opts, mediator: sp.GetService<IMediator>(), logger: sp.GetService<ILogger<InterventionEngine>>());
+
+    private static IDetectionPipeline BuildDetectionPipeline(SentinelOptions opts, IServiceProvider sp)
+        => new DetectionPipelineInstrumented(
+            new DetectionPipeline(
+                sp.GetServices<IDetector>(),
+                opts.GetDetectorConfigurations(),
+                opts.EscalationClient,
+                sp.GetService<ILogger<DetectionPipeline>>()));
+
+    private static IToolCallGuard BuildToolCallGuard(IServiceCollection services, SentinelOptions opts, IServiceProvider sp)
+    {
+        // Re-check at factory time (not at AddAISentinel time) so users can add ISecurityContext after AddAISentinel.
+        var hasSecurityContext = services.Any(d => d.ServiceType == typeof(ISecurityContext));
+
+        var policyByName = new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal);
+        foreach (var p in sp.GetServices<IAuthorizationPolicy>())
+        {
+            var attrs = p.GetType().GetCustomAttributes(typeof(AuthorizationPolicyAttribute), inherit: false);
+            if (attrs.Length == 0) continue;
+            var attr = (AuthorizationPolicyAttribute)attrs[0];
+            policyByName[attr.Name] = p;
+        }
+
+        var bindings = opts.GetAuthorizationBindings();
+        var logger = sp.GetService<ILogger<DefaultToolCallGuard>>();
+        var pipelineLogger = sp.GetService<ILogger<SentinelPipeline>>();
+
+        EmitAuthorizationStartupWarnings(opts, bindings, policyByName, hasSecurityContext, pipelineLogger);
+
+        return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, logger);
     }
 
     private static void RegisterUserDetectors(IServiceCollection services, SentinelOptions opts)
