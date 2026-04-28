@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <PackageId>AI.Sentinel.Sqlite</PackageId>
+    <Description>Persistent SQLite-backed audit store for AI.Sentinel — survives restarts, maintains the hash chain, supports time-based retention.</Description>
+    <Version>0.1.0</Version>
+    <Authors>ZeroAlloc-Net</Authors>
+    <PackageTags>ai;security;chatclient;audit;sqlite;persistence</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>AI.Sentinel.Sqlite.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>
