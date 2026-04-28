@@ -202,6 +202,38 @@ public static class ServiceCollectionExtensions
                 sp.GetServices<IAuditForwarder>());
         });
 
+    /// <summary>Resolves a named AI.Sentinel pipeline previously registered via
+    /// <see cref="AddAISentinel(IServiceCollection, string, Action{SentinelOptions})"/>.
+    /// Throws <see cref="InvalidOperationException"/> at chat client construction time if
+    /// no pipeline with this name was registered.</summary>
+    public static ChatClientBuilder UseAISentinel(this ChatClientBuilder builder, string name) =>
+        builder.Use((inner, sp) =>
+        {
+            ArgumentNullException.ThrowIfNull(name);
+
+            var opts = sp.GetRequiredKeyedService<SentinelOptions>(name);
+            var pipeline = sp.GetRequiredKeyedService<IDetectionPipeline>(name);
+            var engine = sp.GetRequiredKeyedService<InterventionEngine>(name);
+
+            if (opts.EmbeddingGenerator is null)
+            {
+                var logger = sp.GetService<ILogger<SentinelPipeline>>();
+                var semanticCount = sp.GetServices<IDetector>().Count(d => d is SemanticDetectorBase);
+                logger?.LogWarning(
+                    "AI.Sentinel pipeline '{Name}': EmbeddingGenerator is not configured. All {Count} semantic detectors will return Clean until an IEmbeddingGenerator is provided.",
+                    name, semanticCount);
+            }
+
+            return new SentinelChatClient(
+                inner,
+                pipeline,
+                sp.GetRequiredService<IAuditStore>(),     // shared
+                engine,
+                opts,
+                sp.GetRequiredService<IAlertSink>(),      // shared
+                sp.GetServices<IAuditForwarder>());       // shared
+        });
+
     public static SentinelPipeline BuildSentinelPipeline(
         this IServiceProvider sp,
         IChatClient innerClient)
