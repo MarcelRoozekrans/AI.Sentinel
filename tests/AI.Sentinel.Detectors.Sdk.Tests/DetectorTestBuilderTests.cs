@@ -106,4 +106,53 @@ public class DetectorTestBuilderTests
         Assert.NotNull(captured);
         Assert.Same(customGenerator, captured!.CapturedOptions.EmbeddingGenerator);
     }
+
+    private sealed class ContextRecordingDetector : IDetector
+    {
+        public SentinelContext? LastContext { get; private set; }
+        private static readonly DetectorId _id = new("REC-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Operational;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+        {
+            LastContext = ctx;
+            return ValueTask.FromResult(DetectionResult.Clean(_id));
+        }
+    }
+
+    [Fact]
+    public async Task WithPrompt_AddsUserMessage()
+    {
+        var detector = new ContextRecordingDetector();
+
+        await new DetectorTestBuilder()
+            .WithDetector(detector)
+            .WithPrompt("hello world")
+            .RunAsync();
+
+        Assert.NotNull(detector.LastContext);
+        Assert.Single(detector.LastContext!.Messages);
+        Assert.Equal(Microsoft.Extensions.AI.ChatRole.User, detector.LastContext.Messages[0].Role);
+        Assert.Equal("hello world", detector.LastContext.Messages[0].Text, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task WithPromptAndWithContext_ComposeAdditivelyInCallOrder()
+    {
+        var detector = new ContextRecordingDetector();
+
+        await new DetectorTestBuilder()
+            .WithDetector(detector)
+            .WithPrompt("first")
+            .WithContext(b => b.WithAssistantMessage("second").WithToolMessage("third"))
+            .WithPrompt("fourth")
+            .RunAsync();
+
+        Assert.NotNull(detector.LastContext);
+        Assert.Equal(4, detector.LastContext!.Messages.Count);
+        Assert.Equal("first", detector.LastContext.Messages[0].Text, StringComparer.Ordinal);
+        Assert.Equal("second", detector.LastContext.Messages[1].Text, StringComparer.Ordinal);
+        Assert.Equal("third", detector.LastContext.Messages[2].Text, StringComparer.Ordinal);
+        Assert.Equal("fourth", detector.LastContext.Messages[3].Text, StringComparer.Ordinal);
+    }
 }

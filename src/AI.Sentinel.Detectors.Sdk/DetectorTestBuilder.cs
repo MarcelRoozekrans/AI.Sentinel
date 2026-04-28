@@ -55,6 +55,25 @@ public sealed class DetectorTestBuilder
         return this;
     }
 
+    /// <summary>Append a user-role message to the test context. Sugar for
+    /// <c>WithContext(b =&gt; b.WithUserMessage(prompt))</c>.</summary>
+    public DetectorTestBuilder WithPrompt(string prompt)
+    {
+        ArgumentNullException.ThrowIfNull(prompt);
+        _contextBuilder.WithUserMessage(prompt);
+        return this;
+    }
+
+    /// <summary>Configure the underlying <see cref="SentinelContextBuilder"/> directly. Use this for
+    /// multi-message conversations, tool messages, history, or non-default sender/receiver/session IDs.
+    /// Calls compose additively with <see cref="WithPrompt"/> in the order they are made.</summary>
+    public DetectorTestBuilder WithContext(Action<SentinelContextBuilder> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        configure(_contextBuilder);
+        return this;
+    }
+
     /// <summary>Invokes the detector and returns the raw <see cref="DetectionResult"/> for custom assertions.
     /// Use the <c>Expect*</c> terminals for the common cases.</summary>
     public async Task<DetectionResult> RunAsync(CancellationToken ct = default)
