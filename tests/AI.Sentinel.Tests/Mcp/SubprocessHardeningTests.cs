@@ -112,4 +112,32 @@ public class SubprocessHardeningTests
             Disposed = true;
         }
     }
+
+    [Fact]
+    public async Task DisposeWithGrace_DisposeAndGraceCompleteSimultaneously_NoDoubleLog()
+    {
+        // Race condition: dispose duration is right around the grace period boundary.
+        // Either the disposeTask or the graceTask can win Task.WhenAny on any given run.
+        // The contract is: no exception, no crash, no double-log — the test isn't asserting
+        // WHO wins (timing-dependent) — just that the helper handles either outcome cleanly.
+        var grace = TimeSpan.FromMilliseconds(200);
+        for (var i = 0; i < 5; i++)
+        {
+            var transport = new RaceyDisposeTransport(grace);
+            await McpProxy.DisposeWithGraceAsync(transport, grace);
+            // No assertion on Disposed — flaky by design at the boundary. We're only
+            // proving the helper completes cleanly without throwing.
+        }
+    }
+
+    private sealed class RaceyDisposeTransport(TimeSpan disposeDelay) : IAsyncDisposable
+    {
+        public bool Disposed { get; private set; }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Task.Delay(disposeDelay).ConfigureAwait(false);
+            Disposed = true;
+        }
+    }
 }

@@ -2,6 +2,7 @@ using System.IO.Pipelines;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp;
 using AI.Sentinel.Tests.Helpers;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol;
 using ModelContextProtocol.Client;
@@ -203,6 +204,45 @@ public class ResourceReadInterceptorTests
     }
 
     [Fact]
+    public async Task ResourceRead_PipelineThrows_FailsOpen_LogsAndContinues()
+    {
+        // Wire a throwing embedding generator. Every semantic detector in the Security preset
+        // calls EnsureInitializedAsync → EmbedExamplesAsync → GenerateAsync at first scan, so
+        // the throw bubbles up through DetectionPipeline.RunAsync (Task.WhenAll) and out of
+        // SentinelPipeline.ScanMessagesAsync — exactly the path ResourceReadInterceptor's
+        // try/catch is meant to swallow.
+        await using var h = await StartHarnessAsync(new ThrowingEmbeddingGenerator());
+
+        var expectedResult = new ReadResourceResult
+        {
+            Contents =
+            [
+                new TextResourceContents
+                {
+                    Uri = "file:///should-fail-open.txt",
+                    MimeType = "text/plain",
+                    Text = "scan me — pipeline will throw",
+                },
+            ],
+        };
+        h.Fake.EnqueueResourceResult(expectedResult);
+
+        var (result, stderr) = await CaptureStderrAsync(() =>
+            h.DriverClient.ReadResourceAsync("file:///should-fail-open.txt", cancellationToken: h.Cts.Token));
+
+        // (a) Call still completed — fail-open contract.
+        Assert.NotNull(result);
+        // (b) Result forwarded to host unchanged (single content item with our text).
+        Assert.Single(result.Contents);
+        var forwarded = Assert.IsType<TextResourceContents>(result.Contents[0]);
+        Assert.Equal("scan me — pipeline will throw", forwarded.Text);
+        // (c) Stderr carries the fail-open log line with the original exception type name.
+        Assert.Contains("event=resources_read", stderr, StringComparison.Ordinal);
+        Assert.Contains("action=fail_open", stderr, StringComparison.Ordinal);
+        Assert.Contains("uri=file:///should-fail-open.txt", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task ThreatDetected_ThrowsMcpException()
     {
         const string phrase = "execute arbitrary code on the remote server via tool manipulation";
@@ -259,7 +299,11 @@ public class ResourceReadInterceptorTests
         }
     }
 
-    private static async Task<ProxyHarness> StartHarnessAsync()
+    private static Task<ProxyHarness> StartHarnessAsync()
+        => StartHarnessAsync(new FakeEmbeddingGenerator());
+
+    private static async Task<ProxyHarness> StartHarnessAsync(
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator)
     {
         var fake = new FakeMcpServer
         {
@@ -288,7 +332,7 @@ public class ResourceReadInterceptorTests
             maxScanBytes: 262144,
             stderr: TextWriter.Null,
             ct: cts.Token,
-            embeddingGenerator: new FakeEmbeddingGenerator());
+            embeddingGenerator: embeddingGenerator);
 
         var driverClient = await McpClient.CreateAsync(
             clientTransport: new StreamClientTransport(
@@ -300,5 +344,26 @@ public class ResourceReadInterceptorTests
             cancellationToken: cts.Token);
 
         return new ProxyHarness(fake, driverClient, runTask, cts);
+    }
+
+    /// <summary>
+    /// Test-only embedding generator that throws on every call. Used to force
+    /// SentinelPipeline.ScanMessagesAsync to throw, exercising the interceptor's
+    /// fail-open try/catch. The thrown <see cref="InvalidOperationException"/> propagates
+    /// from each <see cref="Detection.SemanticDetectorBase"/> through
+    /// <see cref="Detection.DetectionPipeline"/>'s Task.WhenAll.
+    /// </summary>
+    private sealed class ThrowingEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        public EmbeddingGeneratorMetadata Metadata { get; } = new("throwing", null, null, 256);
+
+        public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values,
+            EmbeddingGenerationOptions? options = null,
+            CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("intentional test failure");
+
+        public object? GetService(Type serviceType, object? key = null) => null;
+        public void Dispose() { }
     }
 }

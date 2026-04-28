@@ -82,4 +82,41 @@ public class HttpTransportTests
         Assert.Equal("Bearer xyz", d["Authorization"]);
         Assert.Equal("acme",        d["X-Tenant"]);
     }
+
+    [Fact]
+    public void ParseHttpHeaders_EqualsInValue_PreservedAfterFirstEquals()
+    {
+        // IndexOf('=') splits on the first '=' only; trailing '=' chars (e.g. base64
+        // padding in Basic auth) must be retained verbatim in the value.
+        var d = McpProxy.ParseHttpHeaders("Authorization=Basic abc==");
+        Assert.Single(d);
+        Assert.Equal("Basic abc==", d["Authorization"]);
+    }
+
+    [Fact]
+    public void ParseHttpHeaders_DuplicateHeaderName_LastWins()
+    {
+        // Dictionary indexer assignment means the last occurrence wins.
+        // Documented here so a future swap to TryAdd / ThrowIfDuplicate is a deliberate choice.
+        var d = McpProxy.ParseHttpHeaders("X-Tenant=acme;X-Tenant=corp");
+        Assert.Single(d);
+        Assert.Equal("corp", d["X-Tenant"]);
+    }
+
+    [Fact]
+    public void ParseHttpHeaders_CRLFInjection_HeaderValuePreservedRaw()
+    {
+        // Splitter is `;` only — CRLF inside a value does NOT spawn a second header.
+        // This locks in the current safe behavior: a CRLF in the value stays in the value
+        // (and downstream HttpClient rejects CRLF in header values, blocking injection at
+        // the transport layer). If a future "improvement" splits on CRLF here, this test
+        // fails loudly — that would be a CRLF-injection regression.
+        const string injected = "X-Foo=value\r\nX-Bar=injected";
+        var d = McpProxy.ParseHttpHeaders(injected);
+
+        Assert.Single(d);
+        Assert.True(d.ContainsKey("X-Foo"));
+        Assert.False(d.ContainsKey("X-Bar"));
+        Assert.Equal("value\r\nX-Bar=injected", d["X-Foo"]);
+    }
 }
