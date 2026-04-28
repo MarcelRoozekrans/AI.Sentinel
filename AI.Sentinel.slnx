@@ -11,10 +11,12 @@
     <Project Path="src/AI.Sentinel.Mcp.Cli/AI.Sentinel.Mcp.Cli.csproj" />
     <Project Path="src/AI.Sentinel.Sqlite/AI.Sentinel.Sqlite.csproj" />
     <Project Path="src/AI.Sentinel.AzureSentinel/AI.Sentinel.AzureSentinel.csproj" />
+    <Project Path="src/AI.Sentinel.OpenTelemetry/AI.Sentinel.OpenTelemetry.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.Sqlite.Tests/AI.Sentinel.Sqlite.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.AzureSentinel.Tests/AI.Sentinel.AzureSentinel.Tests.csproj" />
+    <Project Path="tests/AI.Sentinel.OpenTelemetry.Tests/AI.Sentinel.OpenTelemetry.Tests.csproj" />
   </Folder>
 </Solution>
