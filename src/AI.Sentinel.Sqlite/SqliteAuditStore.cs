@@ -235,8 +235,23 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             await _retentionTimer.DisposeAsync().ConfigureAwait(false);
         }
 
-        _connection.Close();
-        await _connection.DisposeAsync().ConfigureAwait(false);
-        _writeLock.Dispose();
+        // Acquire the write lock before tearing down the connection so any
+        // concurrent Append/Query that's already past the _disposed check but
+        // not yet at WaitAsync can't observe a disposed connection / semaphore.
+        // Use a bounded wait so a wedged operation can't block dispose forever.
+        var locked = await _writeLock.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+        try
+        {
+            _connection.Close();
+            await _connection.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            if (locked)
+            {
+                _writeLock.Release();
+            }
+            _writeLock.Dispose();
+        }
     }
 }
