@@ -14,9 +14,10 @@ public sealed class SentinelChatClient(
     IAuditStore auditStore,
     InterventionEngine interventionEngine,
     SentinelOptions options,
-    IAlertSink? alertSink = null) : DelegatingChatClient(innerClient)
+    IAlertSink? alertSink = null,
+    IEnumerable<IAuditForwarder>? forwarders = null) : DelegatingChatClient(innerClient)
 {
-    private readonly SentinelPipeline _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options, alertSink);
+    private readonly SentinelPipeline _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options, alertSink, forwarders);
 
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,

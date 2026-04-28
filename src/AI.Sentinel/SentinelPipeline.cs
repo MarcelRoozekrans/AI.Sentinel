@@ -20,11 +20,23 @@ public sealed class SentinelPipeline(
     IAuditStore auditStore,
     InterventionEngine interventionEngine,
     SentinelOptions options,
-    IAlertSink? alertSink = null)
+    IAlertSink? alertSink = null,
+    IEnumerable<IAuditForwarder>? forwarders = null)
 {
     private static readonly ActivitySource _activitySource = new("ai.sentinel");
     private readonly ConcurrentDictionary<string, RateLimiterEntry> _rateLimiters = new(StringComparer.Ordinal);
+    private readonly IAuditForwarder[] _forwarders = forwarders is null
+        ? Array.Empty<IAuditForwarder>()
+        : ToArraySafely(forwarders);
     private int _rateLimiterWriteCount;
+
+    private static IAuditForwarder[] ToArraySafely(IEnumerable<IAuditForwarder> source)
+    {
+        if (source is IAuditForwarder[] arr) return arr;
+        var list = new List<IAuditForwarder>();
+        foreach (var f in source) list.Add(f);
+        return list.ToArray();
+    }
 
     // EmbeddingGenerator not set — all SemanticDetectorBase subclasses return Clean.
     // Set SentinelOptions.EmbeddingGenerator to enable language-agnostic detection.
@@ -282,6 +294,32 @@ public sealed class SentinelPipeline(
                 detection.DetectorId.ToString(),
                 detection.Reason);
             await auditStore.AppendAsync(entry, ct).ConfigureAwait(false);
+            ForwardEntry(entry, ct);
+        }
+    }
+
+    /// <summary>Fire-and-forget mirror of a successfully-appended audit entry to every registered <see cref="IAuditForwarder"/>.
+    /// Each forwarder runs on its own <see cref="Task.Run"/> continuation so a slow or buffered implementation cannot
+    /// add latency to the pipeline. Exceptions are swallowed defensively even though forwarders MUST NOT throw.</summary>
+    private void ForwardEntry(AuditEntry entry, CancellationToken ct)
+    {
+        if (_forwarders.Length == 0) return;
+        foreach (var forwarder in _forwarders)
+        {
+            var captured = forwarder;
+            _ = Task.Run(async () =>
+            {
+#pragma warning disable ERP022 // fire-and-forget: forwarder failure must never surface to the caller
+                try
+                {
+                    await captured.SendAsync(new[] { entry }, ct).ConfigureAwait(false);
+                }
+                catch
+                {
+                    // IAuditForwarder MUST NOT throw, but defend in depth.
+                }
+#pragma warning restore ERP022
+            }, ct);
         }
     }
 

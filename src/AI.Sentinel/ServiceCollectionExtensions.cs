@@ -114,7 +114,8 @@ public static class ServiceCollectionExtensions
                 sp.GetRequiredService<IAuditStore>(),
                 sp.GetRequiredService<InterventionEngine>(),
                 opts,
-                sp.GetRequiredService<IAlertSink>());
+                sp.GetRequiredService<IAlertSink>(),
+                sp.GetServices<IAuditForwarder>());
         });
 
     public static SentinelPipeline BuildSentinelPipeline(
@@ -128,6 +129,7 @@ public static class ServiceCollectionExtensions
             sp.GetRequiredService<IAuditStore>(),
             sp.GetRequiredService<InterventionEngine>(),
             sp.GetRequiredService<SentinelOptions>(),
-            sp.GetRequiredService<IAlertSink>());
+            sp.GetRequiredService<IAlertSink>(),
+            sp.GetServices<IAuditForwarder>());
     }
 }
