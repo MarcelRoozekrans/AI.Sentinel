@@ -48,7 +48,6 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 | **Live integration test for `AzureSentinelAuditForwarder`** | Gated on a CI secret with a real Sentinel workspace + DCR. Validates DCR setup + Logs Ingestion round-trip end-to-end. Out of scope for unit tests. |
 | **Live OpenTelemetry collector integration test** | Docker-Compose-spun-up OTel collector + verify round-trip from `OpenTelemetryAuditForwarder` through the collector to a stub backend. Out of scope for unit tests. |
 | **`BufferingAuditForwarder` configurable per registration** | Today `AddSentinelAzureSentinelForwarder` uses default buffering options (batch=100, interval=5s). Add a `.WithBuffering(maxBatch, maxInterval)` builder pattern so operators can tune for their SIEM's ingestion rate limits. |
-| **Custom detector SDK** | Official public API (`ISentinelDetector`) + stable NuGet surface for registering third-party detectors via `opts.AddDetector<T>()` |
 | **Per-pipeline configuration** | Register multiple named `SentinelOptions` instances so different endpoints get different detector sets, thresholds, or `EscalationClient`s |
 | **Detector result caching** | Short-TTL cache keyed on content hash — avoids re-running all detectors when identical prompts are sent in quick succession |
 | **Fluent per-detector config** | `opts.Configure<PromptInjectionDetector>(d => d.Severity = Severity.High)` — tune or disable individual detectors without removing them from the pipeline |
@@ -77,7 +76,11 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 
 | Feature | Description |
 |---|---|
-| **Detector test helpers** | `SentinelTestBuilder.WithPrompt(...).ExpectDetection<T>(Severity.High)` — xUnit/NUnit-friendly fluent API for unit-testing detectors with known inputs |
+| **`DetectorTestBuilder` fluent assertion API** | Sit on top of v1's `SentinelContextBuilder` + `FakeEmbeddingGenerator` with a fluent assertion layer: `new DetectorTestBuilder().WithPrompt("...").ExpectDetection<T>(Severity.High)`. Closes the original "detector test helpers" backlog framing. Separate design discussion (assertion API shape, async vs sync, parameterized tests). |
+| **Detector ID prefix convention enforcement** | Roslyn analyzer that warns when a third-party detector class uses an ID prefix matching official ones (`SEC-`, `HAL-`, `OPS-`, `AUTHZ-`). Prevents collisions before they become support tickets. |
+| **Public `StubDetector`** | Promote the internal `StubDetector` to public if a third party requests it. Currently used internally as a placeholder for not-yet-implemented detectors; not a 3rd-party need today. |
+| **SemVer commitment for `AI.Sentinel.Detectors.Sdk`** | Formal stability policy once the project hits 1.0. Until then, "we'll try not to break minor versions" is the implicit contract. |
+| **Sample app showcase: custom detector** | Extend `samples/ConsoleDemo/` with a `MyCustomDetector` registered via `opts.AddDetector<T>()` to make the SDK pattern discoverable through the existing samples surface. |
 | **Multi-language detection tests** | Add tests with French, German, and Chinese threat phrases to `SemanticDetectorBaseTests` and at least two semantic detectors — confirms the embedding layer is truly language-agnostic and catches future regressions if example phrases accidentally become language-specific |
 | **Semantic detector e2e benchmark with simulated latency** | `PipelineBenchmarks` already has `WithSemanticDetectionSimulated()` (10 ms per embedding). Add a `WithSemanticDetectionSimulated` variant to `E2EBenchmarks` and `SentinelPipelineBenchmarks` to measure full round-trip cost including intervention engine overhead on top of embedding latency |
 | **Benchmark CI gate** | MSBuild target that runs the benchmark suite and fails the build if any detector regresses past a configurable latency threshold |
