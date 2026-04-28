@@ -113,7 +113,7 @@ services.AddAISentinel("strict", opts => { baseCfg(opts); opts.OnCritical = Sent
 
 **Phase A limitations** (planned for Phase B when a real user need surfaces):
 
-- **Always register the default unnamed `AddAISentinel(...)` first.** The shared audit store, forwarders, alert sink, and tool-call guard are wired by the default call. Skipping it and registering only named pipelines causes `UseAISentinel("name")` to fail at chat-client construction with a missing-`IAuditStore` error.
+- **Always register the default unnamed `AddAISentinel(...)` first.** The shared audit store, forwarders, alert sink, and tool-call guard are wired by the default call. Skipping it and registering only named pipelines causes the named chat client to throw a missing-shared-infrastructure error the first time it's resolved (during request handling).
 - **Tool-call authorization is global, not per-name.** `opts.RequireToolPolicy(...)` calls on named pipelines are silently ignored — only the default pipeline's bindings are consulted by `IToolCallGuard`. Configure tool policies on the default for now.
 - **No request-time selector.** The pipeline is fixed at chat-client construction time; multi-tenant routing where the tenant ID arrives with the request requires Phase B.
 

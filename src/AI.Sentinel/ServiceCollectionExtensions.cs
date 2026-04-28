@@ -218,10 +218,12 @@ public static class ServiceCollectionExtensions
             // Shared infrastructure (audit store, alert sink, forwarders) is registered ONLY
             // by the default unnamed AddAISentinel(...) call. Surface a clearer error than
             // "No service for type 'IAuditStore' has been registered" if the user skipped it.
+            // We probe IAuditStore as the canary — if it's missing, the alert sink and
+            // forwarders are almost certainly missing too.
             if (sp.GetService<IAuditStore>() is null)
             {
                 throw new InvalidOperationException(
-                    $"AI.Sentinel pipeline '{name}': shared infrastructure (IAuditStore) is missing. Call services.AddAISentinel(...) once before registering or resolving named pipelines — the default unnamed call wires the shared audit store, forwarders, and alert sink.");
+                    $"AI.Sentinel pipeline '{name}': shared infrastructure (IAuditStore, IAlertSink, IAuditForwarder) is missing. Call services.AddAISentinel(...) once before registering or resolving named pipelines — the default unnamed call wires the shared audit store, forwarders, and alert sink.");
             }
 
             if (opts.EmbeddingGenerator is null)
