@@ -27,6 +27,34 @@ public sealed class DetectorTestBuilder
         return this;
     }
 
+    /// <summary>Instantiate a detector with a parameterless constructor.
+    /// Use the factory overload for detectors that take <see cref="SentinelOptions"/> or other dependencies.</summary>
+    public DetectorTestBuilder WithDetector<T>() where T : class, IDetector, new()
+    {
+        _detectorResolver = _ => new T();
+        return this;
+    }
+
+    /// <summary>Instantiate a detector via a user-supplied factory. The builder passes its internal
+    /// <see cref="SentinelOptions"/> (with <see cref="FakeEmbeddingGenerator"/> pre-wired) so semantic
+    /// detectors work out of the box.</summary>
+    public DetectorTestBuilder WithDetector<T>(Func<SentinelOptions, T> factory) where T : class, IDetector
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        _detectorResolver = opts => factory(opts);
+        return this;
+    }
+
+    /// <summary>Mutate the internal <see cref="SentinelOptions"/> before the detector is constructed.
+    /// Useful for swapping the embedding generator, attaching a cache, or tuning thresholds via options.
+    /// Each call mutates the same options instance — multiple calls are additive.</summary>
+    public DetectorTestBuilder WithOptions(Action<SentinelOptions> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+        configure(_options);
+        return this;
+    }
+
     /// <summary>Invokes the detector and returns the raw <see cref="DetectionResult"/> for custom assertions.
     /// Use the <c>Expect*</c> terminals for the common cases.</summary>
     public async Task<DetectionResult> RunAsync(CancellationToken ct = default)

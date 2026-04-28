@@ -39,4 +39,71 @@ public class DetectorTestBuilderTests
 
         Assert.Contains("WithDetector", ex.Message, StringComparison.Ordinal);
     }
+
+    private sealed class CleanDetector : IDetector
+    {
+        private static readonly DetectorId _id = new("CLEAN-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Operational;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+            => ValueTask.FromResult(DetectionResult.Clean(_id));
+    }
+
+    [Fact]
+    public async Task WithDetectorGeneric_Parameterless_InstantiatesType()
+    {
+        var result = await new DetectorTestBuilder()
+            .WithDetector<CleanDetector>()
+            .RunAsync();
+
+        Assert.True(result.IsClean);
+        Assert.Equal("CLEAN-01", result.DetectorId.Value, StringComparer.Ordinal);
+    }
+
+    private sealed class OptionsCapturingDetector(SentinelOptions opts) : IDetector
+    {
+        public SentinelOptions CapturedOptions { get; } = opts;
+        private static readonly DetectorId _id = new("CAP-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Operational;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+            => ValueTask.FromResult(DetectionResult.Clean(_id));
+    }
+
+    [Fact]
+    public async Task WithDetectorGeneric_Factory_ReceivesAutoWiredOptionsWithFakeEmbeddingGenerator()
+    {
+        OptionsCapturingDetector? captured = null;
+        await new DetectorTestBuilder()
+            .WithDetector<OptionsCapturingDetector>(opts =>
+            {
+                var d = new OptionsCapturingDetector(opts);
+                captured = d;
+                return d;
+            })
+            .RunAsync();
+
+        Assert.NotNull(captured);
+        Assert.IsType<FakeEmbeddingGenerator>(captured!.CapturedOptions.EmbeddingGenerator);
+    }
+
+    [Fact]
+    public async Task WithOptions_MutationsLandOnOptionsPassedToFactory()
+    {
+        var customGenerator = new FakeEmbeddingGenerator();
+        OptionsCapturingDetector? captured = null;
+
+        await new DetectorTestBuilder()
+            .WithOptions(o => o.EmbeddingGenerator = customGenerator)
+            .WithDetector<OptionsCapturingDetector>(opts =>
+            {
+                var d = new OptionsCapturingDetector(opts);
+                captured = d;
+                return d;
+            })
+            .RunAsync();
+
+        Assert.NotNull(captured);
+        Assert.Same(customGenerator, captured!.CapturedOptions.EmbeddingGenerator);
+    }
 }
