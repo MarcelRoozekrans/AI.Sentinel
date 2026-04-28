@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>AI.Sentinel.AzureSentinel</PackageId>
+    <Description>Forward AI.Sentinel audit entries to Azure Sentinel via the Logs Ingestion API.</Description>
+    <Version>0.1.0</Version>
+    <Authors>ZeroAlloc-Net</Authors>
+    <PackageTags>ai;security;chatclient;audit;azure;sentinel;siem</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
+    <PackageReference Include="Azure.Monitor.Ingestion" Version="1.*" />
+    <PackageReference Include="Azure.Identity" Version="1.*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>AI.Sentinel.AzureSentinel.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>
