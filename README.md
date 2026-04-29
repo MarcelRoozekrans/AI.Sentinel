@@ -165,71 +165,71 @@ Detectors run in three modes:
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| SEC-01 | PromptInjection | Rule-based | Override/injection phrase patterns (`ignore all previous instructions`, `you are now a different AI`, etc.) |
-| SEC-02 | CredentialExposure | Rule-based | API keys, tokens, private keys, secrets in output |
-| SEC-03 | ToolPoisoning | Rule-based | Suspicious tool-call manipulation patterns |
-| SEC-04 | DataExfiltration | Rule-based | Base64 blobs, high-entropy encoded data |
-| SEC-05 | Jailbreak | Rule-based | Jailbreak attempt phrases (DAN, roleplay exploits) |
-| SEC-06 | PrivilegeEscalation | Rule-based | Role/permission escalation requests |
-| SEC-07 | CovertChannel | Semantic | Encoding-based hidden payloads |
-| SEC-08 | EntropyCovertChannel | LLM escalation | Statistical entropy anomalies in output |
-| SEC-09 | IndirectInjection | Semantic | Injection via retrieved documents or tool results |
-| SEC-10 | AgentImpersonation | Semantic | Model claiming to be a different agent or system |
-| SEC-11 | MemoryCorruption | Semantic | Attempts to corrupt agent memory/context |
-| SEC-12 | UnauthorizedAccess | Semantic | Attempts to access restricted resources |
-| SEC-13 | ShadowServer | Semantic | Redirection to unauthorised endpoints |
-| SEC-14 | InformationFlow | Semantic | Cross-context data leakage |
-| SEC-15 | PhantomCitationSecurity | Semantic | Security-context hallucinated authority sources |
-| SEC-16 | GovernanceGap | Semantic | Policy/compliance bypass attempts |
-| SEC-17 | SupplyChainPoisoning | Semantic | Compromised dependency suggestions |
-| SEC-18 | ToolDescriptionDivergence | Stub | Tool description changed at runtime vs. original declaration (requires tool-descriptor snapshot) |
-| SEC-20 | SystemPromptLeakage | Rule-based | Verbatim fragments of the system prompt echoed in conversation history |
-| SEC-23 | PiiLeakage | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email+name, phone, DOB |
-| SEC-24 | AdversarialUnicode | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions |
-| SEC-25 | CodeInjection | Rule-based | SQL injection, shell metacharacters, path traversal in LLM-generated code |
-| SEC-26 | PromptTemplateLeakage | Rule-based | `{{variable}}`, `<SYSTEM>`, `[INST]` and other prompt scaffolding markers |
-| SEC-27 | LanguageSwitchAttack | Rule-based | Abrupt script/language switch mid-response — injection vector via non-Latin text |
-| SEC-28 | RefusalBypass | Rule-based | Model complied with a request it should have refused (caller-supplied forbidden patterns) |
-| SEC-19 | ToolCallFrequency | Rule-based | Counts `ChatRole.Tool` messages; flags sessions with excessive tool invocations |
-| SEC-21 | ExcessiveAgency | Semantic | Detects autonomous-action language ("I deleted", "I deployed", "I executed") |
-| SEC-22 | HumanTrustManipulation | Semantic | Spots rapport/authority manipulation ("you can trust me", "I am your advisor") |
-| SEC-29 | OutputSchema | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05) |
-| SEC-30 | ShorthandEmergence | Semantic | Counts unknown all-caps tokens that may signal emergent covert language |
-| SEC-31 | VectorRetrievalPoisoning | Semantic | Detects malicious instructions embedded in RAG-retrieved document chunks (OWASP LLM08) |
+| `SEC-01` | PromptInjection | Rule-based | Override/injection phrase patterns (`ignore all previous instructions`, `you are now a different AI`, etc.) |
+| `SEC-02` | CredentialExposure | Rule-based | API keys, tokens, private keys, secrets in output |
+| `SEC-03` | ToolPoisoning | Rule-based | Suspicious tool-call manipulation patterns |
+| `SEC-04` | DataExfiltration | Rule-based | Base64 blobs, high-entropy encoded data |
+| `SEC-05` | Jailbreak | Rule-based | Jailbreak attempt phrases (DAN, roleplay exploits) |
+| `SEC-06` | PrivilegeEscalation | Rule-based | Role/permission escalation requests |
+| `SEC-07` | CovertChannel | Semantic | Encoding-based hidden payloads |
+| `SEC-08` | EntropyCovertChannel | LLM escalation | Statistical entropy anomalies in output |
+| `SEC-09` | IndirectInjection | Semantic | Injection via retrieved documents or tool results |
+| `SEC-10` | AgentImpersonation | Semantic | Model claiming to be a different agent or system |
+| `SEC-11` | MemoryCorruption | Semantic | Attempts to corrupt agent memory/context |
+| `SEC-12` | UnauthorizedAccess | Semantic | Attempts to access restricted resources |
+| `SEC-13` | ShadowServer | Semantic | Redirection to unauthorised endpoints |
+| `SEC-14` | InformationFlow | Semantic | Cross-context data leakage |
+| `SEC-15` | PhantomCitationSecurity | Semantic | Security-context hallucinated authority sources |
+| `SEC-16` | GovernanceGap | Semantic | Policy/compliance bypass attempts |
+| `SEC-17` | SupplyChainPoisoning | Semantic | Compromised dependency suggestions |
+| `SEC-18` | ToolDescriptionDivergence | Stub | Tool description changed at runtime vs. original declaration (requires tool-descriptor snapshot) |
+| `SEC-20` | SystemPromptLeakage | Rule-based | Verbatim fragments of the system prompt echoed in conversation history |
+| `SEC-23` | PiiLeakage | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email+name, phone, DOB |
+| `SEC-24` | AdversarialUnicode | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions |
+| `SEC-25` | CodeInjection | Rule-based | SQL injection, shell metacharacters, path traversal in LLM-generated code |
+| `SEC-26` | PromptTemplateLeakage | Rule-based | `{{variable}}`, `<SYSTEM>`, `[INST]` and other prompt scaffolding markers |
+| `SEC-27` | LanguageSwitchAttack | Rule-based | Abrupt script/language switch mid-response — injection vector via non-Latin text |
+| `SEC-28` | RefusalBypass | Rule-based | Model complied with a request it should have refused (caller-supplied forbidden patterns) |
+| `SEC-19` | ToolCallFrequency | Rule-based | Counts `ChatRole.Tool` messages; flags sessions with excessive tool invocations |
+| `SEC-21` | ExcessiveAgency | Semantic | Detects autonomous-action language ("I deleted", "I deployed", "I executed") |
+| `SEC-22` | HumanTrustManipulation | Semantic | Spots rapport/authority manipulation ("you can trust me", "I am your advisor") |
+| `SEC-29` | OutputSchema | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05) |
+| `SEC-30` | ShorthandEmergence | Semantic | Counts unknown all-caps tokens that may signal emergent covert language |
+| `SEC-31` | VectorRetrievalPoisoning | Semantic | Detects malicious instructions embedded in RAG-retrieved document chunks (OWASP LLM08) |
 
 ### Hallucination (9)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| HAL-01 | PhantomCitation | Rule-based | Fake DOIs, arXiv IDs, `.invalid`/`.nonexistent` domains |
-| HAL-02 | SelfConsistency | Rule-based | Numeric inconsistency (values differing by >10×) |
-| HAL-03 | CrossAgentContradiction | Semantic | Contradictions between agents in a multi-agent session |
-| HAL-04 | SourceGrounding | Semantic | Claims unsupported by provided context |
-| HAL-05 | ConfidenceDecay | Semantic | Confidence degradation across turns |
-| HAL-06 | StaleKnowledge | Semantic | Time-sensitive facts stated as current ("the latest version is X", "the current CEO is Y") |
-| HAL-07 | IntraSessionContradiction | Semantic | Model contradicts itself within the same conversation |
-| HAL-08 | GroundlessStatistic | Rule-based | Specific percentages or statistics asserted without any source in the provided context |
-| HAL-09 | UncertaintyPropagation | Semantic | Flags hedged statements that contradict a definitive assertion in the same response |
+| `HAL-01` | PhantomCitation | Rule-based | Fake DOIs, arXiv IDs, `.invalid`/`.nonexistent` domains |
+| `HAL-02` | SelfConsistency | Rule-based | Numeric inconsistency (values differing by >10×) |
+| `HAL-03` | CrossAgentContradiction | Semantic | Contradictions between agents in a multi-agent session |
+| `HAL-04` | SourceGrounding | Semantic | Claims unsupported by provided context |
+| `HAL-05` | ConfidenceDecay | Semantic | Confidence degradation across turns |
+| `HAL-06` | StaleKnowledge | Semantic | Time-sensitive facts stated as current ("the latest version is X", "the current CEO is Y") |
+| `HAL-07` | IntraSessionContradiction | Semantic | Model contradicts itself within the same conversation |
+| `HAL-08` | GroundlessStatistic | Rule-based | Specific percentages or statistics asserted without any source in the provided context |
+| `HAL-09` | UncertaintyPropagation | Semantic | Flags hedged statements that contradict a definitive assertion in the same response |
 
 ### Operational (15)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| OPS-01 | BlankResponse | Rule-based | Empty or whitespace-only responses |
-| OPS-02 | RepetitionLoop | Rule-based | Same sentence repeated 3+ times |
-| OPS-03 | IncompleteCodeBlock | Rule-based | Unclosed code fences |
-| OPS-04 | PlaceholderText | Rule-based | `TODO`, `[INSERT HERE]`, `Lorem ipsum` leftovers |
-| OPS-05 | ContextCollapse | Semantic | Loss of conversational context across turns |
-| OPS-06 | AgentProbing | Semantic | Attempts to map agent capabilities or system prompt |
-| OPS-07 | QueryIntent | Semantic | Malicious intent hidden in benign-looking queries |
-| OPS-08 | ResponseCoherence | Semantic | Response that doesn't address the question asked |
-| OPS-09 | TruncatedOutput | Rule-based | Detects mid-sentence truncation and unclosed code fences |
-| OPS-10 | WaitingForContext | Semantic | Finds stall phrases when the user prompt was substantive |
-| OPS-11 | UnboundedConsumption | Rule-based | Compares response length to prompt length; flags unbounded expansion |
-| OPS-12 | SemanticRepetition | Semantic | Same idea restated with different wording — extends RepetitionLoop beyond literal string matching |
-| OPS-13 | PersonaDrift | Semantic | Model's tone, persona, or stated identity shifts significantly across turns — context poisoning signal |
-| OPS-14 | Sycophancy | Semantic | Model reverses a stated position purely because the user pushed back — epistemic cowardice |
-| OPS-15 | WrongLanguage | Rule-based | Response language doesn't match the user's language (script/charset detection) |
+| `OPS-01` | BlankResponse | Rule-based | Empty or whitespace-only responses |
+| `OPS-02` | RepetitionLoop | Rule-based | Same sentence repeated 3+ times |
+| `OPS-03` | IncompleteCodeBlock | Rule-based | Unclosed code fences |
+| `OPS-04` | PlaceholderText | Rule-based | `TODO`, `[INSERT HERE]`, `Lorem ipsum` leftovers |
+| `OPS-05` | ContextCollapse | Semantic | Loss of conversational context across turns |
+| `OPS-06` | AgentProbing | Semantic | Attempts to map agent capabilities or system prompt |
+| `OPS-07` | QueryIntent | Semantic | Malicious intent hidden in benign-looking queries |
+| `OPS-08` | ResponseCoherence | Semantic | Response that doesn't address the question asked |
+| `OPS-09` | TruncatedOutput | Rule-based | Detects mid-sentence truncation and unclosed code fences |
+| `OPS-10` | WaitingForContext | Semantic | Finds stall phrases when the user prompt was substantive |
+| `OPS-11` | UnboundedConsumption | Rule-based | Compares response length to prompt length; flags unbounded expansion |
+| `OPS-12` | SemanticRepetition | Semantic | Same idea restated with different wording — extends RepetitionLoop beyond literal string matching |
+| `OPS-13` | PersonaDrift | Semantic | Model's tone, persona, or stated identity shifts significantly across turns — context poisoning signal |
+| `OPS-14` | Sycophancy | Semantic | Model reverses a stated position purely because the user pushed back — epistemic cowardice |
+| `OPS-15` | WrongLanguage | Rule-based | Response language doesn't match the user's language (script/charset detection) |
 
 > **Semantic detectors** are no-ops until `opts.EmbeddingGenerator` is configured. They use embedding cosine similarity and are language-agnostic — no LLM round-trip required.
 
