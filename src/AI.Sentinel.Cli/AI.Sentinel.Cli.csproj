@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks></TargetFrameworks>
     <OutputType>Exe</OutputType>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>sentinel</ToolCommandName>
