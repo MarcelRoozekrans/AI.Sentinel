@@ -49,9 +49,12 @@ public class AuthorizationChatClientApprovalTests
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(caller, spec,
             new ApprovalContext("delete_database", default, null), default);
 
-        // Guard returns RequireApproval first; subsequent calls (after Active) won't be needed.
+        // Guard returns RequireApproval first; on re-query (after wait → Active) returns Allow,
+        // matching DefaultToolCallGuard's real behaviour where EvaluateApprovalAsync returns null
+        // (skip binding) when the approval is Active and the remaining bindings allow.
         var guard = new StubGuard([
             AuthorizationDecision.RequireApproval("approval:delete_database", pending.RequestId, pending.ApprovalUrl, pending.RequestedAt, TimeSpan.FromSeconds(2)),
+            AuthorizationDecision.Allow,
         ]);
 
         var client = new AuthorizationChatClient(new FakeInner(), guard, () => caller, audit: null, approvalStore: store);
@@ -101,5 +104,34 @@ public class AuthorizationChatClientApprovalTests
 
         var ex = await Assert.ThrowsAsync<ToolCallAuthorizationException>(() => client.GetResponseAsync(MessagesWithToolCall()));
         Assert.Contains("denied", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RequireApproval_StackedDenyingPolicy_DeniesAfterWait()
+    {
+        // Setup: guard returns RequireApproval first, then on re-query (after wait → Active)
+        // returns Deny because a stacked RequireToolPolicy binding rejects.
+        var store = new InMemoryApprovalStore();
+        var caller = new TestSec("alice");
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(caller,
+            new ApprovalSpec { PolicyName = "approval:delete_database" },
+            new ApprovalContext("delete_database", default, null), default);
+
+        var guard = new StubGuard([
+            AuthorizationDecision.RequireApproval(
+                "approval:delete_database", pending.RequestId, pending.ApprovalUrl,
+                pending.RequestedAt, TimeSpan.FromSeconds(2)),
+            AuthorizationDecision.Deny("StackedPolicy", "stacked policy denied"),
+        ]);
+
+        var client = new AuthorizationChatClient(new FakeInner(), guard, () => caller, audit: null, approvalStore: store);
+
+        // Approve in background — guard's first response is RequireApproval; client waits;
+        // store flips to Active; client re-queries; guard returns the second sequence entry (Deny).
+        _ = Task.Run(async () => { await Task.Delay(50); await store.ApproveAsync(pending.RequestId, "boss", null, default); });
+
+        var ex = await Assert.ThrowsAsync<ToolCallAuthorizationException>(
+            () => client.GetResponseAsync(MessagesWithToolCall()));
+        Assert.Contains("stacked policy denied", ex.Message, StringComparison.Ordinal);
     }
 }
