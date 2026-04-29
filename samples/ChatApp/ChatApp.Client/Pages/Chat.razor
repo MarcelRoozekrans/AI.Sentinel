@@ -1,5 +1,6 @@
 @page "/"
 @inject IJSRuntime JS
+@inject NavigationManager Nav
 @implements IAsyncDisposable
 
 <PageTitle>AI Chat — guarded by AI.Sentinel</PageTitle>
@@ -83,7 +84,7 @@
     protected override async Task OnInitializedAsync()
     {
         _hub = new HubConnectionBuilder()
-            .WithUrl("/hubs/chat")
+            .WithUrl(Nav.ToAbsoluteUri("hubs/chat"))
             .WithAutomaticReconnect()
             .Build();
 

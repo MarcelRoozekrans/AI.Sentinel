@@ -49,7 +49,7 @@ app.UseBlazorFrameworkFiles();
 app.UseStaticFiles();
 
 // ── AI.Sentinel dashboard ────────────────────────────────────────────────────
-app.UseAISentinel("/ai-sentinel");
+app.MapAISentinel("/ai-sentinel");
 
 // ── SignalR hub ──────────────────────────────────────────────────────────────
 app.MapHub<ChatHub>("/hubs/chat");
