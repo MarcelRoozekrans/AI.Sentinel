@@ -67,6 +67,10 @@ public sealed class HookAdapter
             var decision = await _guard.AuthorizeAsync(caller, input.ToolName, args, ct).ConfigureAwait(false);
             if (!decision.Allowed)
             {
+                var deny = decision as AuthorizationDecision.DenyDecision;
+                var policyName = deny?.PolicyName ?? "?";
+                var denyReason = deny?.Reason ?? "?";
+
                 if (_audit is not null)
                 {
                     var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
@@ -76,12 +80,12 @@ public sealed class HookAdapter
                         callerId: caller.Id,
                         roles: caller.Roles,
                         toolName: input.ToolName,
-                        policyName: decision.PolicyName ?? "?",
-                        reason: decision.Reason ?? "?");
+                        policyName: policyName,
+                        reason: denyReason);
                     await _audit.AppendAsync(entry, ct).ConfigureAwait(false);
                 }
 
-                var reason = $"Authorization denied by policy '{decision.PolicyName ?? "?"}': {decision.Reason ?? "?"}";
+                var reason = $"Authorization denied by policy '{policyName}': {denyReason}";
                 return new HookOutput(HookDecision.Block, reason);
             }
         }

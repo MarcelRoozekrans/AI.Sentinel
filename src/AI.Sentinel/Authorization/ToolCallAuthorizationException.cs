@@ -28,10 +28,15 @@ public sealed class ToolCallAuthorizationException : SentinelException
     /// <summary>Creates an exception that wraps an <see cref="AuthorizationDecision"/> deny result.</summary>
     /// <param name="decision">The denial decision (policy name + reason).</param>
     public ToolCallAuthorizationException(AuthorizationDecision decision)
-        : base($"Tool call denied by policy '{decision?.PolicyName}': {decision?.Reason}")
+        : base(BuildMessage(decision))
     {
         Decision = decision!;
     }
+
+    private static string BuildMessage(AuthorizationDecision? decision) =>
+        decision is AuthorizationDecision.DenyDecision deny
+            ? $"Tool call denied by policy '{deny.PolicyName}': {deny.Reason}"
+            : "Tool call denied";
 
     /// <summary>The denial decision (policy name + reason). May be <c>null</c> when constructed via the message-only constructors.</summary>
     public AuthorizationDecision? Decision { get; }

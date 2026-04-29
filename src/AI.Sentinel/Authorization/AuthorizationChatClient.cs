@@ -74,6 +74,7 @@ internal sealed class AuthorizationChatClient(
 
                 if (audit is not null)
                 {
+                    var deny = decision as AuthorizationDecision.DenyDecision;
                     var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
                         sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
                         receiver: new AgentId(fnCall.Name),
@@ -81,8 +82,8 @@ internal sealed class AuthorizationChatClient(
                         callerId: caller.Id,
                         roles: caller.Roles,
                         toolName: fnCall.Name,
-                        policyName: decision.PolicyName ?? "?",
-                        reason: decision.Reason ?? "?");
+                        policyName: deny?.PolicyName ?? "?",
+                        reason: deny?.Reason ?? "?");
                     await audit.AppendAsync(entry, ct).ConfigureAwait(false);
                 }
 

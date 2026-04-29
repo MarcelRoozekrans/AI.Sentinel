@@ -57,7 +57,7 @@ public class InProcessAuthorizationTests
         var ex = await Assert.ThrowsAsync<ToolCallAuthorizationException>(() =>
             client.GetResponseAsync([new ChatMessage(ChatRole.Assistant, [fnCall])]));
         Assert.NotNull(ex.Decision);
-        Assert.Equal("admin-only", ex.Decision!.PolicyName);
+        Assert.Equal("admin-only", Assert.IsType<AuthorizationDecision.DenyDecision>(ex.Decision!).PolicyName);
     }
 
     [Fact]

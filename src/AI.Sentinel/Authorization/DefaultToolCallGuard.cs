@@ -27,7 +27,7 @@ internal sealed class DefaultToolCallGuard(
 
         if (matchCount == 0)
         {
-            return ValueTask.FromResult(@default == ToolPolicyDefault.Allow
+            return ValueTask.FromResult<AuthorizationDecision>(@default == ToolPolicyDefault.Allow
                 ? AuthorizationDecision.Allow
                 : AuthorizationDecision.Deny("default", "No matching policy and DefaultToolPolicy is Deny"));
         }
@@ -40,7 +40,7 @@ internal sealed class DefaultToolCallGuard(
             if (!policiesByName.TryGetValue(binding.PolicyName, out var policy))
             {
                 logger?.LogError("Policy '{PolicyName}' is bound to '{Pattern}' but not registered — denying.", binding.PolicyName, binding.Pattern);
-                return ValueTask.FromResult(AuthorizationDecision.Deny(binding.PolicyName,
+                return ValueTask.FromResult<AuthorizationDecision>(AuthorizationDecision.Deny(binding.PolicyName,
                     $"Policy '{binding.PolicyName}' is not registered"));
             }
 
@@ -54,18 +54,18 @@ internal sealed class DefaultToolCallGuard(
 #pragma warning restore CA1031
             {
                 logger?.LogError(ex, "Policy '{PolicyName}' threw — failing closed (deny).", binding.PolicyName);
-                return ValueTask.FromResult(AuthorizationDecision.Deny(binding.PolicyName,
+                return ValueTask.FromResult<AuthorizationDecision>(AuthorizationDecision.Deny(binding.PolicyName,
                     $"Policy threw {ex.GetType().Name}"));
             }
 
             if (!allowed)
             {
-                return ValueTask.FromResult(AuthorizationDecision.Deny(binding.PolicyName,
+                return ValueTask.FromResult<AuthorizationDecision>(AuthorizationDecision.Deny(binding.PolicyName,
                     "Policy denied"));
             }
         }
 
-        return ValueTask.FromResult(AuthorizationDecision.Allow);
+        return ValueTask.FromResult<AuthorizationDecision>(AuthorizationDecision.Allow);
     }
 
     private sealed class ToolCallContextWrapper(ISecurityContext inner, string toolName, JsonElement args)
