@@ -21,8 +21,8 @@ public class BufferingAuditForwarderTests
             await buf.SendAsync([MakeEntry($"e{i}")], default);
         }
 
-        // Wait briefly for the background reader
-        await Task.Delay(200);
+        // Bounded poll for the background reader (CI is slower than fixed delays assume).
+        await WaitUntilAsync(() => inner.Batches.Count > 0);
 
         Assert.Single(inner.Batches);
         Assert.Equal(3, inner.Batches[0].Count);
@@ -36,7 +36,8 @@ public class BufferingAuditForwarderTests
             new BufferingAuditForwarderOptions { MaxBatchSize = 1000, MaxFlushInterval = TimeSpan.FromMilliseconds(150) });
 
         await buf.SendAsync([MakeEntry()], default);
-        await Task.Delay(400);
+        // Flush interval is 150ms — poll up to 5s for the interval-driven flush to land.
+        await WaitUntilAsync(() => inner.Batches.Count > 0);
 
         Assert.Single(inner.Batches);
         Assert.Single(inner.Batches[0]);
@@ -84,9 +85,9 @@ public class BufferingAuditForwarderTests
             new BufferingAuditForwarderOptions { MaxBatchSize = 1, MaxFlushInterval = TimeSpan.FromMilliseconds(50) });
 
         await buf.SendAsync([MakeEntry("e1")], default); // first batch — inner throws
-        await Task.Delay(150);
+        await WaitUntilAsync(() => inner.Calls >= 1);    // wait for the throw to be processed
         await buf.SendAsync([MakeEntry("e2")], default); // second — must still ship
-        await Task.Delay(150);
+        await WaitUntilAsync(() => inner.SuccessfulSends >= 1);
 
         Assert.Equal(1, inner.SuccessfulSends);
     }
@@ -110,6 +111,7 @@ public class BufferingAuditForwarderTests
     private sealed class ThrowOnceForwarder : IAuditForwarder
     {
         private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
         public int SuccessfulSends { get; private set; }
         public ValueTask SendAsync(IReadOnlyList<AuditEntry> batch, CancellationToken ct)
         {
@@ -119,6 +121,20 @@ public class BufferingAuditForwarderTests
             }
             SuccessfulSends++;
             return ValueTask.CompletedTask;
+        }
+    }
+
+    /// <summary>
+    /// Polls <paramref name="condition"/> until true or timeout. Replaces fixed Task.Delay
+    /// waits that flake on slower CI runners.
+    /// </summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5_000, int pollMs = 25)
+    {
+        var deadline = Environment.TickCount + timeoutMs;
+        while (!condition())
+        {
+            if (Environment.TickCount > deadline) return;
+            await Task.Delay(pollMs).ConfigureAwait(false);
         }
     }
 }
