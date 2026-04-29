@@ -1,3 +1,5 @@
+<img src="assets/logo-128.png" align="right" width="128" alt="AI.Sentinel logo" />
+
 # AI.Sentinel
 
 [![CI](https://github.com/MarcelRoozekrans/AI.Sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/MarcelRoozekrans/AI.Sentinel/actions/workflows/ci.yml)
