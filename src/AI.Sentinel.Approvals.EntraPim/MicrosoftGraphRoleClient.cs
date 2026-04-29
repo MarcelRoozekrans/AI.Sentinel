@@ -1,3 +1,4 @@
+using System.Collections;
 using Microsoft.Graph;
 using Microsoft.Graph.Models;
 
@@ -19,7 +20,7 @@ namespace AI.Sentinel.Approvals.EntraPim;
 // JSON serialisation. IL2026/IL3050 warnings are expected at AOT-publish time but are
 // surfaced/suppressed at the CLI bundling boundary in Task 5.6 — not here, so library
 // builds remain clean for consumers that don't enable AOT.
-public sealed class MicrosoftGraphRoleClient : IGraphRoleClient
+internal sealed class MicrosoftGraphRoleClient : IGraphRoleClient
 {
     private readonly GraphServiceClient _graph;
 
@@ -39,14 +40,15 @@ public sealed class MicrosoftGraphRoleClient : IGraphRoleClient
         // wrong role. EntraPimApprovalStore.EnsureRequestAsync catches the thrown
         // InvalidOperationException via ClassifyGraphError → Denied.
         var filter = $"displayName eq '{EscapeOData(displayName)}'";
-        var page = await _graph.RoleManagement.Directory.RoleDefinitions
-            .GetAsync(rc =>
-            {
-                rc.QueryParameters.Filter = filter;
-                rc.QueryParameters.Top = 2;
-                rc.QueryParameters.Select = new[] { "id", "displayName" };
-            }, ct)
-            .ConfigureAwait(false);
+        var page = await WithGraphRetryAsync(
+            () => _graph.RoleManagement.Directory.RoleDefinitions
+                .GetAsync(rc =>
+                {
+                    rc.QueryParameters.Filter = filter;
+                    rc.QueryParameters.Top = 2;
+                    rc.QueryParameters.Select = new[] { "id", "displayName" };
+                }, ct),
+            ct).ConfigureAwait(false);
 
         var matches = page?.Value;
         if (matches is null || matches.Count == 0)
@@ -76,13 +78,14 @@ public sealed class MicrosoftGraphRoleClient : IGraphRoleClient
             $"roleDefinitionId eq '{EscapeOData(roleId)}' and " +
             "(status eq 'Provisioned' or status eq 'PendingProvisioning')";
 
-        var page = await _graph.RoleManagement.Directory.RoleAssignmentSchedules
-            .GetAsync(rc =>
-            {
-                rc.QueryParameters.Filter = filter;
-                rc.QueryParameters.Top = 1;
-            }, ct)
-            .ConfigureAwait(false);
+        var page = await WithGraphRetryAsync(
+            () => _graph.RoleManagement.Directory.RoleAssignmentSchedules
+                .GetAsync(rc =>
+                {
+                    rc.QueryParameters.Filter = filter;
+                    rc.QueryParameters.Top = 1;
+                }, ct),
+            ct).ConfigureAwait(false);
 
         var first = page?.Value?.FirstOrDefault();
         if (first is null)
@@ -103,14 +106,15 @@ public sealed class MicrosoftGraphRoleClient : IGraphRoleClient
             $"principalId eq '{EscapeOData(principalId)}' and " +
             $"roleDefinitionId eq '{EscapeOData(roleId)}'";
 
-        var page = await _graph.RoleManagement.Directory.RoleEligibilitySchedules
-            .GetAsync(rc =>
-            {
-                rc.QueryParameters.Filter = filter;
-                rc.QueryParameters.Top = 1;
-                rc.QueryParameters.Select = new[] { "id" };
-            }, ct)
-            .ConfigureAwait(false);
+        var page = await WithGraphRetryAsync(
+            () => _graph.RoleManagement.Directory.RoleEligibilitySchedules
+                .GetAsync(rc =>
+                {
+                    rc.QueryParameters.Filter = filter;
+                    rc.QueryParameters.Top = 1;
+                    rc.QueryParameters.Select = new[] { "id" };
+                }, ct),
+            ct).ConfigureAwait(false);
 
         return page?.Value is { Count: > 0 };
     }
@@ -144,9 +148,10 @@ public sealed class MicrosoftGraphRoleClient : IGraphRoleClient
             },
         };
 
-        var created = await _graph.RoleManagement.Directory.RoleAssignmentScheduleRequests
-            .PostAsync(body, cancellationToken: ct)
-            .ConfigureAwait(false);
+        var created = await WithGraphRetryAsync(
+            () => _graph.RoleManagement.Directory.RoleAssignmentScheduleRequests
+                .PostAsync(body, cancellationToken: ct),
+            ct).ConfigureAwait(false);
 
         var id = created?.Id;
         if (string.IsNullOrEmpty(id))
@@ -164,9 +169,10 @@ public sealed class MicrosoftGraphRoleClient : IGraphRoleClient
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
 
-        var req = await _graph.RoleManagement.Directory.RoleAssignmentScheduleRequests[requestId]
-            .GetAsync(cancellationToken: ct)
-            .ConfigureAwait(false);
+        var req = await WithGraphRetryAsync(
+            () => _graph.RoleManagement.Directory.RoleAssignmentScheduleRequests[requestId]
+                .GetAsync(cancellationToken: ct),
+            ct).ConfigureAwait(false);
 
         if (req is null)
         {
@@ -220,4 +226,98 @@ public sealed class MicrosoftGraphRoleClient : IGraphRoleClient
     /// otherwise break the filter.
     /// </summary>
     private static string EscapeOData(string value) => value.Replace("'", "''", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Best-effort retry wrapper for transient Graph errors (429 + Retry-After,
+    /// 503/504, transport-level <see cref="HttpRequestException"/>). Up to 3 retries,
+    /// honouring <c>Retry-After</c> when present (seconds or HTTP-date), else 1/2/4s
+    /// exponential fallback. After 3 retries the original exception propagates and
+    /// <see cref="EntraPimApprovalStore"/> classifies it via <c>ClassifyGraphError</c>.
+    /// </summary>
+    /// <remarks>
+    /// Untested at unit level — covered by future integration tests against real Graph.
+    /// The reflective <c>ODataError</c> property reads avoid a hard reference to the
+    /// generated SDK error namespace.
+    /// </remarks>
+    private static async Task<T> WithGraphRetryAsync<T>(Func<Task<T>> operation, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        const int maxAttempts = 3;
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await operation().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                if (attempt >= maxAttempts || !IsTransient(ex, attempt, out var delay))
+                    throw;
+                await Task.Delay(delay, ct).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static bool IsTransient(Exception ex, int attempt, out TimeSpan delay)
+    {
+        delay = TimeSpan.FromSeconds(1);
+        if (ex is HttpRequestException)
+        {
+            delay = TimeSpan.FromSeconds(1 << Math.Min(attempt, 4));
+            return true;
+        }
+
+        // ODataError lives in Microsoft.Graph.Models.ODataErrors. Reflective lookup avoids
+        // pinning to the generated namespace and matches the approach used in
+        // EntraPimApprovalStore.ClassifyGraphError.
+        if (string.Equals(
+            ex.GetType().FullName,
+            "Microsoft.Graph.Models.ODataErrors.ODataError",
+            StringComparison.Ordinal))
+        {
+            var statusProp = ex.GetType().GetProperty("ResponseStatusCode");
+            var status = statusProp?.GetValue(ex) as int?;
+            if (status is 429 or 503 or 504)
+            {
+                delay = TryParseRetryAfter(ex) ?? TimeSpan.FromSeconds(1 << Math.Min(attempt, 4));
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static TimeSpan? TryParseRetryAfter(Exception ex)
+    {
+        // Best-effort header read. Microsoft.Graph 5.x ODataError exposes ResponseHeaders
+        // as IDictionary<string, IEnumerable<string>>; reflectively probe to avoid a hard dep.
+        try
+        {
+            var headers = ex.GetType().GetProperty("ResponseHeaders")?.GetValue(ex) as IDictionary;
+            if (headers is null)
+                return null;
+            if (headers["Retry-After"] is IEnumerable values)
+            {
+                foreach (var v in values)
+                {
+                    var s = v?.ToString();
+                    if (string.IsNullOrEmpty(s)) continue;
+                    if (int.TryParse(s, System.Globalization.CultureInfo.InvariantCulture, out var seconds))
+                        return TimeSpan.FromSeconds(seconds);
+                    if (DateTimeOffset.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal, out var dt))
+                    {
+                        var until = dt - DateTimeOffset.UtcNow;
+                        return until > TimeSpan.Zero ? until : TimeSpan.FromSeconds(1);
+                    }
+                }
+            }
+        }
+        catch (Exception probeEx) when (probeEx is not OperationCanceledException)
+        {
+            // Best-effort header read — any reflection / parse failure falls back to the
+            // fixed-delay path. Discard the exception explicitly so the linter sees it.
+            _ = probeEx;
+        }
+        return null;
+    }
 }

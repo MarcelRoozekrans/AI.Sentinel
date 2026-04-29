@@ -36,4 +36,12 @@ public sealed class EntraPimOptions
     /// </remarks>
     public IReadOnlyDictionary<string, string> RoleNameToIdSeed { get; init; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Portal base URL for the approval link sent back to the requester. Defaults to
+    /// Azure commercial cloud. Sovereign clouds: Azure Gov uses
+    /// <c>https://portal.azure.us</c>, Azure China <c>https://portal.azure.cn</c>,
+    /// Azure Germany <c>https://portal.microsoftazure.de</c>.
+    /// </summary>
+    public string PortalBaseUrl { get; set; } = "https://portal.azure.com";
 }

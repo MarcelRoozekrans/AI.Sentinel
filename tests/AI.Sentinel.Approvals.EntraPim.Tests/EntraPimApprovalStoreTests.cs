@@ -54,7 +54,7 @@ public class EntraPimApprovalStoreTests
         public Dictionary<string, string?> RoleNameToId { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<(string principalId, string roleId), RoleScheduleSnapshot?> ActiveAssignments { get; } = new();
         public HashSet<(string principalId, string roleId)> Eligible { get; } = new();
-        public Queue<string> RequestIdSequence { get; } = new();
+        public ConcurrentQueue<string> RequestIdSequence { get; } = new();
         public Dictionary<string, Queue<RoleRequestSnapshot>> StatusSequences { get; } = new(StringComparer.Ordinal);
         public ConcurrentBag<(string principalId, string roleId, TimeSpan duration, string justification)> CreateCalls { get; } = new();
 
@@ -88,7 +88,7 @@ public class EntraPimApprovalStoreTests
             string principalId, string roleId, TimeSpan duration, string justification, CancellationToken ct)
         {
             CreateCalls.Add((principalId, roleId, duration, justification));
-            var id = RequestIdSequence.Count > 0 ? RequestIdSequence.Dequeue() : $"req-{Guid.NewGuid():N}";
+            var id = RequestIdSequence.TryDequeue(out var queued) ? queued : $"req-{Guid.NewGuid():N}";
             return new ValueTask<string>(id);
         }
 
@@ -319,5 +319,83 @@ public class EntraPimApprovalStoreTests
         var denied = Assert.IsType<ApprovalState.Denied>(state);
         Assert.Contains("AAD object ID", denied.Reason, StringComparison.Ordinal);
         Assert.Equal(0, fake.ResolveCount); // No Graph call should have been made
+    }
+
+    // ---------------------------------------------------------------------
+    // 10. EnsureRequest_SovereignCloud_PortalUrlUsesConfiguredBase
+    // ---------------------------------------------------------------------
+    // PortalBaseUrl drives the activation-portal link returned in ApprovalState.Pending.
+    // Operators on Azure Gov / China / Germany clouds need their cloud's portal, not commercial.
+    [Fact]
+    public async Task EnsureRequest_SovereignCloud_PortalUrlUsesConfiguredBase()
+    {
+        var fake = MakeFake();
+        fake.Eligible.Add((AlicePrincipalId, DbAdminRoleId));
+        fake.RequestIdSequence.Enqueue("req-gov-001");
+
+        var options = MakeOptions();
+        options.PortalBaseUrl = "https://portal.azure.us";
+
+        var store = new EntraPimApprovalStore(fake, options);
+
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+
+        var pending = Assert.IsType<ApprovalState.Pending>(state);
+        Assert.StartsWith("https://portal.azure.us/", pending.ApprovalUrl, StringComparison.Ordinal);
+        // Commercial cloud URL must NOT be present.
+        Assert.DoesNotContain("portal.azure.com", pending.ApprovalUrl, StringComparison.Ordinal);
+    }
+
+    // ---------------------------------------------------------------------
+    // 11. EnsureRequest_PortalBaseUrl_TrailingSlashStripped
+    // ---------------------------------------------------------------------
+    // Defensive: operators may write the base with or without a trailing slash; the URL
+    // assembled from the base + "/#view/..." must not produce "//#view/...".
+    [Fact]
+    public async Task EnsureRequest_PortalBaseUrl_TrailingSlashStripped()
+    {
+        var fake = MakeFake();
+        fake.Eligible.Add((AlicePrincipalId, DbAdminRoleId));
+        fake.RequestIdSequence.Enqueue("req-trim-001");
+
+        var options = MakeOptions();
+        options.PortalBaseUrl = "https://portal.azure.us/";
+
+        var store = new EntraPimApprovalStore(fake, options);
+
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+
+        var pending = Assert.IsType<ApprovalState.Pending>(state);
+        Assert.DoesNotContain("//#view", pending.ApprovalUrl, StringComparison.Ordinal);
+        Assert.StartsWith("https://portal.azure.us/#view", pending.ApprovalUrl, StringComparison.Ordinal);
+    }
+
+    // ---------------------------------------------------------------------
+    // 12. WaitForDecision_GrantedThenProvisioned_ReturnsActiveAfterProvisioning
+    // ---------------------------------------------------------------------
+    // PIM corner: "Granted" means the approver granted the request but the schedule
+    // hasn't provisioned yet. Maps to Pending — the next poll observes Provisioned and
+    // upgrades to Active. Verifies the state machine handles the intermediate phase.
+    [Fact]
+    public async Task WaitForDecision_GrantedThenProvisioned_ReturnsActiveAfterProvisioning()
+    {
+        var fake = MakeFake();
+        const string ReqId = "req-granted-1";
+        fake.StatusSequences[ReqId] = new Queue<RoleRequestSnapshot>(new[]
+        {
+            new RoleRequestSnapshot("Granted", null),
+            new RoleRequestSnapshot("Provisioned", null, AlicePrincipalId, DbAdminRoleId),
+        });
+        var expires = DateTimeOffset.UtcNow.AddMinutes(15);
+        fake.ActiveAssignments[(AlicePrincipalId, DbAdminRoleId)] =
+            new RoleScheduleSnapshot("Provisioned", expires);
+
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(5), default);
+
+        Assert.IsType<ApprovalState.Active>(state);
+        Assert.True(fake.GetStatusCount >= 2,
+            "Should poll at least twice — once for Granted, once for Provisioned");
     }
 }

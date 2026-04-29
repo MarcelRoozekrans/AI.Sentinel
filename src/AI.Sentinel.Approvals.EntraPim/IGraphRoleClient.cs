@@ -5,7 +5,7 @@ namespace AI.Sentinel.Approvals.EntraPim;
 /// implementation: <c>MicrosoftGraphRoleClient</c> (Task 2.4). Unit tests fake this
 /// interface so the store's logic is testable without hitting Graph.
 /// </summary>
-public interface IGraphRoleClient
+internal interface IGraphRoleClient
 {
     /// <summary>Resolves a role display name to its Entra <c>roleDefinitionId</c>.
     /// Returns null if the role doesn't exist in the tenant.</summary>

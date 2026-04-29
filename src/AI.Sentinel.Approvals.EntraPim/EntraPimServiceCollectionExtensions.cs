@@ -24,9 +24,9 @@ public static class EntraPimServiceCollectionExtensions
     ///   <item><c>RoleManagement.ReadWrite.Directory</c></item>
     /// </list>
     /// All registrations are singletons — the Graph client is thread-safe and the PIM
-    /// credential chain is long-lived. Last-registration-wins for <see cref="IApprovalStore"/>;
-    /// callers that need to replace a previously registered store should call this after
-    /// the prior registration.
+    /// credential chain is long-lived. Throws <see cref="InvalidOperationException"/>
+    /// if an <see cref="IApprovalStore"/> is already registered (approval-store backends
+    /// are exclusive — accidental double-wiring is a misconfiguration, not a swap).
     /// </remarks>
     public static IServiceCollection AddSentinelEntraPimApprovalStore(
         this IServiceCollection services,
@@ -34,6 +34,16 @@ public static class EntraPimServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
+
+        // Approval-store backends are exclusive — silently overwriting a prior registration
+        // (e.g. AddSentinelSqliteStore + AddSentinelEntraPimApprovalStore) is almost always
+        // a wiring bug. Fail fast with an operator-actionable message.
+        if (services.Any(sd => sd.ServiceType == typeof(IApprovalStore)))
+        {
+            throw new InvalidOperationException(
+                "An IApprovalStore is already registered. Approval-store backends are exclusive — " +
+                "remove the existing registration before wiring AddSentinelEntraPimApprovalStore.");
+        }
 
         // Build + validate options eagerly at registration time. Mirrors AddSentinelSqliteStore:
         // failures surface where the misconfiguration was authored, not on first request.

@@ -24,19 +24,41 @@ public sealed class EntraPimApprovalStore : IApprovalStore
     private readonly IGraphRoleClient _graph;
     private readonly EntraPimOptions _options;
     private readonly TimeProvider _time;
+    private readonly Func<double> _jitterSource;
+    private readonly string _portalBaseUrl;
     private readonly ConcurrentDictionary<string, string> _roleIdCache =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Fallback grant duration when the actual schedule expiry can't be read back.</summary>
     private static readonly TimeSpan FallbackGrantDuration = TimeSpan.FromMinutes(15);
 
-    public EntraPimApprovalStore(IGraphRoleClient graph, EntraPimOptions options, TimeProvider? time = null)
+    /// <remarks>
+    /// Constructor is internal because <see cref="IGraphRoleClient"/> is internal —
+    /// production wiring goes through <c>AddSentinelEntraPimApprovalStore</c>.
+    /// Tests construct directly via <c>InternalsVisibleTo</c>.
+    /// </remarks>
+    internal EntraPimApprovalStore(
+        IGraphRoleClient graph,
+        EntraPimOptions options,
+        TimeProvider? time = null,
+        Func<double>? jitterSource = null)
     {
         ArgumentNullException.ThrowIfNull(graph);
         ArgumentNullException.ThrowIfNull(options);
         _graph = graph;
         _options = options;
         _time = time ?? TimeProvider.System;
+        // Random.Shared.NextDouble is the production default — backoff jitter doesn't
+        // need crypto-grade entropy. Tests can inject a deterministic source.
+#pragma warning disable MA0009 // Using Random.Shared on purpose for jitter.
+        _jitterSource = jitterSource ?? Random.Shared.NextDouble;
+#pragma warning restore MA0009
+
+        // Strip a trailing slash on the configured portal base so concatenation produces
+        // a clean URL regardless of whether the operator wrote "https://portal.azure.us"
+        // or "https://portal.azure.us/".
+        var basePortal = options.PortalBaseUrl ?? "https://portal.azure.com";
+        _portalBaseUrl = basePortal.TrimEnd('/');
 
         // Seed the cache from configured role-name → roleId mappings (process-lifetime cache).
         foreach (var kvp in options.RoleNameToIdSeed)
@@ -241,18 +263,16 @@ public sealed class EntraPimApprovalStore : IApprovalStore
             await Task.Yield();
             return;
         }
-        // ±20% jitter — Random.Shared is fine here: backoff jitter doesn't need crypto-grade
-        // entropy and the per-call instance avoids contention.
-#pragma warning disable MA0009 // Using Random.Shared on purpose for jitter.
-        var jitterFactor = 1.0 + ((Random.Shared.NextDouble() * 0.4) - 0.2);
-#pragma warning restore MA0009
+        // ±20% jitter — defaults to Random.Shared.NextDouble; tests inject deterministic
+        // sources via the EntraPimApprovalStore ctor's optional jitterSource parameter.
+        var jitterFactor = 1.0 + ((_jitterSource() * 0.4) - 0.2);
         var ticks = (long)(baseDelay.Ticks * jitterFactor);
         if (ticks < TimeSpan.TicksPerMillisecond) ticks = TimeSpan.TicksPerMillisecond;
         await Task.Delay(TimeSpan.FromTicks(ticks), _time, ct).ConfigureAwait(false);
     }
 
-    private static string BuildPortalUrl(string requestId) =>
-        $"https://portal.azure.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadmigratedroles/RequestId/{Uri.EscapeDataString(requestId)}";
+    private string BuildPortalUrl(string requestId) =>
+        $"{_portalBaseUrl}/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadmigratedroles/RequestId/{Uri.EscapeDataString(requestId)}";
 
     private static bool IsActiveScheduleStatus(string status) =>
         string.Equals(status, "Provisioned", StringComparison.OrdinalIgnoreCase) ||
@@ -317,7 +337,7 @@ public sealed class EntraPimApprovalStore : IApprovalStore
                 $"({ex.GetType().Name}: {Truncate(ex.Message ?? string.Empty, 200)})",
                 now),
             429 => new ApprovalState.Denied(
-                $"Graph rate-limited at {contextLabel}: retry-after honouring not yet implemented (see follow-up).",
+                $"Graph rate-limited at {contextLabel} (3 retries exhausted).",
                 now),
             _ => new ApprovalState.Denied(
                 $"Graph error at {contextLabel}: {ex.GetType().Name}: {Truncate(ex.Message ?? string.Empty, 200)}",

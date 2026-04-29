@@ -9,7 +9,7 @@ namespace AI.Sentinel.Approvals.EntraPim;
 /// when the request transitions to Provisioned. Production Graph adapters populate these from
 /// the request entity; tests can leave them null for paths that don't exercise schedule-readback.
 /// </remarks>
-public sealed record RoleRequestSnapshot(
+internal sealed record RoleRequestSnapshot(
     string Status,
     string? FailureReason,
     string? PrincipalId = null,

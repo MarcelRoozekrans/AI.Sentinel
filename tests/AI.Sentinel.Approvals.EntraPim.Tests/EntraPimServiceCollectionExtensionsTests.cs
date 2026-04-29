@@ -65,4 +65,18 @@ public class EntraPimServiceCollectionExtensionsTests
         Assert.Throws<ArgumentNullException>(() =>
             services.AddSentinelEntraPimApprovalStore(configure: null!));
     }
+
+    [Fact]
+    public void AddSentinelEntraPimApprovalStore_DuplicateRegistration_Throws()
+    {
+        // Approval-store backends are exclusive: silently overwriting a prior registration
+        // (e.g. AddSentinelSqliteStore + AddSentinelEntraPimApprovalStore) is almost always
+        // a wiring bug. The guard fails fast with an operator-actionable message instead.
+        var services = new ServiceCollection();
+        services.AddSingleton<IApprovalStore>(new InMemoryApprovalStore());
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            services.AddSentinelEntraPimApprovalStore(opts => opts.TenantId = FakeTenantId));
+        Assert.Contains("already registered", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }
