@@ -192,21 +192,49 @@ jobs:
           $psi.UseShellExecute        = $false
 
           $proc = [System.Diagnostics.Process]::Start($psi)
-          $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-          $stderrTask = $proc.StandardError.ReadToEndAsync()
+
+          # Capture stdout/stderr line-by-line into thread-safe buffers so we can poll for
+          # the expected response before tearing down. The previous "Start-Sleep 4 then close
+          # stdin" pattern raced Python cold-start: occasionally the proxy hit stdin EOF and
+          # exited before the python target's tools/call response arrived back, leaving the
+          # round-trip assertion looking at empty stdout.
+          $stdoutLines = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+          $stderrLines = [System.Collections.Concurrent.ConcurrentQueue[string]]::new()
+          Register-ObjectEvent -InputObject $proc -EventName OutputDataReceived -Action {
+            if ($null -ne $EventArgs.Data) { $event.MessageData.Enqueue($EventArgs.Data) }
+          } -MessageData $stdoutLines | Out-Null
+          Register-ObjectEvent -InputObject $proc -EventName ErrorDataReceived -Action {
+            if ($null -ne $EventArgs.Data) { $event.MessageData.Enqueue($EventArgs.Data) }
+          } -MessageData $stderrLines | Out-Null
+          $proc.BeginOutputReadLine()
+          $proc.BeginErrorReadLine()
 
           $payload = Get-Content $hostInput -Raw
           $proc.StandardInput.Write($payload)
-          # Give the proxy time to forward the nested-JSON tools/call and receive the echo.
-          Start-Sleep -Seconds 4
+          $proc.StandardInput.Flush()
+
+          # Poll up to 30s for the tools/call response (id=2). Cold-start on Windows + AOT
+          # init + python startup can comfortably eat 5-10s on shared CI runners.
+          $deadline = [DateTime]::UtcNow.AddSeconds(30)
+          $sawResponse = $false
+          while ([DateTime]::UtcNow -lt $deadline) {
+            $allLines = $stdoutLines.ToArray() -join "`n"
+            if ($allLines -match '"id"\s*:\s*2') { $sawResponse = $true; break }
+            Start-Sleep -Milliseconds 250
+          }
+
           $proc.StandardInput.Close()
           if (-not $proc.WaitForExit(8000)) {
             Write-Host 'Proxy did not exit within 8s; killing.'
             $proc.Kill($true)
           }
+          $proc.WaitForExit()
 
-          $stdout = $stdoutTask.Result
-          $stderr = $stderrTask.Result
+          $stdout = ($stdoutLines.ToArray() -join "`n")
+          $stderr = ($stderrLines.ToArray() -join "`n")
+          if (-not $sawResponse) {
+            Write-Host "(timed out waiting for id=2 response after 30s)"
+          }
           Set-Content -Path $hostOutput -Value $stdout -Encoding ASCII
           Set-Content -Path $hostErr    -Value $stderr -Encoding ASCII
 
