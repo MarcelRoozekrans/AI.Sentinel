@@ -56,14 +56,10 @@ public class ConcurrencyAndAdversarialTests
         {
             Assert.NotNull(r);
         }
-        // Target-side reception: the fake's List<> is not thread-safe so a small number
-        // of Add() races may drop entries. We accept that as a known harness limitation
-        // and only assert that the scan path itself didn't drop the call — at minimum
-        // 8 of 10 should be visible. The key correctness signal is that all 10 client
-        // awaits returned, which is verified above. (Backlog item to make
-        // FakeMcpServer.ReceivedToolCalls thread-safe is added in Task 8 cleanup.)
-        Assert.True(h.Fake.ReceivedToolCalls.Count >= callCount - 2,
-            $"expected near-{callCount} fake.ReceivedToolCalls but got {h.Fake.ReceivedToolCalls.Count}");
+        // Target-side reception: FakeMcpServer.ReceivedToolCalls is now lock-protected
+        // (writes synchronized, reads return a snapshot) so we can assert exact equality
+        // — every concurrent call reaches the target, none are dropped by the harness.
+        Assert.Equal(callCount, h.Fake.ReceivedToolCalls.Count);
     }
 
     [Fact]

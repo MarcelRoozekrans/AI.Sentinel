@@ -38,6 +38,9 @@ public sealed class FakeMcpServer : IAsyncDisposable
     private Pipe? _fromProxy;
     private Pipe? _toProxy;
 
+    // Concurrent proxy tests fan multiple in-flight requests through this fake. Plain List<>.Add
+    // races dropped entries; lock around every Add and snapshot on every read so the
+    // IReadOnlyList<T> contract (callers index with [0]) stays accurate.
     private readonly List<CallToolRequestParams> _receivedToolCalls = [];
     private readonly List<GetPromptRequestParams> _receivedPromptGets = [];
     private readonly List<ReadResourceRequestParams> _receivedResourceReads = [];
@@ -50,13 +53,22 @@ public sealed class FakeMcpServer : IAsyncDisposable
     };
 
     /// <summary>Tool calls the fake server has received, in order.</summary>
-    public IReadOnlyList<CallToolRequestParams> ReceivedToolCalls => _receivedToolCalls;
+    public IReadOnlyList<CallToolRequestParams> ReceivedToolCalls
+    {
+        get { lock (_receivedToolCalls) return _receivedToolCalls.ToArray(); }
+    }
 
     /// <summary>Prompt gets the fake server has received, in order.</summary>
-    public IReadOnlyList<GetPromptRequestParams> ReceivedPromptGets => _receivedPromptGets;
+    public IReadOnlyList<GetPromptRequestParams> ReceivedPromptGets
+    {
+        get { lock (_receivedPromptGets) return _receivedPromptGets.ToArray(); }
+    }
 
     /// <summary>Resource reads the fake server has received, in order.</summary>
-    public IReadOnlyList<ReadResourceRequestParams> ReceivedResourceReads => _receivedResourceReads;
+    public IReadOnlyList<ReadResourceRequestParams> ReceivedResourceReads
+    {
+        get { lock (_receivedResourceReads) return _receivedResourceReads.ToArray(); }
+    }
 
     /// <summary>Queues a <see cref="CallToolResult"/> to be returned by the next <c>tools/call</c>.</summary>
     public void EnqueueToolResult(CallToolResult result) => _toolResults.Writer.TryWrite(result);
@@ -136,7 +148,7 @@ public sealed class FakeMcpServer : IAsyncDisposable
         RequestContext<ReadResourceRequestParams> ctx,
         CancellationToken _)
     {
-        _receivedResourceReads.Add(ctx.Params!);
+        lock (_receivedResourceReads) _receivedResourceReads.Add(ctx.Params!);
         if (_resourceResults.Reader.TryRead(out var queued))
         {
             return new ValueTask<ReadResourceResult>(queued);
@@ -171,7 +183,7 @@ public sealed class FakeMcpServer : IAsyncDisposable
         RequestContext<CallToolRequestParams> ctx,
         CancellationToken _)
     {
-        _receivedToolCalls.Add(ctx.Params!);
+        lock (_receivedToolCalls) _receivedToolCalls.Add(ctx.Params!);
         if (_toolResults.Reader.TryRead(out var queued))
         {
             return new ValueTask<CallToolResult>(queued);
@@ -195,7 +207,7 @@ public sealed class FakeMcpServer : IAsyncDisposable
         RequestContext<GetPromptRequestParams> ctx,
         CancellationToken _)
     {
-        _receivedPromptGets.Add(ctx.Params!);
+        lock (_receivedPromptGets) _receivedPromptGets.Add(ctx.Params!);
         if (_promptResults.Reader.TryRead(out var queued))
         {
             return new ValueTask<GetPromptResult>(queued);
