@@ -53,6 +53,25 @@
   background: var(--ifm-color-emphasis-100);
 }
 
+.dashboardShowcase {
+  padding: 3rem 0;
+}
+
+.dashboardScreenshot {
+  display: block;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  border-radius: 12px;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  box-shadow: 0 8px 32px rgba(15, 23, 42, 0.18);
+}
+
+[data-theme='dark'] .dashboardScreenshot {
+  border-color: var(--ifm-color-emphasis-200);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
 .packages {
   padding: 3rem 0;
 }

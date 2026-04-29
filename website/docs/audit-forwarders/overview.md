@@ -39,7 +39,7 @@ Step 1 is the durable record — your queryable source of truth. Step 2 is the f
 
 | Scenario | What to register |
 |---|---|
-| Quick local development | Defaults (RingBuffer + no forwarders). Use the dashboard at `app.UseAISentinel("/ai-sentinel")` for live view. |
+| Quick local development | Defaults (RingBuffer + no forwarders). Use the dashboard at `app.MapAISentinel("/ai-sentinel")` for live view. |
 | Single-instance production | `SqliteAuditStore` for durable local audit + dashboard for ops |
 | Multi-instance production with central ops | `SqliteAuditStore` per instance + `AzureSentinelAuditForwarder` or `OpenTelemetryAuditForwarder` for unified central view |
 | Compliance + SIEM-driven security | `SqliteAuditStore` (local hash-chain integrity) + `AzureSentinelAuditForwarder` (centralized retention) |

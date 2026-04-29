@@ -16,6 +16,10 @@ User prompt → [AI.Sentinel: scan] → LLM → [AI.Sentinel: scan] → Your app
 
 It scans both directions on every call. If something looks wrong it can quarantine the message before it reaches the model, or quarantine the response before it reaches the user. If it only looks suspicious it alerts your logging/event system. Everything is stored in an in-process audit ring buffer and surfaced on a live dashboard.
 
+![AI.Sentinel dashboard — TRS gauge, severity counters, live event feed](docs/assets/screenshots/dashboard-desktop.png)
+
+The embedded dashboard ships in `AI.Sentinel.AspNetCore`. Mount it on any ASP.NET Core app with one line — no JavaScript framework, no extra service to run.
+
 ---
 
 ## Packages
@@ -54,7 +58,7 @@ builder.Services.AddChatClient(pipeline =>
             .Use(new OpenAIChatClient(...)));
 
 // optional dashboard
-app.UseAISentinel("/ai-sentinel");
+app.MapAISentinel("/ai-sentinel");
 ```
 
 Catch quarantined messages:

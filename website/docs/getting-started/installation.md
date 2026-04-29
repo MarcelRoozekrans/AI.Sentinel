@@ -30,7 +30,7 @@ Pick what you need; everything is independently versioned and additive.
 dotnet add package AI.Sentinel.AspNetCore
 ```
 
-Embedded real-time dashboard. No JS framework — HTMX + Server-Sent Events. Mount with `app.UseAISentinel("/route-prefix")`.
+Embedded real-time dashboard. No JS framework — HTMX + Server-Sent Events. Mount with `app.MapAISentinel("/route-prefix")`.
 
 ### Persistent audit
 

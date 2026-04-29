@@ -7,14 +7,18 @@ title: Dashboard
 
 `AI.Sentinel.AspNetCore` ships an embedded real-time dashboard. No JS framework, no build step — HTMX + Server-Sent Events served from embedded resources.
 
+![AI.Sentinel dashboard — TRS gauge at ISOLATE, severity counters, live event feed with hash-chained detections](/img/screenshots/dashboard-desktop.png)
+
 ## Mount
 
 ```csharp
 // Program.cs
-app.UseAISentinel("/ai-sentinel");
+app.MapAISentinel("/ai-sentinel");
 ```
 
 Open `http://localhost:5000/ai-sentinel` and you'll see the live UI. The path prefix is whatever you choose — `"/admin/sentinel"`, `"/internal/security"`, anything.
+
+`MapAISentinel` registers the dashboard endpoints on the host's `IEndpointRouteBuilder`, so they participate in normal endpoint matching and outrank catch-all fallbacks (e.g. `MapFallbackToFile("index.html")` in Blazor WASM hosts) by route specificity. The legacy `app.UseAISentinel(...)` is still supported for back-compat, but it wraps the dashboard in a sub-pipeline that loses to root-level fallbacks — prefer `MapAISentinel`.
 
 ## What the dashboard shows
 
@@ -30,27 +34,29 @@ The feed updates as new audit entries land — no polling, no manual refresh.
 
 ## Protect it
 
-The dashboard exposes audit data, so don't expose it to the public internet without authentication. Wrap the route with your own middleware:
+The dashboard exposes audit data, so don't expose it to the public internet without authentication. `MapAISentinel` returns a `RouteGroupBuilder` so you can chain endpoint conventions:
 
 ```csharp
-app.UseAISentinel("/ai-sentinel", branch =>
-    branch.Use(RequireInternalNetwork));    // your IP allowlist middleware
+app.MapAISentinel("/ai-sentinel")
+   .RequireAuthorization("DashboardAdmins");
 
-// Or behind ASP.NET authentication:
-app.UseAISentinel("/ai-sentinel", branch =>
-    branch.UseAuthentication().UseAuthorization()
-          .Use(async (ctx, next) =>
-          {
-              if (!ctx.User.IsInRole("admin"))
-              {
-                  ctx.Response.StatusCode = 403;
-                  return;
-              }
-              await next();
-          }));
+// Or with rate limiting:
+app.MapAISentinel("/ai-sentinel")
+   .RequireAuthorization()
+   .RequireRateLimiting("dashboard");
 ```
 
-The `branch` callback receives an `IApplicationBuilder` scoped to the dashboard prefix — wire whatever middleware you'd use elsewhere in the app.
+For host-level filters that aren't endpoint conventions (IP allowlists, custom auth handlers), call `app.UseWhen` on the prefix path before the endpoint matching:
+
+```csharp
+app.UseWhen(
+    ctx => ctx.Request.Path.StartsWithSegments("/ai-sentinel"),
+    branch => branch.Use(RequireInternalNetwork));   // your IP allowlist middleware
+
+app.MapAISentinel("/ai-sentinel");
+```
+
+The legacy `UseAISentinel("/ai-sentinel", branch => ...)` overload is also still supported if you prefer the sub-pipeline pattern, but be aware of the fallback-routing hazard described above.
 
 ## Multi-instance deployments
 
@@ -73,7 +79,7 @@ A quick smoke test:
 // Register, mount
 builder.Services.AddAISentinel(opts => opts.OnHigh = SentinelAction.Alert);
 builder.Services.AddChatClient(p => p.UseAISentinel().Use(new OpenAIChatClient(...)));
-app.UseAISentinel("/ai-sentinel");
+app.MapAISentinel("/ai-sentinel");
 
 // Send a known-bad prompt
 await chatClient.GetResponseAsync(new[]
