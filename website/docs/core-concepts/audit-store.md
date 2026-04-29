@@ -95,7 +95,7 @@ See [SQLite audit store](../audit-forwarders/sqlite) for retention tuning, multi
 |---|---|
 | **Bounded buffer** (drop oldest) | `RingBufferAuditStore.AuditCapacity` |
 | **Time-based sweep** (delete older than N days) | `SqliteAuditStoreOptions.RetentionPeriod` |
-| **Size-based cap** | Not yet — [backlog item](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) for `MaxDatabaseSizeBytes` on SQLite |
+| **Size-based cap** | Not yet — [backlog item](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) for `MaxDatabaseSizeBytes` on SQLite |
 | **External SIEM retention** | Forward via [audit forwarders](../audit-forwarders/overview); your SIEM owns retention |
 
 ## Query API
@@ -147,6 +147,6 @@ public sealed class MyCustomAuditStore : IAuditStore
 services.AddSingleton<IAuditStore, MyCustomAuditStore>();  // before AddAISentinel
 ```
 
-The framework respects the singleton you registered. `AI.Sentinel.Postgres` is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) for multi-instance deployments.
+The framework respects the singleton you registered. `AI.Sentinel.Postgres` is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) for multi-instance deployments.
 
 ## Next: [Severity model](./severity-model)

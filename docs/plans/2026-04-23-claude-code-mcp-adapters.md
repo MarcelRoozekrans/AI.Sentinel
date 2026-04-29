@@ -51,11 +51,11 @@ dotnet test tests/AI.Sentinel.Tests -v m 2>&1 | tail -6
     <PackageId>AI.Sentinel.ClaudeCode</PackageId>
     <Description>Claude Code hook adapter for AI.Sentinel — scan UserPromptSubmit, PreToolUse, and PostToolUse hook payloads through the detector pipeline.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;claude-code;hooks</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -555,11 +555,11 @@ git commit -m "feat(claude-code): add HookConfig env-var loader + severity mappe
     <PackageId>AI.Sentinel.ClaudeCode.Cli</PackageId>
     <Description>Claude Code hook command for AI.Sentinel — wire into settings.json hooks to scan tool calls.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;claude-code;hooks;dotnet-tool</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -820,11 +820,11 @@ git commit -m "feat(claude-code): implement sentinel-hook CLI entrypoint"
     <PackageId>AI.Sentinel.Mcp</PackageId>
     <Description>MCP (Model Context Protocol) proxy for AI.Sentinel — wraps another MCP server and scans tool calls in both directions.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;mcp;model-context-protocol</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -1124,11 +1124,11 @@ git commit -m "feat(mcp): intercept tools/call responses for threat detection"
     <PackageId>AI.Sentinel.Mcp.Cli</PackageId>
     <Description>MCP proxy CLI for AI.Sentinel — point your MCP host at sentinel-mcp to scan all tool calls.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;mcp;dotnet-tool</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -1206,11 +1206,11 @@ git commit -m "feat(mcp): add sentinel-mcp CLI with proxy subcommand"
     <PackageId>AI.Sentinel.Copilot</PackageId>
     <Description>GitHub Copilot hook adapter for AI.Sentinel — scan userPromptSubmitted, preToolUse, postToolUse hook payloads through the detector pipeline.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;copilot;hooks</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -1458,11 +1458,11 @@ git commit -m "feat(copilot): add CopilotHookAdapter"
     <PackageId>AI.Sentinel.Copilot.Cli</PackageId>
     <Description>GitHub Copilot hook command for AI.Sentinel — wire into hooks.json to scan tool calls.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;copilot;hooks;dotnet-tool</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

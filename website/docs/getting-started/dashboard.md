@@ -60,7 +60,7 @@ For a unified view across instances, route audit entries to a shared persistent 
 
 ## What the dashboard does NOT do
 
-- **Acknowledge / silence alerts** — read-only today; alert acknowledgment is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md)
+- **Acknowledge / silence alerts** — read-only today; alert acknowledgment is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md)
 - **Per-session timeline view** — global feed only, per-session view is on the backlog
 - **Export audit log** — use the [`AI.Sentinel.Cli`](https://www.nuget.org/packages/AI.Sentinel.Cli) `replay` tool for offline NDJSON export
 - **Configuration UI** — read-only. All configuration is at app startup via `services.AddAISentinel(opts => ...)`

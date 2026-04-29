@@ -4,11 +4,11 @@
     <PackageId>AI.Sentinel.AspNetCore</PackageId>
     <Description>Embedded ASP.NET Core dashboard for AI.Sentinel — real-time threat monitoring, audit trail, and agent graph.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;monitoring;prompt-injection;hallucination</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
   <ItemGroup>

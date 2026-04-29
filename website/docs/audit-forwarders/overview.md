@@ -56,7 +56,7 @@ Forwarders are **fire-and-forget**. They never block the chat-client pipeline an
 
 This is intentional. AI.Sentinel is in your request path; if a SIEM goes down, you don't want every chat request to fail. For audit entries you can't afford to lose, the durable layer is `IAuditStore` (always synchronous, always blocking the pipeline). Forwarders are for *near-real-time visibility*, not durable transport.
 
-For guaranteed delivery to external SIEMs, the [transactional outbox pattern](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) is on the backlog — would integrate with `ZeroAlloc.Outbox` for production-grade reliability.
+For guaranteed delivery to external SIEMs, the [transactional outbox pattern](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) is on the backlog — would integrate with `ZeroAlloc.Outbox` for production-grade reliability.
 
 ## Buffering decorator
 

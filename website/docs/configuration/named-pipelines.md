@@ -99,7 +99,7 @@ This is intentional: avoids the surprise of "I changed the default and now stric
 
 ## Phase A limitations
 
-These are intentional v1 scope choices, not bugs. Each is captured on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) for Phase B.
+These are intentional v1 scope choices, not bugs. Each is captured on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) for Phase B.
 
 ### 1. Always register the default unnamed `AddAISentinel(...)` first
 

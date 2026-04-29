@@ -4,11 +4,11 @@
     <PackageId>AI.Sentinel.Sqlite</PackageId>
     <Description>Persistent SQLite-backed audit store for AI.Sentinel — survives restarts, maintains the hash chain, supports time-based retention.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;audit;sqlite;persistence</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
   <ItemGroup>

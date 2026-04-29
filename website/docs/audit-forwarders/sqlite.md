@@ -74,7 +74,7 @@ await foreach (var entry in sqlite.QueryAsync(new AuditQuery(), ct))
 }
 ```
 
-A built-in CLI verifier (`AI.Sentinel.Cli verify`) is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md).
+A built-in CLI verifier (`AI.Sentinel.Cli verify`) is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md).
 
 ## Retention
 
@@ -95,7 +95,7 @@ Long retention periods are fine — SQLite handles billions of rows without perf
 
 ### Size-based cap (backlog)
 
-`MaxDatabaseSizeBytes` — delete oldest entries until under the cap — is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, time-based retention is the only built-in mechanism. For size-bounded behavior, set a tighter `RetentionPeriod` and rely on traffic patterns.
+`MaxDatabaseSizeBytes` — delete oldest entries until under the cap — is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, time-based retention is the only built-in mechanism. For size-bounded behavior, set a tighter `RetentionPeriod` and rely on traffic patterns.
 
 ## Deployment patterns
 
@@ -129,7 +129,7 @@ services.AddSentinelOpenTelemetryForwarder();
 
 ### Multi-instance with shared central DB
 
-Not supported in v1. SQLite isn't designed for multi-writer access across machines. For multi-instance shared storage, use a forwarder to push entries into a central system (Postgres-backed audit store is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) for that scenario).
+Not supported in v1. SQLite isn't designed for multi-writer access across machines. For multi-instance shared storage, use a forwarder to push entries into a central system (Postgres-backed audit store is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) for that scenario).
 
 ## Backups
 

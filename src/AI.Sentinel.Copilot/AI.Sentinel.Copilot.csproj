@@ -4,11 +4,11 @@
     <PackageId>AI.Sentinel.Copilot</PackageId>
     <Description>GitHub Copilot hook adapter for AI.Sentinel — scan userPromptSubmitted, preToolUse, postToolUse hook payloads through the detector pipeline.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;copilot;hooks</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>

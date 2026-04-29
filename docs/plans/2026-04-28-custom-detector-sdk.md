@@ -270,11 +270,11 @@ Self-review: (1) `AddDetector<T>()` is `public static`, accepts `where T : class
     <PackageId>AI.Sentinel.Detectors.Sdk</PackageId>
     <Description>SDK for writing and testing custom AI.Sentinel detectors. Provides public test helpers (SentinelContextBuilder, FakeEmbeddingGenerator) that mirror the internal test infrastructure.</Description>
     <Version>0.1.0</Version>
-    <Authors>ZeroAlloc-Net</Authors>
+    <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;detector;sdk;testing</PackageTags>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <RepositoryUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</RepositoryUrl>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
   <ItemGroup>

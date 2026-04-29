@@ -219,6 +219,6 @@ Assert.False(allowed);
 
 ## Future: PIM-style approval workflow
 
-A `RequireApproval` decision tier is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) — for high-stakes tools where a yes/no policy isn't enough and you want time-bound approval grants with a human-in-the-loop dashboard. Phase B feature; would integrate with the existing `IAuthorizationPolicy` machinery.
+A `RequireApproval` decision tier is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) — for high-stakes tools where a yes/no policy isn't enough and you want time-bound approval grants with a human-in-the-loop dashboard. Phase B feature; would integrate with the existing `IAuthorizationPolicy` machinery.
 
 ## Next: [Cookbook → multi-tenant](../cookbook/multi-tenant)

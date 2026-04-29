@@ -58,7 +58,7 @@ public sealed class HelloWorldDetector : IDetector
 | Official | `SEC-01`, `HAL-04`, `OPS-13` |
 | Custom | `ACME-01`, `MYORG-CUSTOM-01`, `INTERNAL-PII-EXT-01` |
 
-A startup-warning analyzer for ID-prefix collisions is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, naming is convention-only.
+A startup-warning analyzer for ID-prefix collisions is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, naming is convention-only.
 
 ## Semantic example
 

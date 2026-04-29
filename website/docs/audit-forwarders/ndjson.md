@@ -115,7 +115,7 @@ The forwarder doesn't rotate the file itself — that's by design. Use an extern
 - **Vector / Fluent Bit** — built-in rotation while ingesting
 - **Container orchestrator** — Kubernetes' `RotateKubeletServerCertificate` and similar
 
-Native in-process rotation (rotate by size or time window) is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, hand off rotation to your existing log infrastructure.
+Native in-process rotation (rotate by size or time window) is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, hand off rotation to your existing log infrastructure.
 
 ## When to use this forwarder
 

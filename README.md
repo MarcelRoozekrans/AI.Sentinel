@@ -836,4 +836,4 @@ dotnet run --project benchmarks/AI.Sentinel.Benchmarks -c Release -- --filter "*
 
 ## License
 
-MIT © ZeroAlloc-Net
+MIT © Marcel Roozekrans

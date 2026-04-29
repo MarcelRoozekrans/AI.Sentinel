@@ -48,7 +48,7 @@ The DCR's stream definition must include columns:
 | `DetectorId` | `string` | `AuditEntry.DetectorId` |
 | `Summary` | `string` | `AuditEntry.Summary` |
 
-A reference DCR template is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). The Microsoft docs for [creating a DCR](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/tutorial-logs-ingestion-portal) walk through the portal setup.
+A reference DCR template is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). The Microsoft docs for [creating a DCR](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/tutorial-logs-ingestion-portal) walk through the portal setup.
 
 ## Authentication
 
@@ -79,11 +79,11 @@ When the channel is full (sustained SIEM downtime + high traffic):
 - Drop counter `audit.forward.dropped` increments — exposed via OTel metrics
 - Stderr log fires with rate limiting (once per minute, not per entry)
 
-This is intentional. AI.Sentinel is in your request path. If Sentinel/Azure Monitor is down for an hour, you don't want every chat request to hang waiting on it. For guaranteed delivery, the [transactional outbox](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) pattern is on the backlog.
+This is intentional. AI.Sentinel is in your request path. If Sentinel/Azure Monitor is down for an hour, you don't want every chat request to hang waiting on it. For guaranteed delivery, the [transactional outbox](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) pattern is on the backlog.
 
 ## Configuring buffering
 
-The buffer settings are auto-applied in v1 (batch=100, interval=5s, channel=10000). Per-registration overrides via `.WithBuffering(maxBatch, maxInterval)` are on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md).
+The buffer settings are auto-applied in v1 (batch=100, interval=5s, channel=10000). Per-registration overrides via `.WithBuffering(maxBatch, maxInterval)` are on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md).
 
 If your traffic shape needs different defaults today, you can wrap your own `BufferingAuditForwarder<AzureSentinelAuditForwarder>` and register that:
 
@@ -124,7 +124,7 @@ Standard Log Analytics + Sentinel features apply:
 - **Hunting queries** — proactive search across the audit history
 - **Incident workflows** — auto-create Sentinel incidents on certain detector IDs (PII leakage, credential exposure)
 
-Sample KQL queries are on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) for v1.1.
+Sample KQL queries are on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) for v1.1.
 
 ## Failure modes
 
@@ -139,7 +139,7 @@ The forwarder doesn't retry indefinitely. If batches keep failing, drops accumul
 
 ## Live integration test
 
-A live integration test that exercises the full Logs Ingestion API round-trip (CI-secret-gated) is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, end-to-end testing requires manually setting up a DCR + workspace and pointing a dev instance at it.
+A live integration test that exercises the full Logs Ingestion API round-trip (CI-secret-gated) is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, end-to-end testing requires manually setting up a DCR + workspace and pointing a dev instance at it.
 
 ## When to use this forwarder
 

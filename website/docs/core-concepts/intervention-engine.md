@@ -149,6 +149,6 @@ public sealed class RouteToFallbackHandler : INotificationHandler<InterventionAp
 }
 ```
 
-`SentinelAction.Reroute` (redirect to a fallback agent) is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md).
+`SentinelAction.Reroute` (redirect to a fallback agent) is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md).
 
 ## Next: [Audit store](./audit-store)

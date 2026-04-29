@@ -113,14 +113,14 @@ In a [named-pipeline setup](./named-pipelines), each pipeline has its own `Detec
 ## What `Configure<T>` does NOT do
 
 - **It doesn't add detectors** — the detector type `T` must already be registered (built-in via DI source-gen, or via `opts.AddDetector<T>()`)
-- **It doesn't expose detector-internal knobs** — `Configure<PiiLeakageDetector>` can't set `IncludePhoneNumbers = false`. That's a per-detector-config feature still on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). The three universal knobs (Enabled/Floor/Cap) cover the 90% case for any detector.
+- **It doesn't expose detector-internal knobs** — `Configure<PiiLeakageDetector>` can't set `IncludePhoneNumbers = false`. That's a per-detector-config feature still on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). The three universal knobs (Enabled/Floor/Cap) cover the 90% case for any detector.
 - **It doesn't fabricate findings** — Floor only clamps *firing* results. If a detector emits Clean, no Floor will turn it into a finding.
 
 ## Silent no-op for unmatched types
 
 `Configure<T>` keys on `T` (the runtime type). If you call `Configure<NeverRegistered>` for a type that isn't registered as a detector, the call **silently no-ops** — no exception, no warning. This avoids breaking ordering coupling between `AddDetector` and `Configure`.
 
-A startup warning for unmatched type configurations is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, double-check your detector type names if a `Configure<T>` call seems to have no effect.
+A startup warning for unmatched type configurations is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, double-check your detector type names if a `Configure<T>` call seems to have no effect.
 
 A common gotcha: configuring an abstract base class:
 

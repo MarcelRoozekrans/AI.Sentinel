@@ -165,7 +165,7 @@ services.AddAISentinel(req =>
 });
 ```
 
-This will let one chat client serve all tenants with the right pipeline picked per call. Tracking [in the backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) under "Per-pipeline configuration Phase B".
+This will let one chat client serve all tenants with the right pipeline picked per call. Tracking [in the backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) under "Per-pipeline configuration Phase B".
 
 ## Audit sharing across tenants
 

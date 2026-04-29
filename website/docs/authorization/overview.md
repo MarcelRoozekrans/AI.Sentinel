@@ -116,7 +116,7 @@ In layered defense:
 
 Per the [Configuration → Named pipelines](../configuration/named-pipelines#phase-a-limitations) doc, **tool-call authorization is global, not per-named-pipeline.** Calling `opts.RequireToolPolicy(...)` on a named pipeline is silently ignored — only the default pipeline's bindings are consulted by `IToolCallGuard`.
 
-For multi-tenant authorization where different named pipelines need different policies, pre-Phase B you wire surface-specific `ISecurityContext` resolution and use a single shared binding set on the default pipeline. Per-name auth bindings are on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md).
+For multi-tenant authorization where different named pipelines need different policies, pre-Phase B you wire surface-specific `ISecurityContext` resolution and use a single shared binding set on the default pipeline. Per-name auth bindings are on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md).
 
 ## Where it lives
 
@@ -134,6 +134,6 @@ For multi-tenant authorization where different named pipelines need different po
 
 `IAuthorizationPolicy.IsAuthorized` is **synchronous** in v1. For policies that need async resolution (tenant lookup, OPA call, external IdP), the work-around is to cache async results in `ISecurityContext` at request boundary so the policy itself reads from a pre-populated cache.
 
-A `Task<bool> IsAuthorizedAsync(ISecurityContext ctx)` overload is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). Coordinated with the planned `ZeroAlloc.Mediator.Authorization` design before changing the interface.
+A `Task<bool> IsAuthorizedAsync(ISecurityContext ctx)` overload is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). Coordinated with the planned `ZeroAlloc.Mediator.Authorization` design before changing the interface.
 
 ## Next: [Policies](./policies) — writing IAuthorizationPolicy implementations + common patterns

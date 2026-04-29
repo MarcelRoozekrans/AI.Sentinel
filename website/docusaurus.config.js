@@ -6,9 +6,9 @@ const config = {
   title: 'AI.Sentinel',
   tagline: 'Security monitoring middleware for IChatClient — prompt injection, hallucination, and operational anomaly detection',
   favicon: 'img/favicon.png',
-  url: 'https://zeroalloc-net.github.io',
+  url: 'https://marcelroozekrans.github.io',
   baseUrl: '/AI.Sentinel/',
-  organizationName: 'ZeroAlloc-Net',
+  organizationName: 'MarcelRoozekrans',
   projectName: 'AI.Sentinel',
   trailingSlash: false,
   onBrokenLinks: 'throw',
@@ -17,7 +17,7 @@ const config = {
   headTags: [
     {
       tagName: 'meta',
-      attributes: { property: 'og:image', content: 'https://zeroalloc-net.github.io/AI.Sentinel/img/logo.png' },
+      attributes: { property: 'og:image', content: 'https://marcelroozekrans.github.io/AI.Sentinel/img/logo.png' },
     },
     {
       tagName: 'meta',
@@ -45,7 +45,7 @@ const config = {
       ({
         docs: {
           sidebarPath: './sidebars.js',
-          editUrl: 'https://github.com/ZeroAlloc-Net/AI.Sentinel/tree/main/website/',
+          editUrl: 'https://github.com/MarcelRoozekrans/AI.Sentinel/tree/main/website/',
           routeBasePath: 'docs',
         },
         theme: {
@@ -73,7 +73,7 @@ const config = {
             label: 'Docs',
           },
           {
-            href: 'https://github.com/ZeroAlloc-Net/AI.Sentinel',
+            href: 'https://github.com/MarcelRoozekrans/AI.Sentinel',
             label: 'GitHub',
             position: 'right',
           },
@@ -99,9 +99,9 @@ const config = {
           {
             title: 'Community',
             items: [
-              { label: 'GitHub', href: 'https://github.com/ZeroAlloc-Net/AI.Sentinel' },
-              { label: 'Issues', href: 'https://github.com/ZeroAlloc-Net/AI.Sentinel/issues' },
-              { label: 'Discussions', href: 'https://github.com/ZeroAlloc-Net/AI.Sentinel/discussions' },
+              { label: 'GitHub', href: 'https://github.com/MarcelRoozekrans/AI.Sentinel' },
+              { label: 'Issues', href: 'https://github.com/MarcelRoozekrans/AI.Sentinel/issues' },
+              { label: 'Discussions', href: 'https://github.com/MarcelRoozekrans/AI.Sentinel/discussions' },
             ],
           },
           {
@@ -109,11 +109,11 @@ const config = {
             items: [
               { label: 'NuGet — AI.Sentinel', href: 'https://www.nuget.org/packages/AI.Sentinel' },
               { label: 'NuGet — AI.Sentinel.Detectors.Sdk', href: 'https://www.nuget.org/packages/AI.Sentinel.Detectors.Sdk' },
-              { label: 'License (MIT)', href: 'https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/LICENSE' },
+              { label: 'License (MIT)', href: 'https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/LICENSE' },
             ],
           },
         ],
-        copyright: `Copyright ${new Date().getFullYear()} ZeroAlloc-Net. Built with Docusaurus.`,
+        copyright: `Copyright ${new Date().getFullYear()} Marcel Roozekrans. Built with Docusaurus.`,
       },
       prism: {
         theme: prismThemes.github,

@@ -165,6 +165,6 @@ SQLite gives you forensic-grade local audit (hash chain, query API). OTel gives 
 
 ## Live integration test
 
-A Docker-Compose-driven integration test that spins up a real OTel Collector + stub backend and verifies round-trip is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, e2e validation requires manual setup of an OTel Collector pointed at any OTLP receiver.
+A Docker-Compose-driven integration test that spins up a real OTel Collector + stub backend and verifies round-trip is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, e2e validation requires manual setup of an OTel Collector pointed at any OTLP receiver.
 
 ## Next: [Integrations → Claude Code](../integrations/claude-code) — wire AI.Sentinel into Claude Code's hooks

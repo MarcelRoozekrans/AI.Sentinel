@@ -123,7 +123,7 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 SENTINEL_MCP_HTTP_HEADERS="Authorization=Bearer abc123;X-Tenant=acme"
 ```
 
-OAuth2 flows and mTLS client certificates are **not** supported in v1.1 — see the deferred items in [BACKLOG](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) if you need them.
+OAuth2 flows and mTLS client certificates are **not** supported in v1.1 — see the deferred items in [BACKLOG](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) if you need them.
 
 ## Logging
 
@@ -149,7 +149,7 @@ When the host disconnects (SIGTERM, host shutdown), the proxy:
 3. Logs `transport_dispose action=grace_expired` if the subprocess overruns
 4. Returns control to the host's process supervisor
 
-The proxy doesn't currently SIGKILL the subprocess on grace expiry — `StdioClientTransport` doesn't expose its `Process` handle. SIGKILL on grace expiry is on the [backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, your MCP host's own process supervisor or the OS handles eventually-stuck subprocesses.
+The proxy doesn't currently SIGKILL the subprocess on grace expiry — `StdioClientTransport` doesn't expose its `Process` handle. SIGKILL on grace expiry is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, your MCP host's own process supervisor or the OS handles eventually-stuck subprocesses.
 
 ## Behavior change in v1.1
 

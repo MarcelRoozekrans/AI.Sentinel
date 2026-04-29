@@ -71,7 +71,7 @@ Cap at 100. Round to int. The dashboard's gauge maps the 0–100 score to four b
 [6] AuditEntry records the post-clamp severity
 ```
 
-The clamp pass means audit entries reflect **policy-applied** severity, not raw detector output. If you need both, use the [`DetectionResult` clamp annotation](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md) (backlog) or compute pre-clamp from the detector source.
+The clamp pass means audit entries reflect **policy-applied** severity, not raw detector output. If you need both, use the [`DetectionResult` clamp annotation](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) (backlog) or compute pre-clamp from the detector source.
 
 ## Where each detector falls
 

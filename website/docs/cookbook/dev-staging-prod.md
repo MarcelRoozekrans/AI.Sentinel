@@ -244,4 +244,4 @@ When promoting from one tier to the next, verify:
 
 ## Phase B preview
 
-When the request-time selector lands (Phase B), per-environment routing simplifies to a single `services.AddAISentinel(req => req.Tier)`-style call. Today, register one chat client per tier and route at the host level. Tracking [in the backlog](https://github.com/ZeroAlloc-Net/AI.Sentinel/blob/main/docs/BACKLOG.md).
+When the request-time selector lands (Phase B), per-environment routing simplifies to a single `services.AddAISentinel(req => req.Tier)`-style call. Today, register one chat client per tier and route at the host level. Tracking [in the backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md).
