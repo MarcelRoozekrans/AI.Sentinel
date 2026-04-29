@@ -9,5 +9,4 @@ public sealed partial class SessionId(string value)
         ? throw new ArgumentException("SessionId must not be empty.", nameof(value))
         : value;
     public static SessionId New() => new(Guid.NewGuid().ToString("N"));
-    public override string ToString() => Value;
 }
