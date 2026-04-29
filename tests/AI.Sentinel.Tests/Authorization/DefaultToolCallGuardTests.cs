@@ -42,6 +42,7 @@ public class DefaultToolCallGuardTests
             bindings.Select(b => new ToolCallPolicyBinding(b.pattern, b.policyName)).ToList(),
             policyByName,
             @default,
+            approvalStore: null,
             logger: null);
     }
 

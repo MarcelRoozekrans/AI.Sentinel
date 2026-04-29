@@ -25,7 +25,7 @@ public class InProcessAuthorizationTests
                 var name = ((AuthorizationPolicyAttribute)attrs[0]).Name;
                 policiesByName[name] = p;
             }
-            return new DefaultToolCallGuard(opts.GetAuthorizationBindings(), policiesByName, opts.DefaultToolPolicy, null);
+            return new DefaultToolCallGuard(opts.GetAuthorizationBindings(), policiesByName, opts.DefaultToolPolicy, approvalStore: null, logger: null);
         });
         var sp = services.BuildServiceProvider();
 
