@@ -11,6 +11,7 @@
     <Project Path="src/AI.Sentinel.Mcp.Cli/AI.Sentinel.Mcp.Cli.csproj" />
     <Project Path="src/AI.Sentinel.Sqlite/AI.Sentinel.Sqlite.csproj" />
     <Project Path="src/AI.Sentinel.Approvals.EntraPim/AI.Sentinel.Approvals.EntraPim.csproj" />
+    <Project Path="src/AI.Sentinel.Approvals.Sqlite/AI.Sentinel.Approvals.Sqlite.csproj" />
     <Project Path="src/AI.Sentinel.AzureSentinel/AI.Sentinel.AzureSentinel.csproj" />
     <Project Path="src/AI.Sentinel.OpenTelemetry/AI.Sentinel.OpenTelemetry.csproj" />
     <Project Path="src/AI.Sentinel.Detectors.Sdk/AI.Sentinel.Detectors.Sdk.csproj" />
@@ -19,6 +20,7 @@
     <Project Path="tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.Sqlite.Tests/AI.Sentinel.Sqlite.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.Approvals.EntraPim.Tests/AI.Sentinel.Approvals.EntraPim.Tests.csproj" />
+    <Project Path="tests/AI.Sentinel.Approvals.Sqlite.Tests/AI.Sentinel.Approvals.Sqlite.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.AzureSentinel.Tests/AI.Sentinel.AzureSentinel.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.OpenTelemetry.Tests/AI.Sentinel.OpenTelemetry.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.Detectors.Sdk.Tests/AI.Sentinel.Detectors.Sdk.Tests.csproj" />
