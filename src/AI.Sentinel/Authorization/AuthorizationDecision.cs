@@ -20,6 +20,25 @@ public abstract record AuthorizationDecision
     public static DenyDecision Deny(string policyName, string reason) =>
         new(policyName, reason);
 
+    public sealed record RequireApprovalDecision(
+        string PolicyName,
+        string RequestId,
+        string ApprovalUrl,
+        DateTimeOffset RequestedAt) : AuthorizationDecision;
+
+    public static RequireApprovalDecision RequireApproval(
+        string policyName, string requestId, string approvalUrl, DateTimeOffset requestedAt) =>
+        new(policyName, requestId, approvalUrl, requestedAt);
+
+    /// <summary>
+    /// Folds a <see cref="RequireApprovalDecision"/> into a <see cref="DenyDecision"/> for callers
+    /// that don't participate in the approval flow (CS8509 dodge).
+    /// </summary>
+    public AuthorizationDecision AsBinary() =>
+        this is RequireApprovalDecision r
+            ? Deny(r.PolicyName, $"approval required (requestId={r.RequestId})")
+            : this;
+
     /// <summary>True if this decision permits the call.</summary>
     public bool Allowed => this is AllowDecision;
 }
