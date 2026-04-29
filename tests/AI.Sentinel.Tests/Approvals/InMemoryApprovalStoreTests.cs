@@ -56,28 +56,58 @@ public class InMemoryApprovalStoreTests
     }
 
     [Fact]
-    public async Task DenyAsync_TransitionsToDenied()
+    public async Task DenyAsync_FirstCallObservesDenied_SecondCallCreatesFresh()
     {
         var store = new InMemoryApprovalStore();
-        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        await store.DenyAsync(pending.RequestId, "approver", "no", default);
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        Assert.IsType<ApprovalState.Denied>(state);
+        var pending1 = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        await store.DenyAsync(pending1.RequestId, "approver", "no", default);
+
+        // First call after deny: caller observes the terminal state once.
+        var afterDeny = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        Assert.IsType<ApprovalState.Denied>(afterDeny);
+
+        // Second call: dedupe was cleared on the previous call → fresh Pending with NEW request id.
+        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var pending2 = Assert.IsType<ApprovalState.Pending>(retry);
+        Assert.NotEqual(pending1.RequestId, pending2.RequestId);
     }
 
     [Fact]
-    public async Task ActiveGrant_AfterExpiry_ReturnsDenied()
+    public async Task ActiveGrant_AfterExpiry_NextCallCreatesFreshRequest()
     {
         var store = new InMemoryApprovalStore();
-        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
+        var pending1 = (ApprovalState.Pending)await store.EnsureRequestAsync(
             MakeCaller(),
             MakeSpec(grant: TimeSpan.FromMilliseconds(50)),
             MakeCtx(),
             default);
-        await store.ApproveAsync(pending.RequestId, "a", null, default);
+        await store.ApproveAsync(pending1.RequestId, "approver", null, default);
         await Task.Delay(150);
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        Assert.IsType<ApprovalState.Denied>(state);
+
+        // First call after expiry: observe Denied (terminal state communicated to caller).
+        var afterExpiry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        Assert.IsType<ApprovalState.Denied>(afterExpiry);
+
+        // Second call: dedupe was cleared on the previous call → fresh Pending with NEW request id.
+        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var pending2 = Assert.IsType<ApprovalState.Pending>(retry);
+        Assert.NotEqual(pending1.RequestId, pending2.RequestId);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_ConcurrentCreates_ProduceExactlyOneEntry()
+    {
+        var store = new InMemoryApprovalStore();
+        var caller = MakeCaller();
+        var tasks = Enumerable.Range(0, 100)
+            .Select(_ => Task.Run(() => store.EnsureRequestAsync(caller, MakeSpec(), MakeCtx(), default).AsTask()))
+            .ToArray();
+        var results = await Task.WhenAll(tasks);
+
+        // All 100 concurrent calls must observe the same RequestId — dedupe held under contention.
+        var pendings = results.OfType<ApprovalState.Pending>().ToArray();
+        Assert.Equal(100, pendings.Length);
+        Assert.Single(pendings.Select(p => p.RequestId).Distinct(StringComparer.Ordinal));
     }
 
     [Fact]
