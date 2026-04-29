@@ -89,6 +89,10 @@ internal static class ToolCallInterceptor
         var decision = await guard.AuthorizeAsync(caller, req.Name, args, ct).ConfigureAwait(false);
         if (decision.Allowed) return;
 
+        var deny = decision as AuthorizationDecision.DenyDecision;
+        var policyName = deny?.PolicyName ?? "?";
+        var reason = deny?.Reason ?? "?";
+
         if (audit is not null)
         {
             var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
@@ -98,17 +102,17 @@ internal static class ToolCallInterceptor
                 callerId:   caller.Id,
                 roles:      caller.Roles,
                 toolName:   req.Name,
-                policyName: decision.PolicyName ?? "?",
-                reason:     decision.Reason ?? "?");
+                policyName: policyName,
+                reason:     reason);
             await audit.AppendAsync(entry, ct).ConfigureAwait(false);
         }
 
         await stderr.WriteLineAsync(
-            $"[sentinel-mcp] event=tools/call decision=AuthzDeny tool={req.Name} caller={caller.Id} policy={decision.PolicyName ?? "?"}"
+            $"[sentinel-mcp] event=tools/call decision=AuthzDeny tool={req.Name} caller={caller.Id} policy={policyName}"
         ).ConfigureAwait(false);
 
         throw new McpProtocolException(
-            $"Authorization denied by policy '{decision.PolicyName ?? "?"}': {decision.Reason ?? "?"}",
+            $"Authorization denied by policy '{policyName}': {reason}",
             McpErrorCode.InvalidRequest);
     }
 

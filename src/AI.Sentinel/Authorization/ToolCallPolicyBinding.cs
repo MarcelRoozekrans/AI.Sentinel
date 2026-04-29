@@ -1,6 +1,11 @@
+using AI.Sentinel.Approvals;
+
 namespace AI.Sentinel.Authorization;
 
-internal sealed record ToolCallPolicyBinding(string Pattern, string PolicyName)
+internal sealed record ToolCallPolicyBinding(
+    string Pattern,
+    string PolicyName,
+    ApprovalSpec? ApprovalSpec = null)
 {
     public bool Matches(string toolName)
     {

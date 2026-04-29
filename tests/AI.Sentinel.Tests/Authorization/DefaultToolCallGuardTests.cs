@@ -42,6 +42,7 @@ public class DefaultToolCallGuardTests
             bindings.Select(b => new ToolCallPolicyBinding(b.pattern, b.policyName)).ToList(),
             policyByName,
             @default,
+            approvalStore: null,
             logger: null);
     }
 
@@ -73,7 +74,7 @@ public class DefaultToolCallGuardTests
         var caller = new TestSecurityContext("bob");
         var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs);
         Assert.False(d.Allowed);
-        Assert.Equal("admin-only", d.PolicyName);
+        Assert.Equal("admin-only", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
     }
 
     [Fact]
@@ -96,7 +97,7 @@ public class DefaultToolCallGuardTests
         var caller = new TestSecurityContext("alice", "admin");
         var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs);
         Assert.False(d.Allowed); // always-deny blocks even though admin-only allows
-        Assert.Equal("always-deny", d.PolicyName);
+        Assert.Equal("always-deny", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
     }
 
     [Fact]
@@ -127,7 +128,7 @@ public class DefaultToolCallGuardTests
             policies: [new Throws()]);
         var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs);
         Assert.False(d.Allowed);
-        Assert.Equal("throws", d.PolicyName);
+        Assert.Equal("throws", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
     }
 
     [Fact]
@@ -138,7 +139,7 @@ public class DefaultToolCallGuardTests
             policies: []);
         var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs);
         Assert.False(d.Allowed);
-        Assert.Equal("ghost-policy", d.PolicyName);
+        Assert.Equal("ghost-policy", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
     }
 
     [Fact]

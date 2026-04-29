@@ -2,6 +2,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using AI.Sentinel.Alerts;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
@@ -55,6 +56,14 @@ public static class ServiceCollectionExtensions
     {
         var opts = new SentinelOptions();
         configure?.Invoke(opts);
+
+        // Auto-register InMemoryApprovalStore if any binding has an ApprovalSpec and the user
+        // hasn't registered an IApprovalStore yet. Keeps the happy path zero-config.
+        if (opts.GetAuthorizationBindings().Any(b => b.ApprovalSpec is not null) &&
+            !services.Any(d => d.ServiceType == typeof(IApprovalStore)))
+        {
+            services.AddSingleton<IApprovalStore, InMemoryApprovalStore>();
+        }
 
         if (name is null)
         {
@@ -133,7 +142,8 @@ public static class ServiceCollectionExtensions
 
         EmitAuthorizationStartupWarnings(opts, bindings, policyByName, hasSecurityContext, pipelineLogger);
 
-        return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, logger);
+        var approvalStore = sp.GetService<IApprovalStore>();
+        return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, approvalStore, logger);
     }
 
     private static void RegisterUserDetectors(IServiceCollection services, SentinelOptions opts)

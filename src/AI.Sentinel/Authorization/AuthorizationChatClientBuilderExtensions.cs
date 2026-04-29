@@ -1,3 +1,4 @@
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,9 +23,10 @@ public static class AuthorizationChatClientBuilderExtensions
         {
             var guard = sp.GetRequiredService<IToolCallGuard>();
             var audit = sp.GetService<IAuditStore>();
+            var approvalStore = sp.GetService<IApprovalStore>();
             Func<ISecurityContext> callerProvider = () =>
                 sp.GetService<ISecurityContext>() ?? AnonymousSecurityContext.Instance;
-            return new AuthorizationChatClient(inner, guard, callerProvider, audit);
+            return new AuthorizationChatClient(inner, guard, callerProvider, audit, approvalStore);
         });
     }
 }

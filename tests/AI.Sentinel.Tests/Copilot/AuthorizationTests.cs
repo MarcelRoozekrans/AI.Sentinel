@@ -17,7 +17,7 @@ public class AuthorizationTests
         {
             ["admin-only"] = new AdminOnlyPolicy(),
         };
-        var guard = new DefaultToolCallGuard(opts.GetAuthorizationBindings(), policiesByName, opts.DefaultToolPolicy, logger: null);
+        var guard = new DefaultToolCallGuard(opts.GetAuthorizationBindings(), policiesByName, opts.DefaultToolPolicy, approvalStore: null, logger: null);
 
         var services = new ServiceCollection();
         services.AddAISentinel(o =>

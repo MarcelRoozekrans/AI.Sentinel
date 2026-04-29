@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
@@ -18,7 +19,8 @@ internal sealed class AuthorizationChatClient(
     IChatClient inner,
     IToolCallGuard guard,
     Func<ISecurityContext> callerProvider,
-    IAuditStore? audit) : IChatClient
+    IAuditStore? audit,
+    IApprovalStore? approvalStore = null) : IChatClient
 {
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -54,41 +56,90 @@ internal sealed class AuthorizationChatClient(
         {
             foreach (var content in msg.Contents)
             {
-                if (content is not FunctionCallContent fnCall)
+                if (content is FunctionCallContent fnCall)
                 {
-                    continue;
+                    await AuthorizeFunctionCallAsync(fnCall, caller, ct).ConfigureAwait(false);
                 }
-
-                // Tool arguments are IDictionary<string, object?> with arbitrary value shapes
-                // (primitives, nested objects, arrays). Reflection-based serialisation is required;
-                // a JsonSerializerContext can't statically describe `object?`. AuthorizationChatClient
-                // is opt-in (only wired when the consumer calls AddAuthorizationGuard) so AOT/trimming
-                // consumers must avoid this delegating client. The CLI hooks (sentinel-hook, etc.)
-                // never wire it, so the AOT publish pipeline never reaches this code path at runtime.
-                JsonElement argsJson = SerializeArgumentsForAuthorization(fnCall.Arguments);
-                var decision = await guard.AuthorizeAsync(caller, fnCall.Name, argsJson, ct).ConfigureAwait(false);
-                if (decision.Allowed)
-                {
-                    continue;
-                }
-
-                if (audit is not null)
-                {
-                    var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
-                        sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
-                        receiver: new AgentId(fnCall.Name),
-                        session: SessionId.New(),
-                        callerId: caller.Id,
-                        roles: caller.Roles,
-                        toolName: fnCall.Name,
-                        policyName: decision.PolicyName ?? "?",
-                        reason: decision.Reason ?? "?");
-                    await audit.AppendAsync(entry, ct).ConfigureAwait(false);
-                }
-
-                throw new ToolCallAuthorizationException(decision);
             }
         }
+    }
+
+    private const int MaxApprovalIterations = 5;
+
+    private async ValueTask AuthorizeFunctionCallAsync(
+        FunctionCallContent fnCall, ISecurityContext caller, CancellationToken ct)
+    {
+        // Tool arguments are IDictionary<string, object?> with arbitrary value shapes
+        // (primitives, nested objects, arrays). Reflection-based serialisation is required;
+        // a JsonSerializerContext can't statically describe `object?`. AuthorizationChatClient
+        // is opt-in (only wired when the consumer calls AddAuthorizationGuard) so AOT/trimming
+        // consumers must avoid this delegating client. The CLI hooks (sentinel-hook, etc.)
+        // never wire it, so the AOT publish pipeline never reaches this code path at runtime.
+        JsonElement argsJson = SerializeArgumentsForAuthorization(fnCall.Arguments);
+
+        AuthorizationDecision decision = AuthorizationDecision.Allow;   // satisfies definite-assignment
+        for (var iteration = 0; iteration < MaxApprovalIterations; iteration++)
+        {
+            decision = await guard.AuthorizeAsync(caller, fnCall.Name, argsJson, ct).ConfigureAwait(false);
+
+            if (decision.Allowed)
+            {
+                return;
+            }
+
+            if (decision is AuthorizationDecision.RequireApprovalDecision r && approvalStore is not null)
+            {
+                // Long-lived host: wait for the approval to settle, then re-query the guard so any
+                // bindings registered AFTER the approval binding (which the guard short-circuited
+                // past on the previous call) get a chance to evaluate.
+                var settled = await approvalStore.WaitForDecisionAsync(r.RequestId, r.WaitTimeout, ct).ConfigureAwait(false);
+                if (settled is ApprovalState.Active)
+                {
+                    continue;   // re-query guard — subsequent bindings may still gate
+                }
+
+                // Pending (timeout) or Denied — fold into a Deny so the existing audit + throw flow
+                // runs. Folding happens BEFORE audit so the audit captures the actual denial reason,
+                // not the original "approval pending" reason.
+                var reason = settled switch
+                {
+                    ApprovalState.Denied d => $"Approval denied: {d.Reason}",
+                    _                      => $"Approval timed out after {r.WaitTimeout.TotalSeconds:F0}s (request {r.RequestId})",
+                };
+                decision = AuthorizationDecision.Deny(r.PolicyName, reason);
+            }
+
+            // Deny path (or RequireApproval with no store) — audit + throw.
+            await AuditDenyAsync(fnCall, caller, decision, ct).ConfigureAwait(false);
+            throw new ToolCallAuthorizationException(decision);
+        }
+
+        // Defensive — should never reach here unless guard keeps returning RequireApproval
+        // for >MaxApprovalIterations distinct bindings (implausible).
+        throw new ToolCallAuthorizationException(AuthorizationDecision.Deny(
+            "approval-loop",
+            $"Approval iteration limit ({MaxApprovalIterations}) exceeded for tool {fnCall.Name}"));
+    }
+
+    private async ValueTask AuditDenyAsync(
+        FunctionCallContent fnCall, ISecurityContext caller, AuthorizationDecision decision, CancellationToken ct)
+    {
+        if (audit is null)
+        {
+            return;
+        }
+
+        var deny = decision as AuthorizationDecision.DenyDecision;
+        var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+            sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
+            receiver: new AgentId(fnCall.Name),
+            session: SessionId.New(),
+            callerId: caller.Id,
+            roles: caller.Roles,
+            toolName: fnCall.Name,
+            policyName: deny?.PolicyName ?? "?",
+            reason: deny?.Reason ?? "?");
+        await audit.AppendAsync(entry, ct).ConfigureAwait(false);
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null)
