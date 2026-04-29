@@ -24,11 +24,13 @@ public abstract record AuthorizationDecision
         string PolicyName,
         string RequestId,
         string ApprovalUrl,
-        DateTimeOffset RequestedAt) : AuthorizationDecision;
+        DateTimeOffset RequestedAt,
+        TimeSpan WaitTimeout) : AuthorizationDecision;
 
     public static RequireApprovalDecision RequireApproval(
-        string policyName, string requestId, string approvalUrl, DateTimeOffset requestedAt) =>
-        new(policyName, requestId, approvalUrl, requestedAt);
+        string policyName, string requestId, string approvalUrl,
+        DateTimeOffset requestedAt, TimeSpan waitTimeout) =>
+        new(policyName, requestId, approvalUrl, requestedAt, waitTimeout);
 
     /// <summary>
     /// Folds a <see cref="RequireApprovalDecision"/> into a <see cref="DenyDecision"/> for callers

@@ -81,7 +81,7 @@ internal sealed class DefaultToolCallGuard(
         {
             ApprovalState.Active => null, // active grant — continue evaluating remaining bindings
             ApprovalState.Pending p => AuthorizationDecision.RequireApproval(
-                approvalSpec.PolicyName, p.RequestId, p.ApprovalUrl, p.RequestedAt),
+                approvalSpec.PolicyName, p.RequestId, p.ApprovalUrl, p.RequestedAt, approvalSpec.WaitTimeout),
             ApprovalState.Denied d => AuthorizationDecision.Deny(approvalSpec.PolicyName, d.Reason),
             _ => AuthorizationDecision.Deny(approvalSpec.PolicyName, "unknown approval state"),
         };

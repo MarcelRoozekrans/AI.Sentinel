@@ -12,7 +12,8 @@ public class AuthorizationDecisionTests
             policyName: "AdminApproval",
             requestId: "req-123",
             approvalUrl: "https://example.test/approve/req-123",
-            requestedAt: DateTimeOffset.UtcNow);
+            requestedAt: DateTimeOffset.UtcNow,
+            waitTimeout: TimeSpan.FromMinutes(5));
 
         Assert.False(d.Allowed);
         Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(d);
@@ -30,7 +31,7 @@ public class AuthorizationDecisionTests
     public void AsBinary_RequireApproval_BecomesDeny()
     {
         var pending = AuthorizationDecision.RequireApproval(
-            "AdminApproval", "req-1", "url", DateTimeOffset.UtcNow);
+            "AdminApproval", "req-1", "url", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(5));
 
         var binary = pending.AsBinary();
 

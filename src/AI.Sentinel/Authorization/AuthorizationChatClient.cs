@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
@@ -18,7 +19,8 @@ internal sealed class AuthorizationChatClient(
     IChatClient inner,
     IToolCallGuard guard,
     Func<ISecurityContext> callerProvider,
-    IAuditStore? audit) : IChatClient
+    IAuditStore? audit,
+    IApprovalStore? approvalStore = null) : IChatClient
 {
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -70,6 +72,24 @@ internal sealed class AuthorizationChatClient(
                 if (decision.Allowed)
                 {
                     continue;
+                }
+
+                if (decision is AuthorizationDecision.RequireApprovalDecision r && approvalStore is not null)
+                {
+                    // Long-lived host: wait for the approval to settle, then re-evaluate.
+                    var settled = await approvalStore.WaitForDecisionAsync(r.RequestId, r.WaitTimeout, ct).ConfigureAwait(false);
+                    if (settled is ApprovalState.Active)
+                    {
+                        continue;   // approved during the wait — proceed with the tool call
+                    }
+
+                    // Pending (timeout) or Denied — fold into a Deny so the existing audit + throw flow runs.
+                    var reason = settled switch
+                    {
+                        ApprovalState.Denied d => $"Approval denied: {d.Reason}",
+                        _                      => $"Approval timed out after {r.WaitTimeout.TotalSeconds:F0}s (request {r.RequestId})",
+                    };
+                    decision = AuthorizationDecision.Deny(r.PolicyName, reason);
                 }
 
                 if (audit is not null)
