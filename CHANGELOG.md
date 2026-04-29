@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.0.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.0.0...v1.0.1) (2026-04-29)
+
+
+### Bug Fixes
+
+* **cli:** clear inherited TargetFrameworks in AI.Sentinel.Cli ([dd1baa6](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/dd1baa6a6f7dd245f0e692255331d71f47a6daae))
+
 ## 1.0.0 (2026-04-29)
 
 
