@@ -56,10 +56,12 @@ catch (SentinelException ex)
 ## Add the dashboard (optional)
 
 ```csharp
-app.UseAISentinel("/ai-sentinel");
+app.MapAISentinel("/ai-sentinel");
 ```
 
-Live audit feed, threat-risk gauge, detector hit stats. Served from embedded resources — no JS build step. See [Dashboard](./dashboard) for protection patterns and feature details.
+![AI.Sentinel dashboard preview](/img/screenshots/dashboard-desktop.png)
+
+Live audit feed, threat-risk gauge, detector hit stats. Served from embedded resources — no JS build step. Returns a `RouteGroupBuilder` so you can chain `.RequireAuthorization(...)` and other endpoint conventions. See [Dashboard](./dashboard) for protection patterns and feature details.
 
 ## Add semantic detection (optional)
 

@@ -102,10 +102,30 @@ function CodeExample() {
             .Use(new OpenAIChatClient(...)));
 
 // optional embedded dashboard
-app.UseAISentinel("/ai-sentinel");`}
+app.MapAISentinel("/ai-sentinel");`}
             </pre>
           </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function DashboardShowcase() {
+  return (
+    <section className={styles.dashboardShowcase}>
+      <div className="container">
+        <h2 style={{textAlign: 'center', marginBottom: '0.5rem'}}>The dashboard your security team will actually open</h2>
+        <p style={{textAlign: 'center', maxWidth: '720px', margin: '0 auto 2rem', color: 'var(--ifm-color-emphasis-700)'}}>
+          Live threat-risk score, severity counters, and a real-time event feed — every detection is hash-chained,
+          filterable, and one click away from the audit forwarder of your choice. No JS framework, no separate service.
+        </p>
+        <img
+          src="img/screenshots/dashboard-desktop.png"
+          alt="AI.Sentinel dashboard showing TRS gauge at 80 ISOLATE, 12 detections across all severities, and live event feed"
+          className={styles.dashboardScreenshot}
+          loading="lazy"
+        />
       </div>
     </section>
   );
@@ -169,6 +189,7 @@ export default function Home() {
       <main>
         <FeaturesSection />
         <CodeExample />
+        <DashboardShowcase />
         <PackagesSection />
       </main>
     </Layout>

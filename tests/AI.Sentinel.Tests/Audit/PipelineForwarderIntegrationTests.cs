@@ -19,8 +19,8 @@ public class PipelineForwarderIntegrationTests
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
 
-        // Wait for fire-and-forget propagation
-        await Task.Delay(100);
+        // Wait for fire-and-forget propagation (bounded poll instead of fixed sleep — CI is slower)
+        await WaitUntilAsync(() => fwd.Batches.Count > 0);
 
         Assert.NotEmpty(fwd.Batches);
         Assert.All(fwd.Batches, b => Assert.Single(b)); // single-entry batches
@@ -39,7 +39,7 @@ public class PipelineForwarderIntegrationTests
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
-        await Task.Delay(100);
+        await WaitUntilAsync(() => fwdA.Batches.Count > 0 && fwdB.Batches.Count > 0);
 
         Assert.NotEmpty(fwdA.Batches);
         Assert.NotEmpty(fwdB.Batches);
@@ -74,12 +74,18 @@ public class PipelineForwarderIntegrationTests
 
             var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
             await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
-            await Task.Delay(200);
+
+            // Both forwarders run fire-and-forget on Task.Run — wait for BOTH before
+            // disposing the SP, otherwise DisposeAsync on the NDJSON forwarder closes the
+            // FileStream while its Task.Run is still mid-write (ObjectDisposedException
+            // gets swallowed by the fail-open contract, file ends up empty).
+            await WaitUntilAsync(() =>
+                recording.Batches.Count > 0 &&
+                File.Exists(ndjsonPath) &&
+                new FileInfo(ndjsonPath).Length > 0);
 
             Assert.NotEmpty(recording.Batches);
-            // Wait briefly for the NDJSON file write to flush
-            await Task.Delay(200);
-            // Dispose so the FileStream releases the file before reading
+            // Dispose closes the NDJSON FileStream so File.ReadAllLines doesn't trip on a sharing violation.
             await ((IAsyncDisposable)sp).DisposeAsync();
             var lines = File.ReadAllLines(ndjsonPath);
             Assert.NotEmpty(lines);
@@ -107,6 +113,20 @@ public class PipelineForwarderIntegrationTests
         sw.Stop();
 
         Assert.True(sw.Elapsed < TimeSpan.FromMilliseconds(500), $"Pipeline should NOT block on slow forwarder; elapsed={sw.Elapsed}");
+    }
+
+    /// <summary>
+    /// Polls <paramref name="condition"/> until it returns true or the timeout elapses.
+    /// Replaces brittle fixed-duration <c>Task.Delay</c> waits which can flake on slower CI.
+    /// </summary>
+    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5_000, int pollMs = 25)
+    {
+        var deadline = Environment.TickCount + timeoutMs;
+        while (!condition())
+        {
+            if (Environment.TickCount > deadline) return;
+            await Task.Delay(pollMs).ConfigureAwait(false);
+        }
     }
 
     private sealed class RecordingForwarder : IAuditForwarder

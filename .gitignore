@@ -7,3 +7,7 @@ obj/
 
 # Local tooling state (Claude Code session, etc.)
 .claude/
+
+# Node tooling (scripts/capture-screenshots.mjs uses Playwright)
+node_modules/
+scripts/package-lock.json
