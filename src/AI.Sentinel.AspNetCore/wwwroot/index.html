@@ -75,7 +75,8 @@
       document.getElementById('trs-stage').textContent = d.stage.toUpperCase();
       const offset = circumference * (1 - d.value / 100);
       arc.style.strokeDashoffset = offset;
-      arc.className = 'gauge-arc stage-' + d.stage.toLowerCase();
+      // SVG elements: className is SVGAnimatedString, not a string — use setAttribute.
+      arc.setAttribute('class', 'gauge-arc stage-' + d.stage.toLowerCase());
     };
 
     // Filter chips: rewrite the feed body's hx-get URL and trigger an immediate refresh.
