@@ -9,6 +9,22 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.0.1...v1.1.0) (2026-04-29)
+
+
+### Features
+
+* **aspnetcore:** MapAISentinel for endpoint-routing-friendly mounts ([cf6a03c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/cf6a03ce0a996d7b41ea65ad8cabedaa16f0371b))
+* **samples:** Demo:SeedDashboard pre-populates audit on startup ([a095449](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/a095449039e30bcf445e084122a0edf120e7616b))
+
+
+### Bug Fixes
+
+* **aspnetcore:** dashboard endpoint-routing mount + mobile layout + a11y ([2f7834c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/2f7834c29dc3b2b8ccdec75654e801468ecc3f52))
+* **aspnetcore:** mobile dashboard layout, empty-state row, a11y tabs ([219df7d](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/219df7dd791dc66993a5c5b55721733a75c4dcb6))
+* **aspnetcore:** TRS gauge ring colour updates with stage ([d51d5a5](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/d51d5a534b97d8809e52cfa6a52313b8666a4d8a))
+* **samples:** ChatApp uses MapAISentinel + absolute SignalR hub URL ([484d1e7](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/484d1e70219f537c8275bb05349ee937b3047224))
+
 ## [1.0.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.0.0...v1.0.1) (2026-04-29)
 
 
