@@ -49,7 +49,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
         _sequence = LoadHighestSequence();
 
-        if (options.RetentionPeriod is { } retention && retention > TimeSpan.Zero)
+        var hasTimeRetention = options.RetentionPeriod is { } r && r > TimeSpan.Zero;
+        var hasSizeCap = options.MaxDatabaseSizeBytes is { } b && b > 0;
+        if (hasTimeRetention || hasSizeCap)
         {
             _retentionTimer = new Timer(
                 static state => ((SqliteAuditStore)state!).SweepRetention(),
@@ -166,18 +168,25 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     private void SweepRetention()
     {
         if (_disposed) return;
-        if (_options.RetentionPeriod is not { } retention) return;
 
         try
         {
             _writeLock.Wait();
             try
             {
-                var cutoff = DateTimeOffset.UtcNow - retention;
-                using var cmd = _connection.CreateCommand();
-                cmd.CommandText = "DELETE FROM audit_entries WHERE timestamp < $cutoff;";
-                cmd.Parameters.AddWithValue("$cutoff", cutoff.UtcTicks);
-                cmd.ExecuteNonQuery();
+                if (_options.RetentionPeriod is { } retention && retention > TimeSpan.Zero)
+                {
+                    var cutoff = DateTimeOffset.UtcNow - retention;
+                    using var cmd = _connection.CreateCommand();
+                    cmd.CommandText = "DELETE FROM audit_entries WHERE timestamp < $cutoff;";
+                    cmd.Parameters.AddWithValue("$cutoff", cutoff.UtcTicks);
+                    cmd.ExecuteNonQuery();
+                }
+
+                if (_options.MaxDatabaseSizeBytes is { } maxBytes && maxBytes > 0)
+                {
+                    EnforceSizeCap(maxBytes);
+                }
             }
             finally
             {
@@ -191,6 +200,64 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         catch (ObjectDisposedException)
         {
             // Race with disposal — nothing to do.
+        }
+    }
+
+    /// <summary>
+    /// Deletes oldest entries in 10%-batches (minimum 100) until the on-disk file size
+    /// is under <paramref name="maxBytes"/>. Runs <c>VACUUM</c> after each batch so the
+    /// file actually shrinks (SQLite holds onto freed pages until VACUUM reclaims them).
+    /// Caller must hold <see cref="_writeLock"/>.
+    /// </summary>
+    private void EnforceSizeCap(long maxBytes)
+    {
+        // Bound the loop: in pathological scenarios (huge VACUUM-resistant file, very
+        // small cap) we don't want to spin forever per sweep tick.
+        const int maxIterations = 8;
+        for (int i = 0; i < maxIterations; i++)
+        {
+            long currentSize;
+            try { currentSize = new FileInfo(_options.DatabasePath).Length; }
+            catch (IOException) { return; }
+            if (currentSize <= maxBytes) return;
+
+            long totalRows;
+            using (var countCmd = _connection.CreateCommand())
+            {
+                countCmd.CommandText = "SELECT COUNT(*) FROM audit_entries;";
+                var raw = countCmd.ExecuteScalar();
+                totalRows = raw is null or DBNull ? 0L : Convert.ToInt64(raw, CultureInfo.InvariantCulture);
+            }
+            if (totalRows == 0) return;
+
+            var deleteCount = Math.Max(100L, totalRows / 10);
+            using (var del = _connection.CreateCommand())
+            {
+                del.CommandText = """
+                    DELETE FROM audit_entries
+                    WHERE id IN (SELECT id FROM audit_entries ORDER BY sequence ASC LIMIT $n);
+                    """;
+                var p = del.CreateParameter();
+                p.ParameterName = "$n";
+                p.SqliteType = Microsoft.Data.Sqlite.SqliteType.Integer;
+                p.Value = deleteCount;
+                del.Parameters.Add(p);
+                if (del.ExecuteNonQuery() == 0) return; // safety: nothing deleted, avoid infinite loop
+            }
+
+            // VACUUM reclaims freed pages and shrinks the main DB. Schema uses WAL mode,
+            // so we must also force a TRUNCATE checkpoint — otherwise the main file
+            // can't shrink past whatever the WAL has pinned.
+            using (var vacuum = _connection.CreateCommand())
+            {
+                vacuum.CommandText = "VACUUM;";
+                vacuum.ExecuteNonQuery();
+            }
+            using (var checkpoint = _connection.CreateCommand())
+            {
+                checkpoint.CommandText = "PRAGMA wal_checkpoint(TRUNCATE);";
+                checkpoint.ExecuteNonQuery();
+            }
         }
     }
 

@@ -116,6 +116,97 @@ public sealed class SqliteAuditStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task MaxDatabaseSizeBytes_TrimsOldestEntries_AndShrinksFile()
+    {
+        // Strategy: write a big batch first, measure the resulting file size, configure
+        // a cap at half that size, sweep, verify the file actually shrunk and that
+        // surviving rows are the newest. We don't pin to an absolute byte count because
+        // SQLite has page-size + schema overhead that makes "cap = 16KB" untestable on
+        // an empty DB.
+        const int batchSize = 500;
+        var entries = new List<AuditEntry>(batchSize);
+        string? prevHash = null;
+        for (int i = 0; i < batchSize; i++)
+        {
+            var hash = $"h{i:x8}";
+            entries.Add(new AuditEntry(
+                $"id-{i}", DateTimeOffset.UtcNow.AddSeconds(i), hash, prevHash,
+                Severity.Low, "SEC-99", new string('x', 128)));
+            prevHash = hash;
+        }
+
+        // Phase 1: fill the DB without a cap, measure how big it grows.
+        long fullSize;
+        await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
+        {
+            for (int idx = 0; idx < entries.Count; idx++)
+            {
+                await store.AppendAsync(entries[idx], CancellationToken.None);
+            }
+        }
+        fullSize = new FileInfo(_dbPath).Length;
+
+        // Phase 2: re-open with a cap at ~60% of the full size, sweep, verify shrinkage.
+        var capBytes = (long)(fullSize * 0.6);
+        await using var capped = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            MaxDatabaseSizeBytes = capBytes,
+        });
+        await capped.RunRetentionForTestingAsync(CancellationToken.None);
+
+        var afterSize = new FileInfo(_dbPath).Length;
+        Assert.True(afterSize < fullSize,
+            $"sweep should shrink the file; before={fullSize} after={afterSize} cap={capBytes}");
+        Assert.True(afterSize <= capBytes,
+            $"sweep should bring file at-or-under cap; after={afterSize} cap={capBytes}");
+
+        var remaining = new List<AuditEntry>();
+        await foreach (var e in capped.QueryAsync(new AuditQuery(PageSize: 10_000), CancellationToken.None))
+        {
+            remaining.Add(e);
+        }
+        Assert.NotEmpty(remaining);
+        Assert.True(remaining.Count < batchSize, "some rows must have been trimmed");
+        // Oldest IDs gone; the most recent entry must still be present.
+        Assert.Equal(entries[^1].Id, remaining[^1].Id);
+    }
+
+    [Fact]
+    public async Task MaxDatabaseSizeBytes_NotConfigured_DoesNotTrim()
+    {
+        var entries = new List<AuditEntry>();
+        string? prevHash = null;
+        for (int i = 0; i < 50; i++)
+        {
+            var hash = $"h{i:x8}";
+            entries.Add(new AuditEntry(
+                $"id-{i}", DateTimeOffset.UtcNow.AddSeconds(i), hash, prevHash,
+                Severity.Low, "SEC-99", "x"));
+            prevHash = hash;
+        }
+
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            // No MaxDatabaseSizeBytes — sweep is a no-op for size, no retention either.
+        });
+        for (int idx = 0; idx < entries.Count; idx++)
+        {
+            await store.AppendAsync(entries[idx], CancellationToken.None);
+        }
+
+        await store.RunRetentionForTestingAsync(CancellationToken.None);
+
+        var count = 0;
+        await foreach (var _ in store.QueryAsync(new AuditQuery(PageSize: 1000), CancellationToken.None))
+        {
+            count++;
+        }
+        Assert.Equal(50, count);
+    }
+
+    [Fact]
     public async Task RetentionPeriod_DeletesOldEntries()
     {
         var oldEntry = new AuditEntry(
