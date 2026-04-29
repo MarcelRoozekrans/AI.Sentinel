@@ -48,7 +48,7 @@ public static class ReplayRunner
             if (callResult.IsFailure && callResult.Error is SentinelError.ThreatDetected t)
             {
                 detections = [new TurnDetection(
-                    t.Result.DetectorId.ToString(),
+                    t.Result.DetectorId.Value,
                     t.Result.Severity,
                     t.Result.Reason)];
                 turnMaxSeverity = t.Result.Severity;

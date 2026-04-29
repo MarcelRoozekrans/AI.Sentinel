@@ -158,7 +158,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
     {
         var instruction = new ChatMessage(ChatRole.System,
             $$"""
-            You are a security classifier. A rule-based detector (rule ID: {{detector.Id}}) flagged incoming content at severity {{initial.Severity}}.
+            You are a security classifier. A rule-based detector (rule ID: {{detector.Id.Value}}) flagged incoming content at severity {{initial.Severity}}.
             Your task: assess whether the content justifies {{initial.Severity}} severity or should be lower.
             Respond with JSON only, no explanation: {"severity":"None|Low|Medium|High|Critical","reason":"one sentence"}
             """);

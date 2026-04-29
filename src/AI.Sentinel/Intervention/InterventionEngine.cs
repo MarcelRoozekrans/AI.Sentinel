@@ -42,7 +42,7 @@ public sealed class InterventionEngine(
         if (action == SentinelAction.Quarantine)
             throw new SentinelException(
                 $"AI.Sentinel quarantined message: {result.MaxSeverity} threat detected. " +
-                $"Detectors: {string.Join(", ", result.Detections.Select(d => d.DetectorId.ToString()))}",
+                $"Detectors: {string.Join(", ", result.Detections.Select(d => d.DetectorId.Value))}",
                 result);
     }
 

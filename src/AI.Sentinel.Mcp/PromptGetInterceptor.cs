@@ -58,10 +58,10 @@ internal static class PromptGetInterceptor
         if (postError is SentinelError.ThreatDetected threat)
         {
             await stderr.WriteLineAsync(
-                $"[sentinel-mcp] event=prompts/get decision=Block prompt={req.Name} detector={threat.Result.DetectorId} severity={threat.Result.Severity} phase=response"
+                $"[sentinel-mcp] event=prompts/get decision=Block prompt={req.Name} detector={threat.Result.DetectorId.Value} severity={threat.Result.Severity} phase=response"
             ).ConfigureAwait(false);
             throw new McpProtocolException(
-                $"Blocked by AI.Sentinel: {threat.Result.DetectorId} {threat.Result.Severity}: {threat.Result.Reason}",
+                $"Blocked by AI.Sentinel: {threat.Result.DetectorId.Value} {threat.Result.Severity}: {threat.Result.Reason}",
                 McpErrorCode.InternalError);
         }
 

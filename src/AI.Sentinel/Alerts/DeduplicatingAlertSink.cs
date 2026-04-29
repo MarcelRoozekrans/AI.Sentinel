@@ -24,7 +24,7 @@ public sealed class DeduplicatingAlertSink(
         if (error is not SentinelError.ThreatDetected t)
             return inner.SendAsync(error, ct);
 
-        var detectorId = t.Result.DetectorId.ToString();
+        var detectorId = t.Result.DetectorId.Value;
         var sessionId = t.Session.ToString();
         var key = (detectorId, sessionId);
         var now = DateTimeOffset.UtcNow;

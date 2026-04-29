@@ -26,7 +26,7 @@ public abstract record SentinelError
     public Exception ToException() => this switch
     {
         ThreatDetected t => new SentinelException(
-            $"AI.Sentinel quarantined message: {t.Result.Severity} threat detected by {t.Result.DetectorId}.",
+            $"AI.Sentinel quarantined message: {t.Result.Severity} threat detected by {t.Result.DetectorId.Value}.",
             new PipelineResult(SeverityToScore(t.Result.Severity), [t.Result])),
         PipelineFailure f => new InvalidOperationException(f.Message, f.Inner),
         RateLimitExceeded r => new SentinelException(

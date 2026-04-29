@@ -150,11 +150,11 @@ internal static class ToolCallInterceptor
         if (error is not SentinelError.ThreatDetected threat) return;
 
         await stderr.WriteLineAsync(
-            $"[sentinel-mcp] event=tools/call decision=Block tool={toolName} detector={threat.Result.DetectorId} severity={threat.Result.Severity} phase={phase}"
+            $"[sentinel-mcp] event=tools/call decision=Block tool={toolName} detector={threat.Result.DetectorId.Value} severity={threat.Result.Severity} phase={phase}"
         ).ConfigureAwait(false);
 
         throw new McpProtocolException(
-            $"Blocked by AI.Sentinel: {threat.Result.DetectorId} {threat.Result.Severity}: {threat.Result.Reason}",
+            $"Blocked by AI.Sentinel: {threat.Result.DetectorId.Value} {threat.Result.Severity}: {threat.Result.Reason}",
             McpErrorCode.InternalError);
     }
 }

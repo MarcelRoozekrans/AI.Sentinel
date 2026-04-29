@@ -188,7 +188,7 @@ public sealed class SentinelPipeline(
         scanActivity?.SetTag("sentinel.threat_count", pipelineResult.Detections.Count);
         var topDetector = pipelineResult.Detections.MaxBy(d => d.Severity);
         if (topDetector is not null)
-            scanActivity?.SetTag("sentinel.top_detector", topDetector.DetectorId.ToString());
+            scanActivity?.SetTag("sentinel.top_detector", topDetector.DetectorId.Value);
 
         if (pipelineResult.IsClean) return null;
 
@@ -197,7 +197,7 @@ public sealed class SentinelPipeline(
             var tags = new TagList
             {
                 { "severity", d.Severity.ToString() },
-                { "detector", d.DetectorId.ToString() }
+                { "detector", d.DetectorId.Value }
             };
             SentinelMetrics.Threats.Add(1, tags);
         }
@@ -298,7 +298,7 @@ public sealed class SentinelPipeline(
                 DateTimeOffset.UtcNow,
                 hash, null,
                 detection.Severity,
-                detection.DetectorId.ToString(),
+                detection.DetectorId.Value,
                 detection.Reason);
             await auditStore.AppendAsync(entry, ct).ConfigureAwait(false);
             ForwardEntry(entry, ct);

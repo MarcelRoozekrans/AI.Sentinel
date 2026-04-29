@@ -34,7 +34,7 @@ public static class HookPipelineRunner
         if (error is SentinelError.ThreatDetected t)
         {
             var decision = HookSeverityMapper.Map(t.Result.Severity, config);
-            var reason = $"{t.Result.DetectorId} {t.Result.Severity}: {t.Result.Reason}";
+            var reason = $"{t.Result.DetectorId.Value} {t.Result.Severity}: {t.Result.Reason}";
             return new HookOutput(decision, reason);
         }
 

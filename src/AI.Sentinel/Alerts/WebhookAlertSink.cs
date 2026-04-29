@@ -16,7 +16,7 @@ public sealed class WebhookAlertSink(Uri endpoint) : IAlertSink
             SentinelError.ThreatDetected t => new AlertPayload(
                 "ThreatDetected",
                 t.Result.Severity.ToString(),
-                t.Result.DetectorId.ToString(),
+                t.Result.DetectorId.Value,
                 t.Result.Reason,
                 t.Action.ToString(),
                 t.Session.ToString()),

@@ -100,7 +100,7 @@ internal static class ResourceReadInterceptor
             {
                 LogBlock(req.Uri, threat);
                 throw new McpProtocolException(
-                    $"Blocked by AI.Sentinel: {threat.Result.DetectorId} {threat.Result.Severity}: {threat.Result.Reason}",
+                    $"Blocked by AI.Sentinel: {threat.Result.DetectorId.Value} {threat.Result.Severity}: {threat.Result.Reason}",
                     McpErrorCode.InternalError);
             }
         }
@@ -170,7 +170,7 @@ internal static class ResourceReadInterceptor
             ["event"]    = "resources_read",
             ["action"]   = "block",
             ["uri"]      = uri,
-            ["detector"] = threat.Result.DetectorId.ToString(),
+            ["detector"] = threat.Result.DetectorId.Value,
             ["severity"] = threat.Result.Severity.ToString(),
         });
 
