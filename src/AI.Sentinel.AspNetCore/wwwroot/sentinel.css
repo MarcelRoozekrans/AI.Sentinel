@@ -189,7 +189,7 @@ tr.audit-row-authz td:first-child {
   outline-offset: 2px;
 }
 
-/* Mobile / narrow viewports: collapse to single column, scroll the table horizontally */
+/* Tablet / narrow desktop: collapse to single column, table scrolls horizontally */
 @media (max-width: 600px) {
   main {
     grid-template-columns: 1fr;
@@ -200,7 +200,26 @@ tr.audit-row-authz td:first-child {
   .trs-panel { grid-row: auto; }
   .gauge { width: 120px; }
   .feed-panel { grid-column: 1; }
-  .table-wrap { overflow-x: auto; }
+  .table-wrap {
+    overflow-x: auto;
+    /* Right-edge fade hints at hidden scrollable content */
+    background:
+      linear-gradient(to right, var(--surface), var(--surface) 0%, transparent 8px),
+      linear-gradient(to left,  var(--surface), var(--surface) 0%, transparent 8px) 100% 0;
+    background-repeat: no-repeat;
+    background-size: 24px 100%, 24px 100%;
+    background-attachment: local, local;
+  }
   table { min-width: 480px; }
   .feed-chips { gap: 0.3rem; }
+}
+
+/* Phone-narrow viewports: hide the Hash column entirely. The 8-char prefix is
+   diagnostic-only — full hash + prev hash are always available via /api/feed
+   and the audit forwarder pipeline. Time/Detector/Severity/Reason are the
+   columns operators triage on. */
+@media (max-width: 480px) {
+  table th:nth-child(5),
+  table td:nth-child(5) { display: none; }
+  table { min-width: 360px; }
 }
