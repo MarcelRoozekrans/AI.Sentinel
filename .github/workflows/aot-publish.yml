@@ -216,7 +216,10 @@ jobs:
           Write-Host $stderr
 
           # Assert: the tools/call response (id=2) round-tripped the nested-JSON arg back.
-          if ($stdout -notmatch '"nested"\s*:\s*"value"') {
+          # The python stub echoes the arguments as a JSON string inside the `text` field.
+          # That inner string then passes through the proxy's JsonSerializer which uses the
+          # default JavaScriptEncoder — so embedded `"` become `"`. Match either form.
+          if ($stdout -notmatch '(?:"|\\u0022)nested(?:"|\\u0022)\s*:\s*(?:"|\\u0022)value') {
             Write-Error 'AOT nested-JSON CallToolAsync round-trip failed: nested arg not echoed in stdout'
             exit 1
           }
