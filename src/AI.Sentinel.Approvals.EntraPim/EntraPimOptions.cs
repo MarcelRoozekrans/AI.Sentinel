@@ -27,6 +27,13 @@ public sealed class EntraPimOptions
     /// round-trip when the role is in this seed. Empty by default; the store resolves on
     /// first use and caches for the process lifetime.
     /// </summary>
-    public IDictionary<string, string> RoleNameToIdSeed { get; } =
+    /// <remarks>
+    /// Snapshot semantics: the seed is copied into the store's internal cache at
+    /// construction, so post-construction mutations to this dictionary do NOT propagate.
+    /// Exposed as <see cref="IReadOnlyDictionary{TKey, TValue}"/> with <c>init;</c> to
+    /// make that contract explicit — callers should whole-replace via object initialiser
+    /// rather than expect mutation semantics.
+    /// </remarks>
+    public IReadOnlyDictionary<string, string> RoleNameToIdSeed { get; init; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 }

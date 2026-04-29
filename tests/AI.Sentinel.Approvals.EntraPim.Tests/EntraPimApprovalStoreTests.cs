@@ -299,4 +299,25 @@ public class EntraPimApprovalStoreTests
         var denied = Assert.IsType<ApprovalState.Denied>(state);
         Assert.Contains("policy violation", denied.Reason, StringComparison.OrdinalIgnoreCase);
     }
+
+    // ---------------------------------------------------------------------
+    // 9. EnsureRequest_NonGuidCallerId_ReturnsDeniedWithClearMessage
+    // ---------------------------------------------------------------------
+    // Caller-identity guard: a UPN-shaped or otherwise non-GUID ISecurityContext.Id must
+    // be rejected BEFORE any Graph call, with an operator-actionable message — otherwise
+    // Graph silently returns empty results and the store reports "caller is not eligible",
+    // which is misleading. UPN fallback (§7.4) is a Stage 2 follow-up.
+    [Fact]
+    public async Task EnsureRequest_NonGuidCallerId_ReturnsDeniedWithClearMessage()
+    {
+        var fake = MakeFake();
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+        var caller = new TestSecurityContext("alice@contoso.com");
+
+        var state = await store.EnsureRequestAsync(caller, MakeSpec(), MakeCtx(), default);
+
+        var denied = Assert.IsType<ApprovalState.Denied>(state);
+        Assert.Contains("AAD object ID", denied.Reason, StringComparison.Ordinal);
+        Assert.Equal(0, fake.ResolveCount); // No Graph call should have been made
+    }
 }

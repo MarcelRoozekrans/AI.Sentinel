@@ -56,8 +56,10 @@ public sealed class EntraPimApprovalStore : IApprovalStore
         if (string.IsNullOrWhiteSpace(spec.BackendBinding))
             return new ApprovalState.Denied("ApprovalSpec.BackendBinding required for EntraPim", now);
 
-        // Stage 2 follow-up (deferred): UPN fallback per design doc §7.4 — if caller.Id looks
-        // like a UPN, resolve via GET /users/{UPN}. For now treat caller.Id as the AAD object id.
+        // Caller-identity guard: see RejectIfNotGuid (§7.4 — UPN fallback is a Stage 2 follow-up).
+        if (RejectIfNotGuid(caller.Id, now) is { } guardDenied)
+            return guardDenied;
+
         var principalId = caller.Id;
         var roleName = spec.BackendBinding!;
 
@@ -94,9 +96,10 @@ public sealed class EntraPimApprovalStore : IApprovalStore
         }
         catch (Exception ex)
         {
-            // Pragmatic catch-all per design doc §7.5. Task 2.4 will refine with typed exceptions
-            // from MicrosoftGraphRoleClient (401/403/429/5xx classification).
-            return new ApprovalState.Denied(ClassifyGraphError(ex), now);
+            // Pragmatic catch-all per design doc §7.5. ClassifyGraphError inspects the
+            // typed exception (ODataError/HttpRequestException) and returns a Denied
+            // ApprovalState with operator-actionable context.
+            return ClassifyGraphError(ex, "EnsureRequest");
         }
     }
 
@@ -120,15 +123,9 @@ public sealed class EntraPimApprovalStore : IApprovalStore
             if (linked.IsCancellationRequested)
                 return lastState;
 
-            try
-            {
-                await DelayWithJitterAsync(currentWait, linked).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return lastState;
-            }
-
+            // Read FIRST, then delay. This avoids paying a full PollInterval of latency
+            // on the auto-approve case — when the activation is provisioned immediately
+            // (no admin gate), the first read returns Active and we exit without sleeping.
             RoleRequestSnapshot snap;
             try
             {
@@ -141,7 +138,7 @@ public sealed class EntraPimApprovalStore : IApprovalStore
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                return new ApprovalState.Denied(ClassifyGraphError(ex), _time.GetUtcNow());
+                return ClassifyGraphError(ex, "WaitForDecision");
             }
 
             var mapped = await MapRequestStatusAsync(requestId, snap, linked).ConfigureAwait(false);
@@ -155,7 +152,17 @@ public sealed class EntraPimApprovalStore : IApprovalStore
                     break;
             }
 
-            // Exponential backoff capped at PollMaxBackoff.
+            // Pending — delay before the next read, with exponential backoff capped at
+            // PollMaxBackoff. Cancellation during the delay returns the most recent state.
+            try
+            {
+                await DelayWithJitterAsync(currentWait, linked).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return lastState;
+            }
+
             var doubled = TimeSpan.FromTicks(currentWait.Ticks * 2);
             currentWait = doubled > maxBackoff ? maxBackoff : doubled;
         }
@@ -262,19 +269,69 @@ public sealed class EntraPimApprovalStore : IApprovalStore
         string.Equals(status, "Failed", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(status, "Revoked", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(status, "Canceled", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(status, "Cancelled", StringComparison.OrdinalIgnoreCase);
+        string.Equals(status, "Cancelled", StringComparison.OrdinalIgnoreCase) ||
+        // PIM corner case (design doc §7.3): the literal status string "AdminApproved"
+        // means "approver granted, but the schedule failed to provision" — i.e. the
+        // request is terminal-failed even though the name reads positive. Treat as denied.
+        string.Equals(status, "AdminApproved", StringComparison.OrdinalIgnoreCase);
 
-    private static string ClassifyGraphError(Exception ex)
+    /// <summary>
+    /// Caller-identity guard: <see cref="ISecurityContext.Id"/> MUST be the AAD object ID
+    /// (GUID). If a UPN or other shape leaks through, Graph silently returns empty results
+    /// and the store reports "caller is not eligible" — confusing and misleading. We fail
+    /// fast with an operator-actionable message. UPN fallback (design doc §7.4) is a
+    /// Stage 2 follow-up; once implemented, this guard relaxes to accept UPN-shaped IDs.
+    /// </summary>
+    /// <returns><c>null</c> when the id is a valid GUID, else a <see cref="ApprovalState.Denied"/>.</returns>
+    private static ApprovalState.Denied? RejectIfNotGuid(string callerId, DateTimeOffset now)
     {
-        // Heuristic — Task 2.4 will replace this with typed exceptions from the Graph adapter.
-        var msg = ex.Message ?? string.Empty;
-        if (msg.Contains("401", StringComparison.Ordinal) ||
-            msg.Contains("403", StringComparison.Ordinal) ||
-            msg.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase) ||
-            msg.Contains("Forbidden", StringComparison.OrdinalIgnoreCase))
-        {
-            return "RoleManagement.ReadWrite.Directory consent required";
-        }
-        return $"Graph error: {ex.GetType().Name}";
+        if (Guid.TryParse(callerId, out _))
+            return null;
+        return new ApprovalState.Denied(
+            $"ISecurityContext.Id must be an AAD object ID (GUID) for EntraPim; received '{callerId}'. " +
+            "UPN-shaped IDs are not yet supported — see design doc §7.4 (UPN fallback is a Stage 2 follow-up).",
+            now);
     }
+
+    private ApprovalState ClassifyGraphError(Exception ex, string contextLabel)
+    {
+        // Microsoft.Graph throws ODataError (Microsoft.Graph.Models.ODataErrors.ODataError)
+        // with ResponseStatusCode populated. We use reflection rather than a hard reference
+        // to avoid pulling additional Graph types into our public surface. Falls back to
+        // HttpRequestException's StatusCode when the SDK throws at the transport layer.
+        var statusCode = ex switch
+        {
+            _ when string.Equals(
+                ex.GetType().FullName,
+                "Microsoft.Graph.Models.ODataErrors.ODataError",
+                StringComparison.Ordinal) => GetResponseStatusCode(ex),
+            HttpRequestException hre => (int?)hre.StatusCode,
+            _ => null,
+        };
+
+        var now = _time.GetUtcNow();
+        return statusCode switch
+        {
+            401 or 403 => new ApprovalState.Denied(
+                $"Graph access denied at {contextLabel}: RoleManagement.ReadWrite.Directory consent likely missing. " +
+                $"({ex.GetType().Name}: {Truncate(ex.Message ?? string.Empty, 200)})",
+                now),
+            429 => new ApprovalState.Denied(
+                $"Graph rate-limited at {contextLabel}: retry-after honouring not yet implemented (see follow-up).",
+                now),
+            _ => new ApprovalState.Denied(
+                $"Graph error at {contextLabel}: {ex.GetType().Name}: {Truncate(ex.Message ?? string.Empty, 200)}",
+                now),
+        };
+    }
+
+    private static int? GetResponseStatusCode(Exception ex)
+    {
+        // ODataError exposes ResponseStatusCode as int. Reflection avoids a hard ref.
+        var prop = ex.GetType().GetProperty("ResponseStatusCode");
+        return prop?.GetValue(ex) is int code ? code : null;
+    }
+
+    private static string Truncate(string s, int max) =>
+        s.Length <= max ? s : s[..max] + "…";
 }

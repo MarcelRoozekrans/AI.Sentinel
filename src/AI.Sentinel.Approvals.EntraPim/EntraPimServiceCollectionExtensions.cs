@@ -2,6 +2,7 @@ using AI.Sentinel.Approvals;
 using Azure.Core;
 using Azure.Identity;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Graph;
 
 namespace AI.Sentinel.Approvals.EntraPim;
@@ -39,7 +40,11 @@ public static class EntraPimServiceCollectionExtensions
         var options = BuildOptions(configure);
         services.AddSingleton(options);
 
-        services.AddSingleton<GraphServiceClient>(sp =>
+        // TryAddSingleton: operators who pre-register their own GraphServiceClient (e.g.
+        // for tests, to share an SDK pipeline, or to plug in custom retry handlers) keep
+        // their version. Same treatment for IGraphRoleClient — wrapping in retry/decorator
+        // middleware is a legitimate extension point.
+        services.TryAddSingleton<GraphServiceClient>(sp =>
         {
             // Operators can pre-register a TokenCredential to override the default chain
             // (e.g. for tests, on-behalf-of flows, or custom client-secret configs).
@@ -49,9 +54,12 @@ public static class EntraPimServiceCollectionExtensions
                 scopes: new[] { "https://graph.microsoft.com/.default" });
         });
 
-        services.AddSingleton<IGraphRoleClient>(sp =>
+        services.TryAddSingleton<IGraphRoleClient>(sp =>
             new MicrosoftGraphRoleClient(sp.GetRequiredService<GraphServiceClient>()));
 
+        // IApprovalStore stays AddSingleton: last-write-wins is the right contract for
+        // the headline approval store — operators explicitly opt in to this backend by
+        // calling this extension, and the docs above document that semantics.
         services.AddSingleton<IApprovalStore>(sp =>
             new EntraPimApprovalStore(
                 sp.GetRequiredService<IGraphRoleClient>(),

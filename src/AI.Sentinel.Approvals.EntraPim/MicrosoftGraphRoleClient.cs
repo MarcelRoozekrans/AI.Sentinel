@@ -34,20 +34,30 @@ public sealed class MicrosoftGraphRoleClient : IGraphRoleClient
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
 
+        // Top=2 to sniff for ambiguity. Custom Entra roles can collide with built-in
+        // display names; blindly picking the first match would silently activate the
+        // wrong role. EntraPimApprovalStore.EnsureRequestAsync catches the thrown
+        // InvalidOperationException via ClassifyGraphError → Denied.
         var filter = $"displayName eq '{EscapeOData(displayName)}'";
         var page = await _graph.RoleManagement.Directory.RoleDefinitions
             .GetAsync(rc =>
             {
                 rc.QueryParameters.Filter = filter;
-                rc.QueryParameters.Top = 1;
+                rc.QueryParameters.Top = 2;
                 rc.QueryParameters.Select = new[] { "id", "displayName" };
             }, ct)
             .ConfigureAwait(false);
 
-        var match = page?.Value;
-        if (match is null || match.Count == 0)
+        var matches = page?.Value;
+        if (matches is null || matches.Count == 0)
             return null;
-        return match[0].Id;
+        if (matches.Count > 1)
+        {
+            throw new InvalidOperationException(
+                $"Role display name '{displayName}' is ambiguous in this tenant ({matches.Count}+ matches). " +
+                "Pre-resolve via EntraPimOptions.RoleNameToIdSeed.");
+        }
+        return matches[0].Id;
     }
 
     /// <inheritdoc/>
@@ -57,13 +67,14 @@ public sealed class MicrosoftGraphRoleClient : IGraphRoleClient
         ArgumentException.ThrowIfNullOrWhiteSpace(principalId);
         ArgumentException.ThrowIfNullOrWhiteSpace(roleId);
 
-        // Filter by (principal, role) and Provisioned status. PendingProvisioning is
-        // observed via the request status path — schedules surface here only once the
-        // grant exists.
+        // Filter by (principal, role) including both Provisioned and PendingProvisioning
+        // statuses — EntraPimApprovalStore.IsActiveScheduleStatus treats both as Active,
+        // so the schedule fetch must surface the same range or a schedule sitting in
+        // PendingProvisioning would be invisible here.
         var filter =
             $"principalId eq '{EscapeOData(principalId)}' and " +
             $"roleDefinitionId eq '{EscapeOData(roleId)}' and " +
-            "status eq 'Provisioned'";
+            "(status eq 'Provisioned' or status eq 'PendingProvisioning')";
 
         var page = await _graph.RoleManagement.Directory.RoleAssignmentSchedules
             .GetAsync(rc =>
