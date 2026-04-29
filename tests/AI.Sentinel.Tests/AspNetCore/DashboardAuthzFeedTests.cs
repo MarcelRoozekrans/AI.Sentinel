@@ -60,6 +60,33 @@ public class DashboardAuthzFeedTests
     }
 
     [Fact]
+    public async Task LiveFeed_EmptyStore_RendersEmptyStateRow()
+    {
+        var host = await BuildHostAsync();
+
+        var client = host.GetTestClient();
+        var html = await client.GetStringAsync("/sentinel/api/feed");
+
+        Assert.Contains("feed-empty", html, StringComparison.Ordinal);
+        Assert.Contains("agents are quiet", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LiveFeed_FilterWithNoMatches_RendersFilterEmptyStateRow()
+    {
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+
+        await store.AppendAsync(NewEntry("PROMPT-INJECTION", "harmless"), CancellationToken.None);
+
+        var client = host.GetTestClient();
+        var html = await client.GetStringAsync("/sentinel/api/feed?filter=authz");
+
+        Assert.Contains("feed-empty", html, StringComparison.Ordinal);
+        Assert.Contains("No events match this filter", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DashboardIndex_RendersAuthorizationFilterChip()
     {
         var host = await BuildHostAsync();

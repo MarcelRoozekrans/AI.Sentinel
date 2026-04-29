@@ -66,6 +66,17 @@ internal static class DashboardHandlers
 
         var sb = new StringBuilder();
         var ordered = filtered.OrderByDescending(x => x.Timestamp).Take(50).ToList();
+        if (ordered.Count == 0)
+        {
+            var emptyMessage = string.IsNullOrEmpty(filter)
+                ? "No events yet — agents are quiet."
+                : "No events match this filter.";
+            sb.Append("<tr class=\"feed-empty\"><td colspan=\"5\">")
+              .Append(emptyMessage)
+              .AppendLine("</td></tr>");
+            await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
+            return;
+        }
         foreach (ref readonly var e in CollectionsMarshal.AsSpan(ordered))
         {
             var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;

@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>AI.Sentinel Dashboard</title>
+  <link rel="icon" href="data:,">
+  <meta name="theme-color" content="#0b1120">
   <script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
   <link rel="stylesheet" href="static/sentinel.css">
 </head>
@@ -41,8 +43,8 @@
     <section class="panel feed-panel">
       <h2>Live Event Feed</h2>
       <div class="feed-chips" id="feed-chips" role="tablist" aria-label="Audit feed filter">
-        <button type="button" class="feed-chip active" data-filter="" aria-pressed="true">All</button>
-        <button type="button" class="feed-chip chip-authz" data-filter="authz" aria-pressed="false">Authorization</button>
+        <button type="button" role="tab" class="feed-chip active" data-filter="" aria-selected="true" aria-pressed="true" tabindex="0">All</button>
+        <button type="button" role="tab" class="feed-chip chip-authz" data-filter="authz" aria-selected="false" aria-pressed="false" tabindex="-1">Authorization</button>
       </div>
       <div class="table-wrap">
         <table>
@@ -77,21 +79,42 @@
     };
 
     // Filter chips: rewrite the feed body's hx-get URL and trigger an immediate refresh.
+    // Implements the WAI-ARIA tab pattern with roving tabindex + arrow-key / Home / End nav.
     (function () {
-      const chips = document.querySelectorAll('#feed-chips .feed-chip');
+      const chips = Array.from(document.querySelectorAll('#feed-chips .feed-chip'));
       const feedBody = document.getElementById('feed-body');
-      chips.forEach(function (chip) {
-        chip.addEventListener('click', function () {
-          chips.forEach(function (c) {
-            c.classList.remove('active');
-            c.setAttribute('aria-pressed', 'false');
-          });
-          chip.classList.add('active');
-          chip.setAttribute('aria-pressed', 'true');
-          const filter = chip.getAttribute('data-filter') || '';
-          const url = filter ? ('api/feed?filter=' + encodeURIComponent(filter)) : 'api/feed';
-          feedBody.setAttribute('hx-get', url);
-          if (window.htmx) { window.htmx.ajax('GET', url, { target: '#feed-body', swap: 'innerHTML' }); }
+
+      function activate(chip) {
+        chips.forEach(function (c) {
+          c.classList.remove('active');
+          c.setAttribute('aria-selected', 'false');
+          c.setAttribute('aria-pressed', 'false');
+          c.setAttribute('tabindex', '-1');
+        });
+        chip.classList.add('active');
+        chip.setAttribute('aria-selected', 'true');
+        chip.setAttribute('aria-pressed', 'true');
+        chip.setAttribute('tabindex', '0');
+        const filter = chip.getAttribute('data-filter') || '';
+        const url = filter ? ('api/feed?filter=' + encodeURIComponent(filter)) : 'api/feed';
+        feedBody.setAttribute('hx-get', url);
+        if (window.htmx) { window.htmx.ajax('GET', url, { target: '#feed-body', swap: 'innerHTML' }); }
+      }
+
+      chips.forEach(function (chip, index) {
+        chip.addEventListener('click', function () { activate(chip); });
+        chip.addEventListener('keydown', function (e) {
+          let target = null;
+          switch (e.key) {
+            case 'ArrowRight': target = chips[(index + 1) % chips.length]; break;
+            case 'ArrowLeft':  target = chips[(index - 1 + chips.length) % chips.length]; break;
+            case 'Home':       target = chips[0]; break;
+            case 'End':        target = chips[chips.length - 1]; break;
+            default: return;
+          }
+          e.preventDefault();
+          activate(target);
+          target.focus();
         });
       });
     })();

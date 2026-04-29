@@ -173,3 +173,34 @@ tr.audit-row-authz td:first-child {
 .feed-chip.chip-authz.active { border-color: #f59e0b; color: #fbbf24; }
 
 .loading { color: var(--muted); font-style: italic; }
+
+/* Empty-state row inside the live feed */
+.feed-empty td {
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+  padding: 1.25rem 0.5rem;
+  white-space: normal;
+}
+
+/* Roving-tabindex focus ring for filter chips (keyboard nav) */
+.feed-chip:focus-visible {
+  outline: 2px solid #7dd3fc;
+  outline-offset: 2px;
+}
+
+/* Mobile / narrow viewports: collapse to single column, scroll the table horizontally */
+@media (max-width: 600px) {
+  main {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr;
+    height: auto;
+    min-height: calc(100vh - 64px);
+  }
+  .trs-panel { grid-row: auto; }
+  .gauge { width: 120px; }
+  .feed-panel { grid-column: 1; }
+  .table-wrap { overflow-x: auto; }
+  table { min-width: 480px; }
+  .feed-chips { gap: 0.3rem; }
+}
