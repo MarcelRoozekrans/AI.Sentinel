@@ -4,3 +4,6 @@ BenchmarkDotNet.Artifacts/
 bin/
 obj/
 *.user
+
+# Local tooling state (Claude Code session, etc.)
+.claude/
