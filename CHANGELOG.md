@@ -9,6 +9,28 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.1.0...v1.2.0) (2026-04-29)
+
+
+### Features
+
+* **approvals:** ApprovalSpec / ApprovalContext / PendingRequest records ([8767c40](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/8767c40e0fa0f248401db1f44b664a325d216103))
+* **approvals:** chat-client middleware blocks-and-waits on RequireApproval ([43fa1cc](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/43fa1ccbce213e8f72c40d5f146ba965ec013e01))
+* **approvals:** DefaultToolCallGuard delegates to IApprovalStore for approval bindings ([4534397](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/453439706f0c686909bb1540cc8ee73fed86e9a3))
+* **approvals:** IApprovalStore + IApprovalAdmin contracts + ApprovalState ([b8722a6](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b8722a63625d2cb84ce1d1eae567703d201a4557))
+* **approvals:** InMemoryApprovalStore (IApprovalStore + IApprovalAdmin) ([6b19aaa](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/6b19aaad6372cb824d9b7972fde1ed279fb66ff7))
+* **approvals:** opts.RequireApproval(toolPattern, spec) registration verb ([cccebbc](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/cccebbcec59aa22386489b3e62f7162e70a9c3dc))
+* **approvals:** Stage 1 — core abstraction + InMemoryApprovalStore + middleware ([3ac561d](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/3ac561d9c59f689eb0de2bc8f978af432dd6588a))
+* **authz:** RequireApproval decision tier + AsBinary fold helper ([79e4583](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/79e4583d47b3f1657ee07d8281e729bf4f3e0c81))
+* **sqlite:** MaxDatabaseSizeBytes cap on SqliteAuditStore ([62a9a23](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/62a9a23d14ade9ddcff3b661a122a95f93b47878))
+
+
+### Bug Fixes
+
+* **approvals:** chat-client re-queries guard after WaitForDecisionAsync — fixes stacked-binding skip ([90f71d3](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/90f71d38a3a36c9ad9ef0c64f39683b514fecc14))
+* **approvals:** InMemoryApprovalStore dedupe cleanup + TOCTOU lock + persist approverId ([cd7f152](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/cd7f152bd77f1ec104be7b7de7eb6098c8b708e5))
+* **aspnetcore:** mobile dashboard polish — drop Hash column, scroll affordance ([7aa5a15](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/7aa5a15815b9fe83b53712c85aa977e168541d33))
+
 ## [1.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.0.1...v1.1.0) (2026-04-29)
 
 
