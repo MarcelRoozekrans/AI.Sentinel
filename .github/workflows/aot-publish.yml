@@ -94,6 +94,10 @@ jobs:
             Write-Host "Exit: $code; output: $out"
             if ($code -ne 1) { Write-Error "MCP binary did not exit 1 with no args"; exit 1 }
             if ($out -notmatch "Usage") { Write-Error "Expected 'Usage' in stderr"; exit 1 }
+            # The MCP binary's "success" exit code is 1 (intentional — no args = Usage).
+            # Without resetting, PowerShell would propagate $LASTEXITCODE=1 to this step's
+            # overall exit code, failing the job even though the assertions passed.
+            $global:LASTEXITCODE = 0
           } else {
             # Hook CLIs: pipe JSON, try user-prompt-submit then user-prompt-submitted
             $payload = '{"session_id":"ci","sessionId":"ci","prompt":"hello"}'
