@@ -7,14 +7,20 @@ namespace AI.Sentinel.Approvals.EntraPim;
 public sealed class EntraPimOptions
 {
     /// <summary>Entra ID tenant ID (GUID). Required.</summary>
-    public required string TenantId { get; init; }
+    /// <remarks>
+    /// Mutable (<c>set;</c>) rather than <c>init;</c> so the
+    /// <c>AddSentinelEntraPimApprovalStore(opts =&gt; ...)</c> configure delegate can
+    /// assign it after construction (matches the Task 1.6 <c>ApprovalSpec</c> pattern).
+    /// The <c>required</c> modifier still enforces it at construction time.
+    /// </remarks>
+    public required string TenantId { get; set; }
 
     /// <summary>Initial poll interval for <c>WaitForDecisionAsync</c>. Doubles on each
     /// iteration up to <see cref="PollMaxBackoff"/>, with ±20% jitter.</summary>
-    public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(1);
+    public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(1);
 
     /// <summary>Upper bound on the polling backoff schedule.</summary>
-    public TimeSpan PollMaxBackoff { get; init; } = TimeSpan.FromSeconds(30);
+    public TimeSpan PollMaxBackoff { get; set; } = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// Pre-resolved role display-name → roleDefinitionId mappings. Lookups skip the Graph
