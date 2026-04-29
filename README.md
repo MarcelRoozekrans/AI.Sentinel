@@ -1,5 +1,12 @@
 # AI.Sentinel
 
+[![CI](https://github.com/MarcelRoozekrans/AI.Sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/MarcelRoozekrans/AI.Sentinel/actions/workflows/ci.yml)
+[![NuGet](https://img.shields.io/nuget/v/AI.Sentinel.svg?label=AI.Sentinel)](https://www.nuget.org/packages/AI.Sentinel)
+[![Downloads](https://img.shields.io/nuget/dt/AI.Sentinel.svg)](https://www.nuget.org/packages/AI.Sentinel)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Docs](https://img.shields.io/badge/docs-marcelroozekrans.github.io-blue)](https://marcelroozekrans.github.io/AI.Sentinel/)
+[![Sponsor](https://img.shields.io/badge/sponsor-%E2%9D%A4-ec4899?logo=githubsponsors)](https://github.com/sponsors/MarcelRoozekrans)
+
 Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 55 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
 ---
