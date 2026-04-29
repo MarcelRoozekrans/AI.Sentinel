@@ -10,6 +10,15 @@
     <NoWarn>$(NoWarn);EPS06;EPC12</NoWarn>
   </PropertyGroup>
 
+  <!-- Shared NuGet packaging metadata. Per-package csproj sets PackageId/Description/PackageTags. -->
+  <PropertyGroup>
+    <PackageIcon>logo.png</PackageIcon>
+    <PackageProjectUrl>https://github.com/ZeroAlloc-Net/AI.Sentinel</PackageProjectUrl>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)assets\logo.png" Pack="true" PackagePath="\" Visible="false" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Meziantou.Analyzer" Version="3.0.25">
       <PrivateAssets>all</PrivateAssets>

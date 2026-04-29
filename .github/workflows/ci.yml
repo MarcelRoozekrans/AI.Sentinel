@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore
+        run: dotnet restore AI.Sentinel.slnx
+
+      - name: Build
+        run: dotnet build AI.Sentinel.slnx --no-restore -c Release
+
+      - name: Test
+        run: dotnet test AI.Sentinel.slnx --no-build -c Release --verbosity normal
+
+  pack-push:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Run GitVersion
+        id: gitversion
+        run: |
+          JSON=$(dotnet gitversion)
+          echo "$JSON"
+          SEMVER=$(echo "$JSON" | jq -r '.SemVer')
+          echo "version=$SEMVER" >> "$GITHUB_OUTPUT"
+          echo "Version: $SEMVER"
+
+      - name: Restore
+        run: dotnet restore AI.Sentinel.slnx
+
+      - name: Build
+        run: dotnet build AI.Sentinel.slnx --no-restore -c Release -p:Version=${{ steps.gitversion.outputs.version }}
+
+      - name: Pack
+        run: |
+          for proj in \
+            src/AI.Sentinel/AI.Sentinel.csproj \
+            src/AI.Sentinel.AspNetCore/AI.Sentinel.AspNetCore.csproj \
+            src/AI.Sentinel.AzureSentinel/AI.Sentinel.AzureSentinel.csproj \
+            src/AI.Sentinel.ClaudeCode/AI.Sentinel.ClaudeCode.csproj \
+            src/AI.Sentinel.ClaudeCode.Cli/AI.Sentinel.ClaudeCode.Cli.csproj \
+            src/AI.Sentinel.Cli/AI.Sentinel.Cli.csproj \
+            src/AI.Sentinel.Copilot/AI.Sentinel.Copilot.csproj \
+            src/AI.Sentinel.Copilot.Cli/AI.Sentinel.Copilot.Cli.csproj \
+            src/AI.Sentinel.Detectors.Sdk/AI.Sentinel.Detectors.Sdk.csproj \
+            src/AI.Sentinel.Mcp/AI.Sentinel.Mcp.csproj \
+            src/AI.Sentinel.Mcp.Cli/AI.Sentinel.Mcp.Cli.csproj \
+            src/AI.Sentinel.OpenTelemetry/AI.Sentinel.OpenTelemetry.csproj \
+            src/AI.Sentinel.Sqlite/AI.Sentinel.Sqlite.csproj; do
+            dotnet pack "$proj" --no-build -c Release \
+              -p:PackageVersion=${{ steps.gitversion.outputs.version }} \
+              -o ./artifacts
+          done
+
+      - name: Push to NuGet (pre-release)
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate

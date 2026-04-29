@@ -1,0 +1,72 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - name: Release Please
+        uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: simple
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Build
+        run: dotnet build AI.Sentinel.slnx -c Release -p:Version=${{ needs.release-please.outputs.version }}
+
+      - name: Test
+        run: dotnet test AI.Sentinel.slnx -c Release --no-build
+
+      - name: Pack
+        run: |
+          for proj in \
+            src/AI.Sentinel/AI.Sentinel.csproj \
+            src/AI.Sentinel.AspNetCore/AI.Sentinel.AspNetCore.csproj \
+            src/AI.Sentinel.AzureSentinel/AI.Sentinel.AzureSentinel.csproj \
+            src/AI.Sentinel.ClaudeCode/AI.Sentinel.ClaudeCode.csproj \
+            src/AI.Sentinel.ClaudeCode.Cli/AI.Sentinel.ClaudeCode.Cli.csproj \
+            src/AI.Sentinel.Cli/AI.Sentinel.Cli.csproj \
+            src/AI.Sentinel.Copilot/AI.Sentinel.Copilot.csproj \
+            src/AI.Sentinel.Copilot.Cli/AI.Sentinel.Copilot.Cli.csproj \
+            src/AI.Sentinel.Detectors.Sdk/AI.Sentinel.Detectors.Sdk.csproj \
+            src/AI.Sentinel.Mcp/AI.Sentinel.Mcp.csproj \
+            src/AI.Sentinel.Mcp.Cli/AI.Sentinel.Mcp.Cli.csproj \
+            src/AI.Sentinel.OpenTelemetry/AI.Sentinel.OpenTelemetry.csproj \
+            src/AI.Sentinel.Sqlite/AI.Sentinel.Sqlite.csproj; do
+            dotnet pack "$proj" -c Release --no-build \
+              -p:PackageVersion=${{ needs.release-please.outputs.version }} \
+              -o ./nupkg
+          done
+
+      - name: Push to NuGet
+        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Upload to GitHub Release
+        run: gh release upload ${{ needs.release-please.outputs.tag_name }} ./nupkg/*.nupkg
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
