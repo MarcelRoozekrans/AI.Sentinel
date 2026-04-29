@@ -1,0 +1,83 @@
+.heroBanner {
+  padding: 4rem 0;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 40%, #0ea5e9 100%);
+  color: white;
+}
+
+[data-theme='dark'] .heroBanner {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 40%, #38bdf8 100%);
+}
+
+.heroLogo {
+  width: 120px;
+  height: 120px;
+  margin-bottom: 1.5rem;
+}
+
+.buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.features {
+  display: flex;
+  align-items: center;
+  padding: 3rem 0;
+}
+
+.codeExample {
+  padding: 3rem 0;
+  background: var(--ifm-color-emphasis-100);
+}
+
+[data-theme='dark'] .codeExample {
+  background: var(--ifm-color-emphasis-200);
+}
+
+.codeBlock {
+  padding: 1.5rem;
+  border-radius: 8px;
+  background: var(--ifm-color-emphasis-200);
+  font-size: 0.85rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+[data-theme='dark'] .codeBlock {
+  background: var(--ifm-color-emphasis-100);
+}
+
+.packages {
+  padding: 3rem 0;
+}
+
+.packageCard {
+  padding: 1.5rem;
+  margin-bottom: 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  height: 100%;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.packageCard:hover {
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 2px 12px rgba(14, 165, 233, 0.15);
+}
+
+.packageCard h3 {
+  margin-bottom: 0.5rem;
+  font-size: 1rem;
+}
+
+.packageCard p {
+  margin: 0;
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.9rem;
+}
