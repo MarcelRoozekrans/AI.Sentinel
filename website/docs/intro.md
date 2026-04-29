@@ -5,7 +5,7 @@ title: Introduction
 
 # Introduction
 
-**AI.Sentinel** is security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). It wraps any LLM client transparently, scans every prompt and response through 51 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+**AI.Sentinel** is security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). It wraps any LLM client transparently, scans every prompt and response through 55 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
 ## The problem
 
@@ -25,7 +25,7 @@ AI.Sentinel ships as 13 focused NuGet packages so you only take dependencies you
 
 | Package | Purpose |
 |---|---|
-| `AI.Sentinel` | Core — pipeline, 51 detectors, intervention engine, audit store |
+| `AI.Sentinel` | Core — pipeline, 55 detectors, intervention engine, audit store |
 | `AI.Sentinel.Detectors.Sdk` | SDK for writing and testing custom detectors — `SentinelContextBuilder`, `FakeEmbeddingGenerator`, `DetectorTestBuilder` |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |

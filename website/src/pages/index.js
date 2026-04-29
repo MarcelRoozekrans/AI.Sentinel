@@ -27,7 +27,7 @@ function HeroBanner() {
 
 const features = [
   {
-    title: '51 detectors out of the box',
+    title: '55 detectors out of the box',
     description: 'Prompt injection, jailbreaks, PII / credential leakage, hallucinated citations, repetition loops — security, hallucination, and operational coverage from day one.',
   },
   {
@@ -120,7 +120,7 @@ function PackagesSection() {
           <div className="col col--4">
             <div className={styles.packageCard}>
               <h3>AI.Sentinel</h3>
-              <p>Core — pipeline, 51 detectors, intervention engine, audit store.</p>
+              <p>Core — pipeline, 55 detectors, intervention engine, audit store.</p>
             </div>
           </div>
           <div className="col col--4">
