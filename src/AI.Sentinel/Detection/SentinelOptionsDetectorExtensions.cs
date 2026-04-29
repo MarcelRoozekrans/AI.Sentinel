@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+
 namespace AI.Sentinel.Detection;
 
 /// <summary>Extension methods on <see cref="SentinelOptions"/> for registering custom <see cref="IDetector"/> implementations.</summary>
@@ -8,7 +10,9 @@ public static class SentinelOptionsDetectorExtensions
     /// <param name="opts">The Sentinel options to configure.</param>
     /// <returns>The same <see cref="SentinelOptions"/> instance, to support fluent chaining.</returns>
     /// <remarks>Singleton lifetime. The detector is constructed via DI — its constructor parameters must be resolvable from the host's <see cref="IServiceProvider"/>.</remarks>
-    public static SentinelOptions AddDetector<T>(this SentinelOptions opts) where T : class, IDetector
+    public static SentinelOptions AddDetector<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(
+        this SentinelOptions opts) where T : class, IDetector
     {
         ArgumentNullException.ThrowIfNull(opts);
         opts.AddDetectorRegistration(new SentinelOptions.DetectorRegistration(typeof(T), Factory: null));

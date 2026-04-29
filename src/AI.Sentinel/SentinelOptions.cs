@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.AI;
 using ZeroAlloc.Validation;
 using AI.Sentinel.Authorization;
@@ -29,7 +30,10 @@ public sealed class SentinelOptions
     internal void AddDetectorRegistration(DetectorRegistration registration) => _detectorRegistrations.Add(registration);
 
     /// <summary>Internal accumulator entry describing a user-registered <see cref="IDetector"/>.</summary>
-    internal sealed record DetectorRegistration(Type DetectorType, Func<IServiceProvider, IDetector>? Factory);
+    internal sealed record DetectorRegistration(
+        [property: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        Type DetectorType,
+        Func<IServiceProvider, IDetector>? Factory);
 
     private readonly Dictionary<Type, DetectorConfiguration> _detectorConfigurations = new();
 

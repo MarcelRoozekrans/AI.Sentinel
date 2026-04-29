@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using AI.Sentinel.Alerts;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
@@ -7,6 +9,19 @@ namespace AI.Sentinel.Tests.Alerts;
 
 public class AlertSinkTests
 {
+    /// <summary>
+    /// Reserves an ephemeral port via TcpListener:0, then releases it so HttpListener can rebind.
+    /// Eliminates the fixed-port collisions that flaked CI builds — Windows agents reuse ports
+    /// quickly and fixed numbers (19998 etc.) can clash with other concurrent test work.
+    /// </summary>
+    private static int GetFreePort()
+    {
+        var l = new TcpListener(IPAddress.Loopback, 0);
+        l.Start();
+        try { return ((IPEndPoint)l.LocalEndpoint).Port; }
+        finally { l.Stop(); }
+    }
+
     [Fact]
     public async Task NullAlertSink_DoesNotThrow()
     {
@@ -41,8 +56,9 @@ public class AlertSinkTests
     [Fact]
     public async Task WebhookAlertSink_ThreatDetected_PostsCorrectJsonPayload()
     {
+        var port = GetFreePort();
         using var listener = new System.Net.HttpListener();
-        listener.Prefixes.Add("http://localhost:19998/hook/");
+        listener.Prefixes.Add($"http://localhost:{port}/hook/");
         listener.Start();
 
         string capturedBody = "";
@@ -55,7 +71,7 @@ public class AlertSinkTests
             ctx.Response.Close();
         });
 
-        var sink = new WebhookAlertSink(new Uri("http://localhost:19998/hook/"));
+        var sink = new WebhookAlertSink(new Uri($"http://localhost:{port}/hook/"));
         var error = new SentinelError.ThreatDetected(
             DetectionResult.WithSeverity(new DetectorId("SEC-99"), Severity.High, "test reason"),
             SentinelAction.Alert,
@@ -76,8 +92,9 @@ public class AlertSinkTests
     [Fact]
     public async Task WebhookAlertSink_PipelineFailure_PostsCorrectJsonPayload()
     {
+        var port = GetFreePort();
         using var listener = new System.Net.HttpListener();
-        listener.Prefixes.Add("http://localhost:19997/hook/");
+        listener.Prefixes.Add($"http://localhost:{port}/hook/");
         listener.Start();
 
         string capturedBody = "";
@@ -90,7 +107,7 @@ public class AlertSinkTests
             ctx.Response.Close();
         });
 
-        var sink = new WebhookAlertSink(new Uri("http://localhost:19997/hook/"));
+        var sink = new WebhookAlertSink(new Uri($"http://localhost:{port}/hook/"));
         var error = new SentinelError.PipelineFailure("something failed");
 
         await sink.SendAsync(error, default);

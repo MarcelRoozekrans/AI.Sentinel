@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AI.Sentinel.Audit;
@@ -58,7 +59,13 @@ internal sealed class AuthorizationChatClient(
                     continue;
                 }
 
-                var argsJson = JsonSerializer.SerializeToElement(fnCall.Arguments);
+                // Tool arguments are IDictionary<string, object?> with arbitrary value shapes
+                // (primitives, nested objects, arrays). Reflection-based serialisation is required;
+                // a JsonSerializerContext can't statically describe `object?`. AuthorizationChatClient
+                // is opt-in (only wired when the consumer calls AddAuthorizationGuard) so AOT/trimming
+                // consumers must avoid this delegating client. The CLI hooks (sentinel-hook, etc.)
+                // never wire it, so the AOT publish pipeline never reaches this code path at runtime.
+                JsonElement argsJson = SerializeArgumentsForAuthorization(fnCall.Arguments);
                 var decision = await guard.AuthorizeAsync(caller, fnCall.Name, argsJson, ct).ConfigureAwait(false);
                 if (decision.Allowed)
                 {
@@ -91,4 +98,16 @@ internal sealed class AuthorizationChatClient(
     }
 
     public void Dispose() => inner.Dispose();
+
+    [UnconditionalSuppressMessage("Trimming", "IL2026:Members annotated with 'RequiresUnreferencedCodeAttribute' require dynamic access otherwise can break functionality when trimming application code", Justification = SerializerJustification)]
+    [UnconditionalSuppressMessage("AotAnalysis", "IL3050:Avoid calling members marked with 'RequiresDynamicCodeAttribute' when publishing as native AOT", Justification = SerializerJustification)]
+    private static JsonElement SerializeArgumentsForAuthorization(IDictionary<string, object?>? arguments)
+        => JsonSerializer.SerializeToElement(arguments);
+
+    private const string SerializerJustification =
+        "Tool argument values are IDictionary<string, object?> with arbitrary shapes; " +
+        "JsonSerializerContext source-gen can't statically describe `object?`. " +
+        "AuthorizationChatClient is opt-in (only wired by AddAuthorizationGuard), and the CLI " +
+        "hooks that AOT-publish never reach this path. Native AOT consumers wiring this client " +
+        "must accept the dynamic-code requirement.";
 }
