@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.Json;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
@@ -38,8 +40,11 @@ internal static class ToolCallInterceptor
         TextWriter stderr,
         IToolCallGuard? guard = null,
         IAuditStore? audit = null,
-        Func<CallToolRequestParams, ISecurityContext>? callerResolver = null) =>
-        next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, guard, audit, callerResolver, next, ctx, ct);
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver = null,
+        IApprovalStore? approvalStore = null,
+        TimeSpan? approvalWait = null) =>
+        next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, guard, audit, callerResolver,
+            approvalStore, approvalWait, next, ctx, ct);
 
     private static async ValueTask<CallToolResult> InvokeAsync(
         SentinelPipeline pipeline,
@@ -48,6 +53,8 @@ internal static class ToolCallInterceptor
         IToolCallGuard? guard,
         IAuditStore? audit,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
+        IApprovalStore? approvalStore,
+        TimeSpan? approvalWait,
         McpRequestHandler<CallToolRequestParams, CallToolResult> next,
         RequestContext<CallToolRequestParams> ctx,
         CancellationToken ct)
@@ -57,7 +64,7 @@ internal static class ToolCallInterceptor
 
         if (guard is not null)
         {
-            await AuthorizeAsync(guard, audit, callerResolver, req, stderr, ct).ConfigureAwait(false);
+            await AuthorizeAsync(guard, audit, callerResolver, approvalStore, approvalWait, req, stderr, ct).ConfigureAwait(false);
         }
 
         var requestMessages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes);
@@ -80,6 +87,8 @@ internal static class ToolCallInterceptor
         IToolCallGuard guard,
         IAuditStore? audit,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
+        IApprovalStore? approvalStore,
+        TimeSpan? approvalWait,
         CallToolRequestParams req,
         TextWriter stderr,
         CancellationToken ct)
@@ -88,6 +97,12 @@ internal static class ToolCallInterceptor
         var args = ToJsonElement(req.Arguments);
         var decision = await guard.AuthorizeAsync(caller, req.Name, args, ct).ConfigureAwait(false);
         if (decision.Allowed) return;
+
+        if (decision is AuthorizationDecision.RequireApprovalDecision r)
+        {
+            await HandleRequireApprovalAsync(guard, audit, approvalStore, approvalWait, caller, args, req, r, stderr, ct).ConfigureAwait(false);
+            return;
+        }
 
         var deny = decision as AuthorizationDecision.DenyDecision;
         var policyName = deny?.PolicyName ?? "?";
@@ -113,6 +128,63 @@ internal static class ToolCallInterceptor
 
         throw new McpProtocolException(
             $"Authorization denied by policy '{policyName}': {reason}",
+            McpErrorCode.InvalidRequest);
+    }
+
+    /// <summary>
+    /// Handles a <see cref="AuthorizationDecision.RequireApprovalDecision"/>: audits as AUTHZ-DENY
+    /// with a request-id reason, optionally blocks on <see cref="IApprovalStore.WaitForDecisionAsync"/>
+    /// (when the proxy was started with <c>SENTINEL_MCP_APPROVAL_WAIT_SEC</c>), and finally throws an
+    /// <see cref="McpProtocolException"/> carrying the receipt text. Returns normally only when the
+    /// wait re-evaluated to Allow.
+    /// </summary>
+    private static async ValueTask HandleRequireApprovalAsync(
+        IToolCallGuard guard,
+        IAuditStore? audit,
+        IApprovalStore? approvalStore,
+        TimeSpan? approvalWait,
+        ISecurityContext caller,
+        JsonElement args,
+        CallToolRequestParams req,
+        AuthorizationDecision.RequireApprovalDecision r,
+        TextWriter stderr,
+        CancellationToken ct)
+    {
+        if (audit is not null)
+        {
+            var approvalEntry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+                sender:     new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
+                receiver:   new AgentId(req.Name),
+                session:    SessionId.New(),
+                callerId:   caller.Id,
+                roles:      caller.Roles,
+                toolName:   req.Name,
+                policyName: r.PolicyName,
+                reason:     $"approval required (requestId={r.RequestId})");
+            await audit.AppendAsync(approvalEntry, ct).ConfigureAwait(false);
+        }
+
+        if (approvalStore is not null && approvalWait is { } wait && wait > TimeSpan.Zero)
+        {
+            await stderr.WriteLineAsync(
+                $"[sentinel-mcp] event=tools/call decision=ApprovalWait tool={req.Name} caller={caller.Id} requestId={r.RequestId} waitSec={wait.TotalSeconds.ToString("0", CultureInfo.InvariantCulture)}"
+            ).ConfigureAwait(false);
+
+            var state = await approvalStore.WaitForDecisionAsync(r.RequestId, wait, ct).ConfigureAwait(false);
+            if (state is ApprovalState.Active)
+            {
+                // Re-evaluate after activation; second guard call sees the active grant.
+                var second = await guard.AuthorizeAsync(caller, req.Name, args, ct).ConfigureAwait(false);
+                if (second.Allowed) return;
+            }
+        }
+
+        await stderr.WriteLineAsync(
+            $"[sentinel-mcp] event=tools/call decision=ApprovalRequired tool={req.Name} caller={caller.Id} policy={r.PolicyName} requestId={r.RequestId}"
+        ).ConfigureAwait(false);
+
+        throw new McpProtocolException(
+            ApprovalReceipt.Format(req.Name, r),
             McpErrorCode.InvalidRequest);
     }
 
