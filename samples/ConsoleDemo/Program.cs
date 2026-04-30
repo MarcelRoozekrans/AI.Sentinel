@@ -8,6 +8,7 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
+using ZeroAlloc.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
