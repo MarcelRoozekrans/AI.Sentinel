@@ -1,10 +1,12 @@
 using System.Net;
 using System.Net.Http;
+using System.Security.Claims;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.AspNetCore;
 using AI.Sentinel.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -70,7 +72,7 @@ public class DashboardApprovalsTests
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
             new TestSec("alice"), MakeSpec(), MakeCtx(), default);
 
-        using var host = await BuildHostAsync(store);
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
         var client = host.GetTestClient();
         var resp = await client.PostAsync($"/sentinel/api/approvals/{pending.RequestId}/approve", new StringContent(""));
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
@@ -86,7 +88,7 @@ public class DashboardApprovalsTests
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
             new TestSec("alice"), MakeSpec(), MakeCtx(), default);
 
-        using var host = await BuildHostAsync(store);
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
         var client = host.GetTestClient();
         var content = new FormUrlEncodedContent(new Dictionary<string, string>(StringComparer.Ordinal) { ["reason"] = "no thanks" });
         var resp = await client.PostAsync($"/sentinel/api/approvals/{pending.RequestId}/deny", content);
@@ -101,13 +103,57 @@ public class DashboardApprovalsTests
     public async Task Approve_Endpoint_NoIApprovalAdmin_Returns404()
     {
         var store = new ExternalOnlyApprovalStore();
-        using var host = await BuildHostAsync(store);
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
         var client = host.GetTestClient();
         var resp = await client.PostAsync("/sentinel/api/approvals/req-x/approve", new StringContent(""));
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
-    private static async Task<IHost> BuildHostAsync(IApprovalStore? approvalStore)
+    [Fact]
+    public async Task ListApprovals_HostileCallerId_IsHtmlEncoded()
+    {
+        var store = new InMemoryApprovalStore();
+        var caller = new TestSec("<script>alert('xss')</script>");
+        await store.EnsureRequestAsync(caller, MakeSpec(), MakeCtx(), default);
+
+        using var host = await BuildHostAsync(store);
+        var client = host.GetTestClient();
+        var html = await client.GetStringAsync("/sentinel/api/approvals");
+
+        Assert.DoesNotContain("<script>alert", html, StringComparison.Ordinal);
+        Assert.Contains("&lt;script&gt;alert", html, StringComparison.Ordinal);
+        // After Issue I-1 fix, single quotes also encoded:
+        Assert.DoesNotContain("'xss'", html, StringComparison.Ordinal);
+        Assert.Contains("&#39;xss&#39;", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Approve_Endpoint_Unauthenticated_Returns401()
+    {
+        var store = new InMemoryApprovalStore();
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
+            new TestSec("alice"), MakeSpec(), MakeCtx(), default);
+
+        using var host = await BuildHostAsync(store);   // No auth wired in test host
+        var client = host.GetTestClient();
+
+        var resp = await client.PostAsync($"/sentinel/api/approvals/{pending.RequestId}/approve", new StringContent(""));
+
+        Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+
+        // State NOT mutated
+        var state = await store.EnsureRequestAsync(new TestSec("alice"), MakeSpec(), MakeCtx(), default);
+        Assert.IsType<ApprovalState.Pending>(state);
+    }
+
+    /// <summary>
+    /// Builds a test host. When <paramref name="authenticatedAs"/> is non-null, an
+    /// auth-injection middleware is wired via the UseAISentinel branch hook so that
+    /// HttpContext.User is an authenticated ClaimsPrincipal with that Name. Mirrors
+    /// the production posture where operators wrap the dashboard with an auth
+    /// middleware via the same branch hook.
+    /// </summary>
+    private static async Task<IHost> BuildHostAsync(IApprovalStore? approvalStore, string? authenticatedAs = null)
     {
         return await new HostBuilder()
             .ConfigureWebHost(web =>
@@ -122,7 +168,27 @@ public class DashboardApprovalsTests
                         services.AddSingleton<IApprovalStore>(approvalStore);
                     }
                 });
-                web.Configure(app => app.UseAISentinel("/sentinel"));
+                web.Configure(app =>
+                {
+                    if (authenticatedAs is not null)
+                    {
+                        app.UseAISentinel("/sentinel", branch =>
+                        {
+                            branch.Use(async (ctx, next) =>
+                            {
+                                var identity = new ClaimsIdentity(
+                                    new[] { new Claim(ClaimTypes.Name, authenticatedAs) },
+                                    authenticationType: "Test");
+                                ctx.User = new ClaimsPrincipal(identity);
+                                await next(ctx);
+                            });
+                        });
+                    }
+                    else
+                    {
+                        app.UseAISentinel("/sentinel");
+                    }
+                });
             })
             .StartAsync();
     }

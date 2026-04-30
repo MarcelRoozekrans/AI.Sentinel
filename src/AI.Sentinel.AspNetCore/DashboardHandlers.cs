@@ -195,7 +195,7 @@ internal static class DashboardHandlers
     }
 
     private static string HtmlEncode(string s) =>
-        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&#39;");
 
     /// <summary>
     /// GET /api/approvals — HTML fragment listing pending approvals. Renders a table for
@@ -227,13 +227,17 @@ internal static class DashboardHandlers
             any = true;
             var ts = pending.RequestedAt.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
             var requestIdEsc = HtmlEncode(pending.RequestId);
+            // URL-encode the request id for path segments. IApprovalStore implementations are free
+            // to mint IDs containing URL-special characters (?, #, /, %); HtmlEncode alone won't
+            // escape those, so use Uri.EscapeDataString for the hx-post URL contexts.
+            var requestIdUrl = Uri.EscapeDataString(pending.RequestId);
             sb.Append("<tr data-request-id=\"").Append(requestIdEsc).Append("\">")
               .Append("<td>").Append(ts).Append("</td>")
               .Append("<td>").Append(HtmlEncode(pending.CallerId)).Append("</td>")
               .Append("<td>").Append(HtmlEncode(pending.ToolName)).Append("</td>")
               .Append("<td class=\"actions\">")
-              .Append("<button type=\"button\" class=\"btn-approve\" hx-post=\"api/approvals/").Append(requestIdEsc).Append("/approve\" hx-target=\"closest tr\" hx-swap=\"outerHTML\">Approve</button>")
-              .Append("<button type=\"button\" class=\"btn-deny\" hx-post=\"api/approvals/").Append(requestIdEsc).Append("/deny\" hx-target=\"closest tr\" hx-swap=\"outerHTML\" hx-vals='{\"reason\":\"denied via dashboard\"}'>Deny</button>")
+              .Append("<button type=\"button\" class=\"btn-approve\" hx-post=\"api/approvals/").Append(requestIdUrl).Append("/approve\" hx-target=\"closest tr\" hx-swap=\"outerHTML swap:0.25s\">Approve</button>")
+              .Append("<button type=\"button\" class=\"btn-deny\" hx-post=\"api/approvals/").Append(requestIdUrl).Append("/deny\" hx-target=\"closest tr\" hx-swap=\"outerHTML swap:0.25s\" hx-vals='{\"reason\":\"denied via dashboard\"}'>Deny</button>")
               .AppendLine("</td></tr>");
         }
         if (!any)
@@ -252,6 +256,16 @@ internal static class DashboardHandlers
     /// </summary>
     public static async Task ApproveAsync(HttpContext ctx)
     {
+        // Fail closed: a misconfigured deployment that forgot to wrap the dashboard with auth
+        // would otherwise silently record "anonymous" as the approver in the audit log forever.
+        // Force a 401 so the operator notices and wires real authentication.
+        if (ctx.User?.Identity?.IsAuthenticated != true)
+        {
+            ctx.Response.StatusCode = 401;
+            await ctx.Response.WriteAsync("Authentication required to approve/deny. Wrap the dashboard with an auth middleware (see docs).").ConfigureAwait(false);
+            return;
+        }
+
         var requestId = (string?)ctx.Request.RouteValues["id"] ?? "";
         if (string.IsNullOrWhiteSpace(requestId))
         {
@@ -266,7 +280,9 @@ internal static class DashboardHandlers
             return;
         }
 
-        var approverId = ctx.User?.Identity?.Name ?? "anonymous";
+        // Authenticated but no Name (e.g., cert auth without subject extraction): "unknown"
+        // is at least honest, vs. the previous "anonymous" which masked an auth misconfiguration.
+        var approverId = ctx.User.Identity.Name ?? "unknown";
         await admin.ApproveAsync(requestId, approverId, note: null, ctx.RequestAborted).ConfigureAwait(false);
 
         // Return an empty row so HTMX removes the row from the table.
@@ -280,6 +296,14 @@ internal static class DashboardHandlers
     /// </summary>
     public static async Task DenyAsync(HttpContext ctx)
     {
+        // Fail closed: see ApproveAsync for rationale.
+        if (ctx.User?.Identity?.IsAuthenticated != true)
+        {
+            ctx.Response.StatusCode = 401;
+            await ctx.Response.WriteAsync("Authentication required to approve/deny. Wrap the dashboard with an auth middleware (see docs).").ConfigureAwait(false);
+            return;
+        }
+
         var requestId = (string?)ctx.Request.RouteValues["id"] ?? "";
         if (string.IsNullOrWhiteSpace(requestId))
         {
@@ -308,7 +332,7 @@ internal static class DashboardHandlers
             }
         }
 
-        var approverId = ctx.User?.Identity?.Name ?? "anonymous";
+        var approverId = ctx.User.Identity.Name ?? "unknown";
         await admin.DenyAsync(requestId, approverId, reason, ctx.RequestAborted).ConfigureAwait(false);
 
         ctx.Response.ContentType = "text/html";
