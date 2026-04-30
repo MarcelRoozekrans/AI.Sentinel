@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.4.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.4.0...v1.4.1) (2026-04-30)
+
+
+### Bug Fixes
+
+* **release:** publish AI.Sentinel.Approvals.{Sqlite,EntraPim} packages ([97cdcee](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/97cdceece52d379d057a18f400cdc6bfd2e7143a))
+* **release:** publish AI.Sentinel.Approvals.{Sqlite,EntraPim} to NuGet ([ab88645](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ab88645dadc11b2719b45d098c866f45f99bb619))
+
 ## [1.4.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.3.0...v1.4.0) (2026-04-30)
 
 
