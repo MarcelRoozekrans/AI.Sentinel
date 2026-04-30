@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
@@ -195,4 +196,122 @@ internal static class DashboardHandlers
 
     private static string HtmlEncode(string s) =>
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+
+    /// <summary>
+    /// GET /api/approvals — HTML fragment listing pending approvals. Renders a table for
+    /// stores that own approval state (InMemory / Sqlite — implement IApprovalAdmin).
+    /// For external-state stores like EntraPim, renders a single "Approve at PIM portal" row.
+    /// </summary>
+    public static async Task ListApprovalsAsync(HttpContext ctx)
+    {
+        var store = ctx.RequestServices.GetService<IApprovalStore>();
+        if (store is null)
+        {
+            ctx.Response.ContentType = "text/html";
+            await ctx.Response.WriteAsync("""<tr class="approvals-empty"><td colspan="4">No approval store configured.</td></tr>""").ConfigureAwait(false);
+            return;
+        }
+
+        if (store is not IApprovalAdmin admin)
+        {
+            // EntraPim path — admin actions happen in the external system.
+            ctx.Response.ContentType = "text/html";
+            await ctx.Response.WriteAsync("""<tr class="approvals-external"><td colspan="4">Approvals are managed externally (Entra PIM portal). Use the Azure portal to approve or deny.</td></tr>""").ConfigureAwait(false);
+            return;
+        }
+
+        var sb = new StringBuilder();
+        var any = false;
+        await foreach (var pending in admin.ListPendingAsync(ctx.RequestAborted).ConfigureAwait(false))
+        {
+            any = true;
+            var ts = pending.RequestedAt.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+            var requestIdEsc = HtmlEncode(pending.RequestId);
+            sb.Append("<tr data-request-id=\"").Append(requestIdEsc).Append("\">")
+              .Append("<td>").Append(ts).Append("</td>")
+              .Append("<td>").Append(HtmlEncode(pending.CallerId)).Append("</td>")
+              .Append("<td>").Append(HtmlEncode(pending.ToolName)).Append("</td>")
+              .Append("<td class=\"actions\">")
+              .Append("<button type=\"button\" class=\"btn-approve\" hx-post=\"api/approvals/").Append(requestIdEsc).Append("/approve\" hx-target=\"closest tr\" hx-swap=\"outerHTML\">Approve</button>")
+              .Append("<button type=\"button\" class=\"btn-deny\" hx-post=\"api/approvals/").Append(requestIdEsc).Append("/deny\" hx-target=\"closest tr\" hx-swap=\"outerHTML\" hx-vals='{\"reason\":\"denied via dashboard\"}'>Deny</button>")
+              .AppendLine("</td></tr>");
+        }
+        if (!any)
+        {
+            sb.Append("<tr class=\"approvals-empty\"><td colspan=\"4\">No pending approvals.</td></tr>");
+        }
+
+        ctx.Response.ContentType = "text/html";
+        await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// POST /api/approvals/{id}/approve — flips a Pending request to Active. 200 + empty
+    /// row HTML on success (so HTMX swaps the row out). 404 if the store doesn't expose
+    /// IApprovalAdmin (e.g., EntraPim — should never receive POSTs in that mode).
+    /// </summary>
+    public static async Task ApproveAsync(HttpContext ctx)
+    {
+        var requestId = (string?)ctx.Request.RouteValues["id"] ?? "";
+        if (string.IsNullOrWhiteSpace(requestId))
+        {
+            ctx.Response.StatusCode = 400;
+            return;
+        }
+
+        var store = ctx.RequestServices.GetService<IApprovalStore>();
+        if (store is not IApprovalAdmin admin)
+        {
+            ctx.Response.StatusCode = 404;
+            return;
+        }
+
+        var approverId = ctx.User?.Identity?.Name ?? "anonymous";
+        await admin.ApproveAsync(requestId, approverId, note: null, ctx.RequestAborted).ConfigureAwait(false);
+
+        // Return an empty row so HTMX removes the row from the table.
+        ctx.Response.ContentType = "text/html";
+        await ctx.Response.WriteAsync("").ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// POST /api/approvals/{id}/deny — flips a Pending request to Denied. Reads `reason`
+    /// from form/JSON body. Same response shape as ApproveAsync.
+    /// </summary>
+    public static async Task DenyAsync(HttpContext ctx)
+    {
+        var requestId = (string?)ctx.Request.RouteValues["id"] ?? "";
+        if (string.IsNullOrWhiteSpace(requestId))
+        {
+            ctx.Response.StatusCode = 400;
+            return;
+        }
+
+        var store = ctx.RequestServices.GetService<IApprovalStore>();
+        if (store is not IApprovalAdmin admin)
+        {
+            ctx.Response.StatusCode = 404;
+            return;
+        }
+
+        string reason = "denied via dashboard";
+        if (ctx.Request.HasFormContentType)
+        {
+            var form = await ctx.Request.ReadFormAsync(ctx.RequestAborted).ConfigureAwait(false);
+            if (form.TryGetValue("reason", out var formReason))
+            {
+                var formReasonStr = formReason.ToString();
+                if (!string.IsNullOrWhiteSpace(formReasonStr))
+                {
+                    reason = formReasonStr;
+                }
+            }
+        }
+
+        var approverId = ctx.User?.Identity?.Name ?? "anonymous";
+        await admin.DenyAsync(requestId, approverId, reason, ctx.RequestAborted).ConfigureAwait(false);
+
+        ctx.Response.ContentType = "text/html";
+        await ctx.Response.WriteAsync("").ConfigureAwait(false);
+    }
 }
