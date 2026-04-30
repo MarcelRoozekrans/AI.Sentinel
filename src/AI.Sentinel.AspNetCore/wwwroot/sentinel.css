@@ -214,6 +214,97 @@ tr.audit-row-authz td:first-child {
   .feed-chips { gap: 0.3rem; }
 }
 
+/* ──────────── Pending Approvals panel ──────────── */
+/* Inherits .panel; reuses global table th/td rules from the feed panel.
+   Adapts to existing tokens: --surface, --border, --text, --muted,
+   --isolate (danger), --safe (success), --watch (external/warn). */
+
+.approvals-panel {
+  grid-column: 2;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.approvals-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.approvals-table tbody tr {
+  transition: background-color 0.15s ease, opacity 0.25s ease, transform 0.25s ease;
+}
+
+.approvals-table tbody tr:hover {
+  background-color: rgba(255,255,255,0.03);
+}
+
+.approvals-table td.actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+/* Approve / Deny buttons */
+.approvals-table .btn-approve,
+.approvals-table .btn-deny {
+  padding: 0.3rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.05s ease;
+}
+
+.approvals-table .btn-approve {
+  background-color: var(--safe);
+  color: #052e13;
+}
+.approvals-table .btn-approve:hover {
+  background-color: #16a34a;
+}
+
+.approvals-table .btn-deny {
+  background-color: transparent;
+  color: var(--isolate);
+  border-color: var(--isolate);
+}
+.approvals-table .btn-deny:hover {
+  background-color: var(--isolate);
+  color: var(--text);
+}
+
+.approvals-table .btn-approve:active,
+.approvals-table .btn-deny:active {
+  transform: scale(0.98);
+}
+
+/* Optimistic-update fade: when HTMX swaps a row out (after approve/deny
+   POST returns empty body), this animates the disappearance. */
+.approvals-table tbody tr.htmx-swapping {
+  opacity: 0;
+  transform: translateX(8px);
+}
+
+/* Empty / external / loading states (rendered by /api/approvals when no
+   IApprovalStore registered, or store doesn't implement IApprovalAdmin). */
+.approvals-table tbody tr.approvals-empty td,
+.approvals-table tbody tr.approvals-external td,
+.approvals-table tbody tr.approvals-loading td {
+  text-align: center;
+  color: var(--muted);
+  font-style: italic;
+  padding: 1rem 0.5rem;
+  white-space: normal;
+}
+
+.approvals-table tbody tr.approvals-external td {
+  /* External-store path — slightly brighter to suggest "actionable elsewhere" */
+  color: var(--watch);
+}
+
 /* Phone-narrow viewports: hide the Hash column entirely. The 8-char prefix is
    diagnostic-only — full hash + prev hash are always available via /api/feed
    and the audit forwarder pipeline. Time/Detector/Severity/Reason are the

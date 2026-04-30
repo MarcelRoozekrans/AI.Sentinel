@@ -59,6 +59,24 @@
         </table>
       </div>
     </section>
+
+    <!-- Pending approvals (HTMX poll) -->
+    <section class="panel approvals-panel">
+      <h2>Pending Approvals</h2>
+      <div class="table-wrap">
+        <table class="approvals-table">
+          <thead>
+            <tr><th>Time</th><th>Caller</th><th>Tool</th><th>Actions</th></tr>
+          </thead>
+          <tbody id="approvals-body"
+            hx-get="api/approvals"
+            hx-trigger="load, every 3s"
+            hx-swap="innerHTML">
+            <tr class="approvals-loading"><td colspan="4">Loading&#8230;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </main>
 
   <script>
