@@ -122,7 +122,7 @@ public static class Program
     /// <see cref="InMemoryApprovalStore"/> — the Sqlite/EntraPim DI extensions throw on duplicate
     /// registration, so they must be wired first.
     /// </summary>
-    private static ServiceProvider BuildProvider(
+    internal static ServiceProvider BuildProvider(
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         ApprovalConfig? approvalConfig)
     {

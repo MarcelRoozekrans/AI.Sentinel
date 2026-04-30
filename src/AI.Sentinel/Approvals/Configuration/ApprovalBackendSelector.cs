@@ -15,9 +15,12 @@ public static class ApprovalBackendSelector
 {
     /// <summary>
     /// Adds <c>opts.RequireApproval(toolPattern, ...)</c> bindings for every entry in
-    /// <see cref="ApprovalConfig.Tools"/>, then returns the backend kind the config selected.
+    /// <see cref="ApprovalConfig.Tools"/>. Callers that need the backend kind should call
+    /// <see cref="GetBackend"/> separately — historically this method also returned the kind,
+    /// but every caller now reads it via <c>GetBackend</c> BEFORE calling <c>Configure</c>
+    /// so they can pre-register the backend store.
     /// </summary>
-    public static ApprovalBackendKind Configure(SentinelOptions opts, ApprovalConfig config)
+    public static void Configure(SentinelOptions opts, ApprovalConfig config)
     {
         ArgumentNullException.ThrowIfNull(opts);
         ArgumentNullException.ThrowIfNull(config);
@@ -34,8 +37,6 @@ public static class ApprovalBackendSelector
                 spec.BackendBinding = toolConfig.Role;
             });
         }
-
-        return ParseBackend(config.Backend);
     }
 
     /// <summary>

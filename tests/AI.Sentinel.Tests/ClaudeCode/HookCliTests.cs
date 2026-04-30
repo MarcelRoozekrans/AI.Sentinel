@@ -1,6 +1,11 @@
 using Xunit;
+using AI.Sentinel.Approvals;
+using AI.Sentinel.Approvals.Configuration;
+using AI.Sentinel.Approvals.EntraPim;
+using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.ClaudeCode.Cli;
 using AI.Sentinel.Tests.Helpers;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AI.Sentinel.Tests.ClaudeCode;
 
@@ -133,75 +138,65 @@ public class HookCliTests
     }
 
     [Fact]
-    public async Task Cli_ApprovalConfigSqlite_RegistersSqliteStore()
+    public async Task BuildProvider_SqliteBackend_RegistersSqliteApprovalStore()
     {
-        // Stage 5 Task 5.6 bundled the Sqlite + EntraPim backends into the CLI. Selecting
-        // 'sqlite' must now actually register SqliteApprovalStore (not silently fall through
-        // to InMemoryApprovalStore). We verify the database file is created on the configured
-        // path — proof the right store was wired.
-        var configPath = Path.Combine(Path.GetTempPath(), $"approval-{Guid.NewGuid():N}.json");
+        // Stage 5 Task 5.6 bundled the Sqlite backend into the CLI. Selecting 'sqlite' must
+        // register SqliteApprovalStore (not silently fall through to InMemoryApprovalStore).
+        // Direct provider inspection — strongest possible assertion that the right store wired.
         var dbPath = Path.Combine(Path.GetTempPath(), $"approvals-{Guid.NewGuid():N}.db");
-        await File.WriteAllTextAsync(configPath, $$"""
+        var config = new ApprovalConfig(
+            Backend: "sqlite",
+            TenantId: null,
+            DatabasePath: dbPath,
+            DefaultGrantMinutes: 15,
+            DefaultJustificationTemplate: "{tool}",
+            IncludeConversationContext: true,
+            Tools: new Dictionary<string, ApprovalToolConfig>(StringComparer.Ordinal)
             {
-                "backend": "sqlite",
-                "databasePath": {{System.Text.Json.JsonSerializer.Serialize(dbPath)}},
-                "tools": { "Bash": { "role": "DBA" } }
-            }
-            """);
-        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
+                ["Bash"] = new("DBA", GrantMinutes: null, RequireJustification: null),
+            });
+
+        var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: config);
         try
         {
-            var stdin = new StringReader("""{"session_id":"s","prompt":"hello"}""");
-            var stdout = new StringWriter();
-            var stderr = new StringWriter();
-
-            var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
-
-            Assert.Equal(0, exit);
-            Assert.Empty(stderr.ToString());
+            var store = provider.GetRequiredService<IApprovalStore>();
+            Assert.IsType<SqliteApprovalStore>(store);
             Assert.True(File.Exists(dbPath), "SqliteApprovalStore should have created the database file.");
         }
         finally
         {
-            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
-            File.Delete(configPath);
-            // SQLite WAL mode leaves -wal/-shm sidecars; clean them up too.
+            // SqliteApprovalStore is IAsyncDisposable-only; await-dispose to close the SQLite
+            // connection before File.Delete runs. WAL mode leaves -wal/-shm sidecars.
+            await provider.DisposeAsync();
             foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
                 if (File.Exists(path)) File.Delete(path);
         }
     }
 
     [Fact]
-    public async Task Cli_ApprovalConfigEntraPim_BuildsProviderWithoutError()
+    public async Task BuildProvider_EntraPimBackend_RegistersEntraPimApprovalStore()
     {
-        // Stage 5 Task 5.6 bundled the EntraPim backend into the CLI. Selecting 'entra-pim'
-        // must register EntraPimApprovalStore + dependencies without error. The Graph client
-        // is built lazily via TryAddSingleton so a benign user-prompt-submit (which doesn't
-        // touch the approval store) should exit 0 even without real Azure credentials.
-        var configPath = Path.Combine(Path.GetTempPath(), $"approval-{Guid.NewGuid():N}.json");
-        await File.WriteAllTextAsync(configPath, """
+        // Stage 5 Task 5.6 bundled the EntraPim backend into the CLI. Direct inspection that
+        // EntraPimApprovalStore is the registered IApprovalStore — the previous integration-
+        // level assertion (exit==0 + empty stderr) was a weak proxy because the Graph client
+        // is TryAddSingleton and never resolved on a benign user-prompt-submit path.
+        var config = new ApprovalConfig(
+            Backend: "entra-pim",
+            TenantId: "11111111-1111-1111-1111-111111111111",
+            DatabasePath: null,
+            DefaultGrantMinutes: 15,
+            DefaultJustificationTemplate: "{tool}",
+            IncludeConversationContext: true,
+            Tools: new Dictionary<string, ApprovalToolConfig>(StringComparer.Ordinal)
             {
-                "backend": "entra-pim",
-                "tenantId": "11111111-1111-1111-1111-111111111111",
-                "tools": { "Bash": { "role": "Privileged Role Administrator" } }
-            }
-            """);
-        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
-        try
-        {
-            var stdin = new StringReader("""{"session_id":"s","prompt":"hello"}""");
-            var stdout = new StringWriter();
-            var stderr = new StringWriter();
+                ["Bash"] = new("Privileged Role Administrator", GrantMinutes: null, RequireJustification: null),
+            });
 
-            var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+        await using var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: config);
 
-            Assert.Equal(0, exit);
-            Assert.Empty(stderr.ToString());
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
-            File.Delete(configPath);
-        }
+        var store = provider.GetRequiredService<IApprovalStore>();
+        Assert.IsType<EntraPimApprovalStore>(store);
+        var opts = provider.GetRequiredService<EntraPimOptions>();
+        Assert.Equal("11111111-1111-1111-1111-111111111111", opts.TenantId);
     }
 }

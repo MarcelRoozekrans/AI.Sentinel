@@ -1119,6 +1119,8 @@ Expected: 0 IL warnings (after suppressions).
 git commit -m "build(cli): bundle EntraPim + Sqlite approval backends in all three CLIs"
 ```
 
+**Outcome (post-implementation note):** the actual IL diagnostics that surfaced were **IL2075** (reflective `Type.GetProperty` on `ODataError` inside EntraPim) and **IL2104** (assembly-level rollup from the transitive `Microsoft.Kiota.Serialization.Json` package). The plan predicted `IL2026/IL3050` based on Graph SDK reflection-based JSON; those didn't fire because EntraPim's reflective hot path is `GetProperty`, not the Kiota serializer (Kiota's own warnings roll up to IL2104 at the assembly boundary). The treatment chosen — per-call-site `[UnconditionalSuppressMessage("Trimming", "IL2075", ...)]` on the three EntraPim accessors plus `<NoWarn>IL2104</NoWarn>` scoped to the three CLI csprojs — is **tighter** than the plan envisioned: precisely justified per-call-site rather than a blanket suppression at the entrypoint, and IL2104 limited to the AOT-publish boundary so library trim diagnostics stay clean for non-AOT consumers.
+
 ---
 
 ## Stage 6 — Documentation

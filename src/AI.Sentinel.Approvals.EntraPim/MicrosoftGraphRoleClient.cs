@@ -22,6 +22,16 @@ namespace AI.Sentinel.Approvals.EntraPim;
 // builds remain clean for consumers that don't enable AOT.
 internal sealed class MicrosoftGraphRoleClient : IGraphRoleClient
 {
+    // Shared justification for IL2075 suppressions on reflective ODataError accessors below.
+    // Reflection avoids a hard type reference so AI.Sentinel stays decoupled from Graph SDK
+    // internals; ODataError properties (ResponseStatusCode, ResponseHeaders) are stable
+    // members preserved by the SDK's own trim attributes; AOT-published CLIs that don't use
+    // entra-pim never invoke these paths.
+    private const string OdataReflectionJustification =
+        "ODataError properties (ResponseStatusCode, ResponseHeaders) are stable Microsoft.Graph.Models.ODataErrors " +
+        "members preserved by the SDK's own trim attributes. Reflection avoids a hard type reference so AI.Sentinel " +
+        "stays decoupled from Graph SDK internals. AOT-published CLIs that don't use entra-pim never invoke this path.";
+
     private readonly GraphServiceClient _graph;
 
     public MicrosoftGraphRoleClient(GraphServiceClient graph)
@@ -287,11 +297,6 @@ internal sealed class MicrosoftGraphRoleClient : IGraphRoleClient
         }
         return false;
     }
-
-    private const string OdataReflectionJustification =
-        "ODataError properties (ResponseStatusCode, ResponseHeaders) are stable Microsoft.Graph.Models.ODataErrors " +
-        "members preserved by the SDK's own trim attributes. Reflection avoids a hard type reference so AI.Sentinel " +
-        "stays decoupled from Graph SDK internals. AOT-published CLIs that don't use entra-pim never invoke this path.";
 
     [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075",
         Justification = OdataReflectionJustification)]

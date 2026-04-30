@@ -20,36 +20,24 @@ public class ApprovalBackendSelectorTests
             Tools: tools ?? new Dictionary<string, ApprovalToolConfig>(StringComparer.Ordinal));
 
     [Fact]
-    public void Configure_InMemory_ReturnsInMemoryKind()
-    {
-        var opts = new SentinelOptions();
-        var kind = ApprovalBackendSelector.Configure(opts, MakeConfig("in-memory"));
-        Assert.Equal(ApprovalBackendKind.InMemory, kind);
-    }
+    public void GetBackend_InMemory_ReturnsInMemoryKind() =>
+        Assert.Equal(ApprovalBackendKind.InMemory, ApprovalBackendSelector.GetBackend(MakeConfig("in-memory")));
 
     [Fact]
-    public void Configure_Sqlite_ReturnsSqliteKind()
-    {
-        var opts = new SentinelOptions();
-        var kind = ApprovalBackendSelector.Configure(opts, MakeConfig("sqlite"));
-        Assert.Equal(ApprovalBackendKind.Sqlite, kind);
-    }
+    public void GetBackend_Sqlite_ReturnsSqliteKind() =>
+        Assert.Equal(ApprovalBackendKind.Sqlite, ApprovalBackendSelector.GetBackend(MakeConfig("sqlite")));
 
     [Fact]
-    public void Configure_EntraPim_ReturnsEntraPimKind()
-    {
-        var opts = new SentinelOptions();
-        var kind = ApprovalBackendSelector.Configure(opts, MakeConfig("entra-pim"));
-        Assert.Equal(ApprovalBackendKind.EntraPim, kind);
-    }
+    public void GetBackend_EntraPim_ReturnsEntraPimKind() =>
+        Assert.Equal(ApprovalBackendKind.EntraPim, ApprovalBackendSelector.GetBackend(MakeConfig("entra-pim")));
 
     [Fact]
-    public void Configure_None_ReturnsNoneKind()
-    {
-        var opts = new SentinelOptions();
-        var kind = ApprovalBackendSelector.Configure(opts, MakeConfig("none"));
-        Assert.Equal(ApprovalBackendKind.None, kind);
-    }
+    public void GetBackend_None_ReturnsNoneKind() =>
+        Assert.Equal(ApprovalBackendKind.None, ApprovalBackendSelector.GetBackend(MakeConfig("none")));
+
+    [Fact]
+    public void GetBackend_NullConfig_Throws() =>
+        Assert.Throws<ArgumentNullException>(() => ApprovalBackendSelector.GetBackend(null!));
 
     [Fact]
     public void Configure_AddsRequireApprovalBindings_PerTool()
