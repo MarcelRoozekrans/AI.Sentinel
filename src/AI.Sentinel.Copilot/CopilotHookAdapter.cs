@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
@@ -71,6 +72,28 @@ public sealed class CopilotHookAdapter
             var decision = await _guard.AuthorizeAsync(caller, input.ToolName, args, ct).ConfigureAwait(false);
             if (!decision.Allowed)
             {
+                // RequireApproval: surface the receipt so the operator can find and approve the
+                // pending request out of band, then retry. Audit as AUTHZ-DENY with the request id
+                // so log readers can correlate Sentinel decisions with PIM activations.
+                if (decision is AuthorizationDecision.RequireApprovalDecision r)
+                {
+                    if (_audit is not null)
+                    {
+                        var approvalEntry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+                            sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
+                            receiver: new AgentId(input.ToolName),
+                            session: new SessionId(string.IsNullOrWhiteSpace(input.SessionId) ? Guid.NewGuid().ToString("N") : input.SessionId),
+                            callerId: caller.Id,
+                            roles: caller.Roles,
+                            toolName: input.ToolName,
+                            policyName: r.PolicyName,
+                            reason: $"approval required (requestId={r.RequestId})");
+                        await _audit.AppendAsync(approvalEntry, ct).ConfigureAwait(false);
+                    }
+
+                    return new HookOutput(HookDecision.Block, ApprovalReceipt.Format(input.ToolName, r));
+                }
+
                 var deny = decision as AuthorizationDecision.DenyDecision;
                 var policyName = deny?.PolicyName ?? "?";
                 var denyReason = deny?.Reason ?? "?";

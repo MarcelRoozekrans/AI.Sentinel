@@ -17,12 +17,23 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization Condition="'$(PublishAot)' == 'true'">true</InvariantGlobalization>
+    <!-- IL2104: Microsoft.Kiota.Serialization.Json (transitive via AI.Sentinel.Approvals.EntraPim)
+         emits assembly-level trim-warnings. The entra-pim code path is opt-in at runtime; AOT-
+         published CLI invocations that don't use it never reach the Kiota code paths. -->
+    <NoWarn>$(NoWarn);IL2104</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AI.Sentinel.Copilot\AI.Sentinel.Copilot.csproj" />
+    <ProjectReference Include="..\AI.Sentinel.Approvals.Sqlite\AI.Sentinel.Approvals.Sqlite.csproj" />
+    <ProjectReference Include="..\AI.Sentinel.Approvals.EntraPim\AI.Sentinel.Approvals.EntraPim.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>AI.Sentinel.Tests</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>

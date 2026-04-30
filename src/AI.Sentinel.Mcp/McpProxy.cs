@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
@@ -51,7 +52,9 @@ public static class McpProxy
         CancellationToken ct,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
         IToolCallGuard? guard = null,
-        Func<CallToolRequestParams, ISecurityContext>? callerResolver = null)
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver = null,
+        IApprovalStore? approvalStore = null,
+        TimeSpan? approvalWait = null)
     {
         ArgumentNullException.ThrowIfNull(hostTransport);
         ArgumentNullException.ThrowIfNull(targetTransport);
@@ -67,7 +70,7 @@ public static class McpProxy
         {
             var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator, out var auditStore);
 
-            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver);
+            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver, approvalStore, approvalWait);
 
             var server = McpServer.Create(
                 hostTransport,
@@ -130,7 +133,9 @@ public static class McpProxy
         TextWriter stderr,
         IToolCallGuard? guard,
         IAuditStore? auditStore,
-        Func<CallToolRequestParams, ISecurityContext>? callerResolver)
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver,
+        IApprovalStore? approvalStore,
+        TimeSpan? approvalWait)
     {
         var targetCaps = targetClient.ServerCapabilities;
         var capabilities = new ServerCapabilities();
@@ -140,7 +145,7 @@ public static class McpProxy
         if (targetCaps.Tools is not null)
         {
             WireTools(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver,
-                capabilities, handlers, requestFilters);
+                approvalStore, approvalWait, capabilities, handlers, requestFilters);
         }
 
         if (targetCaps.Prompts is not null)
@@ -172,6 +177,8 @@ public static class McpProxy
         IToolCallGuard? guard,
         IAuditStore? auditStore,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
+        IApprovalStore? approvalStore,
+        TimeSpan? approvalWait,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -188,7 +195,8 @@ public static class McpProxy
             return new ListToolsResult { Tools = tools.Select(t => t.ProtocolTool).ToList() };
         };
         requestFilters.CallToolFilters.Add(
-            ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver));
+            ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver,
+                approvalStore, approvalWait));
     }
 
     private static void WirePrompts(

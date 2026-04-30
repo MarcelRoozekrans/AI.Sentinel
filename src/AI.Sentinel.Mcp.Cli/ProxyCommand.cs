@@ -1,5 +1,14 @@
+using System.Globalization;
+using System.Text.Json;
+using AI.Sentinel;
+using AI.Sentinel.Approvals;
+using AI.Sentinel.Approvals.Configuration;
+using AI.Sentinel.Approvals.EntraPim;
+using AI.Sentinel.Approvals.Sqlite;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Server;
 
@@ -28,6 +37,31 @@ internal static class ProxyCommand
         var preset = ParsePreset(envVars);
         var maxScanBytes = ParseMaxScanBytes(envVars);
 
+        // Optional approval-config wiring. When SENTINEL_APPROVAL_CONFIG is set, build a guard +
+        // approval store so the MCP proxy can gate tool calls behind PIM-style approvals. The
+        // SENTINEL_MCP_APPROVAL_WAIT_SEC env var (positive integer) opts into wait-and-block; without
+        // it the proxy fails fast with the receipt embedded in the JSON-RPC error. Provider owns
+        // the SqliteApprovalStore connection / EntraPim Graph client and must be disposed on
+        // shutdown so SQLite WAL/SHM are flushed cleanly.
+        var (provider, guard, approvalStore, approvalWait, configError) = await BuildAuthorizationStackAsync(stderr).ConfigureAwait(false);
+        if (configError) return 1;
+        try
+        {
+            return await RunProxyAsync(
+                targetCommand, targetArgs, config, preset, maxScanBytes,
+                stderr, ct, guard, approvalStore, approvalWait).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (provider is not null) await provider.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<int> RunProxyAsync(
+        string targetCommand, string[] targetArgs, HookConfig config, McpDetectorPreset preset,
+        int maxScanBytes, TextWriter stderr, CancellationToken ct,
+        IToolCallGuard? guard, IApprovalStore? approvalStore, TimeSpan? approvalWait)
+    {
         var targetTransport = McpProxy.CreateClientTransport(targetCommand, targetArgs);
 
         // StdioServerTransport(string serverName, ILoggerFactory?) uses Console.In/Out internally.
@@ -44,7 +78,10 @@ internal static class ProxyCommand
                 preset:          preset,
                 maxScanBytes:    maxScanBytes,
                 stderr:          stderr,
-                ct:              ct).ConfigureAwait(false);
+                ct:              ct,
+                guard:           guard,
+                approvalStore:   approvalStore,
+                approvalWait:    approvalWait).ConfigureAwait(false);
             return 0;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -112,4 +149,66 @@ internal static class ProxyCommand
         ex is System.ComponentModel.Win32Exception
            or System.IO.FileNotFoundException
            or System.IO.IOException;
+
+    /// <summary>
+    /// Loads <c>SENTINEL_APPROVAL_CONFIG</c> (if set), builds an <see cref="IToolCallGuard"/> +
+    /// <see cref="IApprovalStore"/> via a small DI container, and resolves
+    /// <c>SENTINEL_MCP_APPROVAL_WAIT_SEC</c>. Returns the <see cref="ServiceProvider"/> alongside
+    /// so the caller can dispose it on shutdown (otherwise SQLite WAL/SHM aren't flushed). Returns
+    /// <c>(null, null, null, null, false)</c> when no approval config is configured (the legacy
+    /// no-authz path) and <c>configError=true</c> when the config is malformed or asks for a
+    /// backend not bundled in this build.
+    /// </summary>
+    internal static async Task<(ServiceProvider? Provider, IToolCallGuard? Guard, IApprovalStore? Store, TimeSpan? Wait, bool ConfigError)> BuildAuthorizationStackAsync(TextWriter stderr)
+    {
+        var path = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
+        if (string.IsNullOrWhiteSpace(path)) return (null, null, null, null, false);
+
+        ApprovalConfig approvalConfig;
+        try
+        {
+            approvalConfig = ApprovalConfigLoader.Load(path);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or JsonException)
+        {
+            await stderr.WriteLineAsync(
+                $"sentinel-mcp: failed to load approval config from '{path}': {ex.Message}").ConfigureAwait(false);
+            return (null, null, null, null, true);
+        }
+
+        // Backend stores must be registered BEFORE AddAISentinel: when bindings carry an
+        // ApprovalSpec and no IApprovalStore is yet registered, AddAISentinel auto-registers
+        // InMemoryApprovalStore — the Sqlite/EntraPim DI extensions throw on duplicate
+        // registration, so they must be wired first.
+        var services = new ServiceCollection();
+        var backendKind = ApprovalBackendSelector.GetBackend(approvalConfig);
+        switch (backendKind)
+        {
+            case ApprovalBackendKind.Sqlite:
+                services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = approvalConfig.DatabasePath!);
+                break;
+            case ApprovalBackendKind.EntraPim:
+                services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig.TenantId!);
+                break;
+            // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
+            // carry an ApprovalSpec.
+        }
+
+        services.AddAISentinel(opts => ApprovalBackendSelector.Configure(opts, approvalConfig));
+
+        var provider = services.BuildServiceProvider();
+        var guard = provider.GetService<IToolCallGuard>();
+        var store = provider.GetService<IApprovalStore>();
+
+        TimeSpan? wait = null;
+        var rawWait = Environment.GetEnvironmentVariable("SENTINEL_MCP_APPROVAL_WAIT_SEC");
+        if (!string.IsNullOrWhiteSpace(rawWait)
+            && int.TryParse(rawWait, NumberStyles.Integer, CultureInfo.InvariantCulture, out var seconds)
+            && seconds > 0)
+        {
+            wait = TimeSpan.FromSeconds(seconds);
+        }
+
+        return (provider, guard, store, wait, false);
+    }
 }
