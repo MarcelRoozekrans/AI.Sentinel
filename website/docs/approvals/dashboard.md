@@ -28,15 +28,15 @@ The panel polls `GET /ai-sentinel/api/approvals` every 3s via HTMX and renders r
 | Tool | `toolName` |
 | Actions | Approve / Deny buttons |
 
-Approve/Deny POST to `/api/approvals/{id}/approve` or `/api/approvals/{id}/deny`. Successful POST returns `204 No Content`; HTMX swaps out the row with a 250ms fade.
+Approve/Deny POST to `/api/approvals/{id}/approve` or `/api/approvals/{id}/deny`. Successful POST returns `200 OK` with an empty `text/html` body — HTMX swaps the row out via `outerHTML` (with a 250ms fade transition driven by the `htmx-swapping` CSS class).
 
 ## When the store doesn't implement `IApprovalAdmin`
 
-Some backends — notably **Entra PIM** — keep approval state in an external system. For those stores, `/api/approvals` returns a single row indicating "actionable elsewhere":
+Some backends — notably **Entra PIM** — keep approval state in an external system. For those stores, `/api/approvals` returns a single `<tr class="approvals-external">` row with the message:
 
-> Approvals route through Entra PIM. Approvers act in the [Azure portal → My approvals](https://portal.azure.com/#blade/Microsoft_Azure_PIMCommon/CommonMenuBlade/quickStart).
+> Approvals are managed externally (Entra PIM portal). Use the Azure portal to approve or deny.
 
-This isn't an error — it's the intended UX. Routing approvals through PIM means PIM owns the surface, not your app.
+This isn't an error — it's the intended UX. Routing approvals through PIM means PIM owns the surface, not your app. Approvers act in the [Azure portal → My approvals](https://portal.azure.com/#blade/Microsoft_Azure_PIMCommon/CommonMenuBlade/quickStart).
 
 ## Authentication
 

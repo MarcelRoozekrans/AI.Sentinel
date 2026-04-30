@@ -78,7 +78,7 @@ To override (e.g. inject a test credential), register a `TokenCredential` in DI 
 
 ## Polling and rate limits
 
-- The store polls Graph for the request status with backoff + jitter (`PollInterval` default 30s, `PollMaxBackoff` default 5min).
+- The store polls Graph for the request status with backoff + jitter (`PollInterval` default `1s`, `PollMaxBackoff` default `30s`, ±20% jitter). Tune both via `EntraPimOptions` if Graph rate limits become a concern at scale.
 - Honors `Retry-After` on 429/503/504 responses.
 - Reflective `ODataError` accessors keep the runtime decoupled from Graph SDK internals (AOT-safe — see [trim suppressions](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/src/AI.Sentinel.Approvals.EntraPim/MicrosoftGraphRoleClient.cs)).
 

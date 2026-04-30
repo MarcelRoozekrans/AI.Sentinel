@@ -152,7 +152,10 @@ static async Task RunApprovalDemoAsync(IServiceProvider sp, CancellationToken ct
 
     Console.ForegroundColor = ConsoleColor.Yellow;
     Console.WriteLine($"[demo] RequireApproval — RequestId={req.RequestId}");
-    Console.WriteLine($"[demo]                   ApprovalUrl={req.ApprovalUrl}");
+    // ApprovalUrl is backend-defined. The InMemory store emits a synthetic 'sentinel://approve/<id>'
+    // marker; the dashboard panel (when mounted) is the actual approver UX. Sqlite uses the same
+    // marker; EntraPim emits a portal URL.
+    Console.WriteLine($"[demo]                   ApprovalUrl={req.ApprovalUrl}  (backend-defined)");
     Console.WriteLine($"[demo]                   WaitTimeout={req.WaitTimeout.TotalSeconds:F0}s");
     Console.ResetColor();
 

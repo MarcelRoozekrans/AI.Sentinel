@@ -11,7 +11,7 @@ The default backend. Holds pending approvals in a `ConcurrentDictionary` keyed b
 
 - **Dev / demos** — fast feedback, no infrastructure.
 - **Single long-lived process** that owns approvals end-to-end (e.g. ASP.NET Core host with the dashboard mounted).
-- **Tests** — drop in `TimeProvider.System` substitute for deterministic timing.
+- **Tests** — inject a `FakeTimeProvider` (or any `TimeProvider` subclass) for deterministic timing of grant expiry / wait timeouts.
 
 Don't use it for CLI deployments (each invocation is a fresh process — see [SQLite](/docs/approvals/sqlite)).
 

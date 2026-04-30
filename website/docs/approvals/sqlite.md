@@ -57,7 +57,8 @@ sentinel-hook user-prompt-submit < input.json
 
 ## Schema and durability
 
-- One table: `approval_requests` (id, caller_id, tool_name, state, requested_at, settled_at, approver_id, approver_note, grant_expires_at, justification).
+- One table: `approval_requests`. Columns: `id`, `caller_id`, `policy_name`, `tool_name`, `args_json`, `justification`, `requested_at`, `grant_duration_ticks`, `status`, `approved_at`, `denied_at`, `deny_reason`, `approver_id`, `approver_note`. Index on `status`.
+- `status` is one of `'Pending'`, `'Active'`, `'Denied'`. There is no separate `'Expired'` status — an expired grant is an `Active` row whose `approved_at + grant_duration_ticks` is in the past, projected to `Denied("expired")` by the store on the next observation.
 - Migrations versioned via `PRAGMA user_version`.
 - **Journal mode `WAL`** — concurrent readers don't block the writer; better crash safety. Leaves `-wal` and `-shm` sidecars next to the `.db` file; back them up together.
 
@@ -65,12 +66,17 @@ sentinel-hook user-prompt-submit < input.json
 
 SQLite supports concurrent **readers** but only one **writer** at a time on a single host. Two CLI invocations writing simultaneously will serialize. Do **not** put the `.db` file on a network share — SQLite over NFS/SMB is unsafe.
 
+## Polling
+
+`SqliteApprovalStoreOptions.PollInterval` (default 500ms) controls how aggressively `WaitForDecisionAsync` polls the database. Lower values reduce wait latency; higher values reduce CPU/IO churn on slow disks.
+
 ## Cleanup
 
-Settled requests stay in the table for audit. To prune, run periodically:
+Settled requests stay in the table for audit. The store doesn't auto-prune — that's an operator policy decision. If you want a retention bound, run periodically against the column names above (`status`, `denied_at`, `approved_at`); the store doesn't lock the schema as a public contract, so prefer your normal SQLite admin tooling over the in-app surface.
+
+After bulk deletes, reclaim disk space:
 
 ```sql
-DELETE FROM approval_requests WHERE state IN ('Denied','Expired') AND settled_at < datetime('now','-30 days');
 PRAGMA wal_checkpoint(TRUNCATE);
 VACUUM;
 ```

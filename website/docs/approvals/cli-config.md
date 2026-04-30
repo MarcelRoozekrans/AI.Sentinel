@@ -21,11 +21,8 @@ If the env var is unset (or empty), approvals are disabled — the CLI behaves e
 ```json
 {
   "backend": "sqlite",
-  "tenantId": null,
   "databasePath": "/var/lib/ai-sentinel/approvals.db",
   "defaultGrantMinutes": 15,
-  "defaultJustificationTemplate": "Tool {tool} requested by {caller}",
-  "includeConversationContext": false,
   "tools": {
     "delete_database":  { "role": "DBA" },
     "send_payment":     { "role": "Treasury", "grantMinutes": 5, "requireJustification": true },
@@ -36,23 +33,37 @@ If the env var is unset (or empty), approvals are disabled — the CLI behaves e
 
 ### Top-level fields
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `backend` | string | yes | One of `none`, `in-memory`, `sqlite`, `entra-pim`. |
-| `tenantId` | string | required for `entra-pim` | Entra tenant GUID. |
-| `databasePath` | string | required for `sqlite` | Absolute path to the `.db` file. WAL/SHM sidecars created next to it. |
-| `defaultGrantMinutes` | int | yes | Per-tool `grantMinutes` overrides. |
-| `defaultJustificationTemplate` | string | yes | Currently informational; per-tool override planned. |
-| `includeConversationContext` | bool | yes | Forwarded to backend (currently informational). |
-| `tools` | map | yes | Pattern → binding. Keys are tool-name patterns (glob-style with `*`). |
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `backend` | string | yes | — | One of `none`, `in-memory`, `sqlite`, `entra-pim`. |
+| `tenantId` | string | for `entra-pim` only | — | Entra tenant GUID. |
+| `databasePath` | string | for `sqlite` only | — | Absolute path to the `.db` file. WAL/SHM sidecars created next to it. |
+| `defaultGrantMinutes` | int | no | `15` | Must be `> 0`. Per-tool `grantMinutes` overrides this. |
+| `defaultJustificationTemplate` | string | no | `"AI agent invocation: {tool}"` | Currently informational; per-tool override planned. |
+| `includeConversationContext` | bool | no | `true` | Forwarded to backend (currently informational). |
+| `tools` | map | no | empty | Pattern → binding. Keys are tool-name patterns (glob-style with `*`). |
 
 ### Per-tool fields
 
-| Field | Type | Required | Notes |
-|---|---|---|---|
-| `role` | string | yes | Backend-specific binding — DBA group, PIM role name, etc. Set on `ApprovalSpec.BackendBinding`. |
-| `grantMinutes` | int? | no | Override `defaultGrantMinutes`. |
-| `requireJustification` | bool? | no | Default `true`. |
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `role` | string | yes | — | Backend-specific binding — DBA group, PIM role name, etc. Set on `ApprovalSpec.BackendBinding`. |
+| `grantMinutes` | int? | no | `defaultGrantMinutes` | Override the top-level default. |
+| `requireJustification` | bool? | no | `true` | |
+
+### Environment-variable interpolation
+
+Values containing `${VAR}` are expanded against process environment variables at load time. Unset variables expand to empty string. Useful for committing sample configs without baking in tenant IDs or absolute paths:
+
+```json
+{
+  "backend": "entra-pim",
+  "tenantId": "${SENTINEL_ENTRA_TENANT}",
+  "tools": { "delete_database": { "role": "DBA" } }
+}
+```
+
+Escaping (`$${VAR}`) is not currently supported — there's been no real-world need.
 
 ## Per-CLI behavior on `RequireApproval`
 
