@@ -38,6 +38,19 @@ public static class ApprovalBackendSelector
         return ParseBackend(config.Backend);
     }
 
+    /// <summary>
+    /// Returns the backend kind without configuring bindings. CLIs call this BEFORE
+    /// <c>AddAISentinel</c> so they can wire <c>AddSentinelSqliteApprovalStore</c> /
+    /// <c>AddSentinelEntraPimApprovalStore</c> first — otherwise <c>AddAISentinel</c>
+    /// auto-registers <see cref="InMemoryApprovalStore"/> and the backend extensions
+    /// throw on duplicate registration.
+    /// </summary>
+    public static ApprovalBackendKind GetBackend(ApprovalConfig config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        return ParseBackend(config.Backend);
+    }
+
     private static ApprovalBackendKind ParseBackend(string backend) =>
         backend.Trim().ToLowerInvariant() switch
         {

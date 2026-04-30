@@ -258,6 +258,8 @@ internal sealed class MicrosoftGraphRoleClient : IGraphRoleClient
         }
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification = OdataReflectionJustification)]
     private static bool IsTransient(Exception ex, int attempt, out TimeSpan delay)
     {
         delay = TimeSpan.FromSeconds(1);
@@ -286,6 +288,13 @@ internal sealed class MicrosoftGraphRoleClient : IGraphRoleClient
         return false;
     }
 
+    private const string OdataReflectionJustification =
+        "ODataError properties (ResponseStatusCode, ResponseHeaders) are stable Microsoft.Graph.Models.ODataErrors " +
+        "members preserved by the SDK's own trim attributes. Reflection avoids a hard type reference so AI.Sentinel " +
+        "stays decoupled from Graph SDK internals. AOT-published CLIs that don't use entra-pim never invoke this path.";
+
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification = OdataReflectionJustification)]
     private static TimeSpan? TryParseRetryAfter(Exception ex)
     {
         // Best-effort header read. Microsoft.Graph 5.x ODataError exposes ResponseHeaders

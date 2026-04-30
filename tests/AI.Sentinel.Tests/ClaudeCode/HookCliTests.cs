@@ -133,16 +133,18 @@ public class HookCliTests
     }
 
     [Fact]
-    public async Task Cli_ApprovalConfigSqlite_ExitsOneWithStderrMessage()
+    public async Task Cli_ApprovalConfigSqlite_RegistersSqliteStore()
     {
-        // Sqlite backend isn't bundled in this CLI build (Task 5.6 wires the project ref). We
-        // assert the CLI surfaces a clear stderr message and exits 1, so operators don't get a
-        // silently-wrong InMemoryApprovalStore when they intended persistence.
+        // Stage 5 Task 5.6 bundled the Sqlite + EntraPim backends into the CLI. Selecting
+        // 'sqlite' must now actually register SqliteApprovalStore (not silently fall through
+        // to InMemoryApprovalStore). We verify the database file is created on the configured
+        // path — proof the right store was wired.
         var configPath = Path.Combine(Path.GetTempPath(), $"approval-{Guid.NewGuid():N}.json");
-        await File.WriteAllTextAsync(configPath, """
+        var dbPath = Path.Combine(Path.GetTempPath(), $"approvals-{Guid.NewGuid():N}.db");
+        await File.WriteAllTextAsync(configPath, $$"""
             {
                 "backend": "sqlite",
-                "databasePath": "/tmp/approvals.db",
+                "databasePath": {{System.Text.Json.JsonSerializer.Serialize(dbPath)}},
                 "tools": { "Bash": { "role": "DBA" } }
             }
             """);
@@ -155,8 +157,46 @@ public class HookCliTests
 
             var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
 
-            Assert.Equal(1, exit);
-            Assert.Contains("SqliteApprovalStore is not bundled", stderr.ToString(), StringComparison.Ordinal);
+            Assert.Equal(0, exit);
+            Assert.Empty(stderr.ToString());
+            Assert.True(File.Exists(dbPath), "SqliteApprovalStore should have created the database file.");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
+            File.Delete(configPath);
+            // SQLite WAL mode leaves -wal/-shm sidecars; clean them up too.
+            foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+                if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Cli_ApprovalConfigEntraPim_BuildsProviderWithoutError()
+    {
+        // Stage 5 Task 5.6 bundled the EntraPim backend into the CLI. Selecting 'entra-pim'
+        // must register EntraPimApprovalStore + dependencies without error. The Graph client
+        // is built lazily via TryAddSingleton so a benign user-prompt-submit (which doesn't
+        // touch the approval store) should exit 0 even without real Azure credentials.
+        var configPath = Path.Combine(Path.GetTempPath(), $"approval-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(configPath, """
+            {
+                "backend": "entra-pim",
+                "tenantId": "11111111-1111-1111-1111-111111111111",
+                "tools": { "Bash": { "role": "Privileged Role Administrator" } }
+            }
+            """);
+        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
+        try
+        {
+            var stdin = new StringReader("""{"session_id":"s","prompt":"hello"}""");
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+
+            var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+
+            Assert.Equal(0, exit);
+            Assert.Empty(stderr.ToString());
         }
         finally
         {

@@ -345,6 +345,12 @@ public sealed class EntraPimApprovalStore : IApprovalStore
         };
     }
 
+    [System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2075",
+        Justification =
+        "ODataError.ResponseStatusCode is a stable Microsoft.Graph.Models.ODataErrors property " +
+        "preserved by the SDK's own trim attributes. Reflection avoids a hard type reference so " +
+        "AI.Sentinel stays decoupled from Graph SDK internals. AOT-published CLIs that don't use " +
+        "entra-pim never invoke this path.")]
     private static int? GetResponseStatusCode(Exception ex)
     {
         // ODataError exposes ResponseStatusCode as int. Reflection avoids a hard ref.

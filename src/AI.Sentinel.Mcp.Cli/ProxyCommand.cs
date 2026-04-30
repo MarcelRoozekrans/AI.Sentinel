@@ -3,6 +3,8 @@ using System.Text.Json;
 using AI.Sentinel;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Configuration;
+using AI.Sentinel.Approvals.EntraPim;
+using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp;
@@ -154,29 +156,25 @@ internal static class ProxyCommand
             return (null, null, null, true);
         }
 
+        // Backend stores must be registered BEFORE AddAISentinel: when bindings carry an
+        // ApprovalSpec and no IApprovalStore is yet registered, AddAISentinel auto-registers
+        // InMemoryApprovalStore — the Sqlite/EntraPim DI extensions throw on duplicate
+        // registration, so they must be wired first.
         var services = new ServiceCollection();
-        var backendKind = ApprovalBackendKind.None;
-        services.AddAISentinel(opts => backendKind = ApprovalBackendSelector.Configure(opts, approvalConfig));
-
+        var backendKind = ApprovalBackendSelector.GetBackend(approvalConfig);
         switch (backendKind)
         {
-            case ApprovalBackendKind.None:
-            case ApprovalBackendKind.InMemory:
-                // Auto-registered by AddAISentinel when bindings carry an ApprovalSpec.
-                break;
             case ApprovalBackendKind.Sqlite:
-                await stderr.WriteLineAsync(
-                    "sentinel-mcp: SqliteApprovalStore is not bundled in this CLI build (Task 5.6 adds the project reference). " +
-                    "Use 'in-memory' for now, or rebuild with the AI.Sentinel.Approvals.Sqlite package referenced.")
-                    .ConfigureAwait(false);
-                return (null, null, null, true);
+                services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = approvalConfig.DatabasePath!);
+                break;
             case ApprovalBackendKind.EntraPim:
-                await stderr.WriteLineAsync(
-                    "sentinel-mcp: EntraPimApprovalStore is not bundled in this CLI build (Task 5.6 adds the project reference). " +
-                    "Use 'in-memory' for now, or rebuild with the AI.Sentinel.Approvals.EntraPim package referenced.")
-                    .ConfigureAwait(false);
-                return (null, null, null, true);
+                services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig.TenantId!);
+                break;
+            // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
+            // carry an ApprovalSpec.
         }
+
+        services.AddAISentinel(opts => ApprovalBackendSelector.Configure(opts, approvalConfig));
 
         var provider = services.BuildServiceProvider();
         var guard = provider.GetService<IToolCallGuard>();

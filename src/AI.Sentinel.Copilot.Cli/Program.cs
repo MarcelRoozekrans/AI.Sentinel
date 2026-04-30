@@ -4,6 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Configuration;
+using AI.Sentinel.Approvals.EntraPim;
+using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Copilot;
 
@@ -50,8 +52,7 @@ public static class Program
         var (approvalConfig, configExit) = await TryLoadApprovalConfigAsync(stderr).ConfigureAwait(false);
         if (configExit is { } code) return code;
 
-        var (provider, backendExit) = await BuildProviderAsync(stderr, embeddingGenerator, approvalConfig).ConfigureAwait(false);
-        if (provider is null) return backendExit;
+        var provider = BuildProvider(embeddingGenerator, approvalConfig);
         await using var _ = provider.ConfigureAwait(false);
 
         var adapter = new CopilotHookAdapter(provider, config);
@@ -116,18 +117,33 @@ public static class Program
     }
 
     /// <summary>
-    /// Builds the DI provider with optional approval bindings. Sqlite/EntraPim bail out with
-    /// exit=1 + stderr message until Task 5.6 wires the project refs; None and InMemory share a
-    /// code path because <c>AddAISentinel</c> auto-registers <c>InMemoryApprovalStore</c> when any
-    /// binding has an <see cref="ApprovalSpec"/>.
+    /// Builds the DI provider with optional approval bindings. Backend stores must be registered
+    /// BEFORE <c>AddAISentinel</c>: when bindings carry an <see cref="ApprovalSpec"/> and no
+    /// <see cref="IApprovalStore"/> is yet registered, <c>AddAISentinel</c> auto-registers
+    /// <see cref="InMemoryApprovalStore"/> — the Sqlite/EntraPim DI extensions throw on duplicate
+    /// registration, so they must be wired first.
     /// </summary>
-    private static async Task<(ServiceProvider? Provider, int Exit)> BuildProviderAsync(
-        TextWriter stderr,
+    private static ServiceProvider BuildProvider(
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         ApprovalConfig? approvalConfig)
     {
         var services = new ServiceCollection();
-        var backendKind = ApprovalBackendKind.None;
+        var backendKind = approvalConfig is null
+            ? ApprovalBackendKind.None
+            : ApprovalBackendSelector.GetBackend(approvalConfig);
+
+        switch (backendKind)
+        {
+            case ApprovalBackendKind.Sqlite:
+                services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = approvalConfig!.DatabasePath!);
+                break;
+            case ApprovalBackendKind.EntraPim:
+                services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig!.TenantId!);
+                break;
+            // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
+            // carry an ApprovalSpec.
+        }
+
         services.AddAISentinel(opts =>
         {
             opts.OnCritical = SentinelAction.Quarantine;
@@ -136,21 +152,10 @@ public static class Program
             opts.OnLow = SentinelAction.Quarantine;
             opts.EmbeddingGenerator = embeddingGenerator;
             if (approvalConfig is not null)
-                backendKind = ApprovalBackendSelector.Configure(opts, approvalConfig);
+                ApprovalBackendSelector.Configure(opts, approvalConfig);
         });
 
-        if (backendKind == ApprovalBackendKind.Sqlite || backendKind == ApprovalBackendKind.EntraPim)
-        {
-            var name = backendKind == ApprovalBackendKind.Sqlite ? "Sqlite" : "EntraPim";
-            var pkg = backendKind == ApprovalBackendKind.Sqlite ? "AI.Sentinel.Approvals.Sqlite" : "AI.Sentinel.Approvals.EntraPim";
-            await stderr.WriteAsync(
-                $"{name}ApprovalStore is not bundled in this CLI build (Task 5.6 adds the project reference). " +
-                $"Use 'in-memory' for now, or rebuild with the {pkg} package referenced.\n")
-                .ConfigureAwait(false);
-            return (null, 1);
-        }
-
-        return (services.BuildServiceProvider(), 0);
+        return services.BuildServiceProvider();
     }
 
     private static async Task<int> WriteReasonAndReturn(TextWriter stderr, string? reason, int exitCode)
