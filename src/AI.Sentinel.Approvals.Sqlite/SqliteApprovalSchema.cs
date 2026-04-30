@@ -28,6 +28,8 @@ internal static class SqliteApprovalSchema
 
         if (current < 1)
         {
+            // Timestamps stored as INTEGER UtcTicks; reconstructed via
+            // new DateTimeOffset(ticks, TimeSpan.Zero). See requested_at, approved_at, denied_at.
             using var migrate = conn.CreateCommand();
             migrate.CommandText = """
                 CREATE TABLE IF NOT EXISTS approval_requests (
@@ -52,13 +54,5 @@ internal static class SqliteApprovalSchema
                 """;
             await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
-    }
-
-    internal static async Task<int> GetVersionAsync(SqliteConnection conn, CancellationToken ct)
-    {
-        using var versionCmd = conn.CreateCommand();
-        versionCmd.CommandText = "PRAGMA user_version;";
-        var raw = await versionCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-        return raw is null ? 0 : (int)(long)raw;
     }
 }

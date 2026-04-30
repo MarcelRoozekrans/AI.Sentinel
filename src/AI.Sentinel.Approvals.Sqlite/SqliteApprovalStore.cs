@@ -65,6 +65,12 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
             var existing = await TryReadDedupeRowAsync(caller.Id, spec.PolicyName, ct).ConfigureAwait(false);
             if (existing is { } row)
             {
+                // We check the *projected* ApprovalState returned by RowToState, not the raw
+                // status column. This is load-bearing: RowToState projects an expired-Active
+                // row (status='Active' but approved_at + grant_duration <= now) to
+                // ApprovalState.Denied("expired"), so this branch ALSO cleans up stale
+                // Active rows on the next observation. Without that, expired grants would
+                // stick forever and every subsequent call would return Denied("expired").
                 if (row.State is ApprovalState.Denied)
                 {
                     // Terminal observed — delete row inline so the next call creates fresh.
@@ -178,7 +184,12 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
             }
             catch (OperationCanceledException)
             {
-                return current;
+                // External cancellation must propagate per the IApprovalStore contract.
+                // The internal-timeout path uses a deadline check above and returns
+                // current cleanly without cancelling, so any OCE reaching this catch is
+                // the caller's token (host shutdown / request abort).
+                if (ct.IsCancellationRequested) throw;
+                return current; // defensive fallback; not expected to be reached
             }
         }
     }

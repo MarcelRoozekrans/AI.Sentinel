@@ -129,6 +129,20 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task WaitForDecision_ExternalCancellation_Throws()
+    {
+        await using var store = NewStore();
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+
+        using var cts = new CancellationTokenSource();
+        var waitTask = store.WaitForDecisionAsync(pending.RequestId, TimeSpan.FromSeconds(30), cts.Token).AsTask();
+        await Task.Delay(50);
+        cts.Cancel();
+
+        await Assert.ThrowsAsync<TaskCanceledException>(() => waitTask);
+    }
+
+    [Fact]
     public async Task ListPending_ReturnsOnlyPendingRequests()
     {
         await using var store = NewStore();
