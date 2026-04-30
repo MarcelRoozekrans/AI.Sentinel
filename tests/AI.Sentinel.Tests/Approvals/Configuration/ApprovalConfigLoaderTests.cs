@@ -102,6 +102,36 @@ public class ApprovalConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public void Load_SqliteBackend_RequiresDatabasePath()
+    {
+        File.WriteAllText(_tempPath, """{ "backend": "sqlite" }""");
+        var ex = Assert.Throws<InvalidOperationException>(() => ApprovalConfigLoader.Load(_tempPath));
+        Assert.Contains("databasePath", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Load_SqliteBackend_WithDatabasePath_Succeeds()
+    {
+        File.WriteAllText(_tempPath, """
+        {
+            "backend": "sqlite",
+            "databasePath": "/var/lib/sentinel/approvals.db"
+        }
+        """);
+        var config = ApprovalConfigLoader.Load(_tempPath);
+        Assert.Equal("sqlite", config.Backend);
+        Assert.Equal("/var/lib/sentinel/approvals.db", config.DatabasePath);
+    }
+
+    [Fact]
+    public void Load_EntraPimBackend_RequiresTenantId()
+    {
+        File.WriteAllText(_tempPath, """{ "backend": "entra-pim" }""");
+        var ex = Assert.Throws<InvalidOperationException>(() => ApprovalConfigLoader.Load(_tempPath));
+        Assert.Contains("tenantId", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ExpandEnvPlaceholders_UnsetVarBecomesEmptyString()
     {
         var input = "tenant=${DEFINITELY_NOT_SET_VAR_12345}";

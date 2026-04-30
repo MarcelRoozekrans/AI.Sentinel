@@ -34,6 +34,7 @@ public static class ApprovalConfigLoader
     {
         var backend = RequireString(root, "backend");
         var tenantId = OptionalString(root, "tenantId");
+        var databasePath = OptionalString(root, "databasePath");
         var defaultGrantMinutes = OptionalInt(root, "defaultGrantMinutes") ?? 15;
         var defaultJustificationTemplate = OptionalString(root, "defaultJustificationTemplate")
             ?? "AI agent invocation: {tool}";
@@ -49,7 +50,7 @@ public static class ApprovalConfigLoader
         }
 
         var config = new ApprovalConfig(
-            backend, tenantId, defaultGrantMinutes, defaultJustificationTemplate,
+            backend, tenantId, databasePath, defaultGrantMinutes, defaultJustificationTemplate,
             includeConversationContext, tools);
 
         Validate(config);
@@ -78,6 +79,16 @@ public static class ApprovalConfigLoader
         {
             throw new InvalidOperationException(
                 $"defaultGrantMinutes must be > 0. Got: {config.DefaultGrantMinutes}");
+        }
+        if (string.Equals(backend, "sqlite", StringComparison.Ordinal) && string.IsNullOrWhiteSpace(config.DatabasePath))
+        {
+            throw new InvalidOperationException(
+                "backend 'sqlite' requires a databasePath field.");
+        }
+        if (string.Equals(backend, "entra-pim", StringComparison.Ordinal) && string.IsNullOrWhiteSpace(config.TenantId))
+        {
+            throw new InvalidOperationException(
+                "backend 'entra-pim' requires a tenantId field.");
         }
     }
 

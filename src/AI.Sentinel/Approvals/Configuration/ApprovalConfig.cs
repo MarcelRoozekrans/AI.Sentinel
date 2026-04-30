@@ -7,6 +7,7 @@ namespace AI.Sentinel.Approvals.Configuration;
 public sealed record ApprovalConfig(
     string Backend,
     string? TenantId,
+    string? DatabasePath,
     int DefaultGrantMinutes,
     string DefaultJustificationTemplate,
     bool IncludeConversationContext,
