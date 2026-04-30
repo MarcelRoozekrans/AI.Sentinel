@@ -46,6 +46,8 @@ jobs:
         run: |
           for proj in \
             src/AI.Sentinel/AI.Sentinel.csproj \
+            src/AI.Sentinel.Approvals.EntraPim/AI.Sentinel.Approvals.EntraPim.csproj \
+            src/AI.Sentinel.Approvals.Sqlite/AI.Sentinel.Approvals.Sqlite.csproj \
             src/AI.Sentinel.AspNetCore/AI.Sentinel.AspNetCore.csproj \
             src/AI.Sentinel.AzureSentinel/AI.Sentinel.AzureSentinel.csproj \
             src/AI.Sentinel.ClaudeCode/AI.Sentinel.ClaudeCode.csproj \
