@@ -9,6 +9,19 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.4.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.3.0...v1.4.0) (2026-04-30)
+
+
+### Features
+
+* **approvals-cli:** bundle Sqlite + EntraPim backends in CLI builds ([59e03f1](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/59e03f1b544b63524d28b8e9b100a15089210bd5))
+* **approvals:** ApprovalBackendSelector + DatabasePath config ([7329e5b](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/7329e5ba0002253c87d03d2f4baca80725f0662d))
+* **approvals:** ApprovalConfig record + JSON loader ([b5e00a4](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b5e00a44c59cc577b694556625d13da4925176a3))
+* **approvals:** Stage 5 — CLI integration (PIM-style approval workflow) ([76e3235](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/76e3235ec8254102261b797e332293163c30e63f))
+* **claudecode-cli:** handle RequireApproval — deny-with-receipt ([f9fd83c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/f9fd83ceee475d986a6780970df40a2347894974))
+* **copilot-cli:** handle RequireApproval — deny-with-receipt ([23cec7d](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/23cec7da4b6d1f0b4360eb6d91ca868105ae2c93))
+* **mcp-cli:** handle RequireApproval — wait-and-block or fail-fast ([135cdda](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/135cdda5e9bba58aa763b55abc73f422715f40f0))
+
 ## [1.3.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.2.0...v1.3.0) (2026-04-30)
 
 
