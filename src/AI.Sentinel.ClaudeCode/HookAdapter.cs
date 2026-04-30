@@ -5,6 +5,7 @@ using AI.Sentinel.Authorization;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.ClaudeCode;
 

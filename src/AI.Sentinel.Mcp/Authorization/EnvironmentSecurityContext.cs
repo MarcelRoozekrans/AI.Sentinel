@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using AI.Sentinel.Authorization;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Mcp.Authorization;
 

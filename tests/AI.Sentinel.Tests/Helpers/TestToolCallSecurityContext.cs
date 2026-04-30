@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AI.Sentinel.Authorization;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Tests.Helpers;
 

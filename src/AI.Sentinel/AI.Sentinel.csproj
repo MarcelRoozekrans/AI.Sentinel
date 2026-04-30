@@ -34,4 +34,7 @@
     <PackageReference Include="ZeroAlloc.Serialisation" Version="1.4.*" />
     <PackageReference Include="ZeroAlloc.Telemetry" Version="1.*" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\ZeroAlloc\ZeroAlloc.Authorization\src\ZeroAlloc.Authorization\ZeroAlloc.Authorization.csproj" />
+  </ItemGroup>
 </Project>

@@ -1,5 +1,6 @@
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Copilot;
 

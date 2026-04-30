@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Xunit;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Tests.AspNetCore;
 

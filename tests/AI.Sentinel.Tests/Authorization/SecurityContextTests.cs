@@ -1,5 +1,6 @@
 using AI.Sentinel.Authorization;
 using Xunit;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Tests.Authorization;
 

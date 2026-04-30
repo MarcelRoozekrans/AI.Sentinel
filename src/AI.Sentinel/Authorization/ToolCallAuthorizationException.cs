@@ -1,5 +1,6 @@
 using AI.Sentinel.Detection;
 using AI.Sentinel.Intervention;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Authorization;
 
