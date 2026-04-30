@@ -2,7 +2,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.AI;
 using OpenAI;
 using System.ClientModel;
+using System.Text.Json;
 using AI.Sentinel;
+using AI.Sentinel.Approvals;
+using AI.Sentinel.Authorization;
+using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -36,6 +40,17 @@ services.AddAISentinel(opts =>
     opts.OnLow      = onLow;
     // To enable semantic (language-agnostic) detection, set an embedding provider:
     // opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(new OpenAIClient(...), "text-embedding-3-small");
+
+    // Demo: high-stakes tool calls require an out-of-band human approval. The InMemory store
+    // is auto-registered when any RequireApproval binding is present. For CLI deployments,
+    // swap in AI.Sentinel.Approvals.Sqlite or AI.Sentinel.Approvals.EntraPim — see
+    // /docs/approvals/overview.
+    opts.RequireApproval("delete_database", spec =>
+    {
+        spec.GrantDuration = TimeSpan.FromMinutes(15);
+        spec.RequireJustification = true;
+        spec.BackendBinding = "DBA";
+    });
 });
 services.AddChatClient(svp =>
     new ChatClientBuilder(
@@ -53,6 +68,7 @@ var client = sp.GetRequiredService<IChatClient>();
 Console.WriteLine("AI.Sentinel Console Demo");
 Console.WriteLine($"Model  : {model}");
 Console.WriteLine($"Actions: Critical={onCritical}, High={onHigh}, Medium={onMedium}, Low={onLow}");
+Console.WriteLine("Commands: /approve-demo  walks through the RequireApproval flow end-to-end.");
 Console.WriteLine("Type a message and press Enter. Ctrl+C to quit.\n");
 
 using var cts = new CancellationTokenSource();
@@ -69,6 +85,12 @@ while (!cts.Token.IsCancellationRequested)
     Console.Write("You: ");
     var input = Console.ReadLine();
     if (string.IsNullOrWhiteSpace(input)) continue;
+
+    if (string.Equals(input.Trim(), "/approve-demo", StringComparison.OrdinalIgnoreCase))
+    {
+        await RunApprovalDemoAsync(sp, cts.Token).ConfigureAwait(false);
+        continue;
+    }
 
     history.Add(new ChatMessage(ChatRole.User, input));
 
@@ -100,4 +122,55 @@ while (!cts.Token.IsCancellationRequested)
         // Remove the blocked user message from history
         history.RemoveAt(history.Count - 1);
     }
+}
+
+// /approve-demo: walks through RequireApproval end-to-end without needing the LLM to actually
+// invoke a tool. We construct a fake `delete_database` call, send it through IToolCallGuard,
+// receive RequireApprovalDecision (with request ID + URL), then auto-approve via IApprovalAdmin
+// and re-evaluate the guard — which now returns Allow.
+static async Task RunApprovalDemoAsync(IServiceProvider sp, CancellationToken ct)
+{
+    var guard = sp.GetRequiredService<IToolCallGuard>();
+    var store = sp.GetService<IApprovalStore>();
+    var admin = store as IApprovalAdmin;
+    if (admin is null)
+    {
+        Console.WriteLine("[demo] No IApprovalAdmin available — this demo needs an in-process store (InMemory or Sqlite).");
+        return;
+    }
+
+    ISecurityContext caller = new DemoSecurityContext("demo-user");
+    var args = JsonSerializer.SerializeToElement(new { tableName = "production_orders" });
+
+    Console.WriteLine("[demo] Invoking guard for tool 'delete_database'...");
+    var first = await guard.AuthorizeAsync(caller, "delete_database", args, ct).ConfigureAwait(false);
+    if (first is not AuthorizationDecision.RequireApprovalDecision req)
+    {
+        Console.WriteLine($"[demo] Unexpected — guard returned {first.GetType().Name}. Demo requires a RequireApproval binding for delete_database.");
+        return;
+    }
+
+    Console.ForegroundColor = ConsoleColor.Yellow;
+    Console.WriteLine($"[demo] RequireApproval — RequestId={req.RequestId}");
+    Console.WriteLine($"[demo]                   ApprovalUrl={req.ApprovalUrl}");
+    Console.WriteLine($"[demo]                   WaitTimeout={req.WaitTimeout.TotalSeconds:F0}s");
+    Console.ResetColor();
+
+    Console.WriteLine("[demo] Approver acts via IApprovalAdmin.ApproveAsync (this is what the dashboard panel does)...");
+    await admin.ApproveAsync(req.RequestId, approverId: "demo-approver", note: "demo run", ct).ConfigureAwait(false);
+
+    Console.WriteLine("[demo] Re-evaluating guard...");
+    var second = await guard.AuthorizeAsync(caller, "delete_database", args, ct).ConfigureAwait(false);
+    Console.ForegroundColor = second.Allowed ? ConsoleColor.Green : ConsoleColor.Red;
+    Console.WriteLine($"[demo] Guard now returns: {second.GetType().Name}");
+    Console.ResetColor();
+    Console.WriteLine();
+}
+
+// Minimal ISecurityContext for the demo. Real apps pull this from the auth pipeline.
+internal sealed class DemoSecurityContext(string id) : ISecurityContext
+{
+    public string Id { get; } = id;
+    public IReadOnlySet<string> Roles { get; } = new HashSet<string>(StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, string> Claims { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
 }

@@ -80,6 +80,18 @@ const sidebars = {
     },
     {
       type: 'category',
+      label: 'Approvals',
+      items: [
+        'approvals/overview',
+        'approvals/in-memory',
+        'approvals/sqlite',
+        'approvals/entra-pim',
+        'approvals/dashboard',
+        'approvals/cli-config',
+      ],
+    },
+    {
+      type: 'category',
       label: 'Cookbook',
       items: [
         'cookbook/multi-tenant',

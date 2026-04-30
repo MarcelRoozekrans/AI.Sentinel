@@ -13,6 +13,8 @@ Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](http
 
 > **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same 55 detectors, same audit trail, zero code changes in the host.
 
+> **Approval workflows for high-stakes tool calls** (`delete_database`, `send_payment`, `rotate_secrets`) — pluggable backends include in-memory, SQLite (persists across CLI invocations), and **native Microsoft Entra PIM** (approvers act in the portal they already use). Operators approve/deny from the dashboard or the PIM portal; the conversation resumes when approval lands. See the [approvals docs](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview).
+
 ---
 
 ## Why you need it
