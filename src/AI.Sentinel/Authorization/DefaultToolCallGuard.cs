@@ -59,7 +59,10 @@ internal sealed class DefaultToolCallGuard(
         if (approvalStore is null)
         {
             throw new InvalidOperationException(
-                "RequireApproval configured but no IApprovalStore registered. Add AddSentinelInMemoryApprovalStore() or one of the alternatives.");
+                "RequireApproval configured but no IApprovalStore registered. The InMemory store is auto-registered " +
+                "by AddAISentinel when bindings carry an ApprovalSpec; if you cleared it explicitly, register one of " +
+                "AddSentinelSqliteApprovalStore / AddSentinelEntraPimApprovalStore, or " +
+                "services.AddSingleton<IApprovalStore, InMemoryApprovalStore>().");
         }
 
         var approvalCtx = new ApprovalContext(toolName, args, Justification: null);

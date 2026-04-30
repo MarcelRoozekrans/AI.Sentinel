@@ -18,7 +18,6 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 
 | Feature | Description |
 |---|---|
-| **PIM-style approval workflow** | Adds `RequireApproval` decision tier to `IToolCallGuard` for high-stakes tools (e.g. `delete_database`, `send_payment`). Pluggable `IApprovalStore` (in-memory + persistent backends), time-bound grants with TTL, dashboard Approve/Deny UI with justification, Mediator pending-approval notification, per-surface wait strategies. Strictly additive — doesn't break the binary v1 contract. |
 | **`ZeroAlloc.Authorization.Abstractions` extraction** | Once `ZeroAlloc.Mediator.Authorization` ships, extract `ISecurityContext` / `IAuthorizationPolicy` / `[Authorize]` / `[AuthorizationPolicy]` into a shared package so AI.Sentinel and ZeroAlloc.Mediator share primitives. One `IAuthorizationPolicy` class works for both worlds. |
 | **Async `IAuthorizationPolicy`** | Add `Task<bool> IsAuthorizedAsync(ISecurityContext)` overload. Coordinate with ZeroAlloc.Mediator.Authorization design before changing the interface. |
 | **Source-gen-driven policy name lookup** | Replace startup reflection scan in `DefaultToolCallGuard` registration with a generated `name → factory` table. Cold-start performance optimisation. |
