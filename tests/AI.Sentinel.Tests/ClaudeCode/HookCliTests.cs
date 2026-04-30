@@ -131,4 +131,37 @@ public class HookCliTests
             Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", null);
         }
     }
+
+    [Fact]
+    public async Task Cli_ApprovalConfigSqlite_ExitsOneWithStderrMessage()
+    {
+        // Sqlite backend isn't bundled in this CLI build (Task 5.6 wires the project ref). We
+        // assert the CLI surfaces a clear stderr message and exits 1, so operators don't get a
+        // silently-wrong InMemoryApprovalStore when they intended persistence.
+        var configPath = Path.Combine(Path.GetTempPath(), $"approval-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(configPath, """
+            {
+                "backend": "sqlite",
+                "databasePath": "/tmp/approvals.db",
+                "tools": { "Bash": { "role": "DBA" } }
+            }
+            """);
+        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
+        try
+        {
+            var stdin = new StringReader("""{"session_id":"s","prompt":"hello"}""");
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+
+            var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+
+            Assert.Equal(1, exit);
+            Assert.Contains("SqliteApprovalStore is not bundled", stderr.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
+            File.Delete(configPath);
+        }
+    }
 }

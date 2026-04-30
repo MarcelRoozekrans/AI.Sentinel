@@ -82,4 +82,40 @@ public class AuthorizationTests
 
         Assert.Equal(HookDecision.Block, output.Decision);
     }
+
+    [Fact]
+    public async Task PreToolUse_RequireApproval_ReturnsBlockWithReceipt()
+    {
+        // Same contract as the Claude Code adapter: RequireApprovalDecision must surface the
+        // receipt in HookOutput.Reason so the host can show it to the user.
+        var services = new ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.OnCritical = SentinelAction.Quarantine;
+            o.OnHigh = SentinelAction.Quarantine;
+            o.OnMedium = SentinelAction.Quarantine;
+            o.OnLow = SentinelAction.Quarantine;
+            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+        });
+        var provider = services.BuildServiceProvider();
+        var guard = new RequireApprovalGuard("approval:Bash", "req-xyz", "https://approve.example/req-xyz");
+        var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
+
+        var input = new CopilotHookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, default);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("Request ID: req-xyz", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("https://approve.example/req-xyz", output.Reason ?? "", StringComparison.Ordinal);
+    }
+
+    private sealed class RequireApprovalGuard(string policyName, string requestId, string approvalUrl) : IToolCallGuard
+    {
+        public ValueTask<AuthorizationDecision> AuthorizeAsync(
+            ISecurityContext caller, string toolName, JsonElement args, CancellationToken ct = default) =>
+            new(AuthorizationDecision.RequireApproval(
+                policyName, requestId, approvalUrl,
+                requestedAt: DateTimeOffset.UtcNow, waitTimeout: TimeSpan.FromSeconds(0)));
+    }
 }

@@ -2,6 +2,8 @@ using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel;
+using AI.Sentinel.Approvals;
+using AI.Sentinel.Approvals.Configuration;
 using AI.Sentinel.ClaudeCode;
 
 namespace AI.Sentinel.ClaudeCode.Cli;
@@ -39,40 +41,16 @@ public static class Program
             return 1;
         }
 
-        HookInput input;
-        try
-        {
-            var json = await stdin.ReadToEndAsync().ConfigureAwait(false);
-            input = JsonSerializer.Deserialize(json, HookJsonContext.Default.HookInput)
-                ?? throw new InvalidDataException("Empty input.");
-        }
-        catch (JsonException ex)
-        {
-            await stderr.WriteAsync($"Error: malformed stdin JSON: {ex.Message}\n").ConfigureAwait(false);
-            return 1;
-        }
-        catch (InvalidDataException ex)
-        {
-            await stderr.WriteAsync($"Error: {ex.Message}\n").ConfigureAwait(false);
-            return 1;
-        }
+        var (input, parseExit) = await ReadInputAsync(stdin, stderr).ConfigureAwait(false);
+        if (input is null) return parseExit;
 
-        var envVars = Environment.GetEnvironmentVariables()
-            .Cast<System.Collections.DictionaryEntry>()
-            .Where(e => e.Key is string key && key.StartsWith("SENTINEL_HOOK_", StringComparison.Ordinal))
-            .ToDictionary(e => (string)e.Key, e => e.Value as string, StringComparer.Ordinal);
-        var config = HookConfig.FromEnvironment(envVars);
+        var config = HookConfig.FromEnvironment(BuildHookEnvVars());
 
-        var services = new ServiceCollection();
-        services.AddAISentinel(opts =>
-        {
-            opts.OnCritical = SentinelAction.Quarantine;
-            opts.OnHigh = SentinelAction.Quarantine;
-            opts.OnMedium = SentinelAction.Quarantine;
-            opts.OnLow = SentinelAction.Quarantine;
-            opts.EmbeddingGenerator = embeddingGenerator;
-        });
-        var provider = services.BuildServiceProvider();
+        var (approvalConfig, configExit) = await TryLoadApprovalConfigAsync(stderr).ConfigureAwait(false);
+        if (configExit is { } code) return code;
+
+        var (provider, backendExit) = await BuildProviderAsync(stderr, embeddingGenerator, approvalConfig).ConfigureAwait(false);
+        if (provider is null) return backendExit;
         await using var _ = provider.ConfigureAwait(false);
 
         var adapter = new HookAdapter(provider, config);
@@ -92,6 +70,88 @@ public static class Program
             HookDecision.Warn => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 0).ConfigureAwait(false),
             _ => 0,
         };
+    }
+
+    private static async Task<(HookInput? Input, int Exit)> ReadInputAsync(TextReader stdin, TextWriter stderr)
+    {
+        try
+        {
+            var json = await stdin.ReadToEndAsync().ConfigureAwait(false);
+            var input = JsonSerializer.Deserialize(json, HookJsonContext.Default.HookInput)
+                ?? throw new InvalidDataException("Empty input.");
+            return (input, 0);
+        }
+        catch (JsonException ex)
+        {
+            await stderr.WriteAsync($"Error: malformed stdin JSON: {ex.Message}\n").ConfigureAwait(false);
+            return (null, 1);
+        }
+        catch (InvalidDataException ex)
+        {
+            await stderr.WriteAsync($"Error: {ex.Message}\n").ConfigureAwait(false);
+            return (null, 1);
+        }
+    }
+
+    private static Dictionary<string, string?> BuildHookEnvVars() =>
+        Environment.GetEnvironmentVariables()
+            .Cast<System.Collections.DictionaryEntry>()
+            .Where(e => e.Key is string key && key.StartsWith("SENTINEL_HOOK_", StringComparison.Ordinal))
+            .ToDictionary(e => (string)e.Key, e => e.Value as string, StringComparer.Ordinal);
+
+    private static async Task<(ApprovalConfig? Config, int? Exit)> TryLoadApprovalConfigAsync(TextWriter stderr)
+    {
+        var path = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
+        if (string.IsNullOrWhiteSpace(path)) return (null, null);
+        try
+        {
+            return (ApprovalConfigLoader.Load(path), null);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or JsonException)
+        {
+            await stderr.WriteAsync($"Failed to load approval config from '{path}': {ex.Message}\n").ConfigureAwait(false);
+            return (null, 1);
+        }
+    }
+
+    /// <summary>
+    /// Builds the DI provider with optional approval bindings. Throws-not-supports (returns
+    /// exit=1 with a stderr message) for Sqlite/EntraPim until Task 5.6 adds the project refs;
+    /// None and InMemory share a code path because <c>AddAISentinel</c> auto-registers
+    /// <c>InMemoryApprovalStore</c> when any binding has an <see cref="ApprovalSpec"/>.
+    /// </summary>
+    private static async Task<(ServiceProvider? Provider, int Exit)> BuildProviderAsync(
+        TextWriter stderr,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
+        ApprovalConfig? approvalConfig)
+    {
+        var services = new ServiceCollection();
+        // Lambda capture: AddAISentinel invokes the callback synchronously, so backendKind is
+        // set before we read it below.
+        var backendKind = ApprovalBackendKind.None;
+        services.AddAISentinel(opts =>
+        {
+            opts.OnCritical = SentinelAction.Quarantine;
+            opts.OnHigh = SentinelAction.Quarantine;
+            opts.OnMedium = SentinelAction.Quarantine;
+            opts.OnLow = SentinelAction.Quarantine;
+            opts.EmbeddingGenerator = embeddingGenerator;
+            if (approvalConfig is not null)
+                backendKind = ApprovalBackendSelector.Configure(opts, approvalConfig);
+        });
+
+        if (backendKind == ApprovalBackendKind.Sqlite || backendKind == ApprovalBackendKind.EntraPim)
+        {
+            var name = backendKind == ApprovalBackendKind.Sqlite ? "Sqlite" : "EntraPim";
+            var pkg = backendKind == ApprovalBackendKind.Sqlite ? "AI.Sentinel.Approvals.Sqlite" : "AI.Sentinel.Approvals.EntraPim";
+            await stderr.WriteAsync(
+                $"{name}ApprovalStore is not bundled in this CLI build (Task 5.6 adds the project reference). " +
+                $"Use 'in-memory' for now, or rebuild with the {pkg} package referenced.\n")
+                .ConfigureAwait(false);
+            return (null, 1);
+        }
+
+        return (services.BuildServiceProvider(), 0);
     }
 
     private static async Task<int> WriteReasonAndReturn(TextWriter stderr, string? reason, int exitCode)
