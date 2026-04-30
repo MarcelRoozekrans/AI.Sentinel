@@ -9,6 +9,31 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.3.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.2.0...v1.3.0) (2026-04-30)
+
+
+### Features
+
+* **approvals-sqlite:** AddSentinelSqliteApprovalStore DI extension ([b885cdf](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b885cdf9c505717b6f66e6d01996e79931ead3f4))
+* **approvals-sqlite:** SqliteApprovalStore + 8 TDD tests ([b4b51b6](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b4b51b6f08e807e1b1a8f81310b0a05ac85f416b))
+* **approvals-sqlite:** SqliteApprovalStoreOptions + schema ([db9c801](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/db9c80170961b1c74a1a924d4401951495a4c787))
+* **approvals:** land Stage 2 (EntraPim package) on main ([633f3e9](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/633f3e94b68ee29482c8f7cacc54d2edf86718ee))
+* **approvals:** Stage 2 — AI.Sentinel.Approvals.EntraPim package ([b0e9cda](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b0e9cdae87a244bd630713b0d66a659fda8dcd68))
+* **approvals:** Stage 3 — AI.Sentinel.Approvals.Sqlite package ([785281e](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/785281ee830204985f307d6773242dcc63efd93b))
+* **approvals:** Stage 4 — Dashboard pending-approvals UI ([a943027](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/a9430274300e187ad2439a2878b763e7fd9d0207))
+* **aspnetcore:** pending-approvals dashboard endpoints ([a8d12a6](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/a8d12a681e21e4b351ee95d61f86e89b8521b409))
+* **aspnetcore:** pending-approvals dashboard UI panel ([8618519](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/8618519d253fb3e5d9353b54f961dcb4c3deff83))
+
+
+### Bug Fixes
+
+* **approvals-sqlite:** apply Stage 3 review feedback ([6cee141](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/6cee1417146b9e9a960007c05548794f5e9ac3d2))
+* **aspnetcore:** apply Stage 4 review feedback — XSS hardening + fail-closed auth ([2ddd47f](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/2ddd47f3a80350f580b5588bfffff67c1782877e))
+* **deps:** update docusaurus monorepo to v3.10.1 ([ba72943](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ba7294317e2cafd54e685acd81c392a79e5a6d28))
+* **deps:** update docusaurus monorepo to v3.10.1 ([3099d65](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/3099d65d7f78664e56dad69ca94d3b52b38b1f6c))
+* **entra-pim:** apply Stage 2 review feedback — caller-id guard, polling order, error classification, ambiguity, mapping, DI ([f9422f9](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/f9422f9f07b254d428faaafa1dd3cf42074f71ae))
+* **entra-pim:** clear remaining Stage 2 review deferrals ([db9f914](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/db9f9144da461ae8656135f5c154b7eaf0c527f5))
+
 ## [1.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.1.0...v1.2.0) (2026-04-29)
 
 
