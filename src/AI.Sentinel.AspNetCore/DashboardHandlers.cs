@@ -93,7 +93,14 @@ internal static class DashboardHandlers
               .Append("  <td>").Append(ts).AppendLine("</td>")
               .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>")
               .Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
-              .Append("  <td title=\"").Append(HtmlEncode(e.Summary)).Append("\">").Append(HtmlEncode(reason)).AppendLine("</td>")
+              .Append("  <td title=\"").Append(HtmlEncode(e.Summary)).Append("\">");
+            if (isAuthz)
+            {
+                sb.Append("<span class=\"badge code\">")
+                  .Append(HtmlEncode(e.PolicyCode ?? "policy_denied"))
+                  .Append("</span> ");
+            }
+            sb.Append(HtmlEncode(reason)).AppendLine("</td>")
               .Append("  <td class=\"hash\">").Append(hashPrefix).AppendLine("</td>")
               .AppendLine("</tr>");
         }

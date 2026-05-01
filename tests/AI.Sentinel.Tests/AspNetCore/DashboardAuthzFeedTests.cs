@@ -87,6 +87,22 @@ public class DashboardAuthzFeedTests
     }
 
     [Fact]
+    public async Task LiveFeed_AuthzDenyEntry_NullPolicyCode_RendersDefaultBadge()
+    {
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+
+        // PolicyCode left null → renderer must fall back to "policy_denied" so AUTHZ rows
+        // always show a badge, even for legacy entries written before Phase 2 plumbing.
+        await store.AppendAsync(NewEntry("AUTHZ-DENY", "denied", policyCode: null), CancellationToken.None);
+
+        var client = host.GetTestClient();
+        var html = await client.GetStringAsync("/sentinel/api/feed");
+
+        Assert.Contains("<span class=\"badge code\">policy_denied</span>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task DashboardIndex_RendersAuthorizationFilterChip()
     {
         var host = await BuildHostAsync();
@@ -114,7 +130,7 @@ public class DashboardAuthzFeedTests
             .StartAsync();
     }
 
-    private static AuditEntry NewEntry(string detectorId, string summary) =>
+    private static AuditEntry NewEntry(string detectorId, string summary, string? policyCode = null) =>
         new(
             Id:           Guid.NewGuid().ToString("N"),
             Timestamp:    DateTimeOffset.UtcNow,
@@ -122,5 +138,6 @@ public class DashboardAuthzFeedTests
             PreviousHash: null,
             Severity:     Severity.High,
             DetectorId:   detectorId,
-            Summary:      summary);
+            Summary:      summary,
+            PolicyCode:   policyCode);
 }
