@@ -85,7 +85,7 @@ internal static class DashboardHandlers
             var severityLower = e.Severity.ToString().ToLowerInvariant();
             var ts = e.Timestamp.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
             var hashPrefix = e.Hash[..Math.Min(8, e.Hash.Length)];
-            var isAuthz = e.DetectorId.StartsWith("AUTHZ-", StringComparison.Ordinal);
+            var isAuthz = string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal);
             sb.Append("<tr class=\"severity-")
               .Append(severityLower);
             if (isAuthz)
