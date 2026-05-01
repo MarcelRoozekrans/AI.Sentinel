@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.7.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.6.0...v1.7.0) (2026-05-01)
+
+
+### Features
+
+* **authz:** add SentinelDenyCodes static class ([5ecca97](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/5ecca97d506d6bcbd9b6b4b902ffba82ac5c3c2f))
+
 ## [1.6.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.5.0...v1.6.0) (2026-05-01)
 
 
