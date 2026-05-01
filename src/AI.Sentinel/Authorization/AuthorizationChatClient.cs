@@ -5,6 +5,7 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Authorization;
 

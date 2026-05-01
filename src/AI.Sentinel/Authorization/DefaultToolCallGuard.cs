@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AI.Sentinel.Approvals;
 using Microsoft.Extensions.Logging;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Authorization;
 

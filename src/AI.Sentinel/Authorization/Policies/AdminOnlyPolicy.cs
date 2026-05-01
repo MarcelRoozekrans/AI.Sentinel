@@ -1,3 +1,5 @@
+using ZeroAlloc.Authorization;
+
 namespace AI.Sentinel.Authorization.Policies;
 
 /// <summary>Reference policy: allows callers with the <c>admin</c> role. Opt-in via DI registration.</summary>

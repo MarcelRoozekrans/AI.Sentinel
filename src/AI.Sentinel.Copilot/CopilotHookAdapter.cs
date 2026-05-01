@@ -6,6 +6,7 @@ using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Copilot;
 

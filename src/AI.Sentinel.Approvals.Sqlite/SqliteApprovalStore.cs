@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AI.Sentinel.Authorization;
 using Microsoft.Data.Sqlite;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Approvals.Sqlite;
 

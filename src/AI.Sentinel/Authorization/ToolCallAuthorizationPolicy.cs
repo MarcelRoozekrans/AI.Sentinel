@@ -1,3 +1,5 @@
+using ZeroAlloc.Authorization;
+
 namespace AI.Sentinel.Authorization;
 
 /// <summary>Ergonomic base for arg-aware tool-call policies. Allows automatically when context is not a tool call.</summary>

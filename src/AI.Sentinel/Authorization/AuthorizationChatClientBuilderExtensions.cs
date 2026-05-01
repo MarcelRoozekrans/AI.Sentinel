@@ -2,6 +2,7 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Authorization;
 

@@ -8,6 +8,7 @@ using AI.Sentinel.Mcp.Authorization;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using ZeroAlloc.Authorization;
 using Xunit;
 
 namespace AI.Sentinel.Tests.Mcp;

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Authorization.Policies;
 

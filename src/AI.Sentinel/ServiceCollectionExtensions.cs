@@ -7,6 +7,7 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Intervention;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel;
 

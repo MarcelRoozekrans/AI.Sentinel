@@ -2,6 +2,7 @@ using System.Globalization;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Authorization;
 using Xunit;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Approvals.Sqlite.Tests;
 

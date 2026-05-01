@@ -2,6 +2,7 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Authorization;
 using System.Text.Json;
 using Xunit;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Tests.Approvals;
 

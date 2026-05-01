@@ -2,6 +2,7 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Authorization;
 using Microsoft.Extensions.AI;
 using Xunit;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Tests.Authorization;
 

@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using AI.Sentinel.Authorization;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Approvals.EntraPim;
 

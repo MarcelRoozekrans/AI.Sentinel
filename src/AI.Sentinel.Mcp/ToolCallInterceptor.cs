@@ -9,6 +9,7 @@ using AI.Sentinel.Mcp.Authorization;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Mcp;
 

@@ -5,6 +5,7 @@ using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Tests.ClaudeCode;
 

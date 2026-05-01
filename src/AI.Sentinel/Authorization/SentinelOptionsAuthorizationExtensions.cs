@@ -1,3 +1,5 @@
+using ZeroAlloc.Authorization;
+
 namespace AI.Sentinel.Authorization;
 
 /// <summary>Extension methods on <see cref="SentinelOptions"/> for tool-call authorization configuration.</summary>

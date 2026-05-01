@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Authorization;
 using Xunit;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Approvals.EntraPim.Tests;
 
