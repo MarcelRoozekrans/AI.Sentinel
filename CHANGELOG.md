@@ -9,6 +9,26 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.6.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.5.0...v1.6.0) (2026-05-01)
+
+
+### Features
+
+* **audit:** add optional PolicyCode to AuditEntry ([50c471d](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/50c471dbab4d8e41d78d480a42949fd7e1476dd6))
+* **audit:** plumb policyCode through AuthorizationDeny extension ([f6361cc](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/f6361cc2033675ee4602bdc2a7127c84dde7e2ce))
+* **audit:** propagate policyCode through audit forwarders ([7a2fb52](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/7a2fb523f8c840bb3e98c011a70606d4d523ec48))
+* **authz:** add Code field to DenyDecision ([0140dfc](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/0140dfcf8713d8b7fb1da8e9c8cf08e6919c0a67))
+* **authz:** async + structured authorization (Code propagation end-to-end) ([a8d0cb5](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/a8d0cb511d64d11ec83e89d621cb150efcf0f306))
+* **authz:** switch DefaultToolCallGuard to policy.EvaluateAsync ([f5c3318](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/f5c33182561a5c94b0a2d18a7da5500c5ecd9a38))
+* **claudecode-cli:** surface policy code in deny receipt ([d81518b](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/d81518b7f133a4574c615a6d59c4bd0dda0d6941))
+* **copilot-cli:** surface policy code in deny receipt ([03590f1](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/03590f1515624d89a2dcd227c57d324350b26536))
+* **dashboard:** add .badge.code CSS rule for policy code chips ([3043f41](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/3043f41264bc6fc21fef9527cf1a141bf335f437))
+* **dashboard:** integration test for PolicyCode badge round-trip ([b16a383](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b16a38323c9c8ae94185b740b5849092465732af))
+* **dashboard:** render PolicyCode badge prefix on AUTHZ-DENY rows ([0fe8841](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/0fe8841e3ff886eed485bafb5e69953add5ba872))
+* **mcp-cli:** surface policy code in deny error message ([957effb](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/957effb524ad11b3f1ffe2660d08e0a9ef53ab31))
+* **sqlite:** audit schema v2 — policy_code column ([b7d62ef](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b7d62ef4d87c43a77b72fb0e762a2fb9b9bcfa99))
+* **sqlite:** persist + read AuditEntry.PolicyCode ([cfcd009](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/cfcd00946eb25bd215766caeba5b4befb5fadbe4))
+
 ## [1.5.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.4.1...v1.5.0) (2026-05-01)
 
 
