@@ -37,4 +37,20 @@ public class AuthorizationDecisionTests
 
         Assert.IsType<AuthorizationDecision.DenyDecision>(binary);
     }
+
+    [Fact]
+    public void Deny_WithoutCode_AppliesDefaultPolicyDeniedCode()
+    {
+        var deny = AuthorizationDecision.Deny("AdminOnly", "user is not admin");
+        Assert.Equal("policy_denied", deny.Code);
+    }
+
+    [Fact]
+    public void Deny_WithCode_PreservesPolicySuppliedCode()
+    {
+        var deny = AuthorizationDecision.Deny("TenantActive", "tenant evicted", "tenant_inactive");
+        Assert.Equal("tenant_inactive", deny.Code);
+        Assert.Equal("TenantActive", deny.PolicyName);
+        Assert.Equal("tenant evicted", deny.Reason);
+    }
 }

@@ -6,19 +6,22 @@ public abstract record AuthorizationDecision
     /// <summary>Decision permitting the call.</summary>
     public sealed record AllowDecision : AuthorizationDecision;
 
-    /// <summary>Decision refusing the call, naming the policy and reason.</summary>
+    /// <summary>Decision refusing the call.</summary>
     /// <param name="PolicyName">Name of the denying policy.</param>
     /// <param name="Reason">Human-readable reason for the denial.</param>
-    public sealed record DenyDecision(string PolicyName, string Reason) : AuthorizationDecision;
+    /// <param name="Code">Machine-readable code (e.g. "tenant_inactive", "bash_blocked"). Defaults to
+    /// <c>"policy_denied"</c> when the policy returned bare <c>false</c> via the sync IsAuthorized DIM bridge.</param>
+    public sealed record DenyDecision(string PolicyName, string Reason, string Code = "policy_denied") : AuthorizationDecision;
 
     /// <summary>Singleton allow — never allocates.</summary>
     public static readonly AllowDecision Allow = new();
 
-    /// <summary>Builds a deny decision with the policy name and reason that produced it.</summary>
+    /// <summary>Builds a deny decision with the policy name, reason and code.</summary>
     /// <param name="policyName">Name of the denying policy.</param>
     /// <param name="reason">Human-readable reason for the denial.</param>
-    public static DenyDecision Deny(string policyName, string reason) =>
-        new(policyName, reason);
+    /// <param name="code">Machine-readable code; defaults to <c>"policy_denied"</c>.</param>
+    public static DenyDecision Deny(string policyName, string reason, string code = "policy_denied") =>
+        new(policyName, reason, code);
 
     public sealed record RequireApprovalDecision(
         string PolicyName,
