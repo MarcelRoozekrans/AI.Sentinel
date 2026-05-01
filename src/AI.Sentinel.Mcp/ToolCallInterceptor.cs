@@ -130,7 +130,7 @@ internal static class ToolCallInterceptor
         ).ConfigureAwait(false);
 
         throw new McpProtocolException(
-            $"Authorization denied by policy '{policyName}': {reason}",
+            $"Authorization denied [{policyCode}] by policy '{policyName}': {reason}",
             McpErrorCode.InvalidRequest);
     }
 
