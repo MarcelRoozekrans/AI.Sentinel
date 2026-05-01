@@ -118,6 +118,42 @@ public sealed class OpenTelemetryAuditForwarderTests
     }
 
     [Fact]
+    public async Task SendAsync_PolicyCode_LiftedAsAuditAttribute()
+    {
+        var records = new List<LogRecord>();
+        using var loggerFactory = LoggerFactory.Create(b => b
+            .SetMinimumLevel(LogLevel.Trace)
+            .AddOpenTelemetry(o =>
+            {
+                o.IncludeScopes = true;
+                o.AddInMemoryExporter(records);
+            }));
+
+        var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
+        var entry = new AuditEntry(
+            Id: "authz-1",
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "h",
+            PreviousHash: null,
+            Severity: Severity.High,
+            DetectorId: "AUTHZ-DENY",
+            Summary: "denied",
+            PolicyCode: "tenant_inactive");
+        await f.SendAsync(new[] { entry }, default);
+        loggerFactory.Dispose();
+
+        Assert.Single(records);
+        var scopeAttrs = new Dictionary<string, object?>(StringComparer.Ordinal);
+        records[0].ForEachScope<object?>(
+            (scope, _) =>
+            {
+                foreach (var kv in scope) scopeAttrs[kv.Key] = kv.Value;
+            },
+            null);
+        Assert.Equal("tenant_inactive", scopeAttrs["audit.policy_code"]);
+    }
+
+    [Fact]
     public async Task SendAsync_OutOfRangeSeverity_DoesNotCrash_MapsToDebug()
     {
         var records = new List<LogRecord>();

@@ -44,6 +44,7 @@ public sealed class OpenTelemetryAuditForwarder : IAuditForwarder
                 ["audit.hash"] = entry.Hash,
                 ["audit.previous_hash"] = entry.PreviousHash,
                 ["audit.timestamp"] = entry.Timestamp.ToString("O", CultureInfo.InvariantCulture),
+                ["audit.policy_code"] = entry.PolicyCode,
             }))
             {
 #pragma warning disable CA1848 // LoggerMessage source-gen would couple emission shape to a static template; per-entry attributes flow via scope.
