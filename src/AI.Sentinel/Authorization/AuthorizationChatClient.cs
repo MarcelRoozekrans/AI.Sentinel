@@ -139,7 +139,8 @@ internal sealed class AuthorizationChatClient(
             roles: caller.Roles,
             toolName: fnCall.Name,
             policyName: deny?.PolicyName ?? "?",
-            reason: deny?.Reason ?? "?");
+            reason: deny?.Reason ?? "?",
+            policyCode: deny?.Code ?? "policy_denied");
         await audit.AppendAsync(entry, ct).ConfigureAwait(false);
     }
 

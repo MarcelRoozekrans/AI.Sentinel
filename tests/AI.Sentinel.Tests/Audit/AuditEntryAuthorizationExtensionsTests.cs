@@ -29,4 +29,38 @@ public class AuditEntryAuthorizationExtensionsTests
         Assert.Contains("admin-only", entry.Summary, StringComparison.Ordinal);
         Assert.Contains("missing role", entry.Summary, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void AuthorizationDeny_PolicyCode_PersistsOnAuditEntry()
+    {
+        var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+            sender: new AgentId("user"),
+            receiver: new AgentId("agent"),
+            session: SessionId.New(),
+            callerId: "u1",
+            roles: new HashSet<string>(StringComparer.Ordinal),
+            toolName: "Bash",
+            policyName: "TenantActive",
+            reason: "Tenant 'acme' is in evicted state",
+            policyCode: "tenant_inactive");
+
+        Assert.Equal("tenant_inactive", entry.PolicyCode);
+        Assert.Contains("tenant_inactive", entry.Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AuthorizationDeny_DefaultsToPolicyDeniedWhenCodeOmitted()
+    {
+        var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+            sender: new AgentId("user"),
+            receiver: new AgentId("agent"),
+            session: SessionId.New(),
+            callerId: "u1",
+            roles: new HashSet<string>(StringComparer.Ordinal),
+            toolName: "Bash",
+            policyName: "AdminOnly",
+            reason: "Policy denied");
+
+        Assert.Equal("policy_denied", entry.PolicyCode);
+    }
 }

@@ -84,7 +84,8 @@ public sealed class HookAdapter
                             roles: caller.Roles,
                             toolName: input.ToolName,
                             policyName: r.PolicyName,
-                            reason: $"approval required (requestId={r.RequestId})");
+                            reason: $"approval required (requestId={r.RequestId})",
+                            policyCode: "approval_required");
                         await _audit.AppendAsync(approvalEntry, ct).ConfigureAwait(false);
                     }
 
@@ -94,6 +95,7 @@ public sealed class HookAdapter
                 var deny = decision as AuthorizationDecision.DenyDecision;
                 var policyName = deny?.PolicyName ?? "?";
                 var denyReason = deny?.Reason ?? "?";
+                var denyCode = deny?.Code ?? "policy_denied";
 
                 if (_audit is not null)
                 {
@@ -105,7 +107,8 @@ public sealed class HookAdapter
                         roles: caller.Roles,
                         toolName: input.ToolName,
                         policyName: policyName,
-                        reason: denyReason);
+                        reason: denyReason,
+                        policyCode: denyCode);
                     await _audit.AppendAsync(entry, ct).ConfigureAwait(false);
                 }
 

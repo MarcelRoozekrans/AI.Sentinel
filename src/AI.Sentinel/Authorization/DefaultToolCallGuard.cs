@@ -79,7 +79,8 @@ internal sealed class DefaultToolCallGuard(
         {
             logger?.LogError(ex, "IApprovalStore threw for policy '{PolicyName}' — failing closed (deny).", approvalSpec.PolicyName);
             return AuthorizationDecision.Deny(approvalSpec.PolicyName,
-                $"Approval store threw {ex.GetType().Name}");
+                $"Approval store threw {ex.GetType().Name}",
+                "approval_store_exception");
         }
 
         return state switch
@@ -87,8 +88,11 @@ internal sealed class DefaultToolCallGuard(
             ApprovalState.Active => null, // active grant — continue evaluating remaining bindings
             ApprovalState.Pending p => AuthorizationDecision.RequireApproval(
                 approvalSpec.PolicyName, p.RequestId, p.ApprovalUrl, p.RequestedAt, approvalSpec.WaitTimeout),
+            // Denied = real denial-by-approver: keep the default 'policy_denied' code so it lines up
+            // with structured-policy denials. Operators differentiate via reason text.
             ApprovalState.Denied d => AuthorizationDecision.Deny(approvalSpec.PolicyName, d.Reason),
-            _ => AuthorizationDecision.Deny(approvalSpec.PolicyName, "unknown approval state"),
+            _ => AuthorizationDecision.Deny(approvalSpec.PolicyName, "unknown approval state",
+                "approval_state_unknown"),
         };
     }
 
