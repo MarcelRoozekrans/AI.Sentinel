@@ -89,7 +89,7 @@ public sealed class CopilotHookAdapter
                             toolName: input.ToolName,
                             policyName: r.PolicyName,
                             reason: $"approval required (requestId={r.RequestId})",
-                            policyCode: "approval_required");
+                            policyCode: SentinelDenyCodes.ApprovalRequired);
                         await _audit.AppendAsync(approvalEntry, ct).ConfigureAwait(false);
                     }
 
@@ -99,7 +99,7 @@ public sealed class CopilotHookAdapter
                 var deny = decision as AuthorizationDecision.DenyDecision;
                 var policyName = deny?.PolicyName ?? "?";
                 var denyReason = deny?.Reason ?? "?";
-                var denyCode = deny?.Code ?? "policy_denied";
+                var denyCode = deny?.Code ?? SentinelDenyCodes.PolicyDenied;
 
                 if (_audit is not null)
                 {

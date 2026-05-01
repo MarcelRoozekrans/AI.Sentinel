@@ -108,7 +108,7 @@ internal static class ToolCallInterceptor
         var deny = decision as AuthorizationDecision.DenyDecision;
         var policyName = deny?.PolicyName ?? "?";
         var reason = deny?.Reason ?? "?";
-        var policyCode = deny?.Code ?? "policy_denied";
+        var policyCode = deny?.Code ?? SentinelDenyCodes.PolicyDenied;
 
         if (audit is not null)
         {
@@ -164,7 +164,7 @@ internal static class ToolCallInterceptor
                 toolName:   req.Name,
                 policyName: r.PolicyName,
                 reason:     $"approval required (requestId={r.RequestId})",
-                policyCode: "approval_required");
+                policyCode: SentinelDenyCodes.ApprovalRequired);
             await audit.AppendAsync(approvalEntry, ct).ConfigureAwait(false);
         }
 
