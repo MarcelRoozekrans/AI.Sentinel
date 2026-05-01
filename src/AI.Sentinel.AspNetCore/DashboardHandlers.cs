@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 
@@ -97,7 +98,7 @@ internal static class DashboardHandlers
             if (isAuthz)
             {
                 sb.Append("<span class=\"badge code\">")
-                  .Append(HtmlEncode(e.PolicyCode ?? "policy_denied"))
+                  .Append(HtmlEncode(e.PolicyCode ?? SentinelDenyCodes.PolicyDenied))
                   .Append("</span> ");
             }
             sb.Append(HtmlEncode(reason)).AppendLine("</td>")
