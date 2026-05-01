@@ -11,7 +11,7 @@ public abstract record AuthorizationDecision
     /// <param name="Reason">Human-readable reason for the denial.</param>
     /// <param name="Code">Machine-readable code (e.g. "tenant_inactive", "bash_blocked"). Defaults to
     /// <c>"policy_denied"</c> when the policy returned bare <c>false</c> via the sync IsAuthorized DIM bridge.</param>
-    public sealed record DenyDecision(string PolicyName, string Reason, string Code = "policy_denied") : AuthorizationDecision;
+    public sealed record DenyDecision(string PolicyName, string Reason, string Code = SentinelDenyCodes.PolicyDenied) : AuthorizationDecision;
 
     /// <summary>Singleton allow — never allocates.</summary>
     public static readonly AllowDecision Allow = new();
@@ -20,7 +20,7 @@ public abstract record AuthorizationDecision
     /// <param name="policyName">Name of the denying policy.</param>
     /// <param name="reason">Human-readable reason for the denial.</param>
     /// <param name="code">Machine-readable code; defaults to <c>"policy_denied"</c>.</param>
-    public static DenyDecision Deny(string policyName, string reason, string code = "policy_denied") =>
+    public static DenyDecision Deny(string policyName, string reason, string code = SentinelDenyCodes.PolicyDenied) =>
         new(policyName, reason, code);
 
     public sealed record RequireApprovalDecision(
@@ -43,7 +43,7 @@ public abstract record AuthorizationDecision
     /// </summary>
     public AuthorizationDecision AsBinary() =>
         this is RequireApprovalDecision r
-            ? Deny(r.PolicyName, $"approval required (requestId={r.RequestId})", "approval_required")
+            ? Deny(r.PolicyName, $"approval required (requestId={r.RequestId})", SentinelDenyCodes.ApprovalRequired)
             : this;
 
     /// <summary>True if this decision permits the call.</summary>

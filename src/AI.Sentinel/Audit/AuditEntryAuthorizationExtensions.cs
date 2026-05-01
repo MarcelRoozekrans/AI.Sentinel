@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 
@@ -39,7 +40,7 @@ public static class AuditEntryAuthorizationExtensions
         string toolName,
         string policyName,
         string reason,
-        string policyCode = "policy_denied")
+        string policyCode = SentinelDenyCodes.PolicyDenied)
     {
         ArgumentNullException.ThrowIfNull(sender);
         ArgumentNullException.ThrowIfNull(receiver);

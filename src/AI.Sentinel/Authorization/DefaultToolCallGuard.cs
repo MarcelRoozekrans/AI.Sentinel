@@ -80,7 +80,7 @@ internal sealed class DefaultToolCallGuard(
             logger?.LogError(ex, "IApprovalStore threw for policy '{PolicyName}' — failing closed (deny).", approvalSpec.PolicyName);
             return AuthorizationDecision.Deny(approvalSpec.PolicyName,
                 $"Approval store threw {ex.GetType().Name}",
-                "approval_store_exception");
+                SentinelDenyCodes.ApprovalStoreException);
         }
 
         return state switch
@@ -92,7 +92,7 @@ internal sealed class DefaultToolCallGuard(
             // with structured-policy denials. Operators differentiate via reason text.
             ApprovalState.Denied d => AuthorizationDecision.Deny(approvalSpec.PolicyName, d.Reason),
             _ => AuthorizationDecision.Deny(approvalSpec.PolicyName, "unknown approval state",
-                "approval_state_unknown"),
+                SentinelDenyCodes.ApprovalStateUnknown),
         };
     }
 
@@ -104,7 +104,7 @@ internal sealed class DefaultToolCallGuard(
             logger?.LogError("Policy '{PolicyName}' is bound to '{Pattern}' but not registered — denying.", binding.PolicyName, binding.Pattern);
             return AuthorizationDecision.Deny(binding.PolicyName,
                 $"Policy '{binding.PolicyName}' is not registered",
-                "policy_not_registered");
+                SentinelDenyCodes.PolicyNotRegistered);
         }
 
         UnitResult<AuthorizationFailure> result;
@@ -124,7 +124,7 @@ internal sealed class DefaultToolCallGuard(
             logger?.LogError(ex, "Policy '{PolicyName}' threw — failing closed (deny).", binding.PolicyName);
             return AuthorizationDecision.Deny(binding.PolicyName,
                 $"Policy threw {ex.GetType().Name}",
-                "policy_exception");
+                SentinelDenyCodes.PolicyException);
         }
 
         if (result.IsSuccess)
@@ -141,7 +141,7 @@ internal sealed class DefaultToolCallGuard(
         // hook receipts, MCP error body, dashboard) assert against the same shape
         // regardless of whether the policy author opted into the structured Evaluate API.
         var code = string.Equals(failure.Code, AuthorizationFailure.DefaultDenyCode, StringComparison.Ordinal)
-            ? "policy_denied"
+            ? SentinelDenyCodes.PolicyDenied
             : failure.Code;
         var reason = failure.Reason ?? "Policy denied";
         return AuthorizationDecision.Deny(binding.PolicyName, reason, code);

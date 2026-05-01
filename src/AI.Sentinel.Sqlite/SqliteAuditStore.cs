@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using AI.Sentinel.Audit;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using Microsoft.Data.Sqlite;
 
@@ -87,7 +88,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("$seq", seq);
             // Non-AUTHZ entries pass null; the column is NOT NULL with default 'policy_denied'
             // so we coalesce here to keep the wire shape stable across detector kinds.
-            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? "policy_denied");
+            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? SentinelDenyCodes.PolicyDenied);
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         finally
