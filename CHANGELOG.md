@@ -9,6 +9,19 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.5.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.4.1...v1.5.0) (2026-05-01)
+
+
+### Features
+
+* **authz:** consume ZeroAlloc.Authorization 1.1 via PackageReference ([0a77da6](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/0a77da6400c9fe8ce628ad6e244d65f241fbcaba))
+* **authz:** extract primitives to ZeroAlloc.Authorization ([ea1399a](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ea1399ad04df45c21958a1cdae22b462bccfc4df))
+
+
+### Bug Fixes
+
+* **samples:** ConsoleDemo — add using ZeroAlloc.Authorization for ISecurityContext ([548bf23](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/548bf2361986a5fbfebfb6b9f8ae9c15d66aed7f))
+
 ## [1.4.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.4.0...v1.4.1) (2026-04-30)
 
 
