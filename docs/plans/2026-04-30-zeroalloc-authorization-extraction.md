@@ -1164,7 +1164,17 @@ The TypeForwardedTo design specifically minimizes blast radius — even a worst-
 
 ## Out of scope (deferred follow-ups)
 
-- Migrating sibling AI.Sentinel.* packages and test files from `using AI.Sentinel.Authorization;` to `using ZeroAlloc.Authorization;` (works fine via forwarders; cleanup is optional).
 - Building `ZeroAlloc.Mediator.Authorization` (separate work in the Mediator repo).
 - Source generator for policy-name lookup (backlog item "Source-gen-driven policy name lookup").
 - `[Authorize]` attribute discovery for AIFunction-bound methods at registration time (backlog item).
+- Uplift `DefaultToolCallGuard` from `policy.IsAuthorized(ctx)` to `policy.EvaluateAsync(ctx, ct)` to consume the structured `UnitResult<AuthorizationFailure>` shape ZeroAlloc.Authorization ships in 1.1.0+ (replaces the hardcoded `"Policy denied"` reason with the policy-supplied Code + Reason). Non-breaking 1.6.0 candidate.
+
+---
+
+## Retro notes (post-implementation)
+
+Two assumptions in this plan turned out to be wrong, captured here so future readers don't re-discover them:
+
+1. **`Version="1.0.*"` was wrong** — the plan seeded `.release-please-manifest.json` at `1.0.0` and assumed release-please would ship the first release as `1.0.0`. In reality, the `release-please-config.json` had `bump-minor-pre-major: true` and the entire commit stream was `feat:`, so release-please bumped the seed to **1.1.0**. AI.Sentinel ended up with `<PackageReference Include="ZeroAlloc.Authorization" Version="1.1.*" />`. To ship as 1.0.0, the seed manifest would need to start at `0.x.x` *or* `bump-minor-pre-major` would need to be `false`. Not worth re-doing for v1; documented for next time.
+
+2. **`[TypeForwardedTo]` does NOT elide `using` updates for in-solution ProjectReference consumers** — the plan claimed sibling AI.Sentinel.* packages and test files could keep their existing `using AI.Sentinel.Authorization;` because the type-forwarders would redirect resolution. This is true for **pre-compiled binary consumers** (e.g. an external app that referenced `AI.Sentinel.dll` 1.4.x and recompiles against 1.5.0). It is **NOT** true for source projects in the same solution that link to `src/AI.Sentinel/AI.Sentinel.csproj` via `<ProjectReference>` — the C# compiler resolves names through the symbol table, not through the output assembly's metadata, so `using AI.Sentinel.Authorization;` no longer brings the 5 deleted type names into scope. The implementer correctly added `using ZeroAlloc.Authorization;` to all 24 in-solution consumer files (10 sibling-package source files + 14 test files + 1 sample). Type-forwarders are still load-bearing — they continue to serve the binary-consumer scenario, which is the actual public-API contract that 1.5.0 promises not to break.
