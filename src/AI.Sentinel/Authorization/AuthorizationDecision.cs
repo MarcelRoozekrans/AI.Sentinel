@@ -37,11 +37,13 @@ public abstract record AuthorizationDecision
 
     /// <summary>
     /// Folds a <see cref="RequireApprovalDecision"/> into a <see cref="DenyDecision"/> for callers
-    /// that don't participate in the approval flow (CS8509 dodge).
+    /// that don't participate in the approval flow (CS8509 dodge). The folded deny carries
+    /// <c>code='approval_required'</c> so audit consumers can distinguish a folded-approval
+    /// pseudo-deny from a real policy denial.
     /// </summary>
     public AuthorizationDecision AsBinary() =>
         this is RequireApprovalDecision r
-            ? Deny(r.PolicyName, $"approval required (requestId={r.RequestId})")
+            ? Deny(r.PolicyName, $"approval required (requestId={r.RequestId})", "approval_required")
             : this;
 
     /// <summary>True if this decision permits the call.</summary>

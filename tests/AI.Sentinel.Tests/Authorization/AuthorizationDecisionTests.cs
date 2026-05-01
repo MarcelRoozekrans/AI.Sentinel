@@ -28,14 +28,15 @@ public class AuthorizationDecisionTests
         Assert.False(AuthorizationDecision.Deny("p", "r").Allowed);
 
     [Fact]
-    public void AsBinary_RequireApproval_BecomesDeny()
+    public void AsBinary_RequireApproval_BecomesDenyWithApprovalRequiredCode()
     {
         var pending = AuthorizationDecision.RequireApproval(
             "AdminApproval", "req-1", "url", DateTimeOffset.UtcNow, TimeSpan.FromMinutes(5));
 
         var binary = pending.AsBinary();
 
-        Assert.IsType<AuthorizationDecision.DenyDecision>(binary);
+        var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(binary);
+        Assert.Equal("approval_required", deny.Code);
     }
 
     [Fact]

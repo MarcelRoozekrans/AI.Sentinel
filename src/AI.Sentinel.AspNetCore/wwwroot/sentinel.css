@@ -148,6 +148,11 @@ td:nth-child(4) { white-space: normal; max-width: 300px; overflow: hidden; text-
   background: rgba(255,255,255,0.06);
   color: var(--muted);
   border-radius: 3px;
+  /* Override .badge's uppercase + letter-spacing — codes are stable
+     snake_case identifiers (e.g. tenant_inactive); operators grep audit
+     logs for the literal value, the dashboard should match. */
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 tr.severity-critical { background: rgba(239,68,68,0.04); }

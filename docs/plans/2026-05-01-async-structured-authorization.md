@@ -1294,6 +1294,16 @@ Three plan-vs-reality drifts surfaced during Phase 3 implementation; documenting
 
 3. **MCP error code stays `McpErrorCode.InvalidRequest`** rather than `-32000`/InternalError as the plan suggested. The codebase chose `InvalidRequest` historically; preserving that choice avoids a breaking change for downstream MCP clients that key on the error code.
 
+4. **Dashboard `.badge.code` overrides the parent `.badge` rule's `text-transform: uppercase`** so codes render as their canonical lowercase snake_case form (e.g. `tenant_inactive`, not `TENANT_INACTIVE`). The wire format is the same everywhere — audit log, JSON, MCP error message, hook receipt — and the dashboard should match what operators grep their logs for. Final-review code-quality reviewer flagged the inheritance as a Minor inconsistency; fix is `text-transform: none; letter-spacing: 0;` on `.badge.code`.
+
+5. **`AuthorizationDecision.AsBinary()` propagates `code='approval_required'`** when folding a `RequireApprovalDecision` into a binary deny, matching what the production audit-write paths use for the same scenario. Without this, the folded pseudo-deny would default to `policy_denied`, conflating an approval-required state with a real policy denial in any consumer that calls `AsBinary()` (currently only test code, but defensive).
+
+## Out of scope (carried as 1.7.0 follow-ups)
+
+- **Dashboard badge gating.** Today the dashboard renders the badge on every `DetectorId.StartsWith("AUTHZ-")` row. When future detectors like `AUTHZ-AUDIT` or `AUTHZ-WARN` land, those rows will fall back to `policy_denied` (semantically wrong — an audit row is not a denial). Tighten to either `DetectorId == "AUTHZ-DENY"` exact-match OR detector-aware fallback string when the AUTHZ-* taxonomy expands.
+- **Centralize the deny-code vocabulary.** The five canonical codes (`policy_denied`, `policy_not_registered`, `policy_exception`, `approval_required`, `approval_store_exception`, `approval_state_unknown`) appear as raw string literals across 6+ files. A `public static class SentinelDenyCodes` with `public const string PolicyDenied = "policy_denied";` etc. would centralize the vocabulary and let consumers `switch` on stable references. Pure additive cleanup; defer.
+- **MCP `error.data.policyCode` once the SDK exposes a `data`-bearing constructor.** Track `ModelContextProtocol` upstream — when `McpProtocolException` gains a `data` overload, switch from message-embedded `[code]` to structured `error.data.policyCode`.
+
 ---
 
 ## Versioning
