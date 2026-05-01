@@ -130,7 +130,9 @@ public class DefaultToolCallGuardTests
             policies: [new Throws()]);
         var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs);
         Assert.False(d.Allowed);
-        Assert.Equal("throws", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
+        var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(d);
+        Assert.Equal("throws", deny.PolicyName);
+        Assert.Equal("policy_exception", deny.Code);
     }
 
     [Fact]
@@ -232,6 +234,7 @@ public class DefaultToolCallGuardTests
 
         var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(decision);
         Assert.Equal("policy_denied", deny.Code);
+        Assert.Equal("Policy denied", deny.Reason);
     }
 
     [Fact]
@@ -246,5 +249,19 @@ public class DefaultToolCallGuardTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
             await guard.AuthorizeAsync(
                 new TestSecurityContext("user-1"), "Bash", EmptyArgs, cts.Token));
+    }
+
+    [Fact]
+    public async Task EvaluatePolicy_CancellationToken_CancelledMidAwait_Propagates()
+    {
+        var guard = Build(ToolPolicyDefault.Deny,
+            bindings: [("Bash", "slow")],
+            policies: [new CancellationAwarePolicy()]);
+
+        using var cts = new CancellationTokenSource();
+        var task = guard.AuthorizeAsync(
+            new TestSecurityContext("user-1"), "Bash", EmptyArgs, cts.Token).AsTask();
+        cts.CancelAfter(TimeSpan.FromMilliseconds(50));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => task);
     }
 }

@@ -129,9 +129,13 @@ internal sealed class DefaultToolCallGuard(
         }
 
         var failure = result.Error;
-        // ZeroAlloc.Authorization 1.1's DIM bridge for sync IsAuthorized=false produces
-        // a failure with Code='policy.deny' and a null Reason; map both to AI.Sentinel's
-        // canonical defaults ('policy_denied' / 'Policy denied') so the wire format is stable.
+        // ZeroAlloc.Authorization 1.1.0 IAuthorizationPolicy.EvaluateAsync DIM bridge: when
+        // a sync-only policy returns IsAuthorized=false, the bridge produces
+        //   new AuthorizationFailure(AuthorizationFailure.DefaultDenyCode /* = "policy.deny" */)
+        // with Reason=null. AI.Sentinel canonicalises both to its stable wire format
+        // (code='policy_denied' / reason='Policy denied') so Phase 2/3/4 surfaces (audit,
+        // hook receipts, MCP error body, dashboard) assert against the same shape
+        // regardless of whether the policy author opted into the structured Evaluate API.
         var code = string.Equals(failure.Code, AuthorizationFailure.DefaultDenyCode, StringComparison.Ordinal)
             ? "policy_denied"
             : failure.Code;
