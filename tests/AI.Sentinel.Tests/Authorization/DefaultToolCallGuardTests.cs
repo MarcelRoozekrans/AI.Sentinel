@@ -3,6 +3,7 @@ using AI.Sentinel.Authorization;
 using AI.Sentinel.Tests.Helpers;
 using Xunit;
 using ZeroAlloc.Authorization;
+using ZeroAlloc.Results;
 
 namespace AI.Sentinel.Tests.Authorization;
 
@@ -177,5 +178,73 @@ public class DefaultToolCallGuardTests
         var good  = JsonDocument.Parse("""{"path":"/tmp/foo"}""").RootElement;
         Assert.False((await guard.AuthorizeAsync(caller, "Bash", bad)).Allowed);
         Assert.True((await guard.AuthorizeAsync(caller, "Bash", good)).Allowed);
+    }
+
+    [AuthorizationPolicy("tenant-active")]
+    private sealed class StructuredFailurePolicy : IAuthorizationPolicy
+    {
+        public bool IsAuthorized(ISecurityContext ctx) => false;
+        public ValueTask<UnitResult<AuthorizationFailure>> EvaluateAsync(
+            ISecurityContext ctx, CancellationToken ct = default) =>
+            new(UnitResult<AuthorizationFailure>.Failure(
+                new AuthorizationFailure("tenant_inactive", "Tenant is in evicted state")));
+    }
+
+    [AuthorizationPolicy("slow")]
+    private sealed class CancellationAwarePolicy : IAuthorizationPolicy
+    {
+        public bool IsAuthorized(ISecurityContext ctx) => true;
+        public async ValueTask<UnitResult<AuthorizationFailure>> EvaluateAsync(
+            ISecurityContext ctx, CancellationToken ct = default)
+        {
+            await Task.Delay(Timeout.Infinite, ct).ConfigureAwait(false);
+            return UnitResult<AuthorizationFailure>.Success();
+        }
+    }
+
+    [Fact]
+    public async Task EvaluatePolicy_StructuredFailure_PropagatesCodeAndReasonToDecision()
+    {
+        var guard = Build(ToolPolicyDefault.Deny,
+            bindings: [("Bash", "tenant-active")],
+            policies: [new StructuredFailurePolicy()]);
+
+        var decision = await guard.AuthorizeAsync(
+            new TestSecurityContext("user-1"), "Bash", EmptyArgs);
+
+        var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(decision);
+        Assert.Equal("tenant_inactive", deny.Code);
+        Assert.Equal("Tenant is in evicted state", deny.Reason);
+        Assert.Equal("tenant-active", deny.PolicyName);
+    }
+
+    [Fact]
+    public async Task EvaluatePolicy_SyncOnlyFalsePolicy_AppliesDefaultPolicyDeniedCode()
+    {
+        // AlwaysDeny implements only IsAuthorized; the DIM bridge in ZeroAlloc.Authorization
+        // produces a default failure that we map to AuthorizationDecision's default 'policy_denied'.
+        var guard = Build(ToolPolicyDefault.Deny,
+            bindings: [("Bash", "always-deny")],
+            policies: [new AlwaysDeny()]);
+
+        var decision = await guard.AuthorizeAsync(
+            new TestSecurityContext("user-1"), "Bash", EmptyArgs);
+
+        var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(decision);
+        Assert.Equal("policy_denied", deny.Code);
+    }
+
+    [Fact]
+    public async Task EvaluatePolicy_CancellationToken_PropagatesToPolicy()
+    {
+        var guard = Build(ToolPolicyDefault.Deny,
+            bindings: [("Bash", "slow")],
+            policies: [new CancellationAwarePolicy()]);
+
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await guard.AuthorizeAsync(
+                new TestSecurityContext("user-1"), "Bash", EmptyArgs, cts.Token));
     }
 }
