@@ -15,7 +15,7 @@ public static class AuditEntryAuthorizationExtensions
     /// <summary>
     /// Builds an <see cref="AuditEntry"/> describing a tool-call authorization denial.
     /// The entry has <c>DetectorId = "AUTHZ-DENY"</c> and <see cref="Severity.High"/>; the
-    /// caller, roles, tool, policy and reason are encoded into <see cref="AuditEntry.Summary"/>.
+    /// caller, roles, tool, policy, code and reason are encoded into <see cref="AuditEntry.Summary"/>.
     /// <see cref="AuditEntry.Hash"/> / <see cref="AuditEntry.PreviousHash"/> are left for the
     /// store to populate when the entry is appended.
     /// </summary>
@@ -27,6 +27,8 @@ public static class AuditEntryAuthorizationExtensions
     /// <param name="toolName">Name of the tool the caller attempted to invoke.</param>
     /// <param name="policyName">Name of the policy that produced the denial.</param>
     /// <param name="reason">Human-readable reason for the denial.</param>
+    /// <param name="policyCode">Machine-readable code for the denial; defaults to <c>"policy_denied"</c>.
+    /// Persists onto <see cref="AuditEntry.PolicyCode"/> and is also embedded into the summary string.</param>
     /// <returns>An <see cref="AuditEntry"/> ready to be appended to an <see cref="IAuditStore"/>.</returns>
     public static AuditEntry AuthorizationDeny(
         AgentId sender,
@@ -36,7 +38,8 @@ public static class AuditEntryAuthorizationExtensions
         IReadOnlySet<string> roles,
         string toolName,
         string policyName,
-        string reason)
+        string reason,
+        string policyCode = "policy_denied")
     {
         ArgumentNullException.ThrowIfNull(sender);
         ArgumentNullException.ThrowIfNull(receiver);
@@ -45,11 +48,12 @@ public static class AuditEntryAuthorizationExtensions
 
         var summary = string.Format(
             CultureInfo.InvariantCulture,
-            "Caller '{0}' (roles: [{1}]) denied for tool '{2}' by policy '{3}' in session '{4}' ({5} -> {6}): {7}",
+            "Caller '{0}' (roles: [{1}]) denied for tool '{2}' by policy '{3}' [{4}] in session '{5}' ({6} -> {7}): {8}",
             callerId,
             string.Join(",", roles),
             toolName,
             policyName,
+            policyCode,
             session.Value,
             sender.Value,
             receiver.Value,
@@ -62,6 +66,7 @@ public static class AuditEntryAuthorizationExtensions
             PreviousHash: null,
             Severity:     Severity.High,
             DetectorId:   AuthorizationDenyDetectorId,
-            Summary:      summary);
+            Summary:      summary,
+            PolicyCode:   policyCode);
     }
 }

@@ -48,7 +48,45 @@ public class AuthorizationTests
         var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, default);
 
         Assert.Equal(HookDecision.Block, output.Decision);
+        // Phase 3: receipt format is "Authorization denied [<code>] by policy '<name>': <reason>".
+        // AdminOnlyPolicy falls back to the default 'policy_denied' code.
+        Assert.Contains("Authorization denied [policy_denied]", output.Reason ?? "", StringComparison.Ordinal);
         Assert.Contains("admin-only", output.Reason ?? "", StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreToolUse_DenyByPolicy_SurfacesExplicitPolicyCode()
+    {
+        // Phase 3 Task 3.2: structured codes (e.g. 'tenant_inactive') propagate verbatim into the
+        // operator-facing receipt so log readers can correlate Copilot CLI messages with
+        // AuditEntry.PolicyCode rows.
+        var services = new ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.OnCritical = SentinelAction.Quarantine;
+            o.OnHigh = SentinelAction.Quarantine;
+            o.OnMedium = SentinelAction.Quarantine;
+            o.OnLow = SentinelAction.Quarantine;
+            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+        });
+        var provider = services.BuildServiceProvider();
+        var guard = new ExplicitDenyGuard("TenantActive", "Tenant 'acme' is in evicted state", "tenant_inactive");
+        var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
+
+        var input = new CopilotHookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, default);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Contains("Authorization denied [tenant_inactive]", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("TenantActive", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("Tenant 'acme' is in evicted state", output.Reason ?? "", StringComparison.Ordinal);
+    }
+
+    private sealed class ExplicitDenyGuard(string policyName, string reason, string code) : IToolCallGuard
+    {
+        public ValueTask<AuthorizationDecision> AuthorizeAsync(
+            ISecurityContext caller, string toolName, JsonElement args, CancellationToken ct = default) =>
+            new(AuthorizationDecision.Deny(policyName, reason, code));
     }
 
     [Fact]

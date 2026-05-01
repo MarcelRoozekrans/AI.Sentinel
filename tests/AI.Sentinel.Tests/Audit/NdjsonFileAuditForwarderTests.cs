@@ -93,4 +93,28 @@ public class NdjsonFileAuditForwarderTests : IDisposable
         // The new try/catch in SendAsync swallows the ObjectDisposedException.
         await f.SendAsync([MakeEntry("e1")], default);
     }
+
+    [Fact]
+    public async Task SendAsync_PolicyCode_PropagatesIntoSerializedJson()
+    {
+        var entry = new AuditEntry(
+            Id: "authz-1",
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "h",
+            PreviousHash: null,
+            Severity: Severity.High,
+            DetectorId: "AUTHZ-DENY",
+            Summary: "denied",
+            PolicyCode: "tenant_inactive");
+
+        await using (var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath }))
+        {
+            await f.SendAsync([entry], default);
+        }
+
+        var lines = File.ReadAllLines(_tempPath);
+        Assert.Single(lines);
+        var parsed = JsonDocument.Parse(lines[0]);
+        Assert.Equal("tenant_inactive", parsed.RootElement.GetProperty("PolicyCode").GetString());
+    }
 }

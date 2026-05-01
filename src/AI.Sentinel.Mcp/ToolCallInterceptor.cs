@@ -108,6 +108,7 @@ internal static class ToolCallInterceptor
         var deny = decision as AuthorizationDecision.DenyDecision;
         var policyName = deny?.PolicyName ?? "?";
         var reason = deny?.Reason ?? "?";
+        var policyCode = deny?.Code ?? "policy_denied";
 
         if (audit is not null)
         {
@@ -119,7 +120,8 @@ internal static class ToolCallInterceptor
                 roles:      caller.Roles,
                 toolName:   req.Name,
                 policyName: policyName,
-                reason:     reason);
+                reason:     reason,
+                policyCode: policyCode);
             await audit.AppendAsync(entry, ct).ConfigureAwait(false);
         }
 
@@ -128,7 +130,7 @@ internal static class ToolCallInterceptor
         ).ConfigureAwait(false);
 
         throw new McpProtocolException(
-            $"Authorization denied by policy '{policyName}': {reason}",
+            $"Authorization denied [{policyCode}] by policy '{policyName}': {reason}",
             McpErrorCode.InvalidRequest);
     }
 
@@ -161,7 +163,8 @@ internal static class ToolCallInterceptor
                 roles:      caller.Roles,
                 toolName:   req.Name,
                 policyName: r.PolicyName,
-                reason:     $"approval required (requestId={r.RequestId})");
+                reason:     $"approval required (requestId={r.RequestId})",
+                policyCode: "approval_required");
             await audit.AppendAsync(approvalEntry, ct).ConfigureAwait(false);
         }
 

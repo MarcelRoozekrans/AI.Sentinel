@@ -9,4 +9,5 @@ public sealed record AuditEntry(
     string? PreviousHash,
     Severity Severity,
     string DetectorId,
-    string Summary);
+    string Summary,
+    string? PolicyCode = null);

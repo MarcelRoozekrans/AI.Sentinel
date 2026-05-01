@@ -4,7 +4,7 @@ namespace AI.Sentinel.Sqlite;
 
 internal static class SqliteSchema
 {
-    internal const int CurrentVersion = 1;
+    internal const int CurrentVersion = 2;
 
     internal static async Task InitializeAsync(SqliteConnection conn, CancellationToken ct)
     {
@@ -24,8 +24,10 @@ internal static class SqliteSchema
 
         if (current < 1)
         {
+            // Fresh DB: create the v2 shape directly (policy_code column included) so we
+            // never need to run the v1→v2 ALTER on a brand-new file.
             using var migrate = conn.CreateCommand();
-            migrate.CommandText = """
+            migrate.CommandText = $"""
                 CREATE TABLE IF NOT EXISTS audit_entries (
                     id            TEXT PRIMARY KEY,
                     timestamp     INTEGER NOT NULL,
@@ -34,13 +36,31 @@ internal static class SqliteSchema
                     hash          TEXT NOT NULL,
                     previous_hash TEXT,
                     summary       TEXT NOT NULL,
-                    sequence      INTEGER NOT NULL
+                    sequence      INTEGER NOT NULL,
+                    policy_code   TEXT NOT NULL DEFAULT 'policy_denied'
                 );
                 CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_entries (timestamp);
                 CREATE INDEX IF NOT EXISTS idx_audit_detector  ON audit_entries (detector_id);
                 CREATE INDEX IF NOT EXISTS idx_audit_severity  ON audit_entries (severity);
                 CREATE INDEX IF NOT EXISTS idx_audit_sequence  ON audit_entries (sequence);
-                PRAGMA user_version = 1;
+                PRAGMA user_version = {CurrentVersion};
+                """;
+            await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            return;
+        }
+
+        // Single-writer assumption: this migration is not safe for concurrent first-open from
+        // two processes against a fresh v1 DB — SQLite will serialize the writes, but the
+        // second ALTER throws "duplicate column" instead of being a no-op. Per audit-store
+        // design, single-writer is the supported configuration.
+        if (current < CurrentVersion)
+        {
+            // Pre-1.6 audit DB: ALTER TABLE ... ADD COLUMN ... NOT NULL DEFAULT is non-locking
+            // on SQLite and existing rows retroactively read the default value.
+            using var migrate = conn.CreateCommand();
+            migrate.CommandText = $"""
+                ALTER TABLE audit_entries ADD COLUMN policy_code TEXT NOT NULL DEFAULT 'policy_denied';
+                PRAGMA user_version = {CurrentVersion};
                 """;
             await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }

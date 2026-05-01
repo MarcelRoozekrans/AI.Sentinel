@@ -133,8 +133,49 @@ public class AuthorizationTests
             async () => await handler(ctx, CancellationToken.None));
 
         Assert.Equal(McpErrorCode.InvalidRequest, ex.ErrorCode);
+        // Phase 3: receipt format is "Authorization denied [<code>] by policy '<name>': <reason>".
+        // StubGuard uses AuthorizationDecision.Deny without an explicit code → defaults to 'policy_denied'.
+        Assert.Contains("Authorization denied [policy_denied]", ex.Message, StringComparison.Ordinal);
         Assert.Contains("BashDenyPolicy", ex.Message, StringComparison.Ordinal);
         Assert.False(nextInvoked);
+    }
+
+    [Fact]
+    public async Task ToolsCall_DenyByPolicy_SurfacesExplicitPolicyCode()
+    {
+        // Phase 3 Task 3.3: structured codes (e.g. 'tenant_inactive') propagate verbatim into the
+        // McpProtocolException message — which becomes the JSON-RPC error.message on the wire —
+        // so MCP clients and operators can correlate the error with AuditEntry.PolicyCode.
+        var guard = new ExplicitDenyGuard("TenantActive", "Tenant 'acme' is in evicted state", "tenant_inactive");
+        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), McpDetectorPreset.Security);
+        using var stderr = new StringWriter();
+
+        var filter = ToolCallInterceptor.Create(
+            pipeline,
+            maxScanBytes: 64 * 1024,
+            stderr: stderr,
+            guard: guard);
+
+        ValueTask<CallToolResult> Next(RequestContext<CallToolRequestParams> _, CancellationToken __) =>
+            new(new CallToolResult());
+
+        var handler = filter(Next);
+        var ctx = BuildRequestContext(new CallToolRequestParams { Name = "Bash" });
+
+        var ex = await Assert.ThrowsAsync<McpProtocolException>(
+            async () => await handler(ctx, CancellationToken.None));
+
+        Assert.Equal(McpErrorCode.InvalidRequest, ex.ErrorCode);
+        Assert.Contains("Authorization denied [tenant_inactive]", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("TenantActive", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Tenant 'acme' is in evicted state", ex.Message, StringComparison.Ordinal);
+    }
+
+    private sealed class ExplicitDenyGuard(string policyName, string reason, string code) : IToolCallGuard
+    {
+        public ValueTask<AuthorizationDecision> AuthorizeAsync(
+            ISecurityContext caller, string toolName, JsonElement args, CancellationToken ct = default) =>
+            new(AuthorizationDecision.Deny(policyName, reason, code));
     }
 
     [Fact]

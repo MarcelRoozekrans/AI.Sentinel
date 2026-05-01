@@ -73,9 +73,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO audit_entries
-                    (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence)
+                    (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code)
                 VALUES
-                    ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq);
+                    ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code);
                 """;
             cmd.Parameters.AddWithValue("$id", entry.Id);
             cmd.Parameters.AddWithValue("$ts", entry.Timestamp.UtcTicks);
@@ -85,6 +85,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("$prev", (object?)entry.PreviousHash ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$summary", entry.Summary);
             cmd.Parameters.AddWithValue("$seq", seq);
+            // Non-AUTHZ entries pass null; the column is NOT NULL with default 'policy_denied'
+            // so we coalesce here to keep the wire shape stable across detector kinds.
+            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? "policy_denied");
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         finally
@@ -120,7 +123,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     {
         var cmd = _connection.CreateCommand();
         var sql = new System.Text.StringBuilder(
-            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary FROM audit_entries WHERE 1=1");
+            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code FROM audit_entries WHERE 1=1");
 
         if (query.MinSeverity.HasValue)
         {
@@ -153,8 +156,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         var hash = reader.GetString(4);
         var prev = reader.IsDBNull(5) ? null : reader.GetString(5);
         var summary = reader.GetString(6);
+        var policyCode = reader.IsDBNull(7) ? null : reader.GetString(7);
         var ts = new DateTimeOffset(tsTicks, TimeSpan.Zero);
-        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary);
+        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary, policyCode);
     }
 
     private long LoadHighestSequence()

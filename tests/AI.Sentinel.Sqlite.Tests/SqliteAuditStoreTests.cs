@@ -1,6 +1,7 @@
 using System.Globalization;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
 using AI.Sentinel.Sqlite;
 using Xunit;
 
@@ -108,11 +109,38 @@ public sealed class SqliteAuditStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Schema_Version1_NewDatabaseInitialised()
+    public async Task RoundTrip_AuthorizationDenyWithCode_PreservesPolicyCode()
+    {
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+
+        var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+            sender: new AgentId("u"),
+            receiver: new AgentId("a"),
+            session: SessionId.New(),
+            callerId: "u1",
+            roles: new HashSet<string>(StringComparer.Ordinal),
+            toolName: "Bash",
+            policyName: "TenantActive",
+            reason: "Tenant evicted",
+            policyCode: "tenant_inactive");
+
+        await store.AppendAsync(entry, CancellationToken.None);
+
+        var results = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(), CancellationToken.None))
+        {
+            results.Add(e);
+        }
+        Assert.Single(results);
+        Assert.Equal("tenant_inactive", results[0].PolicyCode);
+    }
+
+    [Fact]
+    public async Task Schema_Version2_NewDatabaseInitialised()
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-        Assert.Equal(1, version);
+        Assert.Equal(2, version);
     }
 
     [Fact]

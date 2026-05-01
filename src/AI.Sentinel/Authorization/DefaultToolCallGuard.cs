@@ -2,6 +2,7 @@ using System.Text.Json;
 using AI.Sentinel.Approvals;
 using Microsoft.Extensions.Logging;
 using ZeroAlloc.Authorization;
+using ZeroAlloc.Results;
 
 namespace AI.Sentinel.Authorization;
 
@@ -42,7 +43,7 @@ internal sealed class DefaultToolCallGuard(
 
             var decision = binding.ApprovalSpec is { } approvalSpec
                 ? await EvaluateApprovalAsync(caller, toolName, args, approvalSpec, ct).ConfigureAwait(false)
-                : EvaluatePolicy(binding, ctx);
+                : await EvaluatePolicyAsync(binding, ctx, ct).ConfigureAwait(false);
 
             if (decision is not null) return decision;
         }
@@ -78,7 +79,8 @@ internal sealed class DefaultToolCallGuard(
         {
             logger?.LogError(ex, "IApprovalStore threw for policy '{PolicyName}' — failing closed (deny).", approvalSpec.PolicyName);
             return AuthorizationDecision.Deny(approvalSpec.PolicyName,
-                $"Approval store threw {ex.GetType().Name}");
+                $"Approval store threw {ex.GetType().Name}",
+                "approval_store_exception");
         }
 
         return state switch
@@ -86,35 +88,63 @@ internal sealed class DefaultToolCallGuard(
             ApprovalState.Active => null, // active grant — continue evaluating remaining bindings
             ApprovalState.Pending p => AuthorizationDecision.RequireApproval(
                 approvalSpec.PolicyName, p.RequestId, p.ApprovalUrl, p.RequestedAt, approvalSpec.WaitTimeout),
+            // Denied = real denial-by-approver: keep the default 'policy_denied' code so it lines up
+            // with structured-policy denials. Operators differentiate via reason text.
             ApprovalState.Denied d => AuthorizationDecision.Deny(approvalSpec.PolicyName, d.Reason),
-            _ => AuthorizationDecision.Deny(approvalSpec.PolicyName, "unknown approval state"),
+            _ => AuthorizationDecision.Deny(approvalSpec.PolicyName, "unknown approval state",
+                "approval_state_unknown"),
         };
     }
 
-    private AuthorizationDecision? EvaluatePolicy(ToolCallPolicyBinding binding, ToolCallContextWrapper ctx)
+    private async ValueTask<AuthorizationDecision?> EvaluatePolicyAsync(
+        ToolCallPolicyBinding binding, ToolCallContextWrapper ctx, CancellationToken ct)
     {
         if (!policiesByName.TryGetValue(binding.PolicyName, out var policy))
         {
             logger?.LogError("Policy '{PolicyName}' is bound to '{Pattern}' but not registered — denying.", binding.PolicyName, binding.Pattern);
             return AuthorizationDecision.Deny(binding.PolicyName,
-                $"Policy '{binding.PolicyName}' is not registered");
+                $"Policy '{binding.PolicyName}' is not registered",
+                "policy_not_registered");
         }
 
-        bool allowed;
+        UnitResult<AuthorizationFailure> result;
         try
         {
-            allowed = policy.IsAuthorized(ctx);
+            result = await policy.EvaluateAsync(ctx, ct).ConfigureAwait(false);
         }
-#pragma warning disable CA1031 // Fail-closed: any policy exception must deny, regardless of type.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Cooperative cancellation propagates — never silently denied.
+            throw;
+        }
+#pragma warning disable CA1031 // Fail-closed: any other policy exception must deny, regardless of type.
         catch (Exception ex)
 #pragma warning restore CA1031
         {
             logger?.LogError(ex, "Policy '{PolicyName}' threw — failing closed (deny).", binding.PolicyName);
             return AuthorizationDecision.Deny(binding.PolicyName,
-                $"Policy threw {ex.GetType().Name}");
+                $"Policy threw {ex.GetType().Name}",
+                "policy_exception");
         }
 
-        return allowed ? null : AuthorizationDecision.Deny(binding.PolicyName, "Policy denied");
+        if (result.IsSuccess)
+        {
+            return null;   // allow — policy evaluation passed
+        }
+
+        var failure = result.Error;
+        // ZeroAlloc.Authorization 1.1.0 IAuthorizationPolicy.EvaluateAsync DIM bridge: when
+        // a sync-only policy returns IsAuthorized=false, the bridge produces
+        //   new AuthorizationFailure(AuthorizationFailure.DefaultDenyCode /* = "policy.deny" */)
+        // with Reason=null. AI.Sentinel canonicalises both to its stable wire format
+        // (code='policy_denied' / reason='Policy denied') so Phase 2/3/4 surfaces (audit,
+        // hook receipts, MCP error body, dashboard) assert against the same shape
+        // regardless of whether the policy author opted into the structured Evaluate API.
+        var code = string.Equals(failure.Code, AuthorizationFailure.DefaultDenyCode, StringComparison.Ordinal)
+            ? "policy_denied"
+            : failure.Code;
+        var reason = failure.Reason ?? "Policy denied";
+        return AuthorizationDecision.Deny(binding.PolicyName, reason, code);
     }
 
     private sealed class ToolCallContextWrapper(ISecurityContext inner, string toolName, JsonElement args)
