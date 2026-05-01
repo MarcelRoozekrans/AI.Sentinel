@@ -130,6 +130,12 @@ internal sealed class AuthorizationChatClient(
             return;
         }
 
+        // Defensive null-coalesce on every deny field below: `deny` is non-null when `decision`
+        // IS a DenyDecision, but the closed hierarchy could be extended in the future (this method
+        // only runs on the deny path today, but the pattern keeps the audit-write resilient against
+        // a hypothetical 4th decision subtype). DenyDecision.Code defaults to PolicyDenied so
+        // `deny.Code` is never null when deny is non-null — the `??` here defends against the
+        // `decision is not DenyDecision` case, not against a null Code.
         var deny = decision as AuthorizationDecision.DenyDecision;
         var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
             sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
