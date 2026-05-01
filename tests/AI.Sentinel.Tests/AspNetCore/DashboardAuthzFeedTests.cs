@@ -87,6 +87,23 @@ public class DashboardAuthzFeedTests
     }
 
     [Fact]
+    public async Task LiveFeed_AuthzDenyEntry_PolicyCodeRoundTripsToBadgeHtml()
+    {
+        // End-to-end: AuditEntry → store → /api/feed handler → rendered HTML.
+        // Asserts the exact wrapper substring so a future refactor can't silently
+        // drop the badge or change its class name without breaking this test.
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+
+        await store.AppendAsync(NewEntry("AUTHZ-DENY", "tenant inactive", policyCode: "tenant_inactive"), CancellationToken.None);
+
+        var client = host.GetTestClient();
+        var html = await client.GetStringAsync("/sentinel/api/feed");
+
+        Assert.Contains("<span class=\"badge code\">tenant_inactive</span>", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LiveFeed_AuthzDenyEntry_NullPolicyCode_RendersDefaultBadge()
     {
         var host = await BuildHostAsync();
