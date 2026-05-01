@@ -108,11 +108,11 @@ public sealed class SqliteAuditStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Schema_Version1_NewDatabaseInitialised()
+    public async Task Schema_Version2_NewDatabaseInitialised()
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-        Assert.Equal(1, version);
+        Assert.Equal(2, version);
     }
 
     [Fact]
