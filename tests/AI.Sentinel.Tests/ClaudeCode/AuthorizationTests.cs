@@ -1,4 +1,6 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
+using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Authorization.Policies;
 using AI.Sentinel.ClaudeCode;
@@ -118,5 +120,66 @@ public class AuthorizationTests
             new(AuthorizationDecision.RequireApproval(
                 policyName, requestId, approvalUrl,
                 requestedAt: DateTimeOffset.UtcNow, waitTimeout: TimeSpan.FromSeconds(0)));
+    }
+
+    [Fact]
+    public async Task PreToolUse_RequireApproval_AuditsPolicyCode_AsApprovalRequired()
+    {
+        // The "approval_required" code is the principal new operator-facing behavior of Phase 2:
+        // it lets operators querying policy_code='policy_denied' skip pending approvals.
+        var recorder = new RecordingAuditStore();
+        var services = new ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.OnCritical = SentinelAction.Quarantine;
+            o.OnHigh = SentinelAction.Quarantine;
+            o.OnMedium = SentinelAction.Quarantine;
+            o.OnLow = SentinelAction.Quarantine;
+            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+        });
+        // Last-registration-wins for GetService<IAuditStore>(): override the default ring buffer
+        // with a recording store so the test can assert what the adapter wrote.
+        services.AddSingleton<IAuditStore>(recorder);
+        var provider = services.BuildServiceProvider();
+        var guard = new RequireApprovalGuard("approval:Bash", "req-abc", "https://approve.example/req-abc");
+        var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
+
+        var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, default);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        var authzEntry = Assert.Single(recorder.Entries, e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+        Assert.Equal("approval_required", authzEntry.PolicyCode);
+    }
+
+    private sealed class RecordingAuditStore : IAuditStore
+    {
+        private readonly List<AuditEntry> _entries = new();
+
+        public IReadOnlyList<AuditEntry> Entries
+        {
+            get
+            {
+                lock (_entries) { return _entries.ToArray(); }
+            }
+        }
+
+        public ValueTask AppendAsync(AuditEntry entry, CancellationToken ct)
+        {
+            lock (_entries) { _entries.Add(entry); }
+            return ValueTask.CompletedTask;
+        }
+
+        public async IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, [EnumeratorCancellation] CancellationToken ct)
+        {
+            AuditEntry[] snapshot;
+            lock (_entries) { snapshot = _entries.ToArray(); }
+            foreach (var entry in snapshot)
+            {
+                ct.ThrowIfCancellationRequested();
+                yield return entry;
+            }
+            await Task.CompletedTask.ConfigureAwait(false);
+        }
     }
 }
