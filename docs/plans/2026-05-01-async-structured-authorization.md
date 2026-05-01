@@ -1286,7 +1286,7 @@ EOF
 
 ## Phase 3 retro (post-implementation)
 
-Three plan-vs-reality drifts surfaced during Phase 3 implementation; documenting here so future readers don't re-discover them:
+Five plan-vs-reality drifts surfaced across Phase 3 implementation and the final-review polish; documenting here so future readers don't re-discover them:
 
 1. **MCP `error.data.policyCode` not implemented — `error.message` carries the code instead.** ModelContextProtocol 1.2.0 exposes only `McpProtocolException(string message, McpErrorCode code)` constructors; `JsonRpcErrorDetail.Data` exists in the SDK as an inbound-deserialization DTO but no application hook lets the proxy populate `Data` on outbound errors. The plan envisioned a structured `error.data: { policyName, policyCode, reason, approvalRequired }` field but that wire format is unreachable from this SDK. Implementation embeds `[<code>]` directly in `error.message`, which is the only available channel. Operators parsing the wire format extract the code via `\[([a-z_]+)\]`.
 
