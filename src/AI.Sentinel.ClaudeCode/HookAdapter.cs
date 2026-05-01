@@ -112,7 +112,7 @@ public sealed class HookAdapter
                     await _audit.AppendAsync(entry, ct).ConfigureAwait(false);
                 }
 
-                var reason = $"Authorization denied by policy '{policyName}': {denyReason}";
+                var reason = $"Authorization denied [{denyCode}] by policy '{policyName}': {denyReason}";
                 return new HookOutput(HookDecision.Block, reason);
             }
         }
