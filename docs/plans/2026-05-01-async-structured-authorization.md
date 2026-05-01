@@ -1236,7 +1236,7 @@ Switches \`DefaultToolCallGuard\` from synchronous \`policy.IsAuthorized(ctx)\` 
 - \`SqliteAuditStore\` schema v2 (\`ALTER TABLE ... ADD COLUMN policy_code TEXT NOT NULL DEFAULT 'policy_denied'\`)
 - NDJSON / Azure Sentinel / OpenTelemetry forwarder JSON DTOs (\`"policyCode"\` field)
 - \`sentinel-hook\` + \`sentinel-copilot-hook\` stderr receipts (\`Authorization denied [code]: reason\`)
-- \`sentinel-mcp\` JSON-RPC error \`data.policyCode\`
+- \`sentinel-mcp\` JSON-RPC \`error.message\` carries the \`[code]\` token (\`McpProtocolException\` has no \`data\`-bearing constructor in ModelContextProtocol 1.2.0; see Phase 3 retro)
 - Dashboard live-feed AUTHZ-DENY rows (inline \`<span class="badge code">\` prefix)
 
 Strictly additive — existing \`IsAuthorized\`-only policies (AdminOnlyPolicy, NoSystemPathsPolicy, user-defined) keep working unchanged via ZeroAlloc.Authorization 1.1's default-interface-method bridges, surfacing as \`code='policy_denied'\`.
@@ -1267,7 +1267,7 @@ EOF
 - [ ] All 3 forwarders serialize `policyCode` (NDJSON, Azure Sentinel, OpenTelemetry)
 - [ ] Sqlite migration test exercises both fresh-DB and v1→v2-upgrade paths
 - [ ] Hook receipt tests assert against the new format string
-- [ ] MCP error body test verifies `data.policyCode` populated
+- [x] MCP error body test verifies `[<code>]` token surfaces in `error.message` (no `data.policyCode` — SDK constraint, see Phase 3 retro)
 - [ ] Dashboard integration test verifies the badge HTML in the response body
 - [ ] No positional `case DenyDecision(...)` patterns introduced anywhere
 - [ ] AOT publish probe clean (0 IL warnings)
@@ -1281,6 +1281,18 @@ EOF
 - Source-gen-driven policy-name lookup — separate backlog item.
 - `opts.AuditAllows` — different feature.
 - Code-fix analyzer that nudges sync-only policy authors toward `Evaluate` overrides — defer until a real customer has a structured-code use case.
+
+---
+
+## Phase 3 retro (post-implementation)
+
+Three plan-vs-reality drifts surfaced during Phase 3 implementation; documenting here so future readers don't re-discover them:
+
+1. **MCP `error.data.policyCode` not implemented — `error.message` carries the code instead.** ModelContextProtocol 1.2.0 exposes only `McpProtocolException(string message, McpErrorCode code)` constructors; `JsonRpcErrorDetail.Data` exists in the SDK as an inbound-deserialization DTO but no application hook lets the proxy populate `Data` on outbound errors. The plan envisioned a structured `error.data: { policyName, policyCode, reason, approvalRequired }` field but that wire format is unreachable from this SDK. Implementation embeds `[<code>]` directly in `error.message`, which is the only available channel. Operators parsing the wire format extract the code via `\[([a-z_]+)\]`.
+
+2. **Receipt format kept the existing `by policy '<name>'` segment.** Plan example showed `Authorization denied [code]: reason`; final format is `Authorization denied [code] by policy '<name>': reason`. This preserves the prior format's `by policy '<name>'` token so existing operator scripts and existing test assertions (`Assert.Contains("admin-only", ...)`) keep working unchanged. Mild trade-off: extracting just the code from the receipt now needs a regex (`\[[^\]]+\]`) rather than anchoring on `denied [` → `]:`.
+
+3. **MCP error code stays `McpErrorCode.InvalidRequest`** rather than `-32000`/InternalError as the plan suggested. The codebase chose `InvalidRequest` historically; preserving that choice avoids a breaking change for downstream MCP clients that key on the error code.
 
 ---
 
