@@ -109,6 +109,18 @@ internal static class DashboardHandlers
         await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
     }
 
+    /// <summary>Maps a category name from a chip filter (e.g. "security", "hallucination") to the
+    /// matching DetectorId prefix. Unknown / empty / null category returns true (no filtering).</summary>
+    internal static bool IsInCategory(string detectorId, string? category) => category switch
+    {
+        "security"      => detectorId.StartsWith("SEC-",   StringComparison.Ordinal),
+        "hallucination" => detectorId.StartsWith("HAL-",   StringComparison.Ordinal),
+        "operational"   => detectorId.StartsWith("OPS-",   StringComparison.Ordinal),
+        "authorization" => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),
+        "authz"         => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),
+        _               => true,
+    };
+
     private static List<AuditEntry> ApplyFilter(List<AuditEntry> entries, string filter)
     {
         if (string.IsNullOrEmpty(filter))
