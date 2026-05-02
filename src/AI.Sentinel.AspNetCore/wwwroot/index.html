@@ -52,6 +52,7 @@
                placeholder="Search summary&#8230;" aria-label="Search audit log"
                autocomplete="off">
       </div>
+      <div id="session-pill-container"></div>
       <div class="table-wrap">
         <table>
           <thead>
@@ -184,6 +185,34 @@
       refreshFeed();
       renderSessionPill(session);
     });
+
+    // Render the session-filter pill above the feed. Empty/null sessionId clears it.
+    function renderSessionPill(sessionId) {
+      const container = document.getElementById('session-pill-container');
+      container.innerHTML = '';
+      if (!sessionId) return;
+      const pill = document.createElement('div');
+      pill.className = 'session-pill';
+      const label = document.createTextNode('Filtering session: ');
+      const code = document.createElement('code');
+      code.textContent = sessionId;
+      pill.appendChild(label);
+      pill.appendChild(code);
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'session-pill-clear';
+      clear.textContent = '✕ clear';
+      clear.addEventListener('click', function () {
+        delete document.body.dataset.session;
+        const url = new URL(window.location.href);
+        url.searchParams.delete('session');
+        window.history.replaceState(null, '', url.toString());
+        container.innerHTML = '';
+        refreshFeed();
+      });
+      pill.appendChild(clear);
+      container.appendChild(pill);
+    }
 
     // On page load: hydrate filter state from URL query string
     (function hydrateFromUrl() {

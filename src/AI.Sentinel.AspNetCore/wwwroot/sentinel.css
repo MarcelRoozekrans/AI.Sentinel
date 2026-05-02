@@ -131,6 +131,32 @@ td.session { white-space: nowrap; }
 }
 .session-link:hover { color: #7dd3fc; border-bottom-color: #7dd3fc; }
 
+.session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem 0;
+  padding: 0.3rem 0.75rem;
+  background: rgba(125, 211, 252, 0.08);
+  border: 1px solid #1e3a5f;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+.session-pill code {
+  font-family: 'Courier New', monospace;
+  color: #7dd3fc;
+}
+.session-pill button.session-pill-clear {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+}
+.session-pill button.session-pill-clear:hover { color: var(--isolate); }
+
 .badge {
   display: inline-block;
   padding: 0.1rem 0.45rem;
