@@ -121,6 +121,20 @@ internal static class DashboardHandlers
         _               => true,
     };
 
+    /// <summary>Single-source-of-truth filter pipeline used by /api/feed, /api/trend (no), and
+    /// /api/export.ndjson. All three filters AND together: chips ∧ session ∧ search.</summary>
+    internal static IEnumerable<AuditEntry> FilterAuditEntries(
+        IEnumerable<AuditEntry> entries, string? category, string? q, string? session)
+    {
+        if (!string.IsNullOrEmpty(category))
+            entries = entries.Where(e => IsInCategory(e.DetectorId, category));
+        if (!string.IsNullOrEmpty(session))
+            entries = entries.Where(e => e.SessionId is not null && string.Equals(e.SessionId, session, StringComparison.Ordinal));
+        if (!string.IsNullOrEmpty(q))
+            entries = entries.Where(e => e.Summary.Contains(q, StringComparison.OrdinalIgnoreCase));
+        return entries;
+    }
+
     private static List<AuditEntry> ApplyFilter(List<AuditEntry> entries, string filter)
     {
         if (string.IsNullOrEmpty(filter))
