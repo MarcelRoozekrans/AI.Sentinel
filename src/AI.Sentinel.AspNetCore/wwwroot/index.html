@@ -52,6 +52,13 @@
                placeholder="Search summary&#8230;" aria-label="Search audit log"
                autocomplete="off">
       </div>
+      <div id="trend-chart-container"
+           hx-get="api/trend"
+           hx-trigger="load, every 5s"
+           hx-swap="innerHTML"
+           class="trend-chart-container">
+        <p class="loading">Loading trend&#8230;</p>
+      </div>
       <div id="session-pill-container"></div>
       <div class="table-wrap">
         <table>

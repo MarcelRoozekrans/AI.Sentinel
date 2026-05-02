@@ -267,6 +267,19 @@ tr.audit-row-authz td:first-child {
   outline-offset: 2px;
 }
 
+/* ──────────── Trend chart (15-min severity sparkline) ──────────── */
+/* Sits between the chips bar and the session pill above the feed table.
+   The SVG itself is responsive via viewBox; the container clamps width. */
+.trend-chart-container {
+  width: 100%;
+  margin: 0 0 0.5rem 0;
+}
+.trend-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
 /* Tablet / narrow desktop: collapse to single column, table scrolls horizontally */
 @media (max-width: 600px) {
   main {
