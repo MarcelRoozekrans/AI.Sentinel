@@ -168,6 +168,86 @@ internal static class DashboardHandlers
         return entries;
     }
 
+    /// <summary>
+    /// GET /api/trend — 30 buckets × 30s = 15-min severity trend rendered as inline SVG.
+    /// Per design D4 this endpoint deliberately ignores the feed filters (chips/search/session) —
+    /// it is a global dashboard signal, so callers always see the whole-system picture.
+    /// </summary>
+    public static async Task TrendAsync(HttpContext ctx)
+    {
+        ctx.Response.ContentType = "text/html";
+        var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
+
+        const int BucketSeconds = 30;
+        const int BucketCount   = 30;  // 30 × 30s = 15 minutes
+        var bucketMs = BucketSeconds * 1000L;
+        var now = DateTimeOffset.UtcNow;
+        var windowStart = now.AddSeconds(-BucketSeconds * BucketCount);
+
+        var buckets = new (int count, int maxSev)[BucketCount];
+        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 10000), ctx.RequestAborted).ConfigureAwait(false))
+        {
+            if (e.Timestamp < windowStart) continue;
+            var idx = (int)((e.Timestamp - windowStart).TotalMilliseconds / bucketMs);
+            if (idx < 0 || idx >= BucketCount) continue;
+            buckets[idx].count++;
+            var sev = (int)e.Severity;
+            if (sev > buckets[idx].maxSev) buckets[idx].maxSev = sev;
+        }
+
+        var sb = new StringBuilder();
+        RenderTrendSvg(sb, buckets);
+        await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
+    }
+
+    private static void RenderTrendSvg(StringBuilder sb, (int count, int maxSev)[] buckets)
+    {
+        const int Width = 600;
+        const int Height = 100;
+        const int PadTop = 8, PadBottom = 16, PadLeft = 24, PadRight = 8;
+        var plotW = Width - PadLeft - PadRight;
+        var plotH = Height - PadTop - PadBottom;
+        var maxCount = Math.Max(1, buckets.Max(b => b.count));
+        var maxSevOverall = buckets.Max(b => b.maxSev);
+
+        string stroke = maxSevOverall switch
+        {
+            >= 4 => "#ef4444",  // critical → red
+            3    => "#f97316",  // high → orange
+            2    => "#eab308",  // medium → amber
+            1    => "#22c55e",  // low → green
+            _    => "#475569",  // none / no data → muted
+        };
+
+        sb.Append("<svg viewBox=\"0 0 ").Append(Width).Append(' ').Append(Height)
+          .Append("\" class=\"trend-chart\" xmlns=\"http://www.w3.org/2000/svg\">");
+
+        // Plot area background grid (just a baseline)
+        sb.Append("<line x1=\"").Append(PadLeft).Append("\" y1=\"").Append(Height - PadBottom)
+          .Append("\" x2=\"").Append(Width - PadRight).Append("\" y2=\"").Append(Height - PadBottom)
+          .Append("\" stroke=\"#334155\" stroke-width=\"1\"/>");
+
+        // Path
+        sb.Append("<path d=\"M");
+        for (var i = 0; i < buckets.Length; i++)
+        {
+            var x = PadLeft + (i * plotW / (buckets.Length - 1));
+            var y = (Height - PadBottom) - (buckets[i].count * plotH / maxCount);
+            if (i > 0) sb.Append(" L");
+            sb.Append(x).Append(',').Append(y);
+        }
+        sb.Append("\" fill=\"none\" stroke=\"").Append(stroke).Append("\" stroke-width=\"2\" stroke-linejoin=\"round\"/>");
+
+        // Y-axis label (max count)
+        sb.Append("<text x=\"4\" y=\"").Append(PadTop + 8).Append("\" font-size=\"9\" fill=\"#94a3b8\">").Append(maxCount).Append("</text>");
+        sb.Append("<text x=\"4\" y=\"").Append(Height - PadBottom + 4).Append("\" font-size=\"9\" fill=\"#94a3b8\">0</text>");
+        // X-axis labels (now / 15m ago)
+        sb.Append("<text x=\"").Append(PadLeft).Append("\" y=\"").Append(Height - 2).Append("\" font-size=\"9\" fill=\"#94a3b8\">15m ago</text>");
+        sb.Append("<text x=\"").Append(Width - PadRight - 20).Append("\" y=\"").Append(Height - 2).Append("\" font-size=\"9\" fill=\"#94a3b8\">now</text>");
+
+        sb.Append("</svg>");
+    }
+
     public static async Task TrsStreamAsync(HttpContext ctx)
     {
         ctx.Response.Headers["Content-Type"] = "text/event-stream";
