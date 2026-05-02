@@ -74,9 +74,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = """
                 INSERT INTO audit_entries
-                    (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code)
+                    (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id)
                 VALUES
-                    ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code);
+                    ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session);
                 """;
             cmd.Parameters.AddWithValue("$id", entry.Id);
             cmd.Parameters.AddWithValue("$ts", entry.Timestamp.UtcTicks);
@@ -89,6 +89,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             // Non-AUTHZ entries pass null; the column is NOT NULL with default 'policy_denied'
             // so we coalesce here to keep the wire shape stable across detector kinds.
             cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? SentinelDenyCodes.PolicyDenied);
+            // session_id is nullable: detectors that don't carry a session pass null and we
+            // round-trip that as DBNull for dashboard queries to filter on IS NULL.
+            cmd.Parameters.AddWithValue("$session", (object?)entry.SessionId ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
         finally
@@ -124,7 +127,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     {
         var cmd = _connection.CreateCommand();
         var sql = new System.Text.StringBuilder(
-            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code FROM audit_entries WHERE 1=1");
+            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code, session_id FROM audit_entries WHERE 1=1");
 
         if (query.MinSeverity.HasValue)
         {
@@ -158,8 +161,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         var prev = reader.IsDBNull(5) ? null : reader.GetString(5);
         var summary = reader.GetString(6);
         var policyCode = reader.IsDBNull(7) ? null : reader.GetString(7);
+        var sessionId = reader.IsDBNull(8) ? null : reader.GetString(8);
         var ts = new DateTimeOffset(tsTicks, TimeSpan.Zero);
-        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary, policyCode);
+        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary, policyCode, sessionId);
     }
 
     private long LoadHighestSequence()

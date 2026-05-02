@@ -27,7 +27,7 @@ public sealed class SqliteSchemaMigrationTests : IDisposable
     }
 
     [Fact]
-    public async Task Migration_FromV1ToV2_AddsPolicyCodeColumnWithDefault()
+    public async Task Migration_FromV1ToCurrent_AddsPolicyCodeColumnWithDefault()
     {
         var csb = new SqliteConnectionStringBuilder
         {
@@ -63,7 +63,7 @@ public sealed class SqliteSchemaMigrationTests : IDisposable
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
             var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-            Assert.Equal(2, version);
+            Assert.Equal(3, version);
         }
 
         // Step 3: open a fresh raw connection and verify the legacy row was backfilled.
@@ -78,10 +78,10 @@ public sealed class SqliteSchemaMigrationTests : IDisposable
     }
 
     [Fact]
-    public async Task FreshDatabase_LandsAtV2_Directly()
+    public async Task FreshDatabase_LandsAtCurrentVersion_Directly()
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-        Assert.Equal(2, version);
+        Assert.Equal(3, version);
     }
 }
