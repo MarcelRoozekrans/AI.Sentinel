@@ -185,7 +185,9 @@ internal static class DashboardHandlers
         var windowStart = now.AddSeconds(-BucketSeconds * BucketCount);
 
         var buckets = new (int count, int maxSev)[BucketCount];
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 10000), ctx.RequestAborted).ConfigureAwait(false))
+        await foreach (var e in store.QueryAsync(
+            new AuditQuery(From: windowStart, PageSize: 10000),
+            ctx.RequestAborted).ConfigureAwait(false))
         {
             if (e.Timestamp < windowStart) continue;
             var idx = (int)((e.Timestamp - windowStart).TotalMilliseconds / bucketMs);
@@ -207,7 +209,8 @@ internal static class DashboardHandlers
         const int PadTop = 8, PadBottom = 16, PadLeft = 24, PadRight = 8;
         var plotW = Width - PadLeft - PadRight;
         var plotH = Height - PadTop - PadBottom;
-        var maxCount = Math.Max(1, buckets.Max(b => b.count));
+        var rawMax = buckets.Max(b => b.count);
+        var maxCount = Math.Max(1, rawMax);  // used for Y-scaling only — avoid divide by zero
         var maxSevOverall = buckets.Max(b => b.maxSev);
 
         string stroke = maxSevOverall switch
@@ -220,7 +223,7 @@ internal static class DashboardHandlers
         };
 
         sb.Append("<svg viewBox=\"0 0 ").Append(Width).Append(' ').Append(Height)
-          .Append("\" class=\"trend-chart\" xmlns=\"http://www.w3.org/2000/svg\">");
+          .Append("\" class=\"trend-chart\" role=\"img\" aria-label=\"Severity trend, last 15 minutes\" xmlns=\"http://www.w3.org/2000/svg\">");
 
         // Plot area background grid (just a baseline)
         sb.Append("<line x1=\"").Append(PadLeft).Append("\" y1=\"").Append(Height - PadBottom)
@@ -239,7 +242,7 @@ internal static class DashboardHandlers
         sb.Append("\" fill=\"none\" stroke=\"").Append(stroke).Append("\" stroke-width=\"2\" stroke-linejoin=\"round\"/>");
 
         // Y-axis label (max count)
-        sb.Append("<text x=\"4\" y=\"").Append(PadTop + 8).Append("\" font-size=\"9\" fill=\"#94a3b8\">").Append(maxCount).Append("</text>");
+        sb.Append("<text x=\"4\" y=\"").Append(PadTop + 8).Append("\" font-size=\"9\" fill=\"#94a3b8\">").Append(rawMax).Append("</text>");
         sb.Append("<text x=\"4\" y=\"").Append(Height - PadBottom + 4).Append("\" font-size=\"9\" fill=\"#94a3b8\">0</text>");
         // X-axis labels (now / 15m ago)
         sb.Append("<text x=\"").Append(PadLeft).Append("\" y=\"").Append(Height - 2).Append("\" font-size=\"9\" fill=\"#94a3b8\">15m ago</text>");

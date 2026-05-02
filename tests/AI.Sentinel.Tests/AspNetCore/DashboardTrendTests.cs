@@ -25,6 +25,7 @@ public class DashboardTrendTests
         var html = await resp.Content.ReadAsStringAsync();
         Assert.Contains("<svg", html, StringComparison.Ordinal);
         // No data points → flat baseline path; should still render the SVG envelope.
+        Assert.Contains("stroke=\"#475569\"", html, StringComparison.Ordinal); // muted on empty (per stroke palette)
     }
 
     [Fact]
@@ -42,7 +43,8 @@ public class DashboardTrendTests
 
         Assert.Contains("<svg", html, StringComparison.Ordinal);
         Assert.Contains("d=\"M", html, StringComparison.Ordinal);   // SVG path data present
-        Assert.Contains("stroke=", html, StringComparison.Ordinal); // stroke colour set per max severity
+        Assert.Contains("stroke=\"#f97316\"", html, StringComparison.Ordinal); // high → orange (per stroke palette)
+        Assert.DoesNotContain("stroke=\"#475569\"", html, StringComparison.Ordinal); // not muted
     }
 
     private static async Task<IHost> BuildHostAsync()
