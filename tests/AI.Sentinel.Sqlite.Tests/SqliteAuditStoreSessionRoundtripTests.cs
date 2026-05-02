@@ -59,6 +59,39 @@ public sealed class SqliteAuditStoreSessionRoundtripTests : IDisposable
     }
 
     [Fact]
+    public async Task QueryWithSessionIdFilter_ReturnsOnlyEntriesForThatSession()
+    {
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+
+        var sessionA = "sess-A-" + Guid.NewGuid().ToString("N");
+        var sessionB = "sess-B-" + Guid.NewGuid().ToString("N");
+
+        await store.AppendAsync(NewEntry("e-a-1", sessionA), CancellationToken.None);
+        await store.AppendAsync(NewEntry("e-b-1", sessionB), CancellationToken.None);
+        await store.AppendAsync(NewEntry("e-a-2", sessionA), CancellationToken.None);
+        await store.AppendAsync(NewEntry("e-null", null),    CancellationToken.None);
+
+        var results = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(SessionId: sessionA), CancellationToken.None))
+            results.Add(e);
+
+        Assert.Equal(2, results.Count);
+        Assert.All(results, r => Assert.Equal(sessionA, r.SessionId));
+    }
+
+    private static AuditEntry NewEntry(string id, string? sessionId) =>
+        new(
+            Id:           id,
+            Timestamp:    DateTimeOffset.UtcNow,
+            Hash:         "h",
+            PreviousHash: null,
+            Severity:     Severity.Medium,
+            DetectorId:   "SEC-01",
+            Summary:      "test",
+            PolicyCode:   null,
+            SessionId:    sessionId);
+
+    [Fact]
     public async Task AppendAndQuery_WithNullSessionId_RoundtripsNull()
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });

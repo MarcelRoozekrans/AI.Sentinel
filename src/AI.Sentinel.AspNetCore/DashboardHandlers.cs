@@ -251,13 +251,20 @@ internal static class DashboardHandlers
         sb.Append("</svg>");
     }
 
-    /// <summary>
-    /// GET /api/export.ndjson — streams the filtered audit log as newline-delimited JSON.
-    /// Reuses <see cref="FilterAuditEntries"/> so the export honours the active chip + search +
-    /// session filters; the operator gets exactly what they see on the live feed. Unlike
-    /// <see cref="TrendAsync"/> there is no time window — this returns the full filtered view
-    /// (capped by <c>PageSize: 10000</c> as a safety bound to match other handlers).
-    /// </summary>
+    /// <summary>Maximum entries returned by the NDJSON export endpoint per request. Any
+    /// query that would return more is truncated; the X-Sentinel-Truncated response header
+    /// signals this to the client.</summary>
+    private const int ExportPageCap = 10_000;
+
+    /// <summary>Streams the current filtered audit log as NDJSON for download. Honours
+    /// chips ∧ session ∧ search filters from the live feed.</summary>
+    /// <remarks>
+    /// Capped at <see cref="ExportPageCap"/> entries per request. When the cap is hit, the
+    /// response includes <c>X-Sentinel-Truncated: true</c> so consumers can detect partial
+    /// exports without re-counting. Header convention: <c>X-Sentinel-*</c> (matches the
+    /// dashboard URL prefix); value is the literal string <c>"true"</c> when set, header
+    /// absent otherwise. Future <c>X-Sentinel-*</c> headers should follow this pattern.
+    /// </remarks>
     public static async Task ExportNdjsonAsync(HttpContext ctx)
     {
         var filter  = (string?)ctx.Request.Query["filter"];
@@ -266,14 +273,19 @@ internal static class DashboardHandlers
 
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
         var entries = new List<AuditEntry>();
-        // Reverse: true → store returns newest-first. With PageSize: 10000 we get the
-        // most recent 10k entries instead of the oldest 10k (which would silently omit
-        // all recent activity on long-running stores).
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 10000, Reverse: true), ctx.RequestAborted).ConfigureAwait(false))
+        // Reverse: true → store returns newest-first. With PageSize: ExportPageCap we get the
+        // most recent entries instead of the oldest (which would silently omit all recent
+        // activity on long-running stores). Session is pushed down to the store so an
+        // old-session export can't be silently emptied by newer entries filling the cap.
+        await foreach (var e in store.QueryAsync(
+            new AuditQuery(PageSize: ExportPageCap, Reverse: true, SessionId: session),
+            ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
-        // Sort chronologically (oldest-first) for human-readable NDJSON output.
-        var filtered = FilterAuditEntries(entries, filter, q, session)
+        // Session is now pushed down to the store; FilterAuditEntries only handles
+        // the in-memory chip+q filters. Truncation (entries.Count >= ExportPageCap)
+        // thus reflects "the store hit its cap for this session+severity selection."
+        var filtered = FilterAuditEntries(entries, filter, q, session: null)
             .OrderBy(e => e.Timestamp)
             .ToArray();
 
@@ -293,8 +305,12 @@ internal static class DashboardHandlers
         ctx.Response.ContentType = "application/x-ndjson; charset=utf-8";
         var filename = "audit-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".ndjson";
         ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{filename}\"";
-        // Signal truncation so operators can detect "more than 10k entries" without manual counting.
-        if (totalEntries >= 10000)
+        // X-Sentinel-Truncated: emitted when the store-level cap was hit. With session
+        // push-down (Phase 5 polish), this is precise: it means "there are older entries
+        // matching your session+severity selection that we didn't return." Without
+        // session push-down, this would over-fire whenever the store had >ExportPageCap
+        // entries regardless of session match.
+        if (totalEntries >= ExportPageCap)
             ctx.Response.Headers["X-Sentinel-Truncated"] = "true";
     }
 

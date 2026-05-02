@@ -144,6 +144,11 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             sql.Append(" AND timestamp <= $to");
             cmd.Parameters.AddWithValue("$to", query.To.Value.UtcTicks);
         }
+        if (!string.IsNullOrEmpty(query.SessionId))
+        {
+            sql.Append(" AND session_id = $session");
+            cmd.Parameters.AddWithValue("$session", query.SessionId);
+        }
 
         sql.Append(query.Reverse
             ? " ORDER BY sequence DESC LIMIT $limit"
