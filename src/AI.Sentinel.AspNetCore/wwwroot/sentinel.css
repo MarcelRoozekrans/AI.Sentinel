@@ -121,6 +121,16 @@ td:nth-child(4) { white-space: normal; max-width: 300px; overflow: hidden; text-
 
 .hash { font-family: 'Courier New', monospace; color: var(--muted); font-size: 0.7rem; }
 
+td.session { white-space: nowrap; }
+.session-link {
+  color: var(--text);
+  text-decoration: none;
+  font-family: 'Courier New', monospace;
+  font-size: 0.7rem;
+  border-bottom: 1px dotted var(--muted);
+}
+.session-link:hover { color: #7dd3fc; border-bottom-color: #7dd3fc; }
+
 .badge {
   display: inline-block;
   padding: 0.1rem 0.45rem;
@@ -352,7 +362,7 @@ tr.audit-row-authz td:first-child {
    and the audit forwarder pipeline. Time/Detector/Severity/Reason are the
    columns operators triage on. */
 @media (max-width: 480px) {
-  table th:nth-child(5),
-  table td:nth-child(5) { display: none; }
+  table th:nth-child(6),
+  table td:nth-child(6) { display: none; }
   table { min-width: 360px; }
 }

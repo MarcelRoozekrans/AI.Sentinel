@@ -55,7 +55,7 @@
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Time</th><th>Detector</th><th>Severity</th><th>Reason</th><th>Hash</th></tr>
+            <tr><th>Time</th><th>Detector</th><th>Severity</th><th>Reason</th><th>Session</th><th>Hash</th></tr>
           </thead>
           <tbody id="feed-body"
             hx-get="api/feed"
@@ -168,6 +168,39 @@
         searchDebounce = setTimeout(refreshFeed, 300);
       });
     }
+
+    // Delegate session-link clicks -> set body.dataset.session, re-render feed.
+    // Delegation (vs per-row binding) survives HTMX swap-on-poll which destroys row nodes.
+    feedBody.addEventListener('click', function (e) {
+      const link = e.target.closest('.session-link');
+      if (!link) return;
+      e.preventDefault();
+      const session = link.getAttribute('data-session');
+      document.body.dataset.session = session;
+      // Update browser address bar so the URL is shareable
+      const url = new URL(window.location.href);
+      url.searchParams.set('session', session);
+      window.history.replaceState(null, '', url.toString());
+      refreshFeed();
+      renderSessionPill(session);
+    });
+
+    // On page load: hydrate filter state from URL query string
+    (function hydrateFromUrl() {
+      const params = new URL(window.location.href).searchParams;
+      const session = params.get('session');
+      if (session) {
+        document.body.dataset.session = session;
+        renderSessionPill(session);
+      }
+      const q = params.get('q');
+      if (q && searchInput) { searchInput.value = q; }
+      const filter = params.get('filter');
+      if (filter) {
+        const chip = document.querySelector('#feed-chips .feed-chip[data-filter="' + filter + '"]');
+        if (chip) activate(chip);
+      }
+    })();
   </script>
 </body>
 </html>

@@ -77,7 +77,7 @@ internal static class DashboardHandlers
                 (null or "", null or "", null or "") => "No events yet — agents are quiet.",
                 _                                      => "No events match this filter.",
             };
-            sb.Append("<tr class=\"feed-empty\"><td colspan=\"5\">")
+            sb.Append("<tr class=\"feed-empty\"><td colspan=\"6\">")
               .Append(emptyMessage)
               .AppendLine("</td></tr>");
             await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
@@ -85,32 +85,57 @@ internal static class DashboardHandlers
         }
         foreach (ref readonly var e in CollectionsMarshal.AsSpan(ordered))
         {
-            var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;
-            var severityLower = e.Severity.ToString().ToLowerInvariant();
-            var ts = e.Timestamp.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
-            var hashPrefix = e.Hash[..Math.Min(8, e.Hash.Length)];
-            var isAuthz = string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal);
-            sb.Append("<tr class=\"severity-")
-              .Append(severityLower);
-            if (isAuthz)
-                sb.Append(" audit-row-authz");
-            sb.AppendLine("\">")
-              .Append("  <td>").Append(ts).AppendLine("</td>")
-              .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>")
-              .Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
-              .Append("  <td title=\"").Append(HtmlEncode(e.Summary)).Append("\">");
-            if (isAuthz)
-            {
-                sb.Append("<span class=\"badge code\">")
-                  .Append(HtmlEncode(e.PolicyCode ?? SentinelDenyCodes.PolicyDenied))
-                  .Append("</span> ");
-            }
-            sb.Append(HtmlEncode(reason)).AppendLine("</td>")
-              .Append("  <td class=\"hash\">").Append(hashPrefix).AppendLine("</td>")
-              .AppendLine("</tr>");
+            RenderFeedRow(sb, in e);
         }
 
         await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
+    }
+
+    /// <summary>Renders a single &lt;tr&gt; row for /api/feed. Extracted from
+    /// <see cref="LiveFeedAsync"/> to keep the handler under MA0051's 60-line cap once
+    /// the Session column was added in Dashboard 2.0.</summary>
+    private static void RenderFeedRow(StringBuilder sb, in AuditEntry e)
+    {
+        var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;
+        var severityLower = e.Severity.ToString().ToLowerInvariant();
+        var ts = e.Timestamp.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        var hashPrefix = e.Hash[..Math.Min(8, e.Hash.Length)];
+        var isAuthz = string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal);
+        sb.Append("<tr class=\"severity-")
+          .Append(severityLower);
+        if (isAuthz)
+            sb.Append(" audit-row-authz");
+        sb.AppendLine("\">")
+          .Append("  <td>").Append(ts).AppendLine("</td>")
+          .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>")
+          .Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
+          .Append("  <td title=\"").Append(HtmlEncode(e.Summary)).Append("\">");
+        if (isAuthz)
+        {
+            sb.Append("<span class=\"badge code\">")
+              .Append(HtmlEncode(e.PolicyCode ?? SentinelDenyCodes.PolicyDenied))
+              .Append("</span> ");
+        }
+        sb.Append(HtmlEncode(reason)).AppendLine("</td>");
+        sb.Append("  <td class=\"session\">");
+        if (!string.IsNullOrEmpty(e.SessionId))
+        {
+            var sessionShort = e.SessionId.Length > 8 ? e.SessionId[..8] : e.SessionId;
+            sb.Append("<a href=\"#\" class=\"session-link\" data-session=\"")
+              .Append(HtmlEncode(e.SessionId))
+              .Append("\" title=\"")
+              .Append(HtmlEncode(e.SessionId))
+              .Append("\">")
+              .Append(HtmlEncode(sessionShort))
+              .Append("</a>");
+        }
+        else
+        {
+            sb.Append("\u2014");
+        }
+        sb.AppendLine("</td>")
+          .Append("  <td class=\"hash\">").Append(hashPrefix).AppendLine("</td>")
+          .AppendLine("</tr>");
     }
 
     /// <summary>Maps a category name from a chip filter (e.g. "security", "hallucination") to the
