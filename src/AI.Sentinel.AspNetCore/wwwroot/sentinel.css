@@ -248,7 +248,7 @@ tr.audit-row-authz td:first-child {
 /* Export button — sits at the right edge of the chips bar, visually distinct
    from the filter chips (link-shaped, not pill-toggle-shaped). */
 .export-button {
-  margin-left: 0.4rem;
+  margin-left: auto;
   padding: 0.2rem 0.65rem;
   background: #0f172a;
   border: 1px solid var(--border);
@@ -443,4 +443,5 @@ tr.audit-row-authz td:first-child {
   .feed-chip { background: #f1f5f9; }
   .feed-chip.active { background: #ffffff; }
   .search-input { background: #ffffff; }
+  .export-button { background: #f1f5f9; }
 }

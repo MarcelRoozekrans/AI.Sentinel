@@ -30,6 +30,8 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, I
         try { snapshot = _buffer.ToArray(); }
         finally { _lock.Release(); }
 
+        if (query.Reverse) Array.Reverse(snapshot);  // newest-first traversal
+
         int yielded = 0;
         foreach (var entry in snapshot)
         {

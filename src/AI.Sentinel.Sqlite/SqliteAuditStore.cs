@@ -145,7 +145,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("$to", query.To.Value.UtcTicks);
         }
 
-        sql.Append(" ORDER BY sequence ASC LIMIT $limit");
+        sql.Append(query.Reverse
+            ? " ORDER BY sequence DESC LIMIT $limit"
+            : " ORDER BY sequence ASC LIMIT $limit");
         cmd.Parameters.AddWithValue("$limit", query.PageSize);
         cmd.CommandText = sql.ToString();
         return cmd;

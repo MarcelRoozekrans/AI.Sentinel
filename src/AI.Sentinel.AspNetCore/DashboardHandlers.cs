@@ -266,19 +266,36 @@ internal static class DashboardHandlers
 
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
         var entries = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 10000), ctx.RequestAborted).ConfigureAwait(false))
+        // Reverse: true → store returns newest-first. With PageSize: 10000 we get the
+        // most recent 10k entries instead of the oldest 10k (which would silently omit
+        // all recent activity on long-running stores).
+        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 10000, Reverse: true), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
-        var filtered = FilterAuditEntries(entries, filter, q, session);
 
+        // Sort chronologically (oldest-first) for human-readable NDJSON output.
+        var filtered = FilterAuditEntries(entries, filter, q, session)
+            .OrderBy(e => e.Timestamp)
+            .ToArray();
+
+        WriteExportHeaders(ctx, entries.Count);
+
+        // Cache the newline byte to avoid per-entry allocation.
+        var newline = "\n"u8.ToArray();
+        foreach (var entry in filtered)
+        {
+            await JsonSerializer.SerializeAsync(ctx.Response.Body, entry, AuditJsonContext.Default.AuditEntry, ctx.RequestAborted).ConfigureAwait(false);
+            await ctx.Response.Body.WriteAsync(newline, ctx.RequestAborted).ConfigureAwait(false);
+        }
+    }
+
+    private static void WriteExportHeaders(HttpContext ctx, int totalEntries)
+    {
         ctx.Response.ContentType = "application/x-ndjson; charset=utf-8";
         var filename = "audit-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".ndjson";
         ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{filename}\"";
-
-        foreach (var entry in filtered)
-        {
-            var line = JsonSerializer.Serialize(entry, AuditJsonContext.Default.AuditEntry);
-            await ctx.Response.WriteAsync(line + "\n", ctx.RequestAborted).ConfigureAwait(false);
-        }
+        // Signal truncation so operators can detect "more than 10k entries" without manual counting.
+        if (totalEntries >= 10000)
+            ctx.Response.Headers["X-Sentinel-Truncated"] = "true";
     }
 
     public static async Task TrsStreamAsync(HttpContext ctx)
