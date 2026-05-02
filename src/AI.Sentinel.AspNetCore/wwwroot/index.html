@@ -48,6 +48,9 @@
         <button type="button" role="tab" class="feed-chip chip-hallucination" data-filter="hallucination" aria-selected="false" aria-pressed="false" tabindex="-1">Hallucination</button>
         <button type="button" role="tab" class="feed-chip chip-operational"   data-filter="operational"   aria-selected="false" aria-pressed="false" tabindex="-1">Operational</button>
         <button type="button" role="tab" class="feed-chip chip-authz"         data-filter="authorization" aria-selected="false" aria-pressed="false" tabindex="-1">Authorization</button>
+        <input type="search" id="feed-search" class="search-input"
+               placeholder="Search summary&#8230;" aria-label="Search audit log"
+               autocomplete="off">
       </div>
       <div class="table-wrap">
         <table>
@@ -100,46 +103,71 @@
       arc.setAttribute('class', 'gauge-arc stage-' + d.stage.toLowerCase());
     };
 
-    // Filter chips: rewrite the feed body's hx-get URL and trigger an immediate refresh.
+    // Filter chips + search + session pill: build /api/feed URL from operator state
+    // (active chip, search text, session pill) so all three intersect.
     // Implements the WAI-ARIA tab pattern with roving tabindex + arrow-key / Home / End nav.
-    (function () {
-      const chips = Array.from(document.querySelectorAll('#feed-chips .feed-chip'));
-      const feedBody = document.getElementById('feed-body');
+    const chips = Array.from(document.querySelectorAll('#feed-chips .feed-chip'));
+    const feedBody = document.getElementById('feed-body');
+    const searchInput = document.getElementById('feed-search');
 
-      function activate(chip) {
-        chips.forEach(function (c) {
-          c.classList.remove('active');
-          c.setAttribute('aria-selected', 'false');
-          c.setAttribute('aria-pressed', 'false');
-          c.setAttribute('tabindex', '-1');
-        });
-        chip.classList.add('active');
-        chip.setAttribute('aria-selected', 'true');
-        chip.setAttribute('aria-pressed', 'true');
-        chip.setAttribute('tabindex', '0');
-        const filter = chip.getAttribute('data-filter') || '';
-        const url = filter ? ('api/feed?filter=' + encodeURIComponent(filter)) : 'api/feed';
-        feedBody.setAttribute('hx-get', url);
-        if (window.htmx) { window.htmx.ajax('GET', url, { target: '#feed-body', swap: 'innerHTML' }); }
-      }
+    function buildFeedUrl() {
+      const params = new URLSearchParams();
+      const activeChip = document.querySelector('#feed-chips .feed-chip.active');
+      const filter = activeChip ? (activeChip.getAttribute('data-filter') || '') : '';
+      if (filter) params.set('filter', filter);
+      const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
+      if (q) params.set('q', q);
+      const session = document.body.dataset.session || '';
+      if (session) params.set('session', session);
+      const qs = params.toString();
+      return qs ? ('api/feed?' + qs) : 'api/feed';
+    }
 
-      chips.forEach(function (chip, index) {
-        chip.addEventListener('click', function () { activate(chip); });
-        chip.addEventListener('keydown', function (e) {
-          let target = null;
-          switch (e.key) {
-            case 'ArrowRight': target = chips[(index + 1) % chips.length]; break;
-            case 'ArrowLeft':  target = chips[(index - 1 + chips.length) % chips.length]; break;
-            case 'Home':       target = chips[0]; break;
-            case 'End':        target = chips[chips.length - 1]; break;
-            default: return;
-          }
-          e.preventDefault();
-          activate(target);
-          target.focus();
-        });
+    function refreshFeed() {
+      const url = buildFeedUrl();
+      feedBody.setAttribute('hx-get', url);
+      if (window.htmx) { window.htmx.ajax('GET', url, { target: '#feed-body', swap: 'innerHTML' }); }
+    }
+
+    function activate(chip) {
+      chips.forEach(function (c) {
+        c.classList.remove('active');
+        c.setAttribute('aria-selected', 'false');
+        c.setAttribute('aria-pressed', 'false');
+        c.setAttribute('tabindex', '-1');
       });
-    })();
+      chip.classList.add('active');
+      chip.setAttribute('aria-selected', 'true');
+      chip.setAttribute('aria-pressed', 'true');
+      chip.setAttribute('tabindex', '0');
+      refreshFeed();
+    }
+
+    chips.forEach(function (chip, index) {
+      chip.addEventListener('click', function () { activate(chip); });
+      chip.addEventListener('keydown', function (e) {
+        let target = null;
+        switch (e.key) {
+          case 'ArrowRight': target = chips[(index + 1) % chips.length]; break;
+          case 'ArrowLeft':  target = chips[(index - 1 + chips.length) % chips.length]; break;
+          case 'Home':       target = chips[0]; break;
+          case 'End':        target = chips[chips.length - 1]; break;
+          default: return;
+        }
+        e.preventDefault();
+        activate(target);
+        target.focus();
+      });
+    });
+
+    // Wire search-input -> debounced refresh (300ms)
+    let searchDebounce;
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(refreshFeed, 300);
+      });
+    }
   </script>
 </body>
 </html>

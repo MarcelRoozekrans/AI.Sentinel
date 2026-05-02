@@ -173,7 +173,25 @@ tr.audit-row-authz td:first-child {
   gap: 0.4rem;
   margin-bottom: 0.6rem;
   flex-wrap: wrap;
+  align-items: center;
 }
+
+/* Search box — matches the chip-bar visual rhythm */
+.search-input {
+  flex: 1;
+  min-width: 12ch;
+  margin-left: 0.5rem;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.7rem;
+  color: var(--text);
+  background: #0f172a;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.search-input:focus { border-color: #7dd3fc; }
+.search-input::placeholder { color: var(--muted); }
 .feed-chip {
   background: #0f172a;
   border: 1px solid var(--border);
