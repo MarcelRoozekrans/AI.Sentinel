@@ -37,6 +37,16 @@ internal static class SqliteSchema
         // runs the v2→v3 step. The final block sets user_version to CurrentVersion.
         if (current < 2) await MigrateV1ToV2Async(conn, ct).ConfigureAwait(false);
         if (current < 3) await MigrateV2ToV3Async(conn, ct).ConfigureAwait(false);
+
+        // Single, explicit version-bump after all migration steps complete.
+        // Each MigrateXToYAsync helper does pure additive DDL — only this line
+        // updates user_version, so adding future migrations is one-line-mechanical.
+        if (current < CurrentVersion)
+        {
+            using var bump = conn.CreateCommand();
+            bump.CommandText = $"PRAGMA user_version = {CurrentVersion};";
+            await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
     }
 
     private static async Task CreateFreshSchemaAsync(SqliteConnection conn, CancellationToken ct)
@@ -80,13 +90,12 @@ internal static class SqliteSchema
 
     private static async Task MigrateV2ToV3Async(SqliteConnection conn, CancellationToken ct)
     {
-        // v2→v3: add nullable session_id + correlation index for dashboard queries. This is
-        // the final step in the chain so it bumps user_version to CurrentVersion.
+        // v2→v3: add nullable session_id + correlation index for dashboard queries.
+        // Pure additive DDL — InitializeAsync owns the user_version bump.
         using var migrate = conn.CreateCommand();
-        migrate.CommandText = $"""
+        migrate.CommandText = """
             ALTER TABLE audit_entries ADD COLUMN session_id TEXT;
             CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_entries (session_id);
-            PRAGMA user_version = {CurrentVersion};
             """;
         await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }

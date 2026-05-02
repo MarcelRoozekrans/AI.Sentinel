@@ -151,6 +151,10 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         return cmd;
     }
 
+    // TODO(future): the positional reader.GetString(N) calls below mirror the SELECT column order
+    // in BuildQueryCommand. If you reorder or add a column between the existing ones, both call
+    // sites must move in lockstep. Consider extracting `private const string AuditEntryColumns =`
+    // shared by both methods, with named-index constants — defer until either side gets bigger.
     private static AuditEntry ReadEntry(SqliteDataReader reader)
     {
         var id = reader.GetString(0);

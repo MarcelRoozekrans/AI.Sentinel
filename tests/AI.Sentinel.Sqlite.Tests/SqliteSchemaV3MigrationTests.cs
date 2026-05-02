@@ -94,27 +94,7 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
         };
 
         // Step 1: hand-roll a v1 DB (no policy_code, no session_id).
-        await using (var conn = new SqliteConnection(csb.ToString()))
-        {
-            await conn.OpenAsync();
-            using var seed = conn.CreateCommand();
-            seed.CommandText = """
-                CREATE TABLE audit_entries (
-                    id            TEXT PRIMARY KEY,
-                    timestamp     INTEGER NOT NULL,
-                    severity      INTEGER NOT NULL,
-                    detector_id   TEXT NOT NULL,
-                    hash          TEXT NOT NULL,
-                    previous_hash TEXT,
-                    summary       TEXT NOT NULL,
-                    sequence      INTEGER NOT NULL
-                );
-                INSERT INTO audit_entries(id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence)
-                VALUES ('legacy-1', 0, 4, 'AUTHZ-DENY', 'h', NULL, 'old denial', 1);
-                PRAGMA user_version = 1;
-                """;
-            await seed.ExecuteNonQueryAsync();
-        }
+        await SeedV1DatabaseAsync(csb.ToString());
 
         // Step 2: opening a SqliteAuditStore must walk v1→v2→v3 in one init pass.
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
@@ -137,6 +117,38 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
             await using var reader = await cmd.ExecuteReaderAsync();
             while (await reader.ReadAsync()) found.Add(reader.GetString(0));
             Assert.Equal(new[] { "policy_code", "session_id" }, found.ToArray());
+
+            // Step 4: legacy row picks up the v1→v2 NOT NULL DEFAULT for policy_code,
+            // and session_id is NULL (v2→v3 ALTER added it nullable, no default).
+            using var rowCmd = conn.CreateCommand();
+            rowCmd.CommandText = "SELECT policy_code, session_id FROM audit_entries WHERE id = 'legacy-1';";
+            await using var rowReader = await rowCmd.ExecuteReaderAsync();
+            Assert.True(await rowReader.ReadAsync(), "legacy-1 row not found after migration");
+            Assert.Equal("policy_denied", rowReader.GetString(0));
+            Assert.True(rowReader.IsDBNull(1), "session_id should be NULL on legacy row");
         }
+    }
+
+    private static async Task SeedV1DatabaseAsync(string connectionString)
+    {
+        await using var conn = new SqliteConnection(connectionString);
+        await conn.OpenAsync();
+        using var seed = conn.CreateCommand();
+        seed.CommandText = """
+            CREATE TABLE audit_entries (
+                id            TEXT PRIMARY KEY,
+                timestamp     INTEGER NOT NULL,
+                severity      INTEGER NOT NULL,
+                detector_id   TEXT NOT NULL,
+                hash          TEXT NOT NULL,
+                previous_hash TEXT,
+                summary       TEXT NOT NULL,
+                sequence      INTEGER NOT NULL
+            );
+            INSERT INTO audit_entries(id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence)
+            VALUES ('legacy-1', 0, 4, 'AUTHZ-DENY', 'h', NULL, 'old denial', 1);
+            PRAGMA user_version = 1;
+            """;
+        await seed.ExecuteNonQueryAsync();
     }
 }
