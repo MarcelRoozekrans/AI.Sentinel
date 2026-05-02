@@ -191,6 +191,11 @@ tr.audit-row-authz td:first-child {
 .feed-chip.active { background: var(--surface); color: var(--text); border-color: #7dd3fc; }
 .feed-chip.chip-authz.active { border-color: #f59e0b; color: #fbbf24; }
 
+/* Active accents per category — parallels severity-color tokens. */
+.feed-chip.chip-security.active      { border-color: #ef4444; color: #fca5a5; }
+.feed-chip.chip-hallucination.active { border-color: #eab308; color: #fde68a; }
+.feed-chip.chip-operational.active   { border-color: #38bdf8; color: #7dd3fc; }
+
 .loading { color: var(--muted); font-style: italic; }
 
 /* Empty-state row inside the live feed */
