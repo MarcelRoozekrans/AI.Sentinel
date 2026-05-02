@@ -116,20 +116,24 @@ internal static class DashboardHandlers
         "security"      => detectorId.StartsWith("SEC-",   StringComparison.Ordinal),
         "hallucination" => detectorId.StartsWith("HAL-",   StringComparison.Ordinal),
         "operational"   => detectorId.StartsWith("OPS-",   StringComparison.Ordinal),
-        "authorization" => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),
-        "authz"         => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),
+        "authorization" or "authz" => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),  // 'authz' = legacy alias
         _               => true,
     };
 
-    /// <summary>Single-source-of-truth filter pipeline used by /api/feed, /api/trend (no), and
-    /// /api/export.ndjson. All three filters AND together: chips ∧ session ∧ search.</summary>
+    /// <summary>Single-source-of-truth filter pipeline used by /api/feed and /api/export.ndjson.
+    /// /api/trend deliberately does NOT use this — it always renders the global trend (design D4).
+    /// All three filters AND together: chips ∧ session ∧ search.</summary>
+    /// <remarks>Returns a lazy IEnumerable; callers that enumerate more than once should
+    /// materialise via .ToList() to avoid re-evaluating predicates.</remarks>
     internal static IEnumerable<AuditEntry> FilterAuditEntries(
         IEnumerable<AuditEntry> entries, string? category, string? q, string? session)
     {
+        // Order is deliberate: cheap+selective filters (category, session) first,
+        // expensive Contains() last so it runs on the smallest residual set.
         if (!string.IsNullOrEmpty(category))
             entries = entries.Where(e => IsInCategory(e.DetectorId, category));
         if (!string.IsNullOrEmpty(session))
-            entries = entries.Where(e => e.SessionId is not null && string.Equals(e.SessionId, session, StringComparison.Ordinal));
+            entries = entries.Where(e => string.Equals(e.SessionId, session, StringComparison.Ordinal));
         if (!string.IsNullOrEmpty(q))
             entries = entries.Where(e => e.Summary.Contains(q, StringComparison.OrdinalIgnoreCase));
         return entries;

@@ -18,6 +18,8 @@ public class DashboardFilterHelperTests
     [InlineData("OPS-12",       "operational",   true)]
     [InlineData("AUTHZ-DENY",   "authorization", true)]
     [InlineData("SEC-01",       "authorization", false)]
+    [InlineData("AUTHZ-DENY",   "authz",         true)]   // legacy alias
+    [InlineData("HAL-08",       "authz",         false)]  // legacy alias still selective
     public void IsInCategory_PrefixMatch_KnownCategories(string detectorId, string category, bool expected)
     {
         Assert.Equal(expected, DashboardHandlers.IsInCategory(detectorId, category));
@@ -27,6 +29,7 @@ public class DashboardFilterHelperTests
     [InlineData("SEC-01", "")]
     [InlineData("HAL-08", null)]
     [InlineData("OPS-12", "unknown_category")]
+    [InlineData("SEC-01", "AUTHORIZATION")]  // uppercase = unknown to switch = no filter (design D1)
     public void IsInCategory_NullEmptyOrUnknown_ReturnsTrue(string detectorId, string? category)
     {
         Assert.True(DashboardHandlers.IsInCategory(detectorId, category));
@@ -96,6 +99,31 @@ public class DashboardFilterHelperTests
         };
         var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: "delete_database", session: null).ToList();
         Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public void FilterAuditEntries_SessionFilter_ExcludesEntriesWithNullSession()
+    {
+        var entries = new[]
+        {
+            NewEntry("SEC-01", "x", sessionId: "sess-A"),
+            NewEntry("SEC-01", "x", sessionId: "sess-A"),
+        };
+        // Build a third entry with explicit null session — NewEntry's default is "sess-1"
+        var nullSessionEntry = new AuditEntry(
+            Id:           Guid.NewGuid().ToString("N"),
+            Timestamp:    DateTimeOffset.UtcNow,
+            Hash:         "h",
+            PreviousHash: null,
+            Severity:     Severity.Medium,
+            DetectorId:   "SEC-01",
+            Summary:      "x",
+            PolicyCode:   null,
+            SessionId:    null);
+        var combined = entries.Concat(new[] { nullSessionEntry }).ToList();
+        var result = DashboardHandlers.FilterAuditEntries(combined, category: null, q: null, session: "sess-A").ToList();
+        Assert.Equal(2, result.Count);
+        Assert.All(result, e => Assert.Equal("sess-A", e.SessionId));
     }
 
     [Fact]
