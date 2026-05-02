@@ -51,6 +51,7 @@
         <input type="search" id="feed-search" class="search-input"
                placeholder="Search summary&#8230;" aria-label="Search audit log"
                autocomplete="off">
+        <a id="export-link" class="export-button" href="api/export.ndjson" title="Download filtered audit log as NDJSON">📥 Export</a>
       </div>
       <div id="trend-chart-container"
            hx-get="api/trend"
@@ -156,6 +157,12 @@
       const url = buildFeedUrl();
       feedBody.setAttribute('hx-get', url);
       if (window.htmx) { window.htmx.ajax('GET', url, { target: '#feed-body', swap: 'innerHTML' }); }
+      // Keep the Export button href in sync with the active feed URL so a click
+      // downloads exactly what the operator currently sees on the table.
+      const exportLink = document.getElementById('export-link');
+      if (exportLink) {
+        exportLink.href = url.replace('api/feed', 'api/export.ndjson');
+      }
     }
 
     function activate(chip) {

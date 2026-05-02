@@ -161,12 +161,14 @@ public class DashboardAuthzFeedTests
 
         var html = await client.GetStringAsync("/sentinel/");
 
-        Assert.Contains("data-filter=\"security\"",      html, StringComparison.Ordinal);
-        Assert.Contains("data-filter=\"hallucination\"", html, StringComparison.Ordinal);
-        Assert.Contains("data-filter=\"operational\"",   html, StringComparison.Ordinal);
-        Assert.Contains("data-filter=\"authorization\"", html, StringComparison.Ordinal);
-        Assert.Contains("id=\"feed-search\"",            html, StringComparison.Ordinal);
-        Assert.Contains("id=\"session-pill-container\"", html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"security\"",        html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"hallucination\"",   html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"operational\"",     html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"authorization\"",   html, StringComparison.Ordinal);
+        Assert.Contains("id=\"feed-search\"",              html, StringComparison.Ordinal);
+        Assert.Contains("id=\"session-pill-container\"",   html, StringComparison.Ordinal);
+        Assert.Contains("id=\"trend-chart-container\"",    html, StringComparison.Ordinal);
+        Assert.Contains("id=\"export-link\"",              html, StringComparison.Ordinal);
     }
 
     private static async Task<IHost> BuildHostAsync()

@@ -245,6 +245,22 @@ tr.audit-row-authz td:first-child {
 .feed-chip.active { background: var(--surface); color: var(--text); border-color: #7dd3fc; }
 .feed-chip.chip-authz.active { border-color: #f59e0b; color: #fbbf24; }
 
+/* Export button — sits at the right edge of the chips bar, visually distinct
+   from the filter chips (link-shaped, not pill-toggle-shaped). */
+.export-button {
+  margin-left: 0.4rem;
+  padding: 0.2rem 0.65rem;
+  background: #0f172a;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.export-button:hover { color: var(--text); border-color: #475569; }
+
 /* Active accents per category — parallels severity-color tokens. */
 .feed-chip.chip-security.active      { border-color: #ef4444; color: #fca5a5; }
 .feed-chip.chip-hallucination.active { border-color: #eab308; color: #fde68a; }
