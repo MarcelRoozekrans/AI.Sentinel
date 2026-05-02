@@ -251,6 +251,36 @@ internal static class DashboardHandlers
         sb.Append("</svg>");
     }
 
+    /// <summary>
+    /// GET /api/export.ndjson — streams the filtered audit log as newline-delimited JSON.
+    /// Reuses <see cref="FilterAuditEntries"/> so the export honours the active chip + search +
+    /// session filters; the operator gets exactly what they see on the live feed. Unlike
+    /// <see cref="TrendAsync"/> there is no time window — this returns the full filtered view
+    /// (capped by <c>PageSize: 10000</c> as a safety bound to match other handlers).
+    /// </summary>
+    public static async Task ExportNdjsonAsync(HttpContext ctx)
+    {
+        var filter  = (string?)ctx.Request.Query["filter"];
+        var q       = (string?)ctx.Request.Query["q"];
+        var session = (string?)ctx.Request.Query["session"];
+
+        var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
+        var entries = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 10000), ctx.RequestAborted).ConfigureAwait(false))
+            entries.Add(e);
+        var filtered = FilterAuditEntries(entries, filter, q, session);
+
+        ctx.Response.ContentType = "application/x-ndjson; charset=utf-8";
+        var filename = "audit-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".ndjson";
+        ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{filename}\"";
+
+        foreach (var entry in filtered)
+        {
+            var line = JsonSerializer.Serialize(entry, AuditJsonContext.Default.AuditEntry);
+            await ctx.Response.WriteAsync(line + "\n", ctx.RequestAborted).ConfigureAwait(false);
+        }
+    }
+
     public static async Task TrsStreamAsync(HttpContext ctx)
     {
         ctx.Response.Headers["Content-Type"] = "text/event-stream";
