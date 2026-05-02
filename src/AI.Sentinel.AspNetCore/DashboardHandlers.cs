@@ -58,21 +58,25 @@ internal static class DashboardHandlers
     {
         ctx.Response.ContentType = "text/html";
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
-        var filter = (string?)ctx.Request.Query["filter"] ?? string.Empty;
+        var filter  = (string?)ctx.Request.Query["filter"];
+        var q       = (string?)ctx.Request.Query["q"];
+        var session = (string?)ctx.Request.Query["session"];
 
         var entries = new List<AuditEntry>();
         await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
-        var filtered = ApplyFilter(entries, filter);
+        var filtered = FilterAuditEntries(entries, filter, q, session).ToList();
 
         var sb = new StringBuilder();
         var ordered = filtered.OrderByDescending(x => x.Timestamp).Take(50).ToList();
         if (ordered.Count == 0)
         {
-            var emptyMessage = string.IsNullOrEmpty(filter)
-                ? "No events yet — agents are quiet."
-                : "No events match this filter.";
+            var emptyMessage = (filter, q, session) switch
+            {
+                (null or "", null or "", null or "") => "No events yet — agents are quiet.",
+                _                                      => "No events match this filter.",
+            };
             sb.Append("<tr class=\"feed-empty\"><td colspan=\"5\">")
               .Append(emptyMessage)
               .AppendLine("</td></tr>");
@@ -136,20 +140,6 @@ internal static class DashboardHandlers
             entries = entries.Where(e => string.Equals(e.SessionId, session, StringComparison.Ordinal));
         if (!string.IsNullOrEmpty(q))
             entries = entries.Where(e => e.Summary.Contains(q, StringComparison.OrdinalIgnoreCase));
-        return entries;
-    }
-
-    private static List<AuditEntry> ApplyFilter(List<AuditEntry> entries, string filter)
-    {
-        if (string.IsNullOrEmpty(filter))
-            return entries;
-
-        if (string.Equals(filter, "authz", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(filter, "authorization", StringComparison.OrdinalIgnoreCase))
-        {
-            return entries.Where(e => e.DetectorId.StartsWith("AUTHZ-", StringComparison.Ordinal)).ToList();
-        }
-
         return entries;
     }
 
