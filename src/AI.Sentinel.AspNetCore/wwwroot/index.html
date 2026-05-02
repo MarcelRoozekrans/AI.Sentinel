@@ -124,7 +124,28 @@
       return qs ? ('api/feed?' + qs) : 'api/feed';
     }
 
+    // Mirror current operator state (active chip + search text + session pill) back into
+    // the URL so refresh / bookmark / share reproduces the exact view. Called from
+    // refreshFeed() so every state-change path stays in sync without inline replaceState.
+    function syncUrlFromState() {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+
+      const activeChip = document.querySelector('#feed-chips .feed-chip.active');
+      const filter = activeChip ? (activeChip.getAttribute('data-filter') || '') : '';
+      if (filter) params.set('filter', filter); else params.delete('filter');
+
+      const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
+      if (q) params.set('q', q); else params.delete('q');
+
+      const session = document.body.dataset.session || '';
+      if (session) params.set('session', session); else params.delete('session');
+
+      window.history.replaceState(null, '', url.toString());
+    }
+
     function refreshFeed() {
+      syncUrlFromState();
       const url = buildFeedUrl();
       feedBody.setAttribute('hx-get', url);
       if (window.htmx) { window.htmx.ajax('GET', url, { target: '#feed-body', swap: 'innerHTML' }); }
@@ -178,10 +199,9 @@
       e.preventDefault();
       const session = link.getAttribute('data-session');
       document.body.dataset.session = session;
-      // Update browser address bar so the URL is shareable
-      const url = new URL(window.location.href);
-      url.searchParams.set('session', session);
-      window.history.replaceState(null, '', url.toString());
+      // refreshFeed() calls syncUrlFromState() which writes ?session= for us — no inline
+      // replaceState needed. Keeping the URL sync in one place keeps chip/search/session
+      // all consistent (Phase-2 review I2).
       refreshFeed();
       renderSessionPill(session);
     });
@@ -204,10 +224,8 @@
       clear.textContent = '✕ clear';
       clear.addEventListener('click', function () {
         delete document.body.dataset.session;
-        const url = new URL(window.location.href);
-        url.searchParams.delete('session');
-        window.history.replaceState(null, '', url.toString());
         container.innerHTML = '';
+        // refreshFeed() -> syncUrlFromState() drops ?session= (and any other empty keys).
         refreshFeed();
       });
       pill.appendChild(clear);
@@ -227,7 +245,14 @@
       const filter = params.get('filter');
       if (filter) {
         const chip = document.querySelector('#feed-chips .feed-chip[data-filter="' + filter + '"]');
-        if (chip) activate(chip);
+        if (chip) activate(chip);  // already calls refreshFeed
+      }
+      // If session or q was set without a filter, no activate() was called — fire one explicit
+      // refreshFeed so the very first request honours the URL state. Without this the literal
+      // hx-get="api/feed" triggers an unfiltered load and the user sees a 'pill says filtering /
+      // table shows everything' inconsistency until the first chip click.
+      else if (session || q) {
+        refreshFeed();
       }
     })();
   </script>

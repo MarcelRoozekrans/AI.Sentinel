@@ -85,7 +85,7 @@ internal static class DashboardHandlers
         }
         foreach (ref readonly var e in CollectionsMarshal.AsSpan(ordered))
         {
-            RenderFeedRow(sb, in e);
+            RenderFeedRow(sb, e);
         }
 
         await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
@@ -94,7 +94,7 @@ internal static class DashboardHandlers
     /// <summary>Renders a single &lt;tr&gt; row for /api/feed. Extracted from
     /// <see cref="LiveFeedAsync"/> to keep the handler under MA0051's 60-line cap once
     /// the Session column was added in Dashboard 2.0.</summary>
-    private static void RenderFeedRow(StringBuilder sb, in AuditEntry e)
+    private static void RenderFeedRow(StringBuilder sb, AuditEntry e)
     {
         var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;
         var severityLower = e.Severity.ToString().ToLowerInvariant();

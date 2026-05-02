@@ -150,6 +150,25 @@ public class DashboardAuthzFeedTests
         Assert.Contains("Authorization", html, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task DashboardIndex_RendersDashboard2_0Elements()
+    {
+        // Pin the five new-or-renamed elements introduced by Dashboard 2.0 (four chip
+        // data-filter values + the search input + the session-pill container) so a silent
+        // rename in index.html breaks loudly here instead of in the operator's browser.
+        var host = await BuildHostAsync();
+        var client = host.GetTestClient();
+
+        var html = await client.GetStringAsync("/sentinel/");
+
+        Assert.Contains("data-filter=\"security\"",      html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"hallucination\"", html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"operational\"",   html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"authorization\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"feed-search\"",            html, StringComparison.Ordinal);
+        Assert.Contains("id=\"session-pill-container\"", html, StringComparison.Ordinal);
+    }
+
     private static async Task<IHost> BuildHostAsync()
     {
         return await new HostBuilder()
