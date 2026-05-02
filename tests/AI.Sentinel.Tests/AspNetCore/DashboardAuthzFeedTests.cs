@@ -146,7 +146,7 @@ public class DashboardAuthzFeedTests
 
         var html = await client.GetStringAsync("/sentinel/");
 
-        Assert.Contains("data-filter=\"authz\"", html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"authorization\"", html, StringComparison.Ordinal);
         Assert.Contains("Authorization", html, StringComparison.Ordinal);
     }
 
