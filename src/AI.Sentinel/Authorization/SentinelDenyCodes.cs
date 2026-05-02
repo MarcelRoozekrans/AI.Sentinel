@@ -16,12 +16,29 @@ namespace AI.Sentinel.Authorization;
 /// </list>
 /// </para>
 /// <para>
-/// To add a 7th code: (1) add a <c>public const string</c> field below with an XML doc explaining when
-/// it's emitted and which category it belongs to; (2) extend
-/// <c>SentinelDenyCodesTests.Constants_MatchWireFormat</c> with the new wire-format assertion;
-/// (3) reference the constant at the emit site (don't hardcode the string elsewhere in <c>src/</c>,
-/// except in <c>SqliteSchema.cs</c> SQL DEFAULT clauses and XML doc comments where the literal aids
-/// human readability).
+/// To add a 7th code:
+/// <list type="number">
+/// <item><description>Add a <c>public const string</c> field below with an XML doc explaining when
+/// it's emitted and which category it belongs to.</description></item>
+/// <item><description>Extend <c>SentinelDenyCodesTests.Constants_MatchWireFormat</c> with the new
+/// wire-format assertion.</description></item>
+/// <item><description>Reference the constant at the emit site (don't hardcode the string elsewhere
+/// in <c>src/</c>, except in <c>SqliteSchema.cs</c> SQL DEFAULT clauses and XML doc comments — see
+/// note below).</description></item>
+/// <item><description>Ensure the new code's emit site is exercised by at least one assertion in
+/// the relevant test suite (e.g. <c>DefaultToolCallGuardTests</c>, <c>HookCliTests</c>,
+/// <c>DashboardAuthzFeedTests</c>). The wire-format sanity test only proves the constant exists
+/// — not that any code path actually emits it.</description></item>
+/// </list>
+/// </para>
+/// <para>
+/// <b>Auto-replace warning:</b> XML doc literals like <c>&lt;c&gt;"policy_denied"&lt;/c&gt;</c> in
+/// <see cref="AuthorizationDecision.DenyDecision"/> and
+/// <see cref="Audit.AuditEntryAuthorizationExtensions"/> are intentionally kept as raw strings —
+/// the <c>cref</c> attribute does NOT accept const-string interpolation, and IDE doc tooltips render
+/// the literal verbatim. A blanket find/replace of <c>"policy_denied"</c> across the codebase would
+/// break these doc comments. Same applies to <c>SqliteSchema.cs</c>'s <c>DEFAULT 'policy_denied'</c>
+/// SQL — the <c>SqliteSchemaDefaultMatchesConstantTests</c> test guards the C#-vs-SQL drift.
 /// </para></summary>
 public static class SentinelDenyCodes
 {

@@ -105,6 +105,7 @@ internal static class ToolCallInterceptor
             return;
         }
 
+        // Defensive `??` below: see AuthorizationChatClient.AuditDenyAsync for rationale.
         var deny = decision as AuthorizationDecision.DenyDecision;
         var policyName = deny?.PolicyName ?? "?";
         var reason = deny?.Reason ?? "?";

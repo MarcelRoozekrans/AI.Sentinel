@@ -96,7 +96,7 @@ public sealed class CopilotHookAdapter
                     return new HookOutput(HookDecision.Block, ApprovalReceipt.Format(input.ToolName, r));
                 }
 
-                var deny = decision as AuthorizationDecision.DenyDecision;
+                var deny = decision as AuthorizationDecision.DenyDecision;  // defensive `??` below — see AuthorizationChatClient.AuditDenyAsync
                 var policyName = deny?.PolicyName ?? "?";
                 var denyReason = deny?.Reason ?? "?";
                 var denyCode = deny?.Code ?? SentinelDenyCodes.PolicyDenied;
