@@ -405,3 +405,26 @@ tr.audit-row-authz td:first-child {
   table td:nth-child(6) { display: none; }
   table { min-width: 360px; }
 }
+
+/* ────────── Auto light mode (system-preference-aware) ────────── */
+/* Operators on light-mode operating systems get a light dashboard
+   automatically. Severity / authz accent tokens stay unchanged — only
+   the neutral palette flips. Pure CSS, zero JS, zero state. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:      #f8fafc;  /* slate-50 */
+    --surface: #ffffff;
+    --border:  #cbd5e1;  /* slate-300 */
+    --text:    #0f172a;  /* slate-900 */
+    --muted:   #64748b;  /* slate-500 */
+  }
+
+  /* Site-specific overrides for elements that hardcoded dark colors */
+  header { background: #f1f5f9; }
+  .gauge-track { stroke: #cbd5e1; }
+  td { border-bottom: 1px solid #e2e8f0; }
+  .stat-card { background: #f1f5f9; }
+  .feed-chip { background: #f1f5f9; }
+  .feed-chip.active { background: #ffffff; }
+  .search-input { background: #ffffff; }
+}
