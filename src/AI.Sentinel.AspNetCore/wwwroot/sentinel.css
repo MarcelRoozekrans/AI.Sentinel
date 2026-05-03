@@ -110,8 +110,13 @@ main {
 .stat-card.medium .count  { color: #fbbf24; }
 .stat-card.low .count     { color: #4ade80; }
 
-/* Feed panel */
-.feed-panel { grid-column: 2; overflow: hidden; display: flex; flex-direction: column; }
+/* Feed + Approvals panels both occupy the right column on desktop; the @media
+   (max-width: 600px) block below overrides both to grid-column: 1 so all panels
+   stack into a single column. Keeping these placements grouped here means the
+   media-block override always wins via source order (no specificity boost needed). */
+.feed-panel,
+.approvals-panel { grid-column: 2; }
+.feed-panel { overflow: hidden; display: flex; flex-direction: column; }
 .table-wrap { overflow-y: auto; flex: 1; }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
@@ -296,17 +301,37 @@ tr.audit-row-authz td:first-child {
   display: block;
 }
 
-/* Tablet / narrow desktop: collapse to single column, table scrolls horizontally */
+/* Intermediate viewport (≤900px): hide Hash column AND shrink the TRS sidebar so
+   the feed table fits without horizontal scroll. Hash is diagnostic-only —
+   full hash + prev hash are always available via /api/feed and the audit
+   forwarder pipeline. Time/Detector/Severity/Reason/Session are the columns
+   operators triage on. */
+@media (max-width: 900px) {
+  main { grid-template-columns: 160px 1fr; }
+  .gauge { width: 130px; }
+  table th:nth-child(6),
+  table td:nth-child(6) { display: none; }
+}
+
+/* Phone: collapse main grid to single column. Each panel stacks full-width. */
 @media (max-width: 600px) {
   main {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto;
+    grid-auto-rows: auto;
     height: auto;
     min-height: calc(100vh - 64px);
+    gap: 0.75rem;
   }
-  .trs-panel { grid-row: auto; }
+  /* Override desktop's explicit grid-column placements so every panel lands in
+     the single column. Without this, the .approvals-panel { grid-column: 2 }
+     base rule creates an implicit second column that auto-placed panels
+     (trs/stats) get pulled into, squashing the explicit "1fr" column to ~30px. */
+  .trs-panel,
+  .stats-panel,
+  .feed-panel,
+  .approvals-panel { grid-column: 1; grid-row: auto; }
   .gauge { width: 120px; }
-  .feed-panel { grid-column: 1; }
   .table-wrap {
     overflow-x: auto;
     /* Right-edge fade hints at hidden scrollable content */
@@ -317,7 +342,7 @@ tr.audit-row-authz td:first-child {
     background-size: 24px 100%, 24px 100%;
     background-attachment: local, local;
   }
-  table { min-width: 480px; }
+  table { min-width: 360px; }
   .feed-chips { gap: 0.3rem; }
 }
 
@@ -327,7 +352,9 @@ tr.audit-row-authz td:first-child {
    --isolate (danger), --safe (success), --watch (external/warn). */
 
 .approvals-panel {
-  grid-column: 2;
+  /* grid-column: 2 placement is set in the desktop-positioning block above
+     (alongside .feed-panel) so the @media (max-width: 600px) override can
+     win via source-order without a specificity boost. */
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -410,16 +437,6 @@ tr.audit-row-authz td:first-child {
 .approvals-table tbody tr.approvals-external td {
   /* External-store path — slightly brighter to suggest "actionable elsewhere" */
   color: var(--watch);
-}
-
-/* Phone-narrow viewports: hide the Hash column entirely. The 8-char prefix is
-   diagnostic-only — full hash + prev hash are always available via /api/feed
-   and the audit forwarder pipeline. Time/Detector/Severity/Reason are the
-   columns operators triage on. */
-@media (max-width: 480px) {
-  table th:nth-child(6),
-  table td:nth-child(6) { display: none; }
-  table { min-width: 360px; }
 }
 
 /* ────────── Auto light mode (system-preference-aware) ────────── */

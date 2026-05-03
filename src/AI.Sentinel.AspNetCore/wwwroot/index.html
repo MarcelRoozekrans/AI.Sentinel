@@ -165,6 +165,18 @@
       }
     }
 
+    // Rewrite the URL on every HTMX request originating from #feed-body so the
+    // 2-second poll trigger inherits current filter state. Without this, HTMX
+    // caches the hx-get="api/feed" attribute parsed at page-init time and the
+    // periodic poll keeps fetching unfiltered rows even after refreshFeed()
+    // calls setAttribute(). The immediate htmx.ajax() call still gets the right
+    // URL (it passes it explicitly); this listener fixes the polling drift.
+    document.body.addEventListener('htmx:configRequest', function (evt) {
+      if (evt.detail && evt.detail.elt && evt.detail.elt.id === 'feed-body') {
+        evt.detail.path = buildFeedUrl();
+      }
+    });
+
     function activate(chip) {
       chips.forEach(function (c) {
         c.classList.remove('active');

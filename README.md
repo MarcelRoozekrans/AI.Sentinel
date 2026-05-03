@@ -515,10 +515,28 @@ app.UseAISentinel("/ai-sentinel", branch =>
 
 The dashboard shows:
 - **Threat Risk Score** — live ring gauge (0–100, SAFE / WATCH / ALERT / ISOLATE)
-- **Live event feed** — every detection with severity badge, detector ID, and reason
+- **Live event feed** — every detection with severity badge, detector ID, reason, and session-id drill-down link
+- **Severity trend chart** — 15-minute rolling sparkline, stroke colour modulates by max severity
+- **Category chips** — filter by `Security` / `Hallucination` / `Operational` / `Authorization` (DetectorId prefix)
+- **Live free-text search** — case-insensitive substring match against the Reason column, 300 ms debounced
+- **Per-session timeline drill-down** — click any session id in the feed → URL gains `?session=<id>` → feed and export filter to that session, with a clearable pill above the table
+- **NDJSON export** — 📥 Export button downloads the current filtered view as NDJSON (`/api/export.ndjson` honors all active filters; `X-Sentinel-Truncated: true` header signals if the store cap was hit)
+- **Auto dark mode** — pure-CSS `prefers-color-scheme` switch; severity / authz accents preserved across themes
 - **Detector hit stats** — which detectors fire most
 
-No npm, no JS build step — served entirely from embedded resources using HTMX + SSE.
+All filter parameters intersect: `chips ∧ session ∧ search`. The URL captures full operator state — every view is shareable and bookmarkable.
+
+### Looks like
+
+| Desktop (light) | Filtered drill-down | Desktop (dark) |
+|---|---|---|
+| ![Desktop light](docs/assets/screenshots/dashboard-desktop.png) | ![Filtered](docs/assets/screenshots/dashboard-desktop-filtered.png) | ![Desktop dark](docs/assets/screenshots/dashboard-desktop-dark.png) |
+
+| Tablet | Mobile |
+|---|---|
+| ![Tablet](docs/assets/screenshots/dashboard-tablet.png) | ![Mobile](docs/assets/screenshots/dashboard-mobile.png) |
+
+No npm, no JS build step — served entirely from embedded resources using HTMX + SSE + raw CSS.
 
 ---
 
