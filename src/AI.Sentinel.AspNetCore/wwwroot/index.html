@@ -44,12 +44,27 @@
       <h2>Live Event Feed</h2>
       <div class="feed-chips" id="feed-chips" role="tablist" aria-label="Audit feed filter">
         <button type="button" role="tab" class="feed-chip active" data-filter="" aria-selected="true" aria-pressed="true" tabindex="0">All</button>
-        <button type="button" role="tab" class="feed-chip chip-authz" data-filter="authz" aria-selected="false" aria-pressed="false" tabindex="-1">Authorization</button>
+        <button type="button" role="tab" class="feed-chip chip-security"      data-filter="security"      aria-selected="false" aria-pressed="false" tabindex="-1">Security</button>
+        <button type="button" role="tab" class="feed-chip chip-hallucination" data-filter="hallucination" aria-selected="false" aria-pressed="false" tabindex="-1">Hallucination</button>
+        <button type="button" role="tab" class="feed-chip chip-operational"   data-filter="operational"   aria-selected="false" aria-pressed="false" tabindex="-1">Operational</button>
+        <button type="button" role="tab" class="feed-chip chip-authz"         data-filter="authorization" aria-selected="false" aria-pressed="false" tabindex="-1">Authorization</button>
+        <input type="search" id="feed-search" class="search-input"
+               placeholder="Search summary&#8230;" aria-label="Search audit log"
+               autocomplete="off">
+        <a id="export-link" class="export-button" href="api/export.ndjson" title="Download filtered audit log as NDJSON">📥 Export</a>
       </div>
+      <div id="trend-chart-container"
+           hx-get="api/trend"
+           hx-trigger="load, every 5s"
+           hx-swap="innerHTML"
+           class="trend-chart-container">
+        <p class="loading">Loading trend&#8230;</p>
+      </div>
+      <div id="session-pill-container"></div>
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Time</th><th>Detector</th><th>Severity</th><th>Reason</th><th>Hash</th></tr>
+            <tr><th>Time</th><th>Detector</th><th>Severity</th><th>Reason</th><th>Session</th><th>Hash</th></tr>
           </thead>
           <tbody id="feed-body"
             hx-get="api/feed"
@@ -97,45 +112,174 @@
       arc.setAttribute('class', 'gauge-arc stage-' + d.stage.toLowerCase());
     };
 
-    // Filter chips: rewrite the feed body's hx-get URL and trigger an immediate refresh.
+    // Filter chips + search + session pill: build /api/feed URL from operator state
+    // (active chip, search text, session pill) so all three intersect.
     // Implements the WAI-ARIA tab pattern with roving tabindex + arrow-key / Home / End nav.
-    (function () {
-      const chips = Array.from(document.querySelectorAll('#feed-chips .feed-chip'));
-      const feedBody = document.getElementById('feed-body');
+    const chips = Array.from(document.querySelectorAll('#feed-chips .feed-chip'));
+    const feedBody = document.getElementById('feed-body');
+    const searchInput = document.getElementById('feed-search');
 
-      function activate(chip) {
-        chips.forEach(function (c) {
-          c.classList.remove('active');
-          c.setAttribute('aria-selected', 'false');
-          c.setAttribute('aria-pressed', 'false');
-          c.setAttribute('tabindex', '-1');
-        });
-        chip.classList.add('active');
-        chip.setAttribute('aria-selected', 'true');
-        chip.setAttribute('aria-pressed', 'true');
-        chip.setAttribute('tabindex', '0');
-        const filter = chip.getAttribute('data-filter') || '';
-        const url = filter ? ('api/feed?filter=' + encodeURIComponent(filter)) : 'api/feed';
-        feedBody.setAttribute('hx-get', url);
-        if (window.htmx) { window.htmx.ajax('GET', url, { target: '#feed-body', swap: 'innerHTML' }); }
+    function buildFeedUrl() {
+      const params = new URLSearchParams();
+      const activeChip = document.querySelector('#feed-chips .feed-chip.active');
+      const filter = activeChip ? (activeChip.getAttribute('data-filter') || '') : '';
+      if (filter) params.set('filter', filter);
+      const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
+      if (q) params.set('q', q);
+      const session = document.body.dataset.session || '';
+      if (session) params.set('session', session);
+      const qs = params.toString();
+      return qs ? ('api/feed?' + qs) : 'api/feed';
+    }
+
+    // Mirror current operator state (active chip + search text + session pill) back into
+    // the URL so refresh / bookmark / share reproduces the exact view. Called from
+    // refreshFeed() so every state-change path stays in sync without inline replaceState.
+    function syncUrlFromState() {
+      const url = new URL(window.location.href);
+      const params = url.searchParams;
+
+      const activeChip = document.querySelector('#feed-chips .feed-chip.active');
+      const filter = activeChip ? (activeChip.getAttribute('data-filter') || '') : '';
+      if (filter) params.set('filter', filter); else params.delete('filter');
+
+      const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
+      if (q) params.set('q', q); else params.delete('q');
+
+      const session = document.body.dataset.session || '';
+      if (session) params.set('session', session); else params.delete('session');
+
+      window.history.replaceState(null, '', url.toString());
+    }
+
+    function refreshFeed() {
+      syncUrlFromState();
+      const url = buildFeedUrl();
+      feedBody.setAttribute('hx-get', url);
+      if (window.htmx) { window.htmx.ajax('GET', url, { target: '#feed-body', swap: 'innerHTML' }); }
+      // Keep the Export button href in sync with the active feed URL so a click
+      // downloads exactly what the operator currently sees on the table.
+      const exportLink = document.getElementById('export-link');
+      if (exportLink) {
+        exportLink.href = url.replace('api/feed', 'api/export.ndjson');
       }
+    }
 
-      chips.forEach(function (chip, index) {
-        chip.addEventListener('click', function () { activate(chip); });
-        chip.addEventListener('keydown', function (e) {
-          let target = null;
-          switch (e.key) {
-            case 'ArrowRight': target = chips[(index + 1) % chips.length]; break;
-            case 'ArrowLeft':  target = chips[(index - 1 + chips.length) % chips.length]; break;
-            case 'Home':       target = chips[0]; break;
-            case 'End':        target = chips[chips.length - 1]; break;
-            default: return;
-          }
-          e.preventDefault();
-          activate(target);
-          target.focus();
-        });
+    // Rewrite the URL on every HTMX request originating from #feed-body so the
+    // 2-second poll trigger inherits current filter state. Without this, HTMX
+    // caches the hx-get="api/feed" attribute parsed at page-init time and the
+    // periodic poll keeps fetching unfiltered rows even after refreshFeed()
+    // calls setAttribute(). The immediate htmx.ajax() call still gets the right
+    // URL (it passes it explicitly); this listener fixes the polling drift.
+    document.body.addEventListener('htmx:configRequest', function (evt) {
+      if (evt.detail && evt.detail.elt && evt.detail.elt.id === 'feed-body') {
+        evt.detail.path = buildFeedUrl();
+      }
+    });
+
+    function activate(chip) {
+      chips.forEach(function (c) {
+        c.classList.remove('active');
+        c.setAttribute('aria-selected', 'false');
+        c.setAttribute('aria-pressed', 'false');
+        c.setAttribute('tabindex', '-1');
       });
+      chip.classList.add('active');
+      chip.setAttribute('aria-selected', 'true');
+      chip.setAttribute('aria-pressed', 'true');
+      chip.setAttribute('tabindex', '0');
+      refreshFeed();
+    }
+
+    chips.forEach(function (chip, index) {
+      chip.addEventListener('click', function () { activate(chip); });
+      chip.addEventListener('keydown', function (e) {
+        let target = null;
+        switch (e.key) {
+          case 'ArrowRight': target = chips[(index + 1) % chips.length]; break;
+          case 'ArrowLeft':  target = chips[(index - 1 + chips.length) % chips.length]; break;
+          case 'Home':       target = chips[0]; break;
+          case 'End':        target = chips[chips.length - 1]; break;
+          default: return;
+        }
+        e.preventDefault();
+        activate(target);
+        target.focus();
+      });
+    });
+
+    // Wire search-input -> debounced refresh (300ms)
+    let searchDebounce;
+    if (searchInput) {
+      searchInput.addEventListener('input', function () {
+        clearTimeout(searchDebounce);
+        searchDebounce = setTimeout(refreshFeed, 300);
+      });
+    }
+
+    // Delegate session-link clicks -> set body.dataset.session, re-render feed.
+    // Delegation (vs per-row binding) survives HTMX swap-on-poll which destroys row nodes.
+    feedBody.addEventListener('click', function (e) {
+      const link = e.target.closest('.session-link');
+      if (!link) return;
+      e.preventDefault();
+      const session = link.getAttribute('data-session');
+      document.body.dataset.session = session;
+      // refreshFeed() calls syncUrlFromState() which writes ?session= for us — no inline
+      // replaceState needed. Keeping the URL sync in one place keeps chip/search/session
+      // all consistent (Phase-2 review I2).
+      refreshFeed();
+      renderSessionPill(session);
+    });
+
+    // Render the session-filter pill above the feed. Empty/null sessionId clears it.
+    function renderSessionPill(sessionId) {
+      const container = document.getElementById('session-pill-container');
+      container.innerHTML = '';
+      if (!sessionId) return;
+      const pill = document.createElement('div');
+      pill.className = 'session-pill';
+      const label = document.createTextNode('Filtering session: ');
+      const code = document.createElement('code');
+      code.textContent = sessionId;
+      pill.appendChild(label);
+      pill.appendChild(code);
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'session-pill-clear';
+      clear.textContent = '✕ clear';
+      clear.addEventListener('click', function () {
+        delete document.body.dataset.session;
+        container.innerHTML = '';
+        // refreshFeed() -> syncUrlFromState() drops ?session= (and any other empty keys).
+        refreshFeed();
+      });
+      pill.appendChild(clear);
+      container.appendChild(pill);
+    }
+
+    // On page load: hydrate filter state from URL query string
+    (function hydrateFromUrl() {
+      const params = new URL(window.location.href).searchParams;
+      const session = params.get('session');
+      if (session) {
+        document.body.dataset.session = session;
+        renderSessionPill(session);
+      }
+      const q = params.get('q');
+      if (q && searchInput) { searchInput.value = q; }
+      const filter = params.get('filter');
+      if (filter) {
+        const chip = document.querySelector('#feed-chips .feed-chip[data-filter="' + filter + '"]');
+        if (chip) activate(chip);  // already calls refreshFeed
+      }
+      // If session or q was set without a filter, no activate() was called — fire one explicit
+      // refreshFeed so the very first request honours the URL state. Without this the literal
+      // hx-get="api/feed" triggers an unfiltered load and the user sees a 'pill says filtering /
+      // table shows everything' inconsistency until the first chip click.
+      else if (session || q) {
+        refreshFeed();
+      }
     })();
   </script>
 </body>

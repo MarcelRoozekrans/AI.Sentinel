@@ -58,22 +58,26 @@ internal static class DashboardHandlers
     {
         ctx.Response.ContentType = "text/html";
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
-        var filter = (string?)ctx.Request.Query["filter"] ?? string.Empty;
+        var filter  = (string?)ctx.Request.Query["filter"];
+        var q       = (string?)ctx.Request.Query["q"];
+        var session = (string?)ctx.Request.Query["session"];
 
         var entries = new List<AuditEntry>();
         await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
-        var filtered = ApplyFilter(entries, filter);
+        var filtered = FilterAuditEntries(entries, filter, q, session).ToList();
 
         var sb = new StringBuilder();
         var ordered = filtered.OrderByDescending(x => x.Timestamp).Take(50).ToList();
         if (ordered.Count == 0)
         {
-            var emptyMessage = string.IsNullOrEmpty(filter)
-                ? "No events yet — agents are quiet."
-                : "No events match this filter.";
-            sb.Append("<tr class=\"feed-empty\"><td colspan=\"5\">")
+            var emptyMessage = (filter, q, session) switch
+            {
+                (null or "", null or "", null or "") => "No events yet — agents are quiet.",
+                _                                      => "No events match this filter.",
+            };
+            sb.Append("<tr class=\"feed-empty\"><td colspan=\"6\">")
               .Append(emptyMessage)
               .AppendLine("</td></tr>");
             await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
@@ -81,46 +85,233 @@ internal static class DashboardHandlers
         }
         foreach (ref readonly var e in CollectionsMarshal.AsSpan(ordered))
         {
-            var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;
-            var severityLower = e.Severity.ToString().ToLowerInvariant();
-            var ts = e.Timestamp.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
-            var hashPrefix = e.Hash[..Math.Min(8, e.Hash.Length)];
-            var isAuthz = string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal);
-            sb.Append("<tr class=\"severity-")
-              .Append(severityLower);
-            if (isAuthz)
-                sb.Append(" audit-row-authz");
-            sb.AppendLine("\">")
-              .Append("  <td>").Append(ts).AppendLine("</td>")
-              .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>")
-              .Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
-              .Append("  <td title=\"").Append(HtmlEncode(e.Summary)).Append("\">");
-            if (isAuthz)
-            {
-                sb.Append("<span class=\"badge code\">")
-                  .Append(HtmlEncode(e.PolicyCode ?? SentinelDenyCodes.PolicyDenied))
-                  .Append("</span> ");
-            }
-            sb.Append(HtmlEncode(reason)).AppendLine("</td>")
-              .Append("  <td class=\"hash\">").Append(hashPrefix).AppendLine("</td>")
-              .AppendLine("</tr>");
+            RenderFeedRow(sb, e);
         }
 
         await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
     }
 
-    private static List<AuditEntry> ApplyFilter(List<AuditEntry> entries, string filter)
+    /// <summary>Renders a single &lt;tr&gt; row for /api/feed. Extracted from
+    /// <see cref="LiveFeedAsync"/> to keep the handler under MA0051's 60-line cap once
+    /// the Session column was added in Dashboard 2.0.</summary>
+    private static void RenderFeedRow(StringBuilder sb, AuditEntry e)
     {
-        if (string.IsNullOrEmpty(filter))
-            return entries;
-
-        if (string.Equals(filter, "authz", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(filter, "authorization", StringComparison.OrdinalIgnoreCase))
+        var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;
+        var severityLower = e.Severity.ToString().ToLowerInvariant();
+        var ts = e.Timestamp.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+        var hashPrefix = e.Hash[..Math.Min(8, e.Hash.Length)];
+        var isAuthz = string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal);
+        sb.Append("<tr class=\"severity-")
+          .Append(severityLower);
+        if (isAuthz)
+            sb.Append(" audit-row-authz");
+        sb.AppendLine("\">")
+          .Append("  <td>").Append(ts).AppendLine("</td>")
+          .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>")
+          .Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
+          .Append("  <td title=\"").Append(HtmlEncode(e.Summary)).Append("\">");
+        if (isAuthz)
         {
-            return entries.Where(e => e.DetectorId.StartsWith("AUTHZ-", StringComparison.Ordinal)).ToList();
+            sb.Append("<span class=\"badge code\">")
+              .Append(HtmlEncode(e.PolicyCode ?? SentinelDenyCodes.PolicyDenied))
+              .Append("</span> ");
+        }
+        sb.Append(HtmlEncode(reason)).AppendLine("</td>");
+        sb.Append("  <td class=\"session\">");
+        if (!string.IsNullOrEmpty(e.SessionId))
+        {
+            var sessionShort = e.SessionId.Length > 8 ? e.SessionId[..8] : e.SessionId;
+            sb.Append("<a href=\"#\" class=\"session-link\" data-session=\"")
+              .Append(HtmlEncode(e.SessionId))
+              .Append("\" title=\"")
+              .Append(HtmlEncode(e.SessionId))
+              .Append("\">")
+              .Append(HtmlEncode(sessionShort))
+              .Append("</a>");
+        }
+        else
+        {
+            sb.Append("\u2014");
+        }
+        sb.AppendLine("</td>")
+          .Append("  <td class=\"hash\">").Append(hashPrefix).AppendLine("</td>")
+          .AppendLine("</tr>");
+    }
+
+    /// <summary>Maps a category name from a chip filter (e.g. "security", "hallucination") to the
+    /// matching DetectorId prefix. Unknown / empty / null category returns true (no filtering).</summary>
+    internal static bool IsInCategory(string detectorId, string? category) => category switch
+    {
+        "security"      => detectorId.StartsWith("SEC-",   StringComparison.Ordinal),
+        "hallucination" => detectorId.StartsWith("HAL-",   StringComparison.Ordinal),
+        "operational"   => detectorId.StartsWith("OPS-",   StringComparison.Ordinal),
+        "authorization" or "authz" => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),  // 'authz' = legacy alias
+        _               => true,
+    };
+
+    /// <summary>Single-source-of-truth filter pipeline used by /api/feed and /api/export.ndjson.
+    /// /api/trend deliberately does NOT use this — it always renders the global trend (design D4).
+    /// All three filters AND together: chips ∧ session ∧ search.</summary>
+    /// <remarks>Returns a lazy IEnumerable; callers that enumerate more than once should
+    /// materialise via .ToList() to avoid re-evaluating predicates.</remarks>
+    internal static IEnumerable<AuditEntry> FilterAuditEntries(
+        IEnumerable<AuditEntry> entries, string? category, string? q, string? session)
+    {
+        // Order is deliberate: cheap+selective filters (category, session) first,
+        // expensive Contains() last so it runs on the smallest residual set.
+        if (!string.IsNullOrEmpty(category))
+            entries = entries.Where(e => IsInCategory(e.DetectorId, category));
+        if (!string.IsNullOrEmpty(session))
+            entries = entries.Where(e => string.Equals(e.SessionId, session, StringComparison.Ordinal));
+        if (!string.IsNullOrEmpty(q))
+            entries = entries.Where(e => e.Summary.Contains(q, StringComparison.OrdinalIgnoreCase));
+        return entries;
+    }
+
+    /// <summary>
+    /// GET /api/trend — 30 buckets × 30s = 15-min severity trend rendered as inline SVG.
+    /// Per design D4 this endpoint deliberately ignores the feed filters (chips/search/session) —
+    /// it is a global dashboard signal, so callers always see the whole-system picture.
+    /// </summary>
+    public static async Task TrendAsync(HttpContext ctx)
+    {
+        ctx.Response.ContentType = "text/html";
+        var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
+
+        const int BucketSeconds = 30;
+        const int BucketCount   = 30;  // 30 × 30s = 15 minutes
+        var bucketMs = BucketSeconds * 1000L;
+        var now = DateTimeOffset.UtcNow;
+        var windowStart = now.AddSeconds(-BucketSeconds * BucketCount);
+
+        var buckets = new (int count, int maxSev)[BucketCount];
+        await foreach (var e in store.QueryAsync(
+            new AuditQuery(From: windowStart, PageSize: 10000),
+            ctx.RequestAborted).ConfigureAwait(false))
+        {
+            if (e.Timestamp < windowStart) continue;
+            var idx = (int)((e.Timestamp - windowStart).TotalMilliseconds / bucketMs);
+            if (idx < 0 || idx >= BucketCount) continue;
+            buckets[idx].count++;
+            var sev = (int)e.Severity;
+            if (sev > buckets[idx].maxSev) buckets[idx].maxSev = sev;
         }
 
-        return entries;
+        var sb = new StringBuilder();
+        RenderTrendSvg(sb, buckets);
+        await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
+    }
+
+    private static void RenderTrendSvg(StringBuilder sb, (int count, int maxSev)[] buckets)
+    {
+        const int Width = 600;
+        const int Height = 100;
+        const int PadTop = 8, PadBottom = 16, PadLeft = 24, PadRight = 8;
+        var plotW = Width - PadLeft - PadRight;
+        var plotH = Height - PadTop - PadBottom;
+        var rawMax = buckets.Max(b => b.count);
+        var maxCount = Math.Max(1, rawMax);  // used for Y-scaling only — avoid divide by zero
+        var maxSevOverall = buckets.Max(b => b.maxSev);
+
+        string stroke = maxSevOverall switch
+        {
+            >= 4 => "#ef4444",  // critical → red
+            3    => "#f97316",  // high → orange
+            2    => "#eab308",  // medium → amber
+            1    => "#22c55e",  // low → green
+            _    => "#475569",  // none / no data → muted
+        };
+
+        sb.Append("<svg viewBox=\"0 0 ").Append(Width).Append(' ').Append(Height)
+          .Append("\" class=\"trend-chart\" role=\"img\" aria-label=\"Severity trend, last 15 minutes\" xmlns=\"http://www.w3.org/2000/svg\">");
+
+        // Plot area background grid (just a baseline)
+        sb.Append("<line x1=\"").Append(PadLeft).Append("\" y1=\"").Append(Height - PadBottom)
+          .Append("\" x2=\"").Append(Width - PadRight).Append("\" y2=\"").Append(Height - PadBottom)
+          .Append("\" stroke=\"#334155\" stroke-width=\"1\"/>");
+
+        // Path
+        sb.Append("<path d=\"M");
+        for (var i = 0; i < buckets.Length; i++)
+        {
+            var x = PadLeft + (i * plotW / (buckets.Length - 1));
+            var y = (Height - PadBottom) - (buckets[i].count * plotH / maxCount);
+            if (i > 0) sb.Append(" L");
+            sb.Append(x).Append(',').Append(y);
+        }
+        sb.Append("\" fill=\"none\" stroke=\"").Append(stroke).Append("\" stroke-width=\"2\" stroke-linejoin=\"round\"/>");
+
+        // Y-axis label (max count)
+        sb.Append("<text x=\"4\" y=\"").Append(PadTop + 8).Append("\" font-size=\"9\" fill=\"#94a3b8\">").Append(rawMax).Append("</text>");
+        sb.Append("<text x=\"4\" y=\"").Append(Height - PadBottom + 4).Append("\" font-size=\"9\" fill=\"#94a3b8\">0</text>");
+        // X-axis labels (now / 15m ago)
+        sb.Append("<text x=\"").Append(PadLeft).Append("\" y=\"").Append(Height - 2).Append("\" font-size=\"9\" fill=\"#94a3b8\">15m ago</text>");
+        sb.Append("<text x=\"").Append(Width - PadRight - 20).Append("\" y=\"").Append(Height - 2).Append("\" font-size=\"9\" fill=\"#94a3b8\">now</text>");
+
+        sb.Append("</svg>");
+    }
+
+    /// <summary>Maximum entries returned by the NDJSON export endpoint per request. Any
+    /// query that would return more is truncated; the X-Sentinel-Truncated response header
+    /// signals this to the client.</summary>
+    private const int ExportPageCap = 10_000;
+
+    /// <summary>Streams the current filtered audit log as NDJSON for download. Honours
+    /// chips ∧ session ∧ search filters from the live feed.</summary>
+    /// <remarks>
+    /// Capped at <see cref="ExportPageCap"/> entries per request. When the cap is hit, the
+    /// response includes <c>X-Sentinel-Truncated: true</c> so consumers can detect partial
+    /// exports without re-counting. Header convention: <c>X-Sentinel-*</c> (matches the
+    /// dashboard URL prefix); value is the literal string <c>"true"</c> when set, header
+    /// absent otherwise. Future <c>X-Sentinel-*</c> headers should follow this pattern.
+    /// </remarks>
+    public static async Task ExportNdjsonAsync(HttpContext ctx)
+    {
+        var filter  = (string?)ctx.Request.Query["filter"];
+        var q       = (string?)ctx.Request.Query["q"];
+        var session = (string?)ctx.Request.Query["session"];
+
+        var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
+        var entries = new List<AuditEntry>();
+        // Reverse: true → store returns newest-first. With PageSize: ExportPageCap we get the
+        // most recent entries instead of the oldest (which would silently omit all recent
+        // activity on long-running stores). Session is pushed down to the store so an
+        // old-session export can't be silently emptied by newer entries filling the cap.
+        await foreach (var e in store.QueryAsync(
+            new AuditQuery(PageSize: ExportPageCap, Reverse: true, SessionId: session),
+            ctx.RequestAborted).ConfigureAwait(false))
+            entries.Add(e);
+
+        // Session is now pushed down to the store; FilterAuditEntries only handles
+        // the in-memory chip+q filters. Truncation (entries.Count >= ExportPageCap)
+        // thus reflects "the store hit its cap for this session+severity selection."
+        var filtered = FilterAuditEntries(entries, filter, q, session: null)
+            .OrderBy(e => e.Timestamp)
+            .ToArray();
+
+        WriteExportHeaders(ctx, entries.Count);
+
+        // Cache the newline byte to avoid per-entry allocation.
+        var newline = "\n"u8.ToArray();
+        foreach (var entry in filtered)
+        {
+            await JsonSerializer.SerializeAsync(ctx.Response.Body, entry, AuditJsonContext.Default.AuditEntry, ctx.RequestAborted).ConfigureAwait(false);
+            await ctx.Response.Body.WriteAsync(newline, ctx.RequestAborted).ConfigureAwait(false);
+        }
+    }
+
+    private static void WriteExportHeaders(HttpContext ctx, int totalEntries)
+    {
+        ctx.Response.ContentType = "application/x-ndjson; charset=utf-8";
+        var filename = "audit-" + DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture) + ".ndjson";
+        ctx.Response.Headers.ContentDisposition = $"attachment; filename=\"{filename}\"";
+        // X-Sentinel-Truncated: emitted when the store-level cap was hit. With session
+        // push-down (Phase 5 polish), this is precise: it means "there are older entries
+        // matching your session+severity selection that we didn't return." Without
+        // session push-down, this would over-fire whenever the store had >ExportPageCap
+        // entries regardless of session match.
+        if (totalEntries >= ExportPageCap)
+            ctx.Response.Headers["X-Sentinel-Truncated"] = "true";
     }
 
     public static async Task TrsStreamAsync(HttpContext ctx)

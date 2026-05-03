@@ -24,6 +24,8 @@ public static class ApplicationBuilderExtensions
         group.MapGet ("/",                              DashboardHandlers.IndexAsync);
         group.MapGet ("/api/stats",                     DashboardHandlers.StatsAsync);
         group.MapGet ("/api/feed",                      DashboardHandlers.LiveFeedAsync);
+        group.MapGet ("/api/trend",                     DashboardHandlers.TrendAsync);
+        group.MapGet ("/api/export.ndjson",             DashboardHandlers.ExportNdjsonAsync);
         group.MapGet ("/api/trs",                       DashboardHandlers.TrsStreamAsync);
         group.MapGet ("/api/approvals",                 DashboardHandlers.ListApprovalsAsync);
         group.MapPost("/api/approvals/{id}/approve",    DashboardHandlers.ApproveAsync);
@@ -61,6 +63,8 @@ public static class ApplicationBuilderExtensions
                 endpoints.MapGet ("/",                              DashboardHandlers.IndexAsync);
                 endpoints.MapGet ("/api/stats",                     DashboardHandlers.StatsAsync);
                 endpoints.MapGet ("/api/feed",                      DashboardHandlers.LiveFeedAsync);
+                endpoints.MapGet ("/api/trend",                     DashboardHandlers.TrendAsync);
+                endpoints.MapGet ("/api/export.ndjson",             DashboardHandlers.ExportNdjsonAsync);
                 endpoints.MapGet ("/api/trs",                       DashboardHandlers.TrsStreamAsync);
                 endpoints.MapGet ("/api/approvals",                 DashboardHandlers.ListApprovalsAsync);
                 endpoints.MapPost("/api/approvals/{id}/approve",    DashboardHandlers.ApproveAsync);

@@ -4,7 +4,7 @@ namespace AI.Sentinel.Sqlite;
 
 internal static class SqliteSchema
 {
-    internal const int CurrentVersion = 2;
+    internal const int CurrentVersion = 3;
 
     internal static async Task InitializeAsync(SqliteConnection conn, CancellationToken ct)
     {
@@ -24,46 +24,80 @@ internal static class SqliteSchema
 
         if (current < 1)
         {
-            // Fresh DB: create the v2 shape directly (policy_code column included) so we
-            // never need to run the v1→v2 ALTER on a brand-new file.
-            using var migrate = conn.CreateCommand();
-            migrate.CommandText = $"""
-                CREATE TABLE IF NOT EXISTS audit_entries (
-                    id            TEXT PRIMARY KEY,
-                    timestamp     INTEGER NOT NULL,
-                    severity      INTEGER NOT NULL,
-                    detector_id   TEXT NOT NULL,
-                    hash          TEXT NOT NULL,
-                    previous_hash TEXT,
-                    summary       TEXT NOT NULL,
-                    sequence      INTEGER NOT NULL,
-                    policy_code   TEXT NOT NULL DEFAULT 'policy_denied'
-                );
-                CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_entries (timestamp);
-                CREATE INDEX IF NOT EXISTS idx_audit_detector  ON audit_entries (detector_id);
-                CREATE INDEX IF NOT EXISTS idx_audit_severity  ON audit_entries (severity);
-                CREATE INDEX IF NOT EXISTS idx_audit_sequence  ON audit_entries (sequence);
-                PRAGMA user_version = {CurrentVersion};
-                """;
-            await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await CreateFreshSchemaAsync(conn, ct).ConfigureAwait(false);
             return;
         }
 
-        // Single-writer assumption: this migration is not safe for concurrent first-open from
-        // two processes against a fresh v1 DB — SQLite will serialize the writes, but the
+        // Single-writer assumption: these migrations are not safe for concurrent first-open from
+        // two processes against an out-of-date DB — SQLite will serialize the writes, but the
         // second ALTER throws "duplicate column" instead of being a no-op. Per audit-store
         // design, single-writer is the supported configuration.
+        //
+        // Each step is independent so a v1 DB walks v1→v2→v3 in one init pass; a v2 DB only
+        // runs the v2→v3 step. The final block sets user_version to CurrentVersion.
+        if (current < 2) await MigrateV1ToV2Async(conn, ct).ConfigureAwait(false);
+        if (current < 3) await MigrateV2ToV3Async(conn, ct).ConfigureAwait(false);
+
+        // Single, explicit version-bump after all migration steps complete.
+        // Each MigrateXToYAsync helper does pure additive DDL — only this line
+        // updates user_version, so adding future migrations is one-line-mechanical.
         if (current < CurrentVersion)
         {
-            // Pre-1.6 audit DB: ALTER TABLE ... ADD COLUMN ... NOT NULL DEFAULT is non-locking
-            // on SQLite and existing rows retroactively read the default value.
-            using var migrate = conn.CreateCommand();
-            migrate.CommandText = $"""
-                ALTER TABLE audit_entries ADD COLUMN policy_code TEXT NOT NULL DEFAULT 'policy_denied';
-                PRAGMA user_version = {CurrentVersion};
-                """;
-            await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            using var bump = conn.CreateCommand();
+            bump.CommandText = $"PRAGMA user_version = {CurrentVersion};";
+            await bump.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
+    }
+
+    private static async Task CreateFreshSchemaAsync(SqliteConnection conn, CancellationToken ct)
+    {
+        // Fresh DB: create the current shape directly (policy_code + session_id columns
+        // included) so we never need to run the per-version ALTERs on a brand-new file.
+        using var migrate = conn.CreateCommand();
+        migrate.CommandText = $"""
+            CREATE TABLE IF NOT EXISTS audit_entries (
+                id            TEXT PRIMARY KEY,
+                timestamp     INTEGER NOT NULL,
+                severity      INTEGER NOT NULL,
+                detector_id   TEXT NOT NULL,
+                hash          TEXT NOT NULL,
+                previous_hash TEXT,
+                summary       TEXT NOT NULL,
+                sequence      INTEGER NOT NULL,
+                policy_code   TEXT NOT NULL DEFAULT 'policy_denied',
+                session_id    TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_entries (timestamp);
+            CREATE INDEX IF NOT EXISTS idx_audit_detector  ON audit_entries (detector_id);
+            CREATE INDEX IF NOT EXISTS idx_audit_severity  ON audit_entries (severity);
+            CREATE INDEX IF NOT EXISTS idx_audit_sequence  ON audit_entries (sequence);
+            CREATE INDEX IF NOT EXISTS idx_audit_session   ON audit_entries (session_id);
+            PRAGMA user_version = {CurrentVersion};
+            """;
+        await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    private static async Task MigrateV1ToV2Async(SqliteConnection conn, CancellationToken ct)
+    {
+        // Pre-1.6 audit DB: ALTER TABLE ... ADD COLUMN ... NOT NULL DEFAULT is non-locking
+        // on SQLite and existing rows retroactively read the default value.
+        using var migrate = conn.CreateCommand();
+        migrate.CommandText = """
+            ALTER TABLE audit_entries ADD COLUMN policy_code TEXT NOT NULL DEFAULT 'policy_denied';
+            """;
+        await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    private static async Task MigrateV2ToV3Async(SqliteConnection conn, CancellationToken ct)
+    {
+        // v2→v3: add nullable session_id + correlation index for dashboard queries.
+        // Pure additive DDL — InitializeAsync owns the user_version bump.
+        using var migrate = conn.CreateCommand();
+        migrate.CommandText = """
+            ALTER TABLE audit_entries ADD COLUMN session_id TEXT;
+            CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_entries (session_id);
+            """;
+        await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
     internal static async Task<int> GetVersionAsync(SqliteConnection conn, CancellationToken ct)

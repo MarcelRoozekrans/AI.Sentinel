@@ -10,4 +10,5 @@ public sealed record AuditEntry(
     Severity Severity,
     string DetectorId,
     string Summary,
-    string? PolicyCode = null);
+    string? PolicyCode = null,
+    string? SessionId = null);

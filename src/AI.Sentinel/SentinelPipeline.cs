@@ -181,7 +181,7 @@ public sealed class SentinelPipeline(
         var ctx = new SentinelContext(sender, receiver, sessionId, msgs, []);
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
-        await AppendAuditAsync(pipelineResult, msgs, ct).ConfigureAwait(false);
+        await AppendAuditAsync(pipelineResult, msgs, sessionId, ct).ConfigureAwait(false);
 
         scanActivity?.SetTag("sentinel.severity", pipelineResult.MaxSeverity.ToString());
         scanActivity?.SetTag("sentinel.is_clean", pipelineResult.IsClean);
@@ -287,6 +287,7 @@ public sealed class SentinelPipeline(
     private async Task AppendAuditAsync(
         PipelineResult result,
         IReadOnlyList<ChatMessage> msgs,
+        SessionId sessionId,
         CancellationToken ct)
     {
         var content = msgs.LastOrDefault()?.Text ?? "";
@@ -299,7 +300,8 @@ public sealed class SentinelPipeline(
                 hash, null,
                 detection.Severity,
                 detection.DetectorId.Value,
-                detection.Reason);
+                detection.Reason,
+                SessionId: sessionId.Value);
             await auditStore.AppendAsync(entry, ct).ConfigureAwait(false);
             ForwardEntry(entry, ct);
         }

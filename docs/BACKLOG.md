@@ -56,9 +56,9 @@ A new pillar alongside detectors: **preventive controls** and **authorization** 
 | Per-session timeline view | Show the full prompt/response scan sequence for a single session, not just the global feed |
 | Detector hit rate sparklines | Small per-detector trend charts over the last N minutes |
 | Export audit log | Download the current ring buffer as NDJSON from the dashboard |
-| Threat heatmap | Calendar-style grid showing threat volume and severity by hour — spot recurring attack windows at a glance |
-| Detector correlation matrix | Which detectors tend to fire together — reveals compound attacks and helps tune detector weights |
-| Alert acknowledgment | Mark individual audit entries as reviewed/suppressed directly from the dashboard; surfaced as a `SentinelAuditStatus` field |
+| Threat heatmap | Calendar-style grid showing threat volume and severity by hour — spot recurring attack windows at a glance. _Deferred from Dashboard 2.0 (May 2026): unresolved design ambiguity (which time buckets, what cell-color mapping); deserves its own brainstorm._ |
+| Detector correlation matrix | Which detectors tend to fire together — reveals compound attacks and helps tune detector weights. _Deferred from Dashboard 2.0 (May 2026): unresolved correlation-window choice + matrix-render decision; high analytic value, low implementation clarity._ |
+| Alert acknowledgment | Mark individual audit entries as reviewed/suppressed directly from the dashboard; surfaced as a `SentinelAuditStatus` field. _Deferred from Dashboard 2.0 (May 2026): crosses into the audit-store layer (new column + concurrency story for "who acked what when") — meaningful epic in its own right, not a Dashboard-only PR._ |
 | Live audit log search | Filter the audit feed by session ID, detector ID, severity, or free text |
 | Severity trend chart | Rolling line chart of `ThreatRiskScore` distribution over time — baseline deviation visible at a glance |
 | Dark mode | System-preference-aware theme toggle via CSS `prefers-color-scheme` |

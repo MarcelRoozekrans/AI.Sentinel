@@ -6,4 +6,6 @@ public sealed record AuditQuery(
     Severity? MinSeverity = null,
     DateTimeOffset? From = null,
     DateTimeOffset? To = null,
-    int PageSize = 200);
+    int PageSize = 200,
+    bool Reverse = false,
+    string? SessionId = null);

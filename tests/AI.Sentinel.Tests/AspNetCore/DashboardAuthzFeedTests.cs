@@ -30,6 +30,25 @@ public class DashboardAuthzFeedTests
     }
 
     [Fact]
+    public async Task LiveFeed_LegacyFilterAuthzParam_StillReturnsOnlyAuthzRows()
+    {
+        // Backwards-compat: existing ?filter=authz URLs (pre-Phase-2 bookmarks) must
+        // still produce AUTHZ-only rows after the FilterAuditEntries migration. The
+        // 'authz' alias on IsInCategory is what makes this work; this test pins it.
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+
+        await store.AppendAsync(NewEntry("AUTHZ-DENY", "tenant inactive"), CancellationToken.None);
+        await store.AppendAsync(NewEntry("PROMPT-INJECTION", "harmless"), CancellationToken.None);
+
+        var client = host.GetTestClient();
+        var html = await client.GetStringAsync("/sentinel/api/feed?filter=authz");
+
+        Assert.Contains("audit-row-authz", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("PROMPT-INJECTION", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task LiveFeed_FilterAuthz_RestrictsResults()
     {
         var host = await BuildHostAsync();
@@ -127,8 +146,29 @@ public class DashboardAuthzFeedTests
 
         var html = await client.GetStringAsync("/sentinel/");
 
-        Assert.Contains("data-filter=\"authz\"", html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"authorization\"", html, StringComparison.Ordinal);
         Assert.Contains("Authorization", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DashboardIndex_RendersDashboard2_0Elements()
+    {
+        // Pin the five new-or-renamed elements introduced by Dashboard 2.0 (four chip
+        // data-filter values + the search input + the session-pill container) so a silent
+        // rename in index.html breaks loudly here instead of in the operator's browser.
+        var host = await BuildHostAsync();
+        var client = host.GetTestClient();
+
+        var html = await client.GetStringAsync("/sentinel/");
+
+        Assert.Contains("data-filter=\"security\"",        html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"hallucination\"",   html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"operational\"",     html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"authorization\"",   html, StringComparison.Ordinal);
+        Assert.Contains("id=\"feed-search\"",              html, StringComparison.Ordinal);
+        Assert.Contains("id=\"session-pill-container\"",   html, StringComparison.Ordinal);
+        Assert.Contains("id=\"trend-chart-container\"",    html, StringComparison.Ordinal);
+        Assert.Contains("id=\"export-link\"",              html, StringComparison.Ordinal);
     }
 
     private static async Task<IHost> BuildHostAsync()

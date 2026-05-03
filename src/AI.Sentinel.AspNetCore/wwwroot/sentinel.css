@@ -110,8 +110,13 @@ main {
 .stat-card.medium .count  { color: #fbbf24; }
 .stat-card.low .count     { color: #4ade80; }
 
-/* Feed panel */
-.feed-panel { grid-column: 2; overflow: hidden; display: flex; flex-direction: column; }
+/* Feed + Approvals panels both occupy the right column on desktop; the @media
+   (max-width: 600px) block below overrides both to grid-column: 1 so all panels
+   stack into a single column. Keeping these placements grouped here means the
+   media-block override always wins via source order (no specificity boost needed). */
+.feed-panel,
+.approvals-panel { grid-column: 2; }
+.feed-panel { overflow: hidden; display: flex; flex-direction: column; }
 .table-wrap { overflow-y: auto; flex: 1; }
 
 table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
@@ -120,6 +125,42 @@ td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #162032; white-space: now
 td:nth-child(4) { white-space: normal; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
 
 .hash { font-family: 'Courier New', monospace; color: var(--muted); font-size: 0.7rem; }
+
+td.session { white-space: nowrap; }
+.session-link {
+  color: var(--text);
+  text-decoration: none;
+  font-family: 'Courier New', monospace;
+  font-size: 0.7rem;
+  border-bottom: 1px dotted var(--muted);
+}
+.session-link:hover { color: #7dd3fc; border-bottom-color: #7dd3fc; }
+
+.session-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.6rem 0;
+  padding: 0.3rem 0.75rem;
+  background: rgba(125, 211, 252, 0.08);
+  border: 1px solid #1e3a5f;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  color: var(--text);
+}
+.session-pill code {
+  font-family: 'Courier New', monospace;
+  color: #7dd3fc;
+}
+.session-pill button.session-pill-clear {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+}
+.session-pill button.session-pill-clear:hover { color: var(--isolate); }
 
 .badge {
   display: inline-block;
@@ -173,7 +214,25 @@ tr.audit-row-authz td:first-child {
   gap: 0.4rem;
   margin-bottom: 0.6rem;
   flex-wrap: wrap;
+  align-items: center;
 }
+
+/* Search box — matches the chip-bar visual rhythm */
+.search-input {
+  flex: 1;
+  min-width: 12ch;
+  margin-left: 0.5rem;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.7rem;
+  color: var(--text);
+  background: #0f172a;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+.search-input:focus { border-color: #7dd3fc; }
+.search-input::placeholder { color: var(--muted); }
 .feed-chip {
   background: #0f172a;
   border: 1px solid var(--border);
@@ -190,6 +249,27 @@ tr.audit-row-authz td:first-child {
 .feed-chip:hover { color: var(--text); border-color: #475569; }
 .feed-chip.active { background: var(--surface); color: var(--text); border-color: #7dd3fc; }
 .feed-chip.chip-authz.active { border-color: #f59e0b; color: #fbbf24; }
+
+/* Export button — sits at the right edge of the chips bar, visually distinct
+   from the filter chips (link-shaped, not pill-toggle-shaped). */
+.export-button {
+  margin-left: auto;
+  padding: 0.2rem 0.65rem;
+  background: #0f172a;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.export-button:hover { color: var(--text); border-color: #475569; }
+
+/* Active accents per category — parallels severity-color tokens. */
+.feed-chip.chip-security.active      { border-color: #ef4444; color: #fca5a5; }
+.feed-chip.chip-hallucination.active { border-color: #eab308; color: #fde68a; }
+.feed-chip.chip-operational.active   { border-color: #38bdf8; color: #7dd3fc; }
 
 .loading { color: var(--muted); font-style: italic; }
 
@@ -208,17 +288,50 @@ tr.audit-row-authz td:first-child {
   outline-offset: 2px;
 }
 
-/* Tablet / narrow desktop: collapse to single column, table scrolls horizontally */
+/* ──────────── Trend chart (15-min severity sparkline) ──────────── */
+/* Sits between the chips bar and the session pill above the feed table.
+   The SVG itself is responsive via viewBox; the container clamps width. */
+.trend-chart-container {
+  width: 100%;
+  margin: 0 0 0.5rem 0;
+}
+.trend-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Intermediate viewport (≤900px): hide Hash column AND shrink the TRS sidebar so
+   the feed table fits without horizontal scroll. Hash is diagnostic-only —
+   full hash + prev hash are always available via /api/feed and the audit
+   forwarder pipeline. Time/Detector/Severity/Reason/Session are the columns
+   operators triage on. */
+@media (max-width: 900px) {
+  main { grid-template-columns: 160px 1fr; }
+  .gauge { width: 130px; }
+  table th:nth-child(6),
+  table td:nth-child(6) { display: none; }
+}
+
+/* Phone: collapse main grid to single column. Each panel stacks full-width. */
 @media (max-width: 600px) {
   main {
     grid-template-columns: 1fr;
-    grid-template-rows: auto auto 1fr;
+    grid-template-rows: auto;
+    grid-auto-rows: auto;
     height: auto;
     min-height: calc(100vh - 64px);
+    gap: 0.75rem;
   }
-  .trs-panel { grid-row: auto; }
+  /* Override desktop's explicit grid-column placements so every panel lands in
+     the single column. Without this, the .approvals-panel { grid-column: 2 }
+     base rule creates an implicit second column that auto-placed panels
+     (trs/stats) get pulled into, squashing the explicit "1fr" column to ~30px. */
+  .trs-panel,
+  .stats-panel,
+  .feed-panel,
+  .approvals-panel { grid-column: 1; grid-row: auto; }
   .gauge { width: 120px; }
-  .feed-panel { grid-column: 1; }
   .table-wrap {
     overflow-x: auto;
     /* Right-edge fade hints at hidden scrollable content */
@@ -229,7 +342,7 @@ tr.audit-row-authz td:first-child {
     background-size: 24px 100%, 24px 100%;
     background-attachment: local, local;
   }
-  table { min-width: 480px; }
+  table { min-width: 360px; }
   .feed-chips { gap: 0.3rem; }
 }
 
@@ -239,7 +352,9 @@ tr.audit-row-authz td:first-child {
    --isolate (danger), --safe (success), --watch (external/warn). */
 
 .approvals-panel {
-  grid-column: 2;
+  /* grid-column: 2 placement is set in the desktop-positioning block above
+     (alongside .feed-panel) so the @media (max-width: 600px) override can
+     win via source-order without a specificity boost. */
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -324,12 +439,26 @@ tr.audit-row-authz td:first-child {
   color: var(--watch);
 }
 
-/* Phone-narrow viewports: hide the Hash column entirely. The 8-char prefix is
-   diagnostic-only — full hash + prev hash are always available via /api/feed
-   and the audit forwarder pipeline. Time/Detector/Severity/Reason are the
-   columns operators triage on. */
-@media (max-width: 480px) {
-  table th:nth-child(5),
-  table td:nth-child(5) { display: none; }
-  table { min-width: 360px; }
+/* ────────── Auto light mode (system-preference-aware) ────────── */
+/* Operators on light-mode operating systems get a light dashboard
+   automatically. Severity / authz accent tokens stay unchanged — only
+   the neutral palette flips. Pure CSS, zero JS, zero state. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg:      #f8fafc;  /* slate-50 */
+    --surface: #ffffff;
+    --border:  #cbd5e1;  /* slate-300 */
+    --text:    #0f172a;  /* slate-900 */
+    --muted:   #64748b;  /* slate-500 */
+  }
+
+  /* Site-specific overrides for elements that hardcoded dark colors */
+  header { background: #f1f5f9; }
+  .gauge-track { stroke: #cbd5e1; }
+  td { border-bottom: 1px solid #e2e8f0; }
+  .stat-card { background: #f1f5f9; }
+  .feed-chip { background: #f1f5f9; }
+  .feed-chip.active { background: #ffffff; }
+  .search-input { background: #ffffff; }
+  .export-button { background: #f1f5f9; }
 }
