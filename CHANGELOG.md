@@ -9,6 +9,32 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.8.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.7.0...v1.8.0) (2026-05-03)
+
+
+### Features
+
+* **audit:** add SessionId correlation to AuditEntry ([d66be3c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/d66be3c562f3318d2d92538c00a1fcf50af05ae7))
+* **dashboard:** /api/export.ndjson — filtered NDJSON download ([1e047f5](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/1e047f50f60da8a83ff655539f843c82dc345c0e))
+* **dashboard:** /api/feed supports ?filter, ?q, ?session intersection ([bc6c4ec](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/bc6c4ecb51ae68e93dd69ecbefcc4a3ba6945716))
+* **dashboard:** /api/trend endpoint — 15-min severity trend SVG ([e8ebe2c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/e8ebe2cbc3c109cae7239f6d3b25e30e8864a309))
+* **dashboard:** add FilterAuditEntries pipeline helper ([9462e90](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/9462e900de559d7ec63b9cc589de6032cf7ea862))
+* **dashboard:** add IsInCategory helper for chip filtering ([3e5e95a](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/3e5e95ae6027f841f68ea8f08626d42c0b77ba3b))
+* **dashboard:** add Security/Hallucination/Operational chips ([536609c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/536609cafa0e8752022c08d0b7b55f8fe73bf463))
+* **dashboard:** add Session column with clickable drill-down ([11e2978](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/11e2978ed175735e6801efd9dc50075f7dbd9870))
+* **dashboard:** auto light mode via prefers-color-scheme ([796266f](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/796266f53f98d8996a7d7c34f593d0200f30bf7a))
+* **dashboard:** chip accent colors for new categories ([830817e](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/830817e23eaf80a144df0d3a880b69aa657d351d))
+* **dashboard:** Dashboard 2.0 — chips, search, drill-down, trend, dark mode, export ([732d906](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/732d906db99443a1a3831eecd586aee12a244d7b))
+* **dashboard:** export button in chips bar ([fe70302](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/fe70302519928d7c9b8adfe4a608f5f039b4e6c8))
+* **dashboard:** live free-text search box in chips bar ([c80436d](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/c80436d2dd2b548515165bfb5999a521213b852f))
+* **dashboard:** session-filter pill above feed table ([8105c20](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/8105c2084ad309e5267e2cc8395a58df250ed343))
+* **dashboard:** wire /api/trend chart into feed panel ([e2c7e54](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/e2c7e54e0c6fea1db19a2912c9189397058a973c))
+
+
+### Bug Fixes
+
+* **dashboard:** responsive layout + htmx polling — regression-test follow-ups ([e561258](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/e561258e6fe678e753224a770309a358f7fc5577))
+
 ## [1.7.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.6.0...v1.7.0) (2026-05-01)
 
 
