@@ -198,16 +198,22 @@ jobs:
           $payload = Get-Content $hostInput -Raw
           $proc.StandardInput.Write($payload)
           $proc.StandardInput.Flush()
-          # Signal EOF immediately and let the proxy finish processing the pending
-          # tools/call before exiting. Cold-start on Windows runners (Defender scan
-          # of the freshly built AOT .exe + python interpreter cold start + JSON-RPC
-          # round-trip through the python stub) can push first-message latency past
-          # the old 4s+8s budget, leaving stdout empty even though stderr shows the
-          # request was authorized. 30s is ample headroom while still terminating on
-          # real hangs.
+          # The python stub reads its stdin via `for line in sys.stdin` and only
+          # responds to `tools/call` *while stdin is open*. If we close our stdin
+          # too soon, the EOF cascades to the python child before it has read and
+          # responded to all 3 messages — proxy exits with empty stdout.
+          # Give the full pipeline (proxy startup -> forward to python -> python
+          # response -> proxy forwards back) generous headroom on cold Windows
+          # runners (Defender scan of fresh AOT .exe + python cold start). We
+          # poll the proxy's HasExited so a fast happy path doesn't pay the full
+          # ceiling.
+          $deadline = (Get-Date).AddSeconds(20)
+          while (((Get-Date) -lt $deadline) -and -not $proc.HasExited) {
+            Start-Sleep -Milliseconds 250
+          }
           $proc.StandardInput.Close()
-          if (-not $proc.WaitForExit(30000)) {
-            Write-Host 'Proxy did not exit within 30s; killing.'
+          if (-not $proc.WaitForExit(15000)) {
+            Write-Host 'Proxy did not exit within 15s after stdin close; killing.'
             $proc.Kill($true)
           }
 
