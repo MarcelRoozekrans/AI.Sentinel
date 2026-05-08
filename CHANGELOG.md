@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.8.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.0...v1.8.1) (2026-05-08)
+
+
+### Bug Fixes
+
+* **ci:** eliminate stdio race in AOT round-trip smoke test ([#51](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/51)) ([708a4c4](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/708a4c451d78300075b65930c76b4cb240184c3f))
+
 ## [1.8.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.7.0...v1.8.0) (2026-05-03)
 
 
