@@ -197,11 +197,17 @@ jobs:
 
           $payload = Get-Content $hostInput -Raw
           $proc.StandardInput.Write($payload)
-          # Give the proxy time to forward the nested-JSON tools/call and receive the echo.
-          Start-Sleep -Seconds 4
+          $proc.StandardInput.Flush()
+          # Signal EOF immediately and let the proxy finish processing the pending
+          # tools/call before exiting. Cold-start on Windows runners (Defender scan
+          # of the freshly built AOT .exe + python interpreter cold start + JSON-RPC
+          # round-trip through the python stub) can push first-message latency past
+          # the old 4s+8s budget, leaving stdout empty even though stderr shows the
+          # request was authorized. 30s is ample headroom while still terminating on
+          # real hangs.
           $proc.StandardInput.Close()
-          if (-not $proc.WaitForExit(8000)) {
-            Write-Host 'Proxy did not exit within 8s; killing.'
+          if (-not $proc.WaitForExit(30000)) {
+            Write-Host 'Proxy did not exit within 30s; killing.'
             $proc.Kill($true)
           }
 
