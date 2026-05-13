@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.8.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.1...v1.8.2) (2026-05-13)
+
+
+### Bug Fixes
+
+* **security:** override transitive Microsoft.Kiota.Abstractions 1.21.1 (GHSA-7j59-v9qr-6fq9) ([#53](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/53)) ([422959c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/422959c7310a9a81c21db81c3ae77a310b36cf85))
+
 ## [1.8.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.0...v1.8.1) (2026-05-08)
 
 
