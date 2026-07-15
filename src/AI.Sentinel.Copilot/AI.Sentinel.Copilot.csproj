@@ -19,6 +19,6 @@
   <ItemGroup>
     <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
     <ProjectReference Include="..\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.18" />
   </ItemGroup>
 </Project>

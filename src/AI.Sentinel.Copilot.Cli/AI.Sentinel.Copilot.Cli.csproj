@@ -29,7 +29,7 @@
     <ProjectReference Include="..\AI.Sentinel.Copilot\AI.Sentinel.Copilot.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Approvals.Sqlite\AI.Sentinel.Approvals.Sqlite.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Approvals.EntraPim\AI.Sentinel.Approvals.EntraPim.csproj" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.*" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.18" />
   </ItemGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">

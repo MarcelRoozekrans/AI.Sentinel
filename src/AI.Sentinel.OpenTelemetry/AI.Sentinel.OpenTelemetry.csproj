@@ -18,8 +18,8 @@
     <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
     <PackageReference Include="OpenTelemetry" Version="1.15.*" />
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.15.*" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.*" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
   </ItemGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
