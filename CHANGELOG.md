@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.8.3](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.2...v1.8.3) (2026-07-19)
+
+
+### Bug Fixes
+
+* **deps:** update docusaurus monorepo to v3.10.2 ([#59](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/59)) ([30c7f38](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/30c7f3875c7bedaf350f75a73b8a687c991042ab))
+
 ## [1.8.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.1...v1.8.2) (2026-05-13)
 
 
