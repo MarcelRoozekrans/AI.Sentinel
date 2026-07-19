@@ -21,7 +21,7 @@
     <PackageReference Include="Microsoft.Extensions.AI" Version="9.10.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="9.0.18" />
-    <PackageReference Include="ZeroAlloc.AsyncEvents" Version="1.0.*" />
+    <PackageReference Include="ZeroAlloc.AsyncEvents" Version="1.1.*" />
     <PackageReference Include="ZeroAlloc.Collections" Version="0.1.*" />
     <PackageReference Include="ZeroAlloc.Results" Version="0.1.*" />
     <PackageReference Include="ZeroAlloc.ValueObjects" Version="1.1.*" />
