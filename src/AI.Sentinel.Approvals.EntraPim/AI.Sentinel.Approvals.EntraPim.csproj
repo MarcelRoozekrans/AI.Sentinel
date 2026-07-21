@@ -23,7 +23,7 @@
       Microsoft.Graph 5.x still pins the vulnerable 1.21.1; pin direct to 1.* (>= 1.22)
       to consume the patched 1.22.x line while staying on the same major.
     -->
-    <PackageReference Include="Microsoft.Kiota.Abstractions" Version="1.22.2" />
+    <PackageReference Include="Microsoft.Kiota.Abstractions" Version="2.0.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.10" />
   </ItemGroup>
   <ItemGroup>
