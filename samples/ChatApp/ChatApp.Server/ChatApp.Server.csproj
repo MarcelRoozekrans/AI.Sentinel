@@ -10,6 +10,6 @@
     <ProjectReference Include="..\ChatApp.Client\ChatApp.Client.csproj" />
     <ProjectReference Include="..\ChatApp.Shared\ChatApp.Shared.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.10" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.8.0" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="10.8.1" />
   </ItemGroup>
 </Project>
