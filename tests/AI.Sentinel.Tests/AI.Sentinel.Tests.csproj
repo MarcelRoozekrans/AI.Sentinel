@@ -20,7 +20,7 @@
     <ProjectReference Include="..\..\src\AI.Sentinel.Mcp.Cli\AI.Sentinel.Mcp.Cli.csproj" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageReference Include="NSubstitute" Version="5.3.0" />
     <PackageReference Include="ZeroAlloc.Serialisation" Version="1.4.*" />
     <PackageReference Include="ZeroAlloc.Serialisation.SystemTextJson" Version="1.4.*" />
