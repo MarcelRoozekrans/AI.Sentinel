@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.8.4](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.3...v1.8.4) (2026-07-22)
+
+
+### Bug Fixes
+
+* **deps:** bump Microsoft.Graph v6 and Kiota.Abstractions v2 together ([#89](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/89)) ([daa59a6](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/daa59a643ed2dd5371e7bd6515cdd4fa7125e751))
+* **deps:** ValueObjects 1.7.1 + Serialisation 2.4.0 — register the STJ context ([#93](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/93)) ([38825e5](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/38825e5bdcb8efb63959537aaaaf4c8ce5c43f5a))
+
 ## [1.8.3](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.2...v1.8.3) (2026-07-19)
 
 
