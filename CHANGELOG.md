@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.8.6](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.5...v1.8.6) (2026-07-23)
+
+
+### Bug Fixes
+
+* **deps:** dotnet monorepo v10, keeping TestHost split per TargetFramework ([#102](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/102)) ([c1b6312](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/c1b6312fca82acc0dc2d6c7faa710bdc3f452186))
+
 ## [1.8.5](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.4...v1.8.5) (2026-07-23)
 
 
