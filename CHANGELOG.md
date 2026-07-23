@@ -9,6 +9,17 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [2.0.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.6...v2.0.0) (2026-07-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deps:** migrate to ZeroAlloc.Authorization v2 (async-native policies) ([#104](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/104))
+
+### Features
+
+* **deps:** migrate to ZeroAlloc.Authorization v2 (async-native policies) ([#104](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/104)) ([2170fc2](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/2170fc2e02434092a443b6b2db40977d35298450))
+
 ## [1.8.6](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.5...v1.8.6) (2026-07-23)
 
 
