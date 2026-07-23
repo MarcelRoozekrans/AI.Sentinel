@@ -42,8 +42,9 @@ namespace AI.Sentinel.Authorization;
 /// </para></summary>
 public static class SentinelDenyCodes
 {
-    /// <summary>Policy returned <c>IsAuthorized=false</c> (sync) or an unstructured failure. Default
-    /// code on the bare-deny path; also the <c>SqliteAuditStore</c> column DEFAULT for legacy rows.</summary>
+    /// <summary>Policy denied without supplying its own code (or supplied ZeroAlloc.Authorization's
+    /// <c>AuthorizationFailure.DefaultDenyCode</c>). Default code on the bare-deny path; also the
+    /// <c>SqliteAuditStore</c> column DEFAULT for legacy rows.</summary>
     public const string PolicyDenied = "policy_denied";
 
     /// <summary>A binding referenced a policy name that was never registered with the DI container.

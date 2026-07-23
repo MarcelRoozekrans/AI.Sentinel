@@ -131,9 +131,9 @@ public static class ServiceCollectionExtensions
         var policyByName = new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal);
         foreach (var p in sp.GetServices<IAuthorizationPolicy>())
         {
-            var attrs = p.GetType().GetCustomAttributes(typeof(AuthorizationPolicyAttribute), inherit: false);
+            var attrs = p.GetType().GetCustomAttributes(typeof(PolicyAttribute), inherit: false);
             if (attrs.Length == 0) continue;
-            var attr = (AuthorizationPolicyAttribute)attrs[0];
+            var attr = (PolicyAttribute)attrs[0];
             policyByName[attr.Name] = p;
         }
 

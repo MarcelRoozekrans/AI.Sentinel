@@ -8,29 +8,29 @@ namespace AI.Sentinel.Tests.Authorization.Policies;
 public class NoSystemPathsPolicyTests
 {
     [Fact]
-    public void Bash_WithSystemPath_Denies()
+    public async Task Bash_WithSystemPath_Denies()
     {
         var p = new NoSystemPathsPolicy();
         var ctx = new TestToolCallSecurityContext(new TestSecurityContext("alice", "admin"),
             "Bash", JsonDocument.Parse("""{"path":"/etc/passwd"}""").RootElement);
-        Assert.False(p.IsAuthorized(ctx));
+        Assert.True((await p.EvaluateAsync(ctx)).IsFailure);
     }
 
     [Fact]
-    public void Bash_WithSafePath_Allows()
+    public async Task Bash_WithSafePath_Allows()
     {
         var p = new NoSystemPathsPolicy();
         var ctx = new TestToolCallSecurityContext(new TestSecurityContext("alice"),
             "Bash", JsonDocument.Parse("""{"path":"/tmp/foo"}""").RootElement);
-        Assert.True(p.IsAuthorized(ctx));
+        Assert.True((await p.EvaluateAsync(ctx)).IsSuccess);
     }
 
     [Fact]
-    public void OtherTool_AlwaysAllowed()
+    public async Task OtherTool_AlwaysAllowed()
     {
         var p = new NoSystemPathsPolicy();
         var ctx = new TestToolCallSecurityContext(new TestSecurityContext("alice"),
             "Read", JsonDocument.Parse("""{"path":"/etc/passwd"}""").RootElement);
-        Assert.True(p.IsAuthorized(ctx));
+        Assert.True((await p.EvaluateAsync(ctx)).IsSuccess);
     }
 }
