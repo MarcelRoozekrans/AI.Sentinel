@@ -24,7 +24,7 @@
     <PackageReference Include="NSubstitute" Version="6.0.0" />
     <PackageReference Include="ZeroAlloc.Serialisation" Version="2.4.0" />
     <PackageReference Include="ZeroAlloc.Serialisation.SystemTextJson" Version="2.4.*" />
-    <PackageReference Include="ZeroAlloc.Serialisation.Generator" Version="1.4.*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GeneratePathProperty="true" />
+    <PackageReference Include="ZeroAlloc.Serialisation.Generator" Version="2.4.*" OutputItemType="Analyzer" ReferenceOutputAssembly="false" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.1" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.8.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.10" />
