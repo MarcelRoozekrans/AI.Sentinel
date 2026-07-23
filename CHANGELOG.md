@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [1.8.5](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.4...v1.8.5) (2026-07-23)
+
+
+### Bug Fixes
+
+* **deps:** drop the redundant Serialisation.Generator reference (v2 bundles it) ([#99](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/99)) ([818f619](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/818f619ed625351e9f28ae8da18fad375687c3d2))
+* **deps:** drop the unused ZeroAlloc.Mediator.Generator reference ([#101](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/101)) ([7b6885e](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/7b6885e8fe2f221847244fe90b405302e24d2f3a))
+
 ## [1.8.4](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.3...v1.8.4) (2026-07-22)
 
 
