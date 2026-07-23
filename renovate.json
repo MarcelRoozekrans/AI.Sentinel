@@ -2,5 +2,14 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "local>MarcelRoozekrans/renovate-config"
+  ],
+  "packageRules": [
+    {
+      "description": "Microsoft.AspNetCore.TestHost is referenced twice in AI.Sentinel.Tests.csproj, once per TargetFramework Condition. Renovate cannot see the Condition, so it rewrites both lines to the same version and pushes the net10.0-only package onto net8.0 (NU1202). Keep the net8.0 line inside 8.x; the net10.0 line updates normally.",
+      "matchManagers": ["nuget"],
+      "matchPackageNames": ["Microsoft.AspNetCore.TestHost"],
+      "matchCurrentValue": "/^8\\./",
+      "allowedVersions": "<9.0.0"
+    }
   ]
 }
