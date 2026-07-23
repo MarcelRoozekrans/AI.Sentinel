@@ -10,7 +10,7 @@ public abstract record AuthorizationDecision
     /// <param name="PolicyName">Name of the denying policy.</param>
     /// <param name="Reason">Human-readable reason for the denial.</param>
     /// <param name="Code">Machine-readable code (e.g. "tenant_inactive", "bash_blocked"). Defaults to
-    /// <c>"policy_denied"</c> when the policy returned bare <c>false</c> via the sync IsAuthorized DIM bridge.</param>
+    /// <c>"policy_denied"</c> when the policy denied without supplying its own code.</param>
     public sealed record DenyDecision(string PolicyName, string Reason, string Code = SentinelDenyCodes.PolicyDenied) : AuthorizationDecision;
 
     /// <summary>Singleton allow — never allocates.</summary>

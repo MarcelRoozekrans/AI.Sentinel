@@ -21,9 +21,9 @@ public class InProcessAuthorizationTests
             var policiesByName = new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal);
             foreach (var p in sp.GetServices<IAuthorizationPolicy>())
             {
-                var attrs = p.GetType().GetCustomAttributes(typeof(AuthorizationPolicyAttribute), false);
+                var attrs = p.GetType().GetCustomAttributes(typeof(PolicyAttribute), false);
                 if (attrs.Length == 0) continue;
-                var name = ((AuthorizationPolicyAttribute)attrs[0]).Name;
+                var name = ((PolicyAttribute)attrs[0]).Name;
                 policiesByName[name] = p;
             }
             return new DefaultToolCallGuard(opts.GetAuthorizationBindings(), policiesByName, opts.DefaultToolPolicy, approvalStore: null, logger: null);

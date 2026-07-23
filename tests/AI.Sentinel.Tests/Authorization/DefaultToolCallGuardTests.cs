@@ -12,22 +12,34 @@ public class DefaultToolCallGuardTests
 {
     private static readonly JsonElement EmptyArgs = JsonDocument.Parse("{}").RootElement;
 
-    [AuthorizationPolicy("admin-only")]
-    private sealed class AdminOnly : IAuthorizationPolicy
+    [Policy("test-admin-only")]
+    internal sealed class AdminOnly : IAuthorizationPolicy
     {
-        public bool IsAuthorized(ISecurityContext ctx) => ctx.Roles.Contains("admin");
+        public ValueTask<UnitResult<AuthorizationFailure>> EvaluateAsync(
+            ISecurityContext ctx, CancellationToken ct = default) =>
+            new(ctx.Roles.Contains("admin")
+                ? UnitResult<AuthorizationFailure>.Success()
+                : UnitResult<AuthorizationFailure>.Failure(
+                    new AuthorizationFailure(AuthorizationFailure.DefaultDenyCode, null!)));
     }
 
-    [AuthorizationPolicy("always-deny")]
-    private sealed class AlwaysDeny : IAuthorizationPolicy
+    [Policy("always-deny")]
+    // Denies without picking a code or reason — the shape the guard has to canonicalise
+    // to code='policy_denied' / reason='Policy denied'.
+    internal sealed class AlwaysDeny : IAuthorizationPolicy
     {
-        public bool IsAuthorized(ISecurityContext ctx) => false;
+        public ValueTask<UnitResult<AuthorizationFailure>> EvaluateAsync(
+            ISecurityContext ctx, CancellationToken ct = default) =>
+            new(UnitResult<AuthorizationFailure>.Failure(
+                new AuthorizationFailure(AuthorizationFailure.DefaultDenyCode, null!)));
     }
 
-    [AuthorizationPolicy("throws")]
-    private sealed class Throws : IAuthorizationPolicy
+    [Policy("throws")]
+    internal sealed class Throws : IAuthorizationPolicy
     {
-        public bool IsAuthorized(ISecurityContext ctx) => throw new InvalidOperationException("boom");
+        public ValueTask<UnitResult<AuthorizationFailure>> EvaluateAsync(
+            ISecurityContext ctx, CancellationToken ct = default) =>
+            throw new InvalidOperationException("boom");
     }
 
     private static DefaultToolCallGuard Build(
@@ -38,8 +50,8 @@ public class DefaultToolCallGuardTests
         bindings ??= [];
         policies ??= [];
         var policyByName = policies
-            .Select(p => (Name: p.GetType().GetCustomAttributes(typeof(AuthorizationPolicyAttribute), false)
-                .Cast<AuthorizationPolicyAttribute>().Single().Name, Policy: p))
+            .Select(p => (Name: p.GetType().GetCustomAttributes(typeof(PolicyAttribute), false)
+                .Cast<PolicyAttribute>().Single().Name, Policy: p))
             .ToDictionary(t => t.Name, t => t.Policy, StringComparer.Ordinal);
         return new DefaultToolCallGuard(
             bindings.Select(b => new ToolCallPolicyBinding(b.pattern, b.policyName)).ToList(),
@@ -61,7 +73,7 @@ public class DefaultToolCallGuardTests
     public async Task ExactToolMatch_UsesBoundPolicy_AllowedForAdmin()
     {
         var guard = Build(ToolPolicyDefault.Allow,
-            bindings: [("Bash", "admin-only")],
+            bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
         var caller = new TestSecurityContext("alice", "admin");
         var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs);
@@ -72,19 +84,19 @@ public class DefaultToolCallGuardTests
     public async Task ExactToolMatch_UsesBoundPolicy_DeniedForNonAdmin()
     {
         var guard = Build(ToolPolicyDefault.Allow,
-            bindings: [("Bash", "admin-only")],
+            bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
         var caller = new TestSecurityContext("bob");
         var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs);
         Assert.False(d.Allowed);
-        Assert.Equal("admin-only", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
+        Assert.Equal("test-admin-only", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
     }
 
     [Fact]
     public async Task WildcardMatch_DeleteUnderscoreStarMatchesDeleteUser()
     {
         var guard = Build(ToolPolicyDefault.Allow,
-            bindings: [("delete_*", "admin-only")],
+            bindings: [("delete_*", "test-admin-only")],
             policies: [new AdminOnly()]);
         var caller = new TestSecurityContext("bob");
         var d = await guard.AuthorizeAsync(caller, "delete_user", EmptyArgs);
@@ -95,7 +107,7 @@ public class DefaultToolCallGuardTests
     public async Task MultipleMatchingPolicies_AllMustAllow()
     {
         var guard = Build(ToolPolicyDefault.Allow,
-            bindings: [("Bash", "admin-only"), ("*", "always-deny")],
+            bindings: [("Bash", "test-admin-only"), ("*", "always-deny")],
             policies: [new AdminOnly(), new AlwaysDeny()]);
         var caller = new TestSecurityContext("alice", "admin");
         var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs);
@@ -107,7 +119,7 @@ public class DefaultToolCallGuardTests
     public async Task NoMatch_UsesDefaultToolPolicy_Allow()
     {
         var guard = Build(ToolPolicyDefault.Allow,
-            bindings: [("Bash", "admin-only")],
+            bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
         var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Read", EmptyArgs);
         Assert.True(d.Allowed);
@@ -117,7 +129,7 @@ public class DefaultToolCallGuardTests
     public async Task NoMatch_UsesDefaultToolPolicy_Deny()
     {
         var guard = Build(ToolPolicyDefault.Deny,
-            bindings: [("Bash", "admin-only")],
+            bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
         var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Read", EmptyArgs);
         Assert.False(d.Allowed);
@@ -151,22 +163,25 @@ public class DefaultToolCallGuardTests
     public async Task AnonymousCaller_PolicyReferencingRoles_Denies()
     {
         var guard = Build(ToolPolicyDefault.Allow,
-            bindings: [("Bash", "admin-only")],
+            bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
         var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs);
         Assert.False(d.Allowed);
     }
 
-    [AuthorizationPolicy("no-system-paths")]
-    private sealed class NoSystemPaths : ToolCallAuthorizationPolicy
+    [Policy("test-no-system-paths")]
+    internal sealed class NoSystemPaths : ToolCallAuthorizationPolicy
     {
-        protected override bool IsAuthorized(IToolCallSecurityContext ctx)
+        protected override ValueTask<UnitResult<AuthorizationFailure>> EvaluateAsync(
+            IToolCallSecurityContext ctx, CancellationToken ct)
         {
-            if (!string.Equals(ctx.ToolName, "Bash", StringComparison.Ordinal)) return true;
-            if (!ctx.Args.TryGetProperty("path", out var p) || p.ValueKind != JsonValueKind.String) return true;
+            if (!string.Equals(ctx.ToolName, "Bash", StringComparison.Ordinal)) return new(Allow());
+            if (!ctx.Args.TryGetProperty("path", out var p) || p.ValueKind != JsonValueKind.String) return new(Allow());
             var path = p.GetString();
-            return path is null || (!path.StartsWith("/etc/", StringComparison.Ordinal)
-                                  && !path.StartsWith("/sys/", StringComparison.Ordinal));
+            return new(path is null || (!path.StartsWith("/etc/", StringComparison.Ordinal)
+                                      && !path.StartsWith("/sys/", StringComparison.Ordinal))
+                ? Allow()
+                : Deny($"Bash 'path' argument '{path}' targets a protected system directory"));
         }
     }
 
@@ -174,7 +189,7 @@ public class DefaultToolCallGuardTests
     public async Task ToolCallContext_PolicyAccessesArgs()
     {
         var guard = Build(ToolPolicyDefault.Allow,
-            bindings: [("Bash", "no-system-paths")],
+            bindings: [("Bash", "test-no-system-paths")],
             policies: [new NoSystemPaths()]);
         var caller = AnonymousSecurityContext.Instance;
         var bad   = JsonDocument.Parse("""{"path":"/etc/passwd"}""").RootElement;
@@ -183,20 +198,18 @@ public class DefaultToolCallGuardTests
         Assert.True((await guard.AuthorizeAsync(caller, "Bash", good)).Allowed);
     }
 
-    [AuthorizationPolicy("tenant-active")]
-    private sealed class StructuredFailurePolicy : IAuthorizationPolicy
+    [Policy("tenant-active")]
+    internal sealed class StructuredFailurePolicy : IAuthorizationPolicy
     {
-        public bool IsAuthorized(ISecurityContext ctx) => false;
         public ValueTask<UnitResult<AuthorizationFailure>> EvaluateAsync(
             ISecurityContext ctx, CancellationToken ct = default) =>
             new(UnitResult<AuthorizationFailure>.Failure(
                 new AuthorizationFailure("tenant_inactive", "Tenant is in evicted state")));
     }
 
-    [AuthorizationPolicy("slow")]
-    private sealed class CancellationAwarePolicy : IAuthorizationPolicy
+    [Policy("slow")]
+    internal sealed class CancellationAwarePolicy : IAuthorizationPolicy
     {
-        public bool IsAuthorized(ISecurityContext ctx) => true;
         public async ValueTask<UnitResult<AuthorizationFailure>> EvaluateAsync(
             ISecurityContext ctx, CancellationToken ct = default)
         {
@@ -222,10 +235,10 @@ public class DefaultToolCallGuardTests
     }
 
     [Fact]
-    public async Task EvaluatePolicy_SyncOnlyFalsePolicy_AppliesDefaultPolicyDeniedCode()
+    public async Task EvaluatePolicy_BareDenyPolicy_AppliesDefaultPolicyDeniedCode()
     {
-        // AlwaysDeny implements only IsAuthorized; the DIM bridge in ZeroAlloc.Authorization
-        // produces a default failure that we map to AuthorizationDecision's default 'policy_denied'.
+        // AlwaysDeny denies with DefaultDenyCode and a null reason — the guard canonicalises
+        // both to AuthorizationDecision's stable wire format ('policy_denied' / 'Policy denied').
         var guard = Build(ToolPolicyDefault.Deny,
             bindings: [("Bash", "always-deny")],
             policies: [new AlwaysDeny()]);
