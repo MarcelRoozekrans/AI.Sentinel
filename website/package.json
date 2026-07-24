@@ -32,6 +32,6 @@
     "node": ">=18.0"
   },
   "overrides": {
-    "webpack": "5.108.4"
+    "webpack": "5.109.0"
   }
 }
