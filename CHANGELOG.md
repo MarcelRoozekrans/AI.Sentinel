@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [2.0.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.0.0...v2.0.1) (2026-07-25)
+
+
+### Bug Fixes
+
+* **audit:** stop NdjsonFileAuditForwarder.DisposeAsync racing in-flight sends ([#108](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/108)) ([a0a8670](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/a0a867069fdcb5c8e1f58e64ac12d313a618f9ad))
+
 ## [2.0.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v1.8.6...v2.0.0) (2026-07-23)
 
 
