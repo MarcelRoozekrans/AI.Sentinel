@@ -8,6 +8,7 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
     private readonly FileStream _stream;
     private readonly StreamWriter _writer;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private int _disposed;   // 0 = open, 1 = disposed. Interlocked-gated so exactly one caller tears down.
 
     public NdjsonFileAuditForwarder(NdjsonFileAuditForwarderOptions options)
     {
@@ -28,11 +29,28 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
             return;
         }
 
+        // Cheap pre-lock check: skip a send that arrives after shutdown has begun. The
+        // authoritative check is inside the lock below — this only avoids taking the lock
+        // (and racing WaitAsync against _lock.Dispose) in the common post-dispose case.
+        if (Volatile.Read(ref _disposed) == 1)
+        {
+            LogDropped();
+            return;
+        }
+
         var locked = false;
         try
         {
             await _lock.WaitAsync(ct).ConfigureAwait(false);
             locked = true;
+            // DisposeAsync sets _disposed and then closes the writer/stream. It waits on this
+            // same lock, so if it already ran the stream is gone — writing would raise
+            // ObjectDisposedException. Drop the batch instead (fail-open shutdown).
+            if (Volatile.Read(ref _disposed) == 1)
+            {
+                LogDropped();
+                return;
+            }
             foreach (var entry in batch)
             {
                 var line = JsonSerializer.Serialize(entry, AuditJsonContext.Default.AuditEntry);
@@ -61,8 +79,34 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await _writer.DisposeAsync().ConfigureAwait(false);
-        await _stream.DisposeAsync().ConfigureAwait(false);
+        // Gate teardown to exactly one caller. This must happen BEFORE touching _lock so a
+        // second (or concurrent) DisposeAsync returns without awaiting WaitAsync on a
+        // semaphore the first call has already disposed — which is itself an
+        // ObjectDisposedException, the very failure mode we are closing.
+        if (Interlocked.Exchange(ref _disposed, 1) == 1)
+        {
+            return;
+        }
+
+        // Acquire the write lock before closing the stream so disposal waits for any
+        // in-flight SendAsync to finish its WriteLineAsync/FlushAsync. Without this,
+        // _writer.DisposeAsync (which flushes) runs concurrently on the same FileStream
+        // as an in-flight write and throws "The stream is currently in use by a previous
+        // operation on the stream." — on the audit-log shutdown path, where the tail of
+        // the trail is the most valuable part.
+        await _lock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            await _writer.DisposeAsync().ConfigureAwait(false);
+            await _stream.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            _lock.Release();
+        }
         _lock.Dispose();
     }
+
+    private static void LogDropped() =>
+        Console.Error.WriteLine("event=audit_forward action=send_dropped forwarder=NdjsonFile reason=disposed");
 }

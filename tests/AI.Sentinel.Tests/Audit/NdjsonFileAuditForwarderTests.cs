@@ -90,8 +90,49 @@ public class NdjsonFileAuditForwarderTests : IDisposable
         var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath });
         await f.DisposeAsync();
         // After dispose, writing should NOT throw — the IAuditForwarder contract says MUST NOT throw.
-        // The new try/catch in SendAsync swallows the ObjectDisposedException.
+        // SendAsync now drops the batch (fail-open) instead of writing to the closed stream.
         await f.SendAsync([MakeEntry("e1")], default);
+    }
+
+    [Fact]
+    public async Task DisposeAsync_ConcurrentWithInFlightSend_DoesNotThrow()
+    {
+        // Regression for #105. DisposeAsync used to close the FileStream without taking the
+        // write lock, so _writer.DisposeAsync (which flushes) ran concurrently with an
+        // in-flight SendAsync write and threw
+        //   InvalidOperationException: The stream is currently in use by a previous operation on the stream.
+        // — escaping DisposeAsync (SendAsync swallows its own exceptions, DisposeAsync did not).
+        //
+        // Reliable repro: a large batch makes SendAsync park at its async FlushAsync (the
+        // buffered WriteLineAsync calls mostly complete synchronously into the StreamWriter
+        // buffer), so `send` is genuinely mid-flush on the FileStream when DisposeAsync fires
+        // on this thread. Looping tightens the window. Verified to throw on the pre-fix code
+        // and pass after.
+        // Same payload every iteration — build it once (also keeps the ZeroAlloc analyzer happy).
+        var batch = new AuditEntry[5_000];
+        for (var i = 0; i < batch.Length; i++)
+        {
+            batch[i] = MakeEntry($"e{i}");
+        }
+
+        for (var iter = 0; iter < 40; iter++)
+        {
+            var path = Path.Combine(Path.GetTempPath(), $"sentinel-race-{Guid.NewGuid():N}.ndjson");
+            try
+            {
+                var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = path });
+
+                var send = f.SendAsync(batch, default).AsTask();   // parks at FlushAsync, un-awaited
+                await f.DisposeAsync();                            // races the in-flight flush — must NOT throw
+                await send;                                        // fail-open: never throws
+
+                await f.DisposeAsync();                            // idempotent — not ObjectDisposedException
+            }
+            finally
+            {
+                try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+            }
+        }
     }
 
     [Fact]
