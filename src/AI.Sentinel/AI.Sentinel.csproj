@@ -27,8 +27,8 @@
     <PackageReference Include="ZeroAlloc.ValueObjects" Version="1.7.1" />
     <PackageReference Include="ZeroAlloc.Validation" Version="1.5.*" />
     <PackageReference Include="ZeroAlloc.Mediator" Version="4.1.*" />
-    <PackageReference Include="ZeroAlloc.Inject" Version="1.7.1" />
-    <PackageReference Include="ZeroAlloc.Inject.Generator" Version="1.7.1" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
+    <PackageReference Include="ZeroAlloc.Inject" Version="1.7.2" />
+    <PackageReference Include="ZeroAlloc.Inject.Generator" Version="1.7.2" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <PackageReference Include="ZeroAlloc.Resilience" Version="1.3.*" />
     <PackageReference Include="ZeroAlloc.Serialisation" Version="2.4.0" />
     <PackageReference Include="ZeroAlloc.Telemetry" Version="1.3.0" />
