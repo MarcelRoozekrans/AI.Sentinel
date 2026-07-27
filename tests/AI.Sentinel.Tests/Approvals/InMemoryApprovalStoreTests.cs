@@ -70,7 +70,7 @@ public class InMemoryApprovalStoreTests
         // Second call: dedupe was cleared on the previous call → fresh Pending with NEW request id.
         var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
         var pending2 = Assert.IsType<ApprovalState.Pending>(retry);
-        Assert.NotEqual(pending1.RequestId, pending2.RequestId);
+        Assert.NotEqual(pending1.RequestId, pending2.RequestId, StringComparer.Ordinal);
     }
 
     [Fact]
@@ -92,7 +92,7 @@ public class InMemoryApprovalStoreTests
         // Second call: dedupe was cleared on the previous call → fresh Pending with NEW request id.
         var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
         var pending2 = Assert.IsType<ApprovalState.Pending>(retry);
-        Assert.NotEqual(pending1.RequestId, pending2.RequestId);
+        Assert.NotEqual(pending1.RequestId, pending2.RequestId, StringComparer.Ordinal);
     }
 
     [Fact]
