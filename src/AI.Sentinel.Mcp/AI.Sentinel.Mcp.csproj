@@ -19,7 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
     <ProjectReference Include="..\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" />
-    <PackageReference Include="ModelContextProtocol" Version="2.0.*" />
+    <PackageReference Include="ModelContextProtocol" Version="2.1.*" />
   </ItemGroup>
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
