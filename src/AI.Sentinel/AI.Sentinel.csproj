@@ -24,7 +24,7 @@
     <PackageReference Include="ZeroAlloc.AsyncEvents" Version="1.1.*" />
     <PackageReference Include="ZeroAlloc.Collections" Version="1.1.*" />
     <PackageReference Include="ZeroAlloc.Results" Version="1.2.*" />
-    <PackageReference Include="ZeroAlloc.ValueObjects" Version="2.0.3" />
+    <PackageReference Include="ZeroAlloc.ValueObjects" Version="2.0.4" />
     <PackageReference Include="ZeroAlloc.Validation" Version="1.5.*" />
     <PackageReference Include="ZeroAlloc.Mediator" Version="5.0.*" />
     <PackageReference Include="ZeroAlloc.Inject" Version="1.7.2" />
