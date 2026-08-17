@@ -2,6 +2,7 @@
   <PropertyGroup>
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
     <RollForward>LatestMajor</RollForward>
     <!-- xUnit1030: ConfigureAwait(false) forbidden in test methods -->
     <!-- HLQ005: bans Single() but xUnit2013 wants Assert.Single -->
@@ -11,8 +12,7 @@
     <ProjectReference Include="..\..\src\AI.Sentinel.Sqlite\AI.Sentinel.Sqlite.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel\AI.Sentinel.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
-    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.v3" Version="4.0.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
   </ItemGroup>
 </Project>

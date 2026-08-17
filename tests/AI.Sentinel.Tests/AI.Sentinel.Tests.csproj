@@ -2,6 +2,7 @@
   <PropertyGroup>
     <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
     <RollForward>LatestMajor</RollForward>
     <!-- In xUnit test projects, ConfigureAwait(false) is forbidden by xUnit1030; suppress MA0004 here -->
     <!-- HLQ005 conflicts with xUnit2013: HLQ005 bans "Single", xUnit2013 requires Assert.Single; suppress HLQ005 in tests -->
@@ -18,9 +19,8 @@
     <ProjectReference Include="..\..\src\AI.Sentinel.Copilot.Cli\AI.Sentinel.Copilot.Cli.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Mcp\AI.Sentinel.Mcp.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Mcp.Cli\AI.Sentinel.Mcp.Cli.csproj" />
-    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.v3" Version="4.0.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
     <PackageReference Include="NSubstitute" Version="6.2.0" />
     <PackageReference Include="ZeroAlloc.Serialisation" Version="2.4.1" />
     <PackageReference Include="ZeroAlloc.Serialisation.SystemTextJson" Version="2.4.*" />
