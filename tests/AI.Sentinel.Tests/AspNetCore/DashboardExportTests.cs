@@ -25,7 +25,7 @@ public class DashboardExportTests
         await store.AppendAsync(NewEntry("AUTHZ-DENY", "authorization deny"), CancellationToken.None);
 
         var client = host.GetTestClient();
-        var resp = await client.GetAsync("/sentinel/api/export.ndjson?filter=security");
+        var resp = await client.GetAsync("/sentinel/api/export.ndjson?filter=security", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
         Assert.Equal("application/x-ndjson", resp.Content.Headers.ContentType?.MediaType);
@@ -35,7 +35,7 @@ public class DashboardExportTests
         Assert.StartsWith("audit-", fileName!, StringComparison.Ordinal);
         Assert.EndsWith(".ndjson", fileName!, StringComparison.Ordinal);
 
-        var body = await resp.Content.ReadAsStringAsync();
+        var body = await resp.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         var lines = body.Split('\n', StringSplitOptions.RemoveEmptyEntries);
         Assert.Single(lines);  // only the SEC-01 row
         var entry = JsonSerializer.Deserialize<AuditEntry>(lines[0], AuditJsonContext.Default.AuditEntry);

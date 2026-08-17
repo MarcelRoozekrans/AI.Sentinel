@@ -31,7 +31,7 @@ public class SentinelChatClientStreamingTests
 
         var chunks = new List<ChatResponseUpdate>();
         await foreach (var update in client.GetStreamingResponseAsync(
-            [new ChatMessage(ChatRole.User, "hi")]))
+            [new ChatMessage(ChatRole.User, "hi")], default, TestContext.Current.CancellationToken))
             chunks.Add(update);
 
         Assert.Equal(2, chunks.Count);
@@ -49,7 +49,7 @@ public class SentinelChatClientStreamingTests
         await Assert.ThrowsAsync<SentinelException>(async () =>
         {
             await foreach (var _ in client.GetStreamingResponseAsync(
-                [new ChatMessage(ChatRole.User, "hostile")]))
+                [new ChatMessage(ChatRole.User, "hostile")], default, TestContext.Current.CancellationToken))
             { }
         });
     }
@@ -65,7 +65,7 @@ public class SentinelChatClientStreamingTests
         await Assert.ThrowsAsync<SentinelException>(async () =>
         {
             await foreach (var _ in client.GetStreamingResponseAsync(
-                [new ChatMessage(ChatRole.User, "clean prompt")]))
+                [new ChatMessage(ChatRole.User, "clean prompt")], default, TestContext.Current.CancellationToken))
             { }
         });
     }
@@ -81,11 +81,11 @@ public class SentinelChatClientStreamingTests
             new StreamingFakeClient("ok"), pipeline, store, engine, opts);
 
         await foreach (var _ in client.GetStreamingResponseAsync(
-            [new ChatMessage(ChatRole.User, "hi")]))
+            [new ChatMessage(ChatRole.User, "hi")], default, TestContext.Current.CancellationToken))
         { }
 
         var entries = new List<AuditEntry>();
-        await foreach (var entry in store.QueryAsync(new AuditQuery(), default))
+        await foreach (var entry in store.QueryAsync(new AuditQuery(), TestContext.Current.CancellationToken))
             entries.Add(entry);
         Assert.NotEmpty(entries);
     }

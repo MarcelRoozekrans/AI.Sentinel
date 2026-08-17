@@ -28,7 +28,7 @@ public class SentinelChatClientTests
         var inner = new FakeChatClient("Hello!");
         var client = BuildSentinelClient(inner);
         var result = await client.GetResponseAsync(
-            new List<ChatMessage> { new(ChatRole.User, "hi") });
+            new List<ChatMessage> { new(ChatRole.User, "hi") }, default, TestContext.Current.CancellationToken);
         Assert.Contains("Hello!", result.Text ?? "", StringComparison.Ordinal);
     }
 
@@ -41,7 +41,7 @@ public class SentinelChatClientTests
 
         await Assert.ThrowsAsync<SentinelException>(
             () => client.GetResponseAsync(
-                new List<ChatMessage> { new(ChatRole.User, "inject") }));
+                new List<ChatMessage> { new(ChatRole.User, "inject") }, default, TestContext.Current.CancellationToken));
     }
 
     private sealed class FakeCriticalDetector : IDetector
@@ -64,7 +64,7 @@ public class SentinelChatClientTests
         await Assert.ThrowsAsync<SentinelException>(async () =>
         {
             await foreach (var _ in client.GetStreamingResponseAsync(
-                new List<ChatMessage> { new(ChatRole.User, "hostile input") }))
+                new List<ChatMessage> { new(ChatRole.User, "hostile input") }, default, TestContext.Current.CancellationToken))
             { }
         });
     }

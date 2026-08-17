@@ -22,7 +22,7 @@ public class ScanCommandTests
             OutputFormat.Text,
             stdout,
             stderr,
-            default);
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exit);
         Assert.Contains("Clean", stdout.ToString(), StringComparison.Ordinal);
@@ -40,7 +40,7 @@ public class ScanCommandTests
             OutputFormat.Json,
             stdout,
             stderr,
-            default);
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(0, exit);
         Assert.Contains("\"schemaVersion\": \"1\"", stdout.ToString(), StringComparison.Ordinal);
@@ -58,7 +58,7 @@ public class ScanCommandTests
             OutputFormat.Text,
             stdout,
             stderr,
-            default);
+            TestContext.Current.CancellationToken);
 
         Assert.Equal(2, exit);
     }
@@ -69,7 +69,7 @@ public class ScanCommandTests
         var tempFile = Path.GetTempFileName();
         try
         {
-            await File.WriteAllTextAsync(tempFile, "not json at all");
+            await File.WriteAllTextAsync(tempFile, "not json at all", TestContext.Current.CancellationToken);
             var stdout = new StringWriter();
             var stderr = new StringWriter();
 
@@ -79,7 +79,7 @@ public class ScanCommandTests
                 OutputFormat.Text,
                 stdout,
                 stderr,
-                default);
+                TestContext.Current.CancellationToken);
 
             Assert.Equal(2, exit);
         }
@@ -101,7 +101,7 @@ public class ScanCommandTests
             OutputFormat.Text,
             stdout,
             stderr,
-            default,
+            TestContext.Current.CancellationToken,
             expectedDetectors: ["SEC-01"],
             embeddingGenerator: new FakeEmbeddingGenerator());
 
@@ -120,7 +120,7 @@ public class ScanCommandTests
             OutputFormat.Text,
             stdout,
             stderr,
-            default,
+            TestContext.Current.CancellationToken,
             expectedDetectors: ["SEC-01"]);
 
         Assert.Equal(1, exit);
@@ -138,7 +138,7 @@ public class ScanCommandTests
             OutputFormat.Text,
             stdout,
             stderr,
-            default,
+            TestContext.Current.CancellationToken,
             minSeverity: Severity.High);
 
         Assert.Equal(1, exit);
@@ -159,7 +159,7 @@ public class ScanCommandTests
         var tempBaseline = Path.GetTempFileName();
         try
         {
-            await File.WriteAllTextAsync(tempBaseline, JsonFormatter.Format(baseline));
+            await File.WriteAllTextAsync(tempBaseline, JsonFormatter.Format(baseline), TestContext.Current.CancellationToken);
 
             var stdout = new StringWriter();
             var stderr = new StringWriter();
@@ -170,7 +170,7 @@ public class ScanCommandTests
                 OutputFormat.Text,
                 stdout,
                 stderr,
-                default,
+                TestContext.Current.CancellationToken,
                 baselinePath: tempBaseline);
 
             Assert.Equal(1, exit);
@@ -197,7 +197,7 @@ public class ScanCommandTests
         var tempBaseline = Path.GetTempFileName();
         try
         {
-            await File.WriteAllTextAsync(tempBaseline, JsonFormatter.Format(baseline));
+            await File.WriteAllTextAsync(tempBaseline, JsonFormatter.Format(baseline), TestContext.Current.CancellationToken);
 
             var stdout = new StringWriter();
             var stderr = new StringWriter();
@@ -208,7 +208,7 @@ public class ScanCommandTests
                 OutputFormat.Text,
                 stdout,
                 stderr,
-                default,
+                TestContext.Current.CancellationToken,
                 baselinePath: tempBaseline,
                 embeddingGenerator: new FakeEmbeddingGenerator());
 

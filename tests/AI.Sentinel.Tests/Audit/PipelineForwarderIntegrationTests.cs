@@ -17,7 +17,7 @@ public class PipelineForwarderIntegrationTests
         var sp = services.BuildServiceProvider();
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
-        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
 
         // Wait for fire-and-forget propagation (bounded poll instead of fixed sleep — CI is slower)
         await WaitUntilAsync(() => fwd.Batches.Count > 0);
@@ -38,7 +38,7 @@ public class PipelineForwarderIntegrationTests
         var sp = services.BuildServiceProvider();
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
-        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
         await WaitUntilAsync(() => fwdA.Batches.Count > 0 && fwdB.Batches.Count > 0);
 
         Assert.NotEmpty(fwdA.Batches);
@@ -53,7 +53,7 @@ public class PipelineForwarderIntegrationTests
         var sp = services.BuildServiceProvider();
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
-        var response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+        var response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
 
         Assert.NotNull(response);
     }
@@ -73,7 +73,7 @@ public class PipelineForwarderIntegrationTests
             var sp = services.BuildServiceProvider();
 
             var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
-            await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+            await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
 
             // Both forwarders run fire-and-forget on Task.Run — wait for BOTH before
             // disposing the SP, otherwise DisposeAsync on the NDJSON forwarder closes the
@@ -109,7 +109,7 @@ public class PipelineForwarderIntegrationTests
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
         sw.Stop();
 
         Assert.True(sw.Elapsed < TimeSpan.FromMilliseconds(500), $"Pipeline should NOT block on slow forwarder; elapsed={sw.Elapsed}");

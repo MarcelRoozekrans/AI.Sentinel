@@ -54,7 +54,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public async Task EnsureRequest_FirstCall_ReturnsPending()
     {
         await using var store = NewStore();
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Pending>(state);
     }
 
@@ -62,8 +62,8 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public async Task EnsureRequest_RepeatedCall_DedupesByCallerAndPolicy()
     {
         await using var store = NewStore();
-        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        var second = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        var second = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         var pending2 = Assert.IsType<ApprovalState.Pending>(second);
         Assert.Equal(first.RequestId, pending2.RequestId);
     }
@@ -72,9 +72,9 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public async Task ApproveAsync_TransitionsToActive()
     {
         await using var store = NewStore();
-        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        await store.ApproveAsync(pending.RequestId, "approver", note: null, default);
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.ApproveAsync(pending.RequestId, "approver", note: null, TestContext.Current.CancellationToken);
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Active>(state);
     }
 
@@ -82,15 +82,15 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public async Task DenyAsync_FirstCallObservesDenied_SecondCallCreatesFresh()
     {
         await using var store = NewStore();
-        var pending1 = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        await store.DenyAsync(pending1.RequestId, "approver", "no", default);
+        var pending1 = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.DenyAsync(pending1.RequestId, "approver", "no", TestContext.Current.CancellationToken);
 
         // First call after deny: caller observes the terminal state once.
-        var afterDeny = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var afterDeny = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Denied>(afterDeny);
 
         // Second call: dedupe was cleared on the previous call → fresh Pending with NEW request id.
-        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         var pending2 = Assert.IsType<ApprovalState.Pending>(retry);
         Assert.NotEqual(pending1.RequestId, pending2.RequestId, StringComparer.Ordinal);
     }
@@ -103,16 +103,16 @@ public sealed class SqliteApprovalStoreTests : IDisposable
             MakeCaller(),
             MakeSpec(grant: TimeSpan.FromMilliseconds(50)),
             MakeCtx(),
-            default);
-        await store.ApproveAsync(pending1.RequestId, "approver", null, default);
-        await Task.Delay(150);
+            TestContext.Current.CancellationToken);
+        await store.ApproveAsync(pending1.RequestId, "approver", null, TestContext.Current.CancellationToken);
+        await Task.Delay(150, TestContext.Current.CancellationToken);
 
         // First call after expiry: observe Denied (terminal state communicated to caller).
-        var afterExpiry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var afterExpiry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Denied>(afterExpiry);
 
         // Second call: dedupe was cleared on the previous call → fresh Pending with NEW request id.
-        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         var pending2 = Assert.IsType<ApprovalState.Pending>(retry);
         Assert.NotEqual(pending1.RequestId, pending2.RequestId, StringComparer.Ordinal);
     }
@@ -121,10 +121,10 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public async Task WaitForDecision_TriggersOnApprove()
     {
         await using var store = NewStore();
-        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        var waitTask = store.WaitForDecisionAsync(pending.RequestId, TimeSpan.FromSeconds(5), default).AsTask();
-        await Task.Delay(50);
-        await store.ApproveAsync(pending.RequestId, "a", null, default);
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        var waitTask = store.WaitForDecisionAsync(pending.RequestId, TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken).AsTask();
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        await store.ApproveAsync(pending.RequestId, "a", null, TestContext.Current.CancellationToken);
         var result = await waitTask;
         Assert.IsType<ApprovalState.Active>(result);
     }
@@ -133,11 +133,11 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public async Task WaitForDecision_ExternalCancellation_Throws()
     {
         await using var store = NewStore();
-        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         using var cts = new CancellationTokenSource();
         var waitTask = store.WaitForDecisionAsync(pending.RequestId, TimeSpan.FromSeconds(30), cts.Token).AsTask();
-        await Task.Delay(50);
+        await Task.Delay(50, TestContext.Current.CancellationToken);
         cts.Cancel();
 
         await Assert.ThrowsAsync<TaskCanceledException>(() => waitTask);
@@ -147,12 +147,12 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     public async Task ListPending_ReturnsOnlyPendingRequests()
     {
         await using var store = NewStore();
-        var p1 = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller("a"), MakeSpec("p1"), MakeCtx(), default);
-        await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec("p2"), MakeCtx(), default);
-        await store.ApproveAsync(p1.RequestId, "a", null, default);
+        var p1 = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller("a"), MakeSpec("p1"), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec("p2"), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.ApproveAsync(p1.RequestId, "a", null, TestContext.Current.CancellationToken);
 
         var pending = new List<PendingRequest>();
-        await foreach (var r in store.ListPendingAsync(default)) pending.Add(r);
+        await foreach (var r in store.ListPendingAsync(TestContext.Current.CancellationToken)) pending.Add(r);
         Assert.Single(pending);
         Assert.Equal("p2", pending[0].PolicyName);
     }
@@ -163,14 +163,14 @@ public sealed class SqliteApprovalStoreTests : IDisposable
         string requestId;
         await using (var store1 = new SqliteApprovalStore(new SqliteApprovalStoreOptions { DatabasePath = _dbPath }))
         {
-            var pending = (ApprovalState.Pending)await store1.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-            await store1.DenyAsync(pending.RequestId, "approver", "no", default);
+            var pending = (ApprovalState.Pending)await store1.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+            await store1.DenyAsync(pending.RequestId, "approver", "no", TestContext.Current.CancellationToken);
             requestId = pending.RequestId;
         }
 
         // Reopen and verify the deny survived
         await using var store2 = new SqliteApprovalStore(new SqliteApprovalStoreOptions { DatabasePath = _dbPath });
-        var observed = await store2.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var observed = await store2.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         var denied = Assert.IsType<ApprovalState.Denied>(observed);
         Assert.Equal("no", denied.Reason);
     }

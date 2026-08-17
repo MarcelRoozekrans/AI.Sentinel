@@ -92,7 +92,7 @@ public class McpProxyTests
         var messages = new[] { new Microsoft.Extensions.AI.ChatMessage(
             Microsoft.Extensions.AI.ChatRole.User, phrase) };
 
-        var error = await pipeline.ScanMessagesAsync(messages);
+        var error = await pipeline.ScanMessagesAsync(messages, default, TestContext.Current.CancellationToken);
 
         var threat = Assert.IsType<SentinelError.ThreatDetected>(error);
         Assert.True(threat.Result.Severity >= Severity.High);

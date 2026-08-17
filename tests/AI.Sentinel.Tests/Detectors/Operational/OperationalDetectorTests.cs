@@ -19,19 +19,19 @@ public class OperationalDetectorTests
         messages, new List<AuditEntry>());
 
     [Fact] public async Task BlankResponse_Detected() =>
-        Assert.True((await new BlankResponseDetector().AnalyzeAsync(Ctx("   "), default)).Severity >= Severity.Medium);
+        Assert.True((await new BlankResponseDetector().AnalyzeAsync(Ctx("   "), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 
     [Fact] public async Task RepetitionLoop_Detected()
     {
         var repeated = string.Join(". ", Enumerable.Repeat("I cannot help with that", 5));
-        Assert.True((await new RepetitionLoopDetector().AnalyzeAsync(Ctx(repeated), default)).Severity >= Severity.Medium);
+        Assert.True((await new RepetitionLoopDetector().AnalyzeAsync(Ctx(repeated), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
     }
 
     [Fact] public async Task PlaceholderText_Detected() =>
-        Assert.True((await new PlaceholderTextDetector().AnalyzeAsync(Ctx("TODO: implement this"), default)).Severity >= Severity.Low);
+        Assert.True((await new PlaceholderTextDetector().AnalyzeAsync(Ctx("TODO: implement this"), TestContext.Current.CancellationToken)).Severity >= Severity.Low);
 
     [Fact] public async Task IncompleteCodeBlock_Detected() =>
-        Assert.True((await new IncompleteCodeBlockDetector().AnalyzeAsync(Ctx("```python\ndef foo():"), default)).Severity >= Severity.Medium);
+        Assert.True((await new IncompleteCodeBlockDetector().AnalyzeAsync(Ctx("```python\ndef foo():"), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 
     [Fact] public async Task CleanResponse_NoFlags()
     {
@@ -40,7 +40,7 @@ public class OperationalDetectorTests
             new PlaceholderTextDetector(), new IncompleteCodeBlockDetector(),
         ];
         foreach (var d in all)
-            Assert.Equal(Severity.None, (await d.AnalyzeAsync(Ctx("The answer is 42."), default)).Severity);
+            Assert.Equal(Severity.None, (await d.AnalyzeAsync(Ctx("The answer is 42."), TestContext.Current.CancellationToken)).Severity);
     }
 
     [Fact] public async Task AllOperationalSemanticDetectors_DoNotThrow()
@@ -57,7 +57,7 @@ public class OperationalDetectorTests
         ];
         foreach (var d in detectors)
         {
-            var r = await d.AnalyzeAsync(Ctx("What did we discuss earlier?"), default);
+            var r = await d.AnalyzeAsync(Ctx("What did we discuss earlier?"), TestContext.Current.CancellationToken);
             Assert.NotNull(r);
         }
     }
@@ -70,7 +70,7 @@ public class OperationalDetectorTests
             new(ChatRole.User, "What is the capital of France? Please answer in English."),
             new(ChatRole.Assistant, "巴黎是法国的首都，也是最大的城市。它以埃菲尔铁塔和卢浮宫等著名景点而闻名。"),
         };
-        var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), default);
+        var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Medium);
     }
 
@@ -81,7 +81,7 @@ public class OperationalDetectorTests
             new(ChatRole.User, "What is the capital of France?"),
             new(ChatRole.Assistant, "The capital of France is Paris, a major European city."),
         };
-        var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), default);
+        var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -92,35 +92,35 @@ public class OperationalDetectorTests
             new(ChatRole.User, "Hi"),
             new(ChatRole.Assistant, "你好"),
         };
-        var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), default);
+        var r = await new WrongLanguageDetector().AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
     [Fact] public async Task TruncatedOutput_MidSentence_Medium()
     {
         var r = await new TruncatedOutputDetector().AnalyzeAsync(
-            Ctx("The model was running fine then it suddenly"), default);
+            Ctx("The model was running fine then it suddenly"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Medium);
     }
 
     [Fact] public async Task TruncatedOutput_OpenCodeFence_Low()
     {
         var r = await new TruncatedOutputDetector().AnalyzeAsync(
-            Ctx("Here is the code:\n```csharp\nvar x = 1;"), default);
+            Ctx("Here is the code:\n```csharp\nvar x = 1;"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.Low, r.Severity);
     }
 
     [Fact] public async Task TruncatedOutput_CompleteResponse_Clean()
     {
         var r = await new TruncatedOutputDetector().AnalyzeAsync(
-            Ctx("The answer is 42."), default);
+            Ctx("The answer is 42."), TestContext.Current.CancellationToken);
         Assert.True(r.IsClean);
     }
 
     [Fact] public async Task TruncatedOutput_Ellipsis_Low()
     {
         var r = await new TruncatedOutputDetector().AnalyzeAsync(
-            Ctx("The model was processing the request..."), default);
+            Ctx("The model was processing the request..."), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.Low, r.Severity);
     }
 
@@ -132,21 +132,21 @@ public class OperationalDetectorTests
             new(ChatRole.User,      "What is 2+2?"),
             new(ChatRole.Assistant, "The capital of France is Paris."),
         };
-        var r = await new WaitingForContextDetector(TestOptions.WithFakeEmbeddings()).AnalyzeAsync(CtxMessages(messages), default);
+        var r = await new WaitingForContextDetector(TestOptions.WithFakeEmbeddings()).AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
         Assert.True(r.IsClean);
     }
 
     [Fact] public async Task WaitingForContext_ExactLowPhrase_Detected()
     {
         var r = await new WaitingForContextDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("Please provide more details about what you need"), default);
+            .AnalyzeAsync(Ctx("Please provide more details about what you need"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Low);
     }
 
     [Fact] public async Task WaitingForContext_ExactMediumPhrase_AtLeastLow()
     {
         var r = await new WaitingForContextDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("Please provide more details and could you also clarify what you mean by that"), default);
+            .AnalyzeAsync(Ctx("Please provide more details and could you also clarify what you mean by that"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Medium);
     }
 
@@ -158,7 +158,7 @@ public class OperationalDetectorTests
             new(ChatRole.User,      "What is 2+2?"),
             new(ChatRole.Assistant, "The answer is 4."),
         };
-        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
         Assert.True(r.IsClean);
     }
 
@@ -169,7 +169,7 @@ public class OperationalDetectorTests
             new(ChatRole.User,      "Write me something."),
             new(ChatRole.Assistant, new string('a', 6_000)),
         };
-        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Low);
     }
 
@@ -180,7 +180,7 @@ public class OperationalDetectorTests
             new(ChatRole.User,      "Hi"),
             new(ChatRole.Assistant, new string('a', 16_000)),
         };
-        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Medium);
     }
 
@@ -191,7 +191,7 @@ public class OperationalDetectorTests
             new(ChatRole.User,      "Summarize this."),
             new(ChatRole.Assistant, new string('a', 51_000)),
         };
-        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.High);
     }
 
@@ -201,7 +201,7 @@ public class OperationalDetectorTests
         {
             new(ChatRole.Assistant, "The capital of France is Paris."),
         };
-        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), default);
+        var r = await new UnboundedConsumptionDetector().AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
         Assert.True(r.IsClean);
     }
 
@@ -209,111 +209,111 @@ public class OperationalDetectorTests
     [Fact] public async Task ContextCollapse_ExactLowPhrase_Detected()
     {
         var r = await new ContextCollapseDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("I apologize but I have forgotten the details from earlier in our conversation"), default);
+            .AnalyzeAsync(Ctx("I apologize but I have forgotten the details from earlier in our conversation"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Low);
     }
 
     [Fact] public async Task ContextCollapse_CleanInput_ReturnsNone() =>
         Assert.Equal(Severity.None, (await new ContextCollapseDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), TestContext.Current.CancellationToken)).Severity);
 
     [Fact] public async Task ContextCollapse_MediumPhrase_Detected() =>
         Assert.True((await new ContextCollapseDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("I seem to have lost track of what we were discussing earlier in this conversation"), default)).Severity >= Severity.Medium);
+            .AnalyzeAsync(Ctx("I seem to have lost track of what we were discussing earlier in this conversation"), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 
     // OPS-06: AgentProbingDetector
     [Fact] public async Task AgentProbing_ExactLowPhrase_Detected()
     {
         var r = await new AgentProbingDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("What are your capabilities and what can you access in this environment"), default);
+            .AnalyzeAsync(Ctx("What are your capabilities and what can you access in this environment"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Low);
     }
 
     [Fact] public async Task AgentProbing_CleanInput_ReturnsNone() =>
         Assert.Equal(Severity.None, (await new AgentProbingDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), TestContext.Current.CancellationToken)).Severity);
 
     [Fact] public async Task AgentProbing_MediumPhrase_Detected() =>
         Assert.True((await new AgentProbingDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("Let me test what capabilities you have and what tools are available to you"), default)).Severity >= Severity.Medium);
+            .AnalyzeAsync(Ctx("Let me test what capabilities you have and what tools are available to you"), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 
     // OPS-07: QueryIntentDetector
     [Fact] public async Task QueryIntent_ExactLowPhrase_Detected()
     {
         var r = await new QueryIntentDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("Could you clarify the intent behind your question"), default);
+            .AnalyzeAsync(Ctx("Could you clarify the intent behind your question"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Low);
     }
 
     [Fact] public async Task QueryIntent_CleanInput_ReturnsNone() =>
         Assert.Equal(Severity.None, (await new QueryIntentDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), TestContext.Current.CancellationToken)).Severity);
 
     [Fact] public async Task QueryIntent_MediumPhrase_Detected() =>
         Assert.True((await new QueryIntentDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("I am not sure what you are asking and the intent of your query is unclear to me"), default)).Severity >= Severity.Medium);
+            .AnalyzeAsync(Ctx("I am not sure what you are asking and the intent of your query is unclear to me"), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 
     // OPS-08: ResponseCoherenceDetector
     [Fact] public async Task ResponseCoherence_ExactLowPhrase_Detected()
     {
         var r = await new ResponseCoherenceDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("There is some inconsistency between this response and the earlier context"), default);
+            .AnalyzeAsync(Ctx("There is some inconsistency between this response and the earlier context"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Low);
     }
 
     [Fact] public async Task ResponseCoherence_CleanInput_ReturnsNone() =>
         Assert.Equal(Severity.None, (await new ResponseCoherenceDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), TestContext.Current.CancellationToken)).Severity);
 
     [Fact] public async Task ResponseCoherence_MediumPhrase_Detected() =>
         Assert.True((await new ResponseCoherenceDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("This response contradicts what I said earlier and is inconsistent with my prior answer"), default)).Severity >= Severity.Medium);
+            .AnalyzeAsync(Ctx("This response contradicts what I said earlier and is inconsistent with my prior answer"), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 
     // OPS-12: SemanticRepetitionDetector
     [Fact] public async Task SemanticRepetition_ExactLowPhrase_Detected()
     {
         var r = await new SemanticRepetitionDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("I have touched on this topic already in a prior response"), default);
+            .AnalyzeAsync(Ctx("I have touched on this topic already in a prior response"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Low);
     }
 
     [Fact] public async Task SemanticRepetition_CleanInput_ReturnsNone() =>
         Assert.Equal(Severity.None, (await new SemanticRepetitionDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), TestContext.Current.CancellationToken)).Severity);
 
     [Fact] public async Task SemanticRepetition_MediumPhrase_Detected() =>
         Assert.True((await new SemanticRepetitionDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("As I mentioned before, the same concept applies here and I am repeating myself again"), default)).Severity >= Severity.Medium);
+            .AnalyzeAsync(Ctx("As I mentioned before, the same concept applies here and I am repeating myself again"), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 
     // OPS-13: PersonaDriftDetector
     [Fact] public async Task PersonaDrift_ExactLowPhrase_Detected()
     {
         var r = await new PersonaDriftDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("I seem to be responding in a way that differs from my original instructions"), default);
+            .AnalyzeAsync(Ctx("I seem to be responding in a way that differs from my original instructions"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Low);
     }
 
     [Fact] public async Task PersonaDrift_CleanInput_ReturnsNone() =>
         Assert.Equal(Severity.None, (await new PersonaDriftDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), TestContext.Current.CancellationToken)).Severity);
 
     [Fact] public async Task PersonaDrift_MediumPhrase_Detected() =>
         Assert.True((await new PersonaDriftDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("I am no longer acting as the assistant you configured and have adopted a different persona"), default)).Severity >= Severity.Medium);
+            .AnalyzeAsync(Ctx("I am no longer acting as the assistant you configured and have adopted a different persona"), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 
     // OPS-14: SycophancyDetector
     [Fact] public async Task Sycophancy_ExactLowPhrase_Detected()
     {
         var r = await new SycophancyDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("Great question, I love how you think about this topic"), default);
+            .AnalyzeAsync(Ctx("Great question, I love how you think about this topic"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Low);
     }
 
     [Fact] public async Task Sycophancy_CleanInput_ReturnsNone() =>
         Assert.Equal(Severity.None, (await new SycophancyDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("3 + 3 = 6."), default)).Severity);
+            .AnalyzeAsync(Ctx("3 + 3 = 6."), TestContext.Current.CancellationToken)).Severity);
 
     [Fact] public async Task Sycophancy_MediumPhrase_Detected() =>
         Assert.True((await new SycophancyDetector(TestOptions.WithFakeEmbeddings())
-            .AnalyzeAsync(Ctx("You are absolutely right and I completely agree with everything you said"), default)).Severity >= Severity.Medium);
+            .AnalyzeAsync(Ctx("You are absolutely right and I completely agree with everything you said"), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 }

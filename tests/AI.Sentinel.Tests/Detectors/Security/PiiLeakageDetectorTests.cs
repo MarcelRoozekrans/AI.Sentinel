@@ -18,7 +18,7 @@ public class PiiLeakageDetectorTests
     public async Task CleanText_ReturnsClean()
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx("The weather is nice today."), default);
+        var r = await d.AnalyzeAsync(Ctx("The weather is nice today."), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -28,7 +28,7 @@ public class PiiLeakageDetectorTests
     public async Task Ssn_Detected(string text)
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
         Assert.Contains("SSN", r.Reason, StringComparison.Ordinal);
     }
@@ -40,7 +40,7 @@ public class PiiLeakageDetectorTests
     public async Task CreditCard_Detected(string text)
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.Critical, r.Severity);
         Assert.Contains("Credit card", r.Reason, StringComparison.Ordinal);
     }
@@ -52,7 +52,7 @@ public class PiiLeakageDetectorTests
     public async Task Iban_Detected(string text)
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
         Assert.Contains("IBAN", r.Reason, StringComparison.Ordinal);
     }
@@ -63,7 +63,7 @@ public class PiiLeakageDetectorTests
     public async Task Bsn_WithContext_Detected(string text)
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
         Assert.Contains("BSN", r.Reason, StringComparison.Ordinal);
     }
@@ -72,7 +72,7 @@ public class PiiLeakageDetectorTests
     public async Task BareNineDigits_WithoutContext_Clean()
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx("Order number 123456782"), default);
+        var r = await d.AnalyzeAsync(Ctx("Order number 123456782"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -80,7 +80,7 @@ public class PiiLeakageDetectorTests
     public async Task UkNino_Detected()
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx("NINO: AB123456C"), default);
+        var r = await d.AnalyzeAsync(Ctx("NINO: AB123456C"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
         Assert.Contains("National Insurance", r.Reason, StringComparison.Ordinal);
     }
@@ -89,7 +89,7 @@ public class PiiLeakageDetectorTests
     public async Task EmailWithName_Detected()
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx("Contact John Smith at john.smith@example.com"), default);
+        var r = await d.AnalyzeAsync(Ctx("Contact John Smith at john.smith@example.com"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.Medium, r.Severity);
         Assert.Contains("Email", r.Reason, StringComparison.Ordinal);
     }
@@ -101,7 +101,7 @@ public class PiiLeakageDetectorTests
     public async Task Phone_Detected(string text)
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.Medium, r.Severity);
         Assert.Contains("Phone", r.Reason, StringComparison.Ordinal);
     }
@@ -110,7 +110,7 @@ public class PiiLeakageDetectorTests
     public async Task Dob_Detected()
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx("DOB: 15/03/1990"), default);
+        var r = await d.AnalyzeAsync(Ctx("DOB: 15/03/1990"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.Medium, r.Severity);
         Assert.Contains("Date of birth", r.Reason, StringComparison.Ordinal);
     }
@@ -119,7 +119,7 @@ public class PiiLeakageDetectorTests
     public async Task Passport_WithContext_Detected()
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx("passport: AB1234567"), default);
+        var r = await d.AnalyzeAsync(Ctx("passport: AB1234567"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
         Assert.Contains("Passport", r.Reason, StringComparison.Ordinal);
     }
@@ -128,7 +128,7 @@ public class PiiLeakageDetectorTests
     public async Task DeTaxId_WithContext_Detected()
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx("Steuer-ID: 12 345 67890"), default);
+        var r = await d.AnalyzeAsync(Ctx("Steuer-ID: 12 345 67890"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
         Assert.Contains("tax ID", r.Reason, StringComparison.Ordinal);
     }

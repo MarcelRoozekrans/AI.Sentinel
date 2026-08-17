@@ -22,7 +22,7 @@ public class DashboardApprovalsTests
     {
         using var host = await BuildHostAsync(approvalStore: null);
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/approvals");
+        var html = await client.GetStringAsync("/sentinel/api/approvals", TestContext.Current.CancellationToken);
         Assert.Contains("approvals-empty", html, StringComparison.Ordinal);
         Assert.Contains("No approval store configured", html, StringComparison.Ordinal);
     }
@@ -34,7 +34,7 @@ public class DashboardApprovalsTests
         var store = new ExternalOnlyApprovalStore();
         using var host = await BuildHostAsync(store);
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/approvals");
+        var html = await client.GetStringAsync("/sentinel/api/approvals", TestContext.Current.CancellationToken);
         Assert.Contains("approvals-external", html, StringComparison.Ordinal);
         Assert.Contains("PIM portal", html, StringComparison.Ordinal);
     }
@@ -45,7 +45,7 @@ public class DashboardApprovalsTests
         var store = new InMemoryApprovalStore();
         using var host = await BuildHostAsync(store);
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/approvals");
+        var html = await client.GetStringAsync("/sentinel/api/approvals", TestContext.Current.CancellationToken);
         Assert.Contains("approvals-empty", html, StringComparison.Ordinal);
         Assert.Contains("No pending approvals", html, StringComparison.Ordinal);
     }
@@ -54,11 +54,11 @@ public class DashboardApprovalsTests
     public async Task ListApprovals_OnePending_RendersTableRow()
     {
         var store = new InMemoryApprovalStore();
-        await store.EnsureRequestAsync(new TestSec("alice"), MakeSpec(), MakeCtx(), default);
+        await store.EnsureRequestAsync(new TestSec("alice"), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         using var host = await BuildHostAsync(store);
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/approvals");
+        var html = await client.GetStringAsync("/sentinel/api/approvals", TestContext.Current.CancellationToken);
         Assert.Contains("data-request-id=\"req-", html, StringComparison.Ordinal);
         Assert.Contains("alice", html, StringComparison.Ordinal);
         Assert.Contains("delete_database", html, StringComparison.Ordinal);
@@ -71,14 +71,14 @@ public class DashboardApprovalsTests
     {
         var store = new InMemoryApprovalStore();
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
-            new TestSec("alice"), MakeSpec(), MakeCtx(), default);
+            new TestSec("alice"), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
         var client = host.GetTestClient();
-        var resp = await client.PostAsync($"/sentinel/api/approvals/{pending.RequestId}/approve", new StringContent(""));
+        var resp = await client.PostAsync($"/sentinel/api/approvals/{pending.RequestId}/approve", new StringContent(""), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
 
-        var observed = await store.EnsureRequestAsync(new TestSec("alice"), MakeSpec(), MakeCtx(), default);
+        var observed = await store.EnsureRequestAsync(new TestSec("alice"), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Active>(observed);
     }
 
@@ -87,15 +87,15 @@ public class DashboardApprovalsTests
     {
         var store = new InMemoryApprovalStore();
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
-            new TestSec("alice"), MakeSpec(), MakeCtx(), default);
+            new TestSec("alice"), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
         var client = host.GetTestClient();
         var content = new FormUrlEncodedContent(new Dictionary<string, string>(StringComparer.Ordinal) { ["reason"] = "no thanks" });
-        var resp = await client.PostAsync($"/sentinel/api/approvals/{pending.RequestId}/deny", content);
+        var resp = await client.PostAsync($"/sentinel/api/approvals/{pending.RequestId}/deny", content, TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
 
-        var observed = await store.EnsureRequestAsync(new TestSec("alice"), MakeSpec(), MakeCtx(), default);
+        var observed = await store.EnsureRequestAsync(new TestSec("alice"), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         var denied = Assert.IsType<ApprovalState.Denied>(observed);
         Assert.Contains("no thanks", denied.Reason, StringComparison.Ordinal);
     }
@@ -106,7 +106,7 @@ public class DashboardApprovalsTests
         var store = new ExternalOnlyApprovalStore();
         using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
         var client = host.GetTestClient();
-        var resp = await client.PostAsync("/sentinel/api/approvals/req-x/approve", new StringContent(""));
+        var resp = await client.PostAsync("/sentinel/api/approvals/req-x/approve", new StringContent(""), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
 
@@ -115,11 +115,11 @@ public class DashboardApprovalsTests
     {
         var store = new InMemoryApprovalStore();
         var caller = new TestSec("<script>alert('xss')</script>");
-        await store.EnsureRequestAsync(caller, MakeSpec(), MakeCtx(), default);
+        await store.EnsureRequestAsync(caller, MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         using var host = await BuildHostAsync(store);
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/approvals");
+        var html = await client.GetStringAsync("/sentinel/api/approvals", TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain("<script>alert", html, StringComparison.Ordinal);
         Assert.Contains("&lt;script&gt;alert", html, StringComparison.Ordinal);
@@ -133,17 +133,17 @@ public class DashboardApprovalsTests
     {
         var store = new InMemoryApprovalStore();
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
-            new TestSec("alice"), MakeSpec(), MakeCtx(), default);
+            new TestSec("alice"), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         using var host = await BuildHostAsync(store);   // No auth wired in test host
         var client = host.GetTestClient();
 
-        var resp = await client.PostAsync($"/sentinel/api/approvals/{pending.RequestId}/approve", new StringContent(""));
+        var resp = await client.PostAsync($"/sentinel/api/approvals/{pending.RequestId}/approve", new StringContent(""), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
 
         // State NOT mutated
-        var state = await store.EnsureRequestAsync(new TestSec("alice"), MakeSpec(), MakeCtx(), default);
+        var state = await store.EnsureRequestAsync(new TestSec("alice"), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Pending>(state);
     }
 

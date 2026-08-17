@@ -21,8 +21,8 @@ public class DeduplicatingAlertSinkTests
         var session = SessionId.New();
         var threat = MakeThreat("SEC-01", session);
 
-        await sink.SendAsync(threat, default);
-        await sink.SendAsync(threat, default);
+        await sink.SendAsync(threat, TestContext.Current.CancellationToken);
+        await sink.SendAsync(threat, TestContext.Current.CancellationToken);
 
         Assert.Equal(1, inner.CallCount);
     }
@@ -33,8 +33,8 @@ public class DeduplicatingAlertSinkTests
         var inner = new RecordingAlertSink();
         var sink = new DeduplicatingAlertSink(inner);
 
-        await sink.SendAsync(MakeThreat("SEC-01", SessionId.New()), default);
-        await sink.SendAsync(MakeThreat("SEC-01", SessionId.New()), default);
+        await sink.SendAsync(MakeThreat("SEC-01", SessionId.New()), TestContext.Current.CancellationToken);
+        await sink.SendAsync(MakeThreat("SEC-01", SessionId.New()), TestContext.Current.CancellationToken);
 
         Assert.Equal(2, inner.CallCount);
     }
@@ -46,9 +46,9 @@ public class DeduplicatingAlertSinkTests
         var sink = new DeduplicatingAlertSink(inner, window: TimeSpan.FromMilliseconds(100));
         var session = SessionId.New();
 
-        await sink.SendAsync(MakeThreat("SEC-01", session), default);
-        await Task.Delay(300); // wait for window to expire
-        await sink.SendAsync(MakeThreat("SEC-01", session), default);
+        await sink.SendAsync(MakeThreat("SEC-01", session), TestContext.Current.CancellationToken);
+        await Task.Delay(300, TestContext.Current.CancellationToken); // wait for window to expire
+        await sink.SendAsync(MakeThreat("SEC-01", session), TestContext.Current.CancellationToken);
 
         Assert.Equal(2, inner.CallCount);
     }
@@ -60,8 +60,8 @@ public class DeduplicatingAlertSinkTests
         var sink = new DeduplicatingAlertSink(inner, window: TimeSpan.FromMinutes(5));
         var session = SessionId.New();
 
-        await sink.SendAsync(MakeThreat("SEC-01", session), default);
-        await sink.SendAsync(MakeThreat("SEC-01", session), default); // within window
+        await sink.SendAsync(MakeThreat("SEC-01", session), TestContext.Current.CancellationToken);
+        await sink.SendAsync(MakeThreat("SEC-01", session), TestContext.Current.CancellationToken); // within window
 
         Assert.Equal(1, inner.CallCount);
     }
@@ -73,8 +73,8 @@ public class DeduplicatingAlertSinkTests
         var sink = new DeduplicatingAlertSink(inner);
         var failure = new SentinelError.PipelineFailure("test error");
 
-        await sink.SendAsync(failure, default);
-        await sink.SendAsync(failure, default);
+        await sink.SendAsync(failure, TestContext.Current.CancellationToken);
+        await sink.SendAsync(failure, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, inner.CallCount);
     }
@@ -97,8 +97,8 @@ public class DeduplicatingAlertSinkTests
         var sink = new DeduplicatingAlertSink(inner);
         var session = SessionId.New();
 
-        await sink.SendAsync(MakeThreat("SEC-01", session), default);
-        await sink.SendAsync(MakeThreat("SEC-01", session), default); // suppressed
+        await sink.SendAsync(MakeThreat("SEC-01", session), TestContext.Current.CancellationToken);
+        await sink.SendAsync(MakeThreat("SEC-01", session), TestContext.Current.CancellationToken); // suppressed
 
         Assert.Single(measurements);
         Assert.Equal(1L, measurements[0]);
@@ -115,12 +115,12 @@ public class DeduplicatingAlertSinkTests
             SentinelAction.Alert,
             new SessionId("sess-1"));
 
-        await sink.SendAsync(err, default);
+        await sink.SendAsync(err, TestContext.Current.CancellationToken);
         Assert.Equal(1, inner.CallCount);
 
-        await Task.Delay(150);
+        await Task.Delay(150, TestContext.Current.CancellationToken);
 
-        await sink.SendAsync(err, default);
+        await sink.SendAsync(err, TestContext.Current.CancellationToken);
         Assert.Equal(2, inner.CallCount);
     }
 
@@ -136,10 +136,10 @@ public class DeduplicatingAlertSinkTests
                 DetectionResult.WithSeverity(new DetectorId($"SEC-{i:000}"), Severity.High, "t"),
                 SentinelAction.Alert,
                 new SessionId($"sess-{i}"));
-            await sink.SendAsync(err, default);
+            await sink.SendAsync(err, TestContext.Current.CancellationToken);
         }
 
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         for (var i = 0; i < 256; i++)
         {
@@ -147,7 +147,7 @@ public class DeduplicatingAlertSinkTests
                 DetectionResult.WithSeverity(new DetectorId($"SEC-new-{i}"), Severity.High, "t"),
                 SentinelAction.Alert,
                 new SessionId($"sess-new-{i}"));
-            await sink.SendAsync(err, default);
+            await sink.SendAsync(err, TestContext.Current.CancellationToken);
         }
 
         var reSent = new SentinelError.ThreatDetected(
@@ -156,7 +156,7 @@ public class DeduplicatingAlertSinkTests
             new SessionId("sess-1"));
 
         var beforeCount = inner.CallCount;
-        await sink.SendAsync(reSent, default);
+        await sink.SendAsync(reSent, TestContext.Current.CancellationToken);
         Assert.Equal(beforeCount + 1, inner.CallCount);
     }
 

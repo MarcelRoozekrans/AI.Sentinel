@@ -18,8 +18,8 @@ public class DashboardMapAISentinelTests
         var host = await BuildHostWithFallbackAsync();
         var client = host.GetTestClient();
 
-        var response = await client.GetAsync("/sentinel/");
-        var body = await response.Content.ReadAsStringAsync();
+        var response = await client.GetAsync("/sentinel/", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(200, (int)response.StatusCode);
         Assert.DoesNotContain("FALLBACK", body, StringComparison.Ordinal);
@@ -32,8 +32,8 @@ public class DashboardMapAISentinelTests
         var host = await BuildHostWithFallbackAsync();
         var client = host.GetTestClient();
 
-        var response = await client.GetAsync("/sentinel/api/stats");
-        var body = await response.Content.ReadAsStringAsync();
+        var response = await client.GetAsync("/sentinel/api/stats", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(200, (int)response.StatusCode);
         Assert.DoesNotContain("FALLBACK", body, StringComparison.Ordinal);
@@ -48,8 +48,8 @@ public class DashboardMapAISentinelTests
         var host = await BuildHostWithFallbackAsync();
         var client = host.GetTestClient();
 
-        var response = await client.GetAsync("/sentinel/totally-unmapped");
-        var body = await response.Content.ReadAsStringAsync();
+        var response = await client.GetAsync("/sentinel/totally-unmapped", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(200, (int)response.StatusCode);
         Assert.Contains("FALLBACK", body, StringComparison.Ordinal);
@@ -61,8 +61,8 @@ public class DashboardMapAISentinelTests
         var host = await BuildHostWithFallbackAsync();
         var client = host.GetTestClient();
 
-        var response = await client.GetAsync("/some-other-spa-route");
-        var body = await response.Content.ReadAsStringAsync();
+        var response = await client.GetAsync("/some-other-spa-route", TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(200, (int)response.StatusCode);
         Assert.Contains("FALLBACK", body, StringComparison.Ordinal);
@@ -92,10 +92,10 @@ public class DashboardMapAISentinelTests
                     });
                 });
             })
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
 
         var client = host.GetTestClient();
-        var response = await client.GetAsync("/sentinel/api/stats");
+        var response = await client.GetAsync("/sentinel/api/stats", TestContext.Current.CancellationToken);
 
         Assert.Equal(200, (int)response.StatusCode);
     }

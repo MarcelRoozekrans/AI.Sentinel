@@ -281,7 +281,7 @@ public class AuthorizationTests
         var caller = AnonymousSecurityContext.Instance;
         var spec = new ApprovalSpec { PolicyName = "approval:Bash" };
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(caller, spec,
-            new ApprovalContext("Bash", default, null), default);
+            new ApprovalContext("Bash", default, null), TestContext.Current.CancellationToken);
 
         var guard = new RequireApprovalSequenceGuard([
             AuthorizationDecision.RequireApproval("approval:Bash", pending.RequestId,
@@ -290,11 +290,12 @@ public class AuthorizationTests
         ]);
 
         // Approve in the background after a short delay so WaitForDecisionAsync transitions to Active.
+        var ct = TestContext.Current.CancellationToken;
         _ = Task.Run(async () =>
         {
-            await Task.Delay(100);
-            await store.ApproveAsync(pending.RequestId, "boss", note: null, default);
-        });
+            await Task.Delay(100, ct);
+            await store.ApproveAsync(pending.RequestId, "boss", note: null, ct);
+        }, ct);
 
         var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), McpDetectorPreset.Security);
         using var stderr = new StringWriter();
@@ -327,7 +328,7 @@ public class AuthorizationTests
         var caller = AnonymousSecurityContext.Instance;
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(caller,
             new ApprovalSpec { PolicyName = "approval:Bash" },
-            new ApprovalContext("Bash", default, null), default);
+            new ApprovalContext("Bash", default, null), TestContext.Current.CancellationToken);
 
         var guard = new RequireApprovalSequenceGuard([
             AuthorizationDecision.RequireApproval("approval:Bash", pending.RequestId,

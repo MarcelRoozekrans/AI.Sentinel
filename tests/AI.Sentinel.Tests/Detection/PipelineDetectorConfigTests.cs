@@ -262,7 +262,7 @@ public class PipelineDetectorConfigTests
         await client.GetResponseAsync(new List<ChatMessage>
         {
             new(ChatRole.User, "anything")
-        });
+        }, default, TestContext.Current.CancellationToken);
 
         var entries = new List<AuditEntry>();
         await foreach (var e in store.QueryAsync(new AuditQuery(), CancellationToken.None))

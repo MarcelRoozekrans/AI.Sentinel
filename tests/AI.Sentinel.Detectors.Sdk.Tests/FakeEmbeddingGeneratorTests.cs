@@ -9,8 +9,8 @@ public class FakeEmbeddingGeneratorTests
     public async Task IdenticalStrings_YieldCosineNearOne()
     {
         var gen = new FakeEmbeddingGenerator();
-        var r1 = await gen.GenerateAsync(["the quick brown fox"]);
-        var r2 = await gen.GenerateAsync(["the quick brown fox"]);
+        var r1 = await gen.GenerateAsync(["the quick brown fox"], default, TestContext.Current.CancellationToken);
+        var r2 = await gen.GenerateAsync(["the quick brown fox"], default, TestContext.Current.CancellationToken);
         var cosine = Cosine(r1[0].Vector.Span, r2[0].Vector.Span);
 
         Assert.True(cosine > 0.999f, $"Expected cosine >= 0.999, got {cosine}");
@@ -20,8 +20,8 @@ public class FakeEmbeddingGeneratorTests
     public async Task UnrelatedStrings_YieldLowSimilarity()
     {
         var gen = new FakeEmbeddingGenerator();
-        var r1 = await gen.GenerateAsync(["the quick brown fox"]);
-        var r2 = await gen.GenerateAsync(["completely different unrelated text 12345"]);
+        var r1 = await gen.GenerateAsync(["the quick brown fox"], default, TestContext.Current.CancellationToken);
+        var r2 = await gen.GenerateAsync(["completely different unrelated text 12345"], default, TestContext.Current.CancellationToken);
         var cosine = Cosine(r1[0].Vector.Span, r2[0].Vector.Span);
 
         Assert.True(cosine < 0.5f, $"Expected cosine < 0.5 (low similarity), got {cosine}");
@@ -31,7 +31,7 @@ public class FakeEmbeddingGeneratorTests
     public async Task NonEmptyString_YieldsL2NormalizedVector()
     {
         var gen = new FakeEmbeddingGenerator();
-        var result = await gen.GenerateAsync(["the quick brown fox"]);
+        var result = await gen.GenerateAsync(["the quick brown fox"], default, TestContext.Current.CancellationToken);
         var vec = result[0].Vector.ToArray();
 
         var sumSq = 0f;
@@ -47,7 +47,7 @@ public class FakeEmbeddingGeneratorTests
     public async Task EmptyString_YieldsAllZeroVector()
     {
         var gen = new FakeEmbeddingGenerator();
-        var result = await gen.GenerateAsync([""]);
+        var result = await gen.GenerateAsync([""], default, TestContext.Current.CancellationToken);
         var vec = result[0].Vector.ToArray();
 
         Assert.Equal(256, vec.Length);

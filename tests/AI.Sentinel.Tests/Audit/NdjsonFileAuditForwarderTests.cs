@@ -34,7 +34,7 @@ public class NdjsonFileAuditForwarderTests : IDisposable
     {
         await using (var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath }))
         {
-            await f.SendAsync([MakeEntry("e1")], default);
+            await f.SendAsync([MakeEntry("e1")], TestContext.Current.CancellationToken);
         }
 
         var lines = File.ReadAllLines(_tempPath);
@@ -48,7 +48,7 @@ public class NdjsonFileAuditForwarderTests : IDisposable
     {
         await using (var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath }))
         {
-            await f.SendAsync([MakeEntry("e1"), MakeEntry("e2"), MakeEntry("e3")], default);
+            await f.SendAsync([MakeEntry("e1"), MakeEntry("e2"), MakeEntry("e3")], TestContext.Current.CancellationToken);
         }
 
         var lines = File.ReadAllLines(_tempPath);
@@ -60,7 +60,7 @@ public class NdjsonFileAuditForwarderTests : IDisposable
     {
         await using (var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath }))
         {
-            await f.SendAsync([MakeEntry("e1", "line1\nline2\nline3")], default);
+            await f.SendAsync([MakeEntry("e1", "line1\nline2\nline3")], TestContext.Current.CancellationToken);
         }
 
         var lines = File.ReadAllLines(_tempPath);
@@ -76,7 +76,7 @@ public class NdjsonFileAuditForwarderTests : IDisposable
 
         await using (var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath }))
         {
-            await f.SendAsync([MakeEntry("e1")], default);
+            await f.SendAsync([MakeEntry("e1")], TestContext.Current.CancellationToken);
         }
 
         var lines = File.ReadAllLines(_tempPath);
@@ -91,7 +91,7 @@ public class NdjsonFileAuditForwarderTests : IDisposable
         await f.DisposeAsync();
         // After dispose, writing should NOT throw — the IAuditForwarder contract says MUST NOT throw.
         // SendAsync now drops the batch (fail-open) instead of writing to the closed stream.
-        await f.SendAsync([MakeEntry("e1")], default);
+        await f.SendAsync([MakeEntry("e1")], TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -122,7 +122,7 @@ public class NdjsonFileAuditForwarderTests : IDisposable
             {
                 var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = path });
 
-                var send = f.SendAsync(batch, default).AsTask();   // parks at FlushAsync, un-awaited
+                var send = f.SendAsync(batch, TestContext.Current.CancellationToken).AsTask();   // parks at FlushAsync, un-awaited
                 await f.DisposeAsync();                            // races the in-flight flush — must NOT throw
                 await send;                                        // fail-open: never throws
 
@@ -150,7 +150,7 @@ public class NdjsonFileAuditForwarderTests : IDisposable
 
         await using (var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath }))
         {
-            await f.SendAsync([entry], default);
+            await f.SendAsync([entry], TestContext.Current.CancellationToken);
         }
 
         var lines = File.ReadAllLines(_tempPath);

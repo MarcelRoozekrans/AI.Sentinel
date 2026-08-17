@@ -65,7 +65,7 @@ public class DefaultToolCallGuardTests
     public async Task NoPoliciesRegistered_AllowsByDefault()
     {
         var guard = Build(ToolPolicyDefault.Allow);
-        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "anything", EmptyArgs);
+        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "anything", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.True(d.Allowed);
     }
 
@@ -76,7 +76,7 @@ public class DefaultToolCallGuardTests
             bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
         var caller = new TestSecurityContext("alice", "admin");
-        var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs);
+        var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.True(d.Allowed);
     }
 
@@ -87,7 +87,7 @@ public class DefaultToolCallGuardTests
             bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
         var caller = new TestSecurityContext("bob");
-        var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs);
+        var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.False(d.Allowed);
         Assert.Equal("test-admin-only", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
     }
@@ -99,7 +99,7 @@ public class DefaultToolCallGuardTests
             bindings: [("delete_*", "test-admin-only")],
             policies: [new AdminOnly()]);
         var caller = new TestSecurityContext("bob");
-        var d = await guard.AuthorizeAsync(caller, "delete_user", EmptyArgs);
+        var d = await guard.AuthorizeAsync(caller, "delete_user", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.False(d.Allowed);
     }
 
@@ -110,7 +110,7 @@ public class DefaultToolCallGuardTests
             bindings: [("Bash", "test-admin-only"), ("*", "always-deny")],
             policies: [new AdminOnly(), new AlwaysDeny()]);
         var caller = new TestSecurityContext("alice", "admin");
-        var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs);
+        var d = await guard.AuthorizeAsync(caller, "Bash", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.False(d.Allowed); // always-deny blocks even though admin-only allows
         Assert.Equal("always-deny", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
     }
@@ -121,7 +121,7 @@ public class DefaultToolCallGuardTests
         var guard = Build(ToolPolicyDefault.Allow,
             bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
-        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Read", EmptyArgs);
+        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Read", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.True(d.Allowed);
     }
 
@@ -131,7 +131,7 @@ public class DefaultToolCallGuardTests
         var guard = Build(ToolPolicyDefault.Deny,
             bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
-        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Read", EmptyArgs);
+        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Read", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.False(d.Allowed);
     }
 
@@ -141,7 +141,7 @@ public class DefaultToolCallGuardTests
         var guard = Build(ToolPolicyDefault.Allow,
             bindings: [("Bash", "throws")],
             policies: [new Throws()]);
-        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs);
+        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.False(d.Allowed);
         var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(d);
         Assert.Equal("throws", deny.PolicyName);
@@ -154,7 +154,7 @@ public class DefaultToolCallGuardTests
         var guard = Build(ToolPolicyDefault.Allow,
             bindings: [("Bash", "ghost-policy")],
             policies: []);
-        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs);
+        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.False(d.Allowed);
         Assert.Equal("ghost-policy", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
     }
@@ -165,7 +165,7 @@ public class DefaultToolCallGuardTests
         var guard = Build(ToolPolicyDefault.Allow,
             bindings: [("Bash", "test-admin-only")],
             policies: [new AdminOnly()]);
-        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs);
+        var d = await guard.AuthorizeAsync(AnonymousSecurityContext.Instance, "Bash", EmptyArgs, TestContext.Current.CancellationToken);
         Assert.False(d.Allowed);
     }
 
@@ -194,8 +194,8 @@ public class DefaultToolCallGuardTests
         var caller = AnonymousSecurityContext.Instance;
         var bad   = JsonDocument.Parse("""{"path":"/etc/passwd"}""").RootElement;
         var good  = JsonDocument.Parse("""{"path":"/tmp/foo"}""").RootElement;
-        Assert.False((await guard.AuthorizeAsync(caller, "Bash", bad)).Allowed);
-        Assert.True((await guard.AuthorizeAsync(caller, "Bash", good)).Allowed);
+        Assert.False((await guard.AuthorizeAsync(caller, "Bash", bad, TestContext.Current.CancellationToken)).Allowed);
+        Assert.True((await guard.AuthorizeAsync(caller, "Bash", good, TestContext.Current.CancellationToken)).Allowed);
     }
 
     [Policy("tenant-active")]
@@ -226,7 +226,7 @@ public class DefaultToolCallGuardTests
             policies: [new StructuredFailurePolicy()]);
 
         var decision = await guard.AuthorizeAsync(
-            new TestSecurityContext("user-1"), "Bash", EmptyArgs);
+            new TestSecurityContext("user-1"), "Bash", EmptyArgs, TestContext.Current.CancellationToken);
 
         var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(decision);
         Assert.Equal("tenant_inactive", deny.Code);
@@ -244,7 +244,7 @@ public class DefaultToolCallGuardTests
             policies: [new AlwaysDeny()]);
 
         var decision = await guard.AuthorizeAsync(
-            new TestSecurityContext("user-1"), "Bash", EmptyArgs);
+            new TestSecurityContext("user-1"), "Bash", EmptyArgs, TestContext.Current.CancellationToken);
 
         var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(decision);
         Assert.Equal("policy_denied", deny.Code);
@@ -320,7 +320,7 @@ public class DefaultToolCallGuardTests
         var guard = BuildWithApproval(store, spec);
 
         var decision = await guard.AuthorizeAsync(
-            new TestSecurityContext("user-1"), "Bash", EmptyArgs);
+            new TestSecurityContext("user-1"), "Bash", EmptyArgs, TestContext.Current.CancellationToken);
 
         var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(decision);
         Assert.Equal("approval:Bash", deny.PolicyName);
@@ -335,7 +335,7 @@ public class DefaultToolCallGuardTests
         var guard = BuildWithApproval(store, spec);
 
         var decision = await guard.AuthorizeAsync(
-            new TestSecurityContext("user-1"), "Bash", EmptyArgs);
+            new TestSecurityContext("user-1"), "Bash", EmptyArgs, TestContext.Current.CancellationToken);
 
         var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(decision);
         Assert.Equal("approval:Bash", deny.PolicyName);
@@ -364,7 +364,7 @@ public class DefaultToolCallGuardTests
         var guard = BuildWithApproval(new UnknownStateApprovalStore(), spec);
 
         var decision = await guard.AuthorizeAsync(
-            new TestSecurityContext("user-1"), "Bash", EmptyArgs);
+            new TestSecurityContext("user-1"), "Bash", EmptyArgs, TestContext.Current.CancellationToken);
 
         var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(decision);
         Assert.Equal("approval:Bash", deny.PolicyName);

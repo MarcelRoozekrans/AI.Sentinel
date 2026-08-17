@@ -23,7 +23,7 @@ public class ToolCallAuthorizationPolicyTests
     {
         var policy = new DenyBashPolicy();
         var caller = new TestSecurityContext("user");
-        Assert.True((await policy.EvaluateAsync(caller)).IsSuccess);
+        Assert.True((await policy.EvaluateAsync(caller, TestContext.Current.CancellationToken)).IsSuccess);
     }
 
     [Fact]
@@ -34,7 +34,7 @@ public class ToolCallAuthorizationPolicyTests
         var args   = JsonDocument.Parse("{}").RootElement;
         var bash   = new TestToolCallSecurityContext(inner, "Bash", args);
         var read   = new TestToolCallSecurityContext(inner, "Read", args);
-        Assert.True((await policy.EvaluateAsync(bash)).IsFailure);
-        Assert.True((await policy.EvaluateAsync(read)).IsSuccess);
+        Assert.True((await policy.EvaluateAsync(bash, TestContext.Current.CancellationToken)).IsFailure);
+        Assert.True((await policy.EvaluateAsync(read, TestContext.Current.CancellationToken)).IsSuccess);
     }
 }

@@ -46,7 +46,7 @@ public class AuthorizationTests
         var adapter = BuildAdapter(opts, config);
         var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
 
-        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, default);
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);
         // Phase 3: receipt format is "Authorization denied [<code>] by policy '<name>': <reason>".
@@ -76,7 +76,7 @@ public class AuthorizationTests
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
 
         var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
-        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, default);
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);
         Assert.Contains("Authorization denied [tenant_inactive]", output.Reason ?? "", StringComparison.Ordinal);
@@ -103,7 +103,7 @@ public class AuthorizationTests
         var adapter = BuildAdapter(opts, config);
         var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("""{"command":"ls"}""").RootElement, null);
 
-        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, default);
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         // Authorization passed; detection may still report Allow/Warn for a benign payload,
         // but must not Block on the authz path.
@@ -119,7 +119,7 @@ public class AuthorizationTests
         var adapter = BuildAdapter(opts, config);
         var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
 
-        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, default);
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);
     }
@@ -144,7 +144,7 @@ public class AuthorizationTests
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
 
         var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
-        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, default);
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);
         Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
@@ -184,7 +184,7 @@ public class AuthorizationTests
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
 
         var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
-        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, default);
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);
         var authzEntry = Assert.Single(recorder.Entries, e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));

@@ -19,10 +19,10 @@ public class DashboardTrendTests
         var host = await BuildHostAsync();
         var client = host.GetTestClient();
 
-        var resp = await client.GetAsync("/sentinel/api/trend");
+        var resp = await client.GetAsync("/sentinel/api/trend", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        var html = await resp.Content.ReadAsStringAsync();
+        var html = await resp.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("<svg", html, StringComparison.Ordinal);
         // No data points → flat baseline path; should still render the SVG envelope.
         Assert.Contains("stroke=\"#475569\"", html, StringComparison.Ordinal); // muted on empty (per stroke palette)
@@ -38,8 +38,8 @@ public class DashboardTrendTests
         await store.AppendAsync(NewEntry("SEC-01", "test", Severity.High), CancellationToken.None);
 
         var client = host.GetTestClient();
-        var resp = await client.GetAsync("/sentinel/api/trend");
-        var html = await resp.Content.ReadAsStringAsync();
+        var resp = await client.GetAsync("/sentinel/api/trend", TestContext.Current.CancellationToken);
+        var html = await resp.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Contains("<svg", html, StringComparison.Ordinal);
         Assert.Contains("d=\"M", html, StringComparison.Ordinal);   // SVG path data present

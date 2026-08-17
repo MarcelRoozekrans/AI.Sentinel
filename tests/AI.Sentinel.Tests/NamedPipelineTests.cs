@@ -212,7 +212,7 @@ public class NamedPipelineTests
         var sp = services.BuildServiceProvider();
         var client = sp.GetRequiredService<IChatClient>();
 
-        await client.GetResponseAsync(new List<ChatMessage> { new(ChatRole.User, "hi") });
+        await client.GetResponseAsync(new List<ChatMessage> { new(ChatRole.User, "hi") }, default, TestContext.Current.CancellationToken);
 
         var store = sp.GetRequiredService<IAuditStore>();
         var entries = new List<AuditEntry>();

@@ -39,7 +39,7 @@ public sealed class SqliteSchemaMigrationTests : IDisposable
         // Step 1: manually emulate a pre-1.6 (v1) database with a legacy AUTHZ-DENY row.
         await using (var conn = new SqliteConnection(csb.ToString()))
         {
-            await conn.OpenAsync();
+            await conn.OpenAsync(TestContext.Current.CancellationToken);
             using var seed = conn.CreateCommand();
             seed.CommandText = """
                 CREATE TABLE audit_entries (
@@ -56,7 +56,7 @@ public sealed class SqliteSchemaMigrationTests : IDisposable
                 VALUES ('legacy-1', 0, 4, 'AUTHZ-DENY', 'h', NULL, 'old denial', 1);
                 PRAGMA user_version = 1;
                 """;
-            await seed.ExecuteNonQueryAsync();
+            await seed.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
         }
 
         // Step 2: opening a SqliteAuditStore runs the migration.
@@ -69,10 +69,10 @@ public sealed class SqliteSchemaMigrationTests : IDisposable
         // Step 3: open a fresh raw connection and verify the legacy row was backfilled.
         await using (var conn = new SqliteConnection(csb.ToString()))
         {
-            await conn.OpenAsync();
+            await conn.OpenAsync(TestContext.Current.CancellationToken);
             using var queryCmd = conn.CreateCommand();
             queryCmd.CommandText = "SELECT policy_code FROM audit_entries WHERE id='legacy-1';";
-            var raw = await queryCmd.ExecuteScalarAsync();
+            var raw = await queryCmd.ExecuteScalarAsync(TestContext.Current.CancellationToken);
             Assert.Equal("policy_denied", raw);
         }
     }

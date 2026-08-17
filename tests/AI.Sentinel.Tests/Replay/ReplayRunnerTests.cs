@@ -52,7 +52,7 @@ public class ReplayRunnerTests
         var inner = new SentinelReplayClient([conv.Turns[0].Response]);
         var pipeline = BuildPipeline([], inner);
 
-        var result = await ReplayRunner.RunAsync("test.json", conv, pipeline, default);
+        var result = await ReplayRunner.RunAsync("test.json", conv, pipeline, TestContext.Current.CancellationToken);
 
         Assert.Equal("1", result.SchemaVersion);
         Assert.Single(result.Turns);
@@ -67,7 +67,7 @@ public class ReplayRunnerTests
         var inner = new SentinelReplayClient([conv.Turns[0].Response]);
         var pipeline = BuildPipeline([new PromptInjectionDetector(TestOptions.WithFakeEmbeddings())], inner);
 
-        var result = await ReplayRunner.RunAsync("test.json", conv, pipeline, default);
+        var result = await ReplayRunner.RunAsync("test.json", conv, pipeline, TestContext.Current.CancellationToken);
 
         Assert.True(result.MaxSeverity >= Severity.High);
         Assert.Contains(result.Turns[0].Detections, d => string.Equals(d.DetectorId, "SEC-01", StringComparison.Ordinal));
@@ -80,7 +80,7 @@ public class ReplayRunnerTests
         var inner = new SentinelReplayClient([conv.Turns[0].Response, conv.Turns[1].Response]);
         var pipeline = BuildPipeline([new PromptInjectionDetector(TestOptions.WithFakeEmbeddings())], inner);
 
-        var result = await ReplayRunner.RunAsync("test.json", conv, pipeline, default);
+        var result = await ReplayRunner.RunAsync("test.json", conv, pipeline, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, result.Turns.Count);
         Assert.Empty(result.Turns[0].Detections);

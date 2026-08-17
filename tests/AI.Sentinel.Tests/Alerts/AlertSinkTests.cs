@@ -29,7 +29,7 @@ public class AlertSinkTests
             DetectionResult.WithSeverity(new DetectorId("SEC-01"), Severity.High, "test"),
             SentinelAction.Quarantine,
             SessionId.New());
-        await NullAlertSink.Instance.SendAsync(error, default);
+        await NullAlertSink.Instance.SendAsync(error, TestContext.Current.CancellationToken);
         // reaching here confirms no throw
     }
 
@@ -37,7 +37,7 @@ public class AlertSinkTests
     public async Task NullAlertSink_PipelineFailure_DoesNotThrow()
     {
         var error = new SentinelError.PipelineFailure("network error");
-        await NullAlertSink.Instance.SendAsync(error, default);
+        await NullAlertSink.Instance.SendAsync(error, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -49,7 +49,7 @@ public class AlertSinkTests
             DetectionResult.WithSeverity(new DetectorId("SEC-01"), Severity.High, "test"),
             SentinelAction.Alert,
             SessionId.New());
-        await sink.SendAsync(error, default);
+        await sink.SendAsync(error, TestContext.Current.CancellationToken);
         // reaching here confirms the exception was swallowed
     }
 
@@ -69,7 +69,7 @@ public class AlertSinkTests
             capturedBody = await reader.ReadToEndAsync();
             ctx.Response.StatusCode = 200;
             ctx.Response.Close();
-        });
+        }, TestContext.Current.CancellationToken);
 
         var sink = new WebhookAlertSink(new Uri($"http://localhost:{port}/hook/"));
         var error = new SentinelError.ThreatDetected(
@@ -77,8 +77,8 @@ public class AlertSinkTests
             SentinelAction.Alert,
             SessionId.New());
 
-        await sink.SendAsync(error, default);
-        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await sink.SendAsync(error, TestContext.Current.CancellationToken);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         listener.Stop();
 
         Assert.Contains("\"type\":\"ThreatDetected\"", capturedBody, StringComparison.OrdinalIgnoreCase);
@@ -105,13 +105,13 @@ public class AlertSinkTests
             capturedBody = await reader.ReadToEndAsync();
             ctx.Response.StatusCode = 200;
             ctx.Response.Close();
-        });
+        }, TestContext.Current.CancellationToken);
 
         var sink = new WebhookAlertSink(new Uri($"http://localhost:{port}/hook/"));
         var error = new SentinelError.PipelineFailure("something failed");
 
-        await sink.SendAsync(error, default);
-        await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await sink.SendAsync(error, TestContext.Current.CancellationToken);
+        await serverTask.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         listener.Stop();
 
         Assert.Contains("\"type\":\"PipelineFailure\"", capturedBody, StringComparison.OrdinalIgnoreCase);

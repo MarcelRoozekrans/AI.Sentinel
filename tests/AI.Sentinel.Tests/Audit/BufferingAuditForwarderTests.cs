@@ -18,7 +18,7 @@ public class BufferingAuditForwarderTests
 
         for (var i = 0; i < 3; i++)
         {
-            await buf.SendAsync([MakeEntry($"e{i}")], default);
+            await buf.SendAsync([MakeEntry($"e{i}")], TestContext.Current.CancellationToken);
         }
 
         // Bounded poll for the background reader (CI is slower than fixed delays assume).
@@ -35,7 +35,7 @@ public class BufferingAuditForwarderTests
         await using var buf = new BufferingAuditForwarder<RecordingForwarder>(inner,
             new BufferingAuditForwarderOptions { MaxBatchSize = 1000, MaxFlushInterval = TimeSpan.FromMilliseconds(150) });
 
-        await buf.SendAsync([MakeEntry()], default);
+        await buf.SendAsync([MakeEntry()], TestContext.Current.CancellationToken);
         // Flush interval is 150ms — poll up to 5s for the interval-driven flush to land.
         await WaitUntilAsync(() => inner.Batches.Count > 0);
 
@@ -58,7 +58,7 @@ public class BufferingAuditForwarderTests
         // Push enough to overflow (2 capacity + 1 reader holding + extras)
         for (var i = 0; i < 20; i++)
         {
-            await buf.SendAsync([MakeEntry($"e{i}")], default);
+            await buf.SendAsync([MakeEntry($"e{i}")], TestContext.Current.CancellationToken);
         }
 
         Assert.True(buf.DroppedCount > 0, "Expected drops once channel filled");
@@ -71,7 +71,7 @@ public class BufferingAuditForwarderTests
         var buf = new BufferingAuditForwarder<RecordingForwarder>(inner,
             new BufferingAuditForwarderOptions { MaxBatchSize = 1000, MaxFlushInterval = TimeSpan.FromSeconds(60) });
 
-        await buf.SendAsync([MakeEntry()], default);
+        await buf.SendAsync([MakeEntry()], TestContext.Current.CancellationToken);
         await buf.DisposeAsync();
 
         Assert.Single(inner.Batches);
@@ -84,9 +84,9 @@ public class BufferingAuditForwarderTests
         await using var buf = new BufferingAuditForwarder<ThrowOnceForwarder>(inner,
             new BufferingAuditForwarderOptions { MaxBatchSize = 1, MaxFlushInterval = TimeSpan.FromMilliseconds(50) });
 
-        await buf.SendAsync([MakeEntry("e1")], default); // first batch — inner throws
+        await buf.SendAsync([MakeEntry("e1")], TestContext.Current.CancellationToken); // first batch — inner throws
         await WaitUntilAsync(() => inner.Calls >= 1);    // wait for the throw to be processed
-        await buf.SendAsync([MakeEntry("e2")], default); // second — must still ship
+        await buf.SendAsync([MakeEntry("e2")], TestContext.Current.CancellationToken); // second — must still ship
         await WaitUntilAsync(() => inner.SuccessfulSends >= 1);
 
         Assert.Equal(1, inner.SuccessfulSends);
