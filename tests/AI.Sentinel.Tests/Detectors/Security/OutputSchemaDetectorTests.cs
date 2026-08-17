@@ -23,7 +23,7 @@ public class OutputSchemaDetectorTests
     public async Task ExpectedTypeNotSet_ReturnsClean()
     {
         var d = Build(new SentinelOptions());
-        var r = await d.AnalyzeAsync(Ctx(new ChatMessage(ChatRole.Assistant, "anything")), default);
+        var r = await d.AnalyzeAsync(Ctx(new ChatMessage(ChatRole.Assistant, "anything")), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -32,7 +32,7 @@ public class OutputSchemaDetectorTests
     {
         var opts = new SentinelOptions { ExpectedResponseType = typeof(WeatherResponse) };
         var d = Build(opts);
-        var r = await d.AnalyzeAsync(Ctx(new ChatMessage(ChatRole.User, "hi")), default);
+        var r = await d.AnalyzeAsync(Ctx(new ChatMessage(ChatRole.User, "hi")), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -43,7 +43,7 @@ public class OutputSchemaDetectorTests
         var d = Build(opts);
         var r = await d.AnalyzeAsync(
             Ctx(new ChatMessage(ChatRole.Assistant, """{"city":"Amsterdam","temperatureC":12}""")),
-            default);
+            TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -54,7 +54,7 @@ public class OutputSchemaDetectorTests
         var d = Build(opts);
         var r = await d.AnalyzeAsync(
             Ctx(new ChatMessage(ChatRole.Assistant, "{not valid json")),
-            default);
+            TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
     }
 
@@ -65,7 +65,7 @@ public class OutputSchemaDetectorTests
         var d = Build(opts);
         var r = await d.AnalyzeAsync(
             Ctx(new ChatMessage(ChatRole.Assistant, """{"city":"Amsterdam"}""")),
-            default);
+            TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
     }
 
@@ -77,7 +77,7 @@ public class OutputSchemaDetectorTests
         var fenced = "```json\n{\"city\":\"NYC\",\"temperatureC\":5}\n```";
         var r = await d.AnalyzeAsync(
             Ctx(new ChatMessage(ChatRole.Assistant, fenced)),
-            default);
+            TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -88,7 +88,7 @@ public class OutputSchemaDetectorTests
         var d = Build(opts);
         var r = await d.AnalyzeAsync(
             Ctx(new ChatMessage(ChatRole.Assistant, "null")),
-            default);
+            TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
     }
 }

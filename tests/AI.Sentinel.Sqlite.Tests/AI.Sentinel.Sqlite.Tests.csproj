@@ -11,7 +11,7 @@
     <ProjectReference Include="..\..\src\AI.Sentinel.Sqlite\AI.Sentinel.Sqlite.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel\AI.Sentinel.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.11" />
-    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.9.0" />
   </ItemGroup>

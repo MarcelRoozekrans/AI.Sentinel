@@ -24,7 +24,7 @@ public sealed class OpenTelemetryAuditForwarderTests
             }));
 
         var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
-        await f.SendAsync(new[] { Make("e1"), Make("e2"), Make("e3") }, default);
+        await f.SendAsync(new[] { Make("e1"), Make("e2"), Make("e3") }, TestContext.Current.CancellationToken);
 
         // Force flush by disposing the factory (ends the OTel logger provider).
         loggerFactory.Dispose();
@@ -50,7 +50,7 @@ public sealed class OpenTelemetryAuditForwarderTests
             }));
 
         var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
-        await f.SendAsync(new[] { Make("e1", sev) }, default);
+        await f.SendAsync(new[] { Make("e1", sev) }, TestContext.Current.CancellationToken);
 
         loggerFactory.Dispose();
         Assert.Single(records);
@@ -70,7 +70,7 @@ public sealed class OpenTelemetryAuditForwarderTests
             }));
 
         var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
-        await f.SendAsync(new[] { Make("e1") }, default);
+        await f.SendAsync(new[] { Make("e1") }, TestContext.Current.CancellationToken);
         loggerFactory.Dispose();
 
         Assert.Single(records);
@@ -104,7 +104,7 @@ public sealed class OpenTelemetryAuditForwarderTests
             .AddOpenTelemetry(o => o.AddInMemoryExporter(records)));
 
         var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
-        await f.SendAsync(Array.Empty<AuditEntry>(), default);
+        await f.SendAsync(Array.Empty<AuditEntry>(), TestContext.Current.CancellationToken);
         loggerFactory.Dispose();
 
         Assert.Empty(records);
@@ -139,7 +139,7 @@ public sealed class OpenTelemetryAuditForwarderTests
             DetectorId: "AUTHZ-DENY",
             Summary: "denied",
             PolicyCode: "tenant_inactive");
-        await f.SendAsync(new[] { entry }, default);
+        await f.SendAsync(new[] { entry }, TestContext.Current.CancellationToken);
         loggerFactory.Dispose();
 
         Assert.Single(records);
@@ -167,7 +167,7 @@ public sealed class OpenTelemetryAuditForwarderTests
 
         var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
         var entry = Make("e1") with { Severity = (Severity)999 }; // out of enum range
-        await f.SendAsync(new[] { entry }, default);
+        await f.SendAsync(new[] { entry }, TestContext.Current.CancellationToken);
 
         loggerFactory.Dispose();
         Assert.Single(records);

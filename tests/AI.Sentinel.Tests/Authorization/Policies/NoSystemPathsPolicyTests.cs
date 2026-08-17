@@ -13,7 +13,7 @@ public class NoSystemPathsPolicyTests
         var p = new NoSystemPathsPolicy();
         var ctx = new TestToolCallSecurityContext(new TestSecurityContext("alice", "admin"),
             "Bash", JsonDocument.Parse("""{"path":"/etc/passwd"}""").RootElement);
-        Assert.True((await p.EvaluateAsync(ctx)).IsFailure);
+        Assert.True((await p.EvaluateAsync(ctx, TestContext.Current.CancellationToken)).IsFailure);
     }
 
     [Fact]
@@ -22,7 +22,7 @@ public class NoSystemPathsPolicyTests
         var p = new NoSystemPathsPolicy();
         var ctx = new TestToolCallSecurityContext(new TestSecurityContext("alice"),
             "Bash", JsonDocument.Parse("""{"path":"/tmp/foo"}""").RootElement);
-        Assert.True((await p.EvaluateAsync(ctx)).IsSuccess);
+        Assert.True((await p.EvaluateAsync(ctx, TestContext.Current.CancellationToken)).IsSuccess);
     }
 
     [Fact]
@@ -31,6 +31,6 @@ public class NoSystemPathsPolicyTests
         var p = new NoSystemPathsPolicy();
         var ctx = new TestToolCallSecurityContext(new TestSecurityContext("alice"),
             "Read", JsonDocument.Parse("""{"path":"/etc/passwd"}""").RootElement);
-        Assert.True((await p.EvaluateAsync(ctx)).IsSuccess);
+        Assert.True((await p.EvaluateAsync(ctx, TestContext.Current.CancellationToken)).IsSuccess);
     }
 }

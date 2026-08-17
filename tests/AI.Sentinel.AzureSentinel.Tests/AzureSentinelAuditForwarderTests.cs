@@ -21,7 +21,7 @@ public sealed class AzureSentinelAuditForwarderTests
             StreamName = "Custom-AISentinelAudit_CL",
         });
 
-        await f.SendAsync(new[] { MakeEntry("e1"), MakeEntry("e2") }, default);
+        await f.SendAsync(new[] { MakeEntry("e1"), MakeEntry("e2") }, TestContext.Current.CancellationToken);
 
         Assert.Single(stub.Uploads);
         Assert.Equal("dcr-abc", stub.Uploads[0].RuleId);
@@ -41,7 +41,7 @@ public sealed class AzureSentinelAuditForwarderTests
         });
 
         // Must not throw.
-        await f.SendAsync(new[] { MakeEntry("e1") }, default);
+        await f.SendAsync(new[] { MakeEntry("e1") }, TestContext.Current.CancellationToken);
     }
 
     [Fact]

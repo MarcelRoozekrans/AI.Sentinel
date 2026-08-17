@@ -41,7 +41,7 @@ public class TelemetryTests
         {
             traceId = root.TraceId;
             _ = await pipeline.GetResponseResultAsync(
-                [new ChatMessage(ChatRole.User, "hello")], null, default);
+                [new ChatMessage(ChatRole.User, "hello")], null, TestContext.Current.CancellationToken);
         }
 
         // Filter to only the sentinel.scan spans from this test's trace.
@@ -87,7 +87,7 @@ public class TelemetryTests
         var sentinel = BuildPipeline([new AlwaysCriticalDetector()]);
 
         _ = await sentinel.GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "attack")], null, default);
+            [new ChatMessage(ChatRole.User, "attack")], null, TestContext.Current.CancellationToken);
 
         Assert.Contains(measurements, m =>
             string.Equals(m.Severity, "Critical", StringComparison.Ordinal) &&

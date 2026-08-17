@@ -132,7 +132,7 @@ public class EntraPimApprovalStoreTests
 
         var store = new EntraPimApprovalStore(fake, MakeOptions());
 
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         var active = Assert.IsType<ApprovalState.Active>(state);
         Assert.Equal(expires, active.ExpiresAt);
@@ -151,7 +151,7 @@ public class EntraPimApprovalStoreTests
         // No active assignment, no eligibility.
         var store = new EntraPimApprovalStore(fake, MakeOptions());
 
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         var denied = Assert.IsType<ApprovalState.Denied>(state);
         Assert.Contains("not eligible", denied.Reason, StringComparison.OrdinalIgnoreCase);
@@ -171,7 +171,7 @@ public class EntraPimApprovalStoreTests
         var store = new EntraPimApprovalStore(fake, MakeOptions());
 
         var state = await store.EnsureRequestAsync(
-            MakeCaller(), MakeSpec(), MakeCtx(justification: "needed for incident"), default);
+            MakeCaller(), MakeSpec(), MakeCtx(justification: "needed for incident"), TestContext.Current.CancellationToken);
 
         var pending = Assert.IsType<ApprovalState.Pending>(state);
         Assert.Equal("req-pim-001", pending.RequestId);
@@ -205,7 +205,7 @@ public class EntraPimApprovalStoreTests
 
         var store = new EntraPimApprovalStore(fake, MakeOptions());
 
-        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(5), default);
+        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         var active = Assert.IsType<ApprovalState.Active>(state);
         Assert.Equal(expires, active.ExpiresAt);
@@ -229,7 +229,7 @@ public class EntraPimApprovalStoreTests
         var store = new EntraPimApprovalStore(fake, MakeOptions());
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromMilliseconds(150), default);
+        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromMilliseconds(150), TestContext.Current.CancellationToken);
         sw.Stop();
 
         // Final state still pending → the store returns Pending (most recent state) on timeout.
@@ -253,7 +253,7 @@ public class EntraPimApprovalStoreTests
         var store = new EntraPimApprovalStore(fake, MakeOptions());
 
         for (var i = 0; i < 3; i++)
-            await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+            await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         Assert.Equal(1, fake.ResolveCount);
     }
@@ -273,7 +273,7 @@ public class EntraPimApprovalStoreTests
 
         var store = new EntraPimApprovalStore(fake, MakeOptions());
 
-        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromMilliseconds(50), default);
+        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromMilliseconds(50), TestContext.Current.CancellationToken);
 
         var pending = Assert.IsType<ApprovalState.Pending>(state);
         Assert.Equal(ReqId, pending.RequestId);
@@ -295,7 +295,7 @@ public class EntraPimApprovalStoreTests
 
         var store = new EntraPimApprovalStore(fake, MakeOptions());
 
-        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(2), default);
+        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
 
         var denied = Assert.IsType<ApprovalState.Denied>(state);
         Assert.Contains("policy violation", denied.Reason, StringComparison.OrdinalIgnoreCase);
@@ -315,7 +315,7 @@ public class EntraPimApprovalStoreTests
         var store = new EntraPimApprovalStore(fake, MakeOptions());
         var caller = new TestSecurityContext("alice@contoso.com");
 
-        var state = await store.EnsureRequestAsync(caller, MakeSpec(), MakeCtx(), default);
+        var state = await store.EnsureRequestAsync(caller, MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         var denied = Assert.IsType<ApprovalState.Denied>(state);
         Assert.Contains("AAD object ID", denied.Reason, StringComparison.Ordinal);
@@ -339,7 +339,7 @@ public class EntraPimApprovalStoreTests
 
         var store = new EntraPimApprovalStore(fake, options);
 
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         var pending = Assert.IsType<ApprovalState.Pending>(state);
         Assert.StartsWith("https://portal.azure.us/", pending.ApprovalUrl, StringComparison.Ordinal);
@@ -364,7 +364,7 @@ public class EntraPimApprovalStoreTests
 
         var store = new EntraPimApprovalStore(fake, options);
 
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
 
         var pending = Assert.IsType<ApprovalState.Pending>(state);
         Assert.DoesNotContain("//#view", pending.ApprovalUrl, StringComparison.Ordinal);
@@ -393,7 +393,7 @@ public class EntraPimApprovalStoreTests
 
         var store = new EntraPimApprovalStore(fake, MakeOptions());
 
-        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(5), default);
+        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.IsType<ApprovalState.Active>(state);
         Assert.True(fake.GetStatusCount >= 2,

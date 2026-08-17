@@ -43,7 +43,7 @@ public class InProcessAuthorizationTests
         var client = BuildPipeline(opts, new TestSecurityContext("alice", "admin"), inner);
 
         var fnCall = new FunctionCallContent("call-1", "DeleteUser", new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "42" });
-        var resp = await client.GetResponseAsync([new ChatMessage(ChatRole.Assistant, [fnCall])]);
+        var resp = await client.GetResponseAsync([new ChatMessage(ChatRole.Assistant, [fnCall])], default, TestContext.Current.CancellationToken);
         Assert.NotNull(resp);
     }
 
@@ -56,7 +56,7 @@ public class InProcessAuthorizationTests
 
         var fnCall = new FunctionCallContent("call-1", "DeleteUser", new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "42" });
         var ex = await Assert.ThrowsAsync<ToolCallAuthorizationException>(() =>
-            client.GetResponseAsync([new ChatMessage(ChatRole.Assistant, [fnCall])]));
+            client.GetResponseAsync([new ChatMessage(ChatRole.Assistant, [fnCall])], default, TestContext.Current.CancellationToken));
         Assert.NotNull(ex.Decision);
         Assert.Equal("admin-only", Assert.IsType<AuthorizationDecision.DenyDecision>(ex.Decision!).PolicyName);
     }
@@ -69,7 +69,7 @@ public class InProcessAuthorizationTests
         var client = BuildPipeline(opts, new TestSecurityContext("bob"), inner);
 
         var fnCall = new FunctionCallContent("call-1", "Read", new Dictionary<string, object?>(StringComparer.Ordinal) { ["path"] = "/tmp" });
-        var resp = await client.GetResponseAsync([new ChatMessage(ChatRole.Assistant, [fnCall])]);
+        var resp = await client.GetResponseAsync([new ChatMessage(ChatRole.Assistant, [fnCall])], default, TestContext.Current.CancellationToken);
         Assert.NotNull(resp);
     }
 
@@ -80,7 +80,7 @@ public class InProcessAuthorizationTests
         var inner = new EchoChatClient();
         var client = BuildPipeline(opts, new TestSecurityContext("bob"), inner);
 
-        var resp = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")]);
+        var resp = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
         Assert.NotNull(resp);
     }
 

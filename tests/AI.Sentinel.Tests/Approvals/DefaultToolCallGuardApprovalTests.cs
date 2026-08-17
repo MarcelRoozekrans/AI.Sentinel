@@ -40,7 +40,7 @@ public class DefaultToolCallGuardApprovalTests
         var store = new StubStore(new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(15)));
         var guard = BuildGuard(store, new ToolCallPolicyBinding("delete_database", "approval:delete_database", MakeSpec()));
 
-        var d = await guard.AuthorizeAsync(new TestSec("alice"), "delete_database", default, default);
+        var d = await guard.AuthorizeAsync(new TestSec("alice"), "delete_database", default, TestContext.Current.CancellationToken);
 
         Assert.IsType<AuthorizationDecision.AllowDecision>(d);
     }
@@ -51,7 +51,7 @@ public class DefaultToolCallGuardApprovalTests
         var store = new StubStore(new ApprovalState.Pending("req-1", "https://example.test/approve/req-1", DateTimeOffset.UtcNow));
         var guard = BuildGuard(store, new ToolCallPolicyBinding("delete_database", "approval:delete_database", MakeSpec()));
 
-        var d = await guard.AuthorizeAsync(new TestSec("alice"), "delete_database", default, default);
+        var d = await guard.AuthorizeAsync(new TestSec("alice"), "delete_database", default, TestContext.Current.CancellationToken);
 
         var r = Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(d);
         Assert.Equal("req-1", r.RequestId);
@@ -64,7 +64,7 @@ public class DefaultToolCallGuardApprovalTests
         var store = new StubStore(new ApprovalState.Denied("approver said no", DateTimeOffset.UtcNow));
         var guard = BuildGuard(store, new ToolCallPolicyBinding("delete_database", "approval:delete_database", MakeSpec()));
 
-        var d = await guard.AuthorizeAsync(new TestSec("alice"), "delete_database", default, default);
+        var d = await guard.AuthorizeAsync(new TestSec("alice"), "delete_database", default, TestContext.Current.CancellationToken);
 
         var deny = Assert.IsType<AuthorizationDecision.DenyDecision>(d);
         Assert.Equal("approval:delete_database", deny.PolicyName);
@@ -78,6 +78,6 @@ public class DefaultToolCallGuardApprovalTests
             new ToolCallPolicyBinding("delete_database", "approval:delete_database", MakeSpec()));
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            guard.AuthorizeAsync(new TestSec("alice"), "delete_database", default, default).AsTask());
+            guard.AuthorizeAsync(new TestSec("alice"), "delete_database", default, TestContext.Current.CancellationToken).AsTask());
     }
 }

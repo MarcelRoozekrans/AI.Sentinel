@@ -45,7 +45,7 @@ public class ServiceCollectionExtensionsTests
         var inner = new StubInnerClient();
         var pipeline = provider.BuildSentinelPipeline(inner);
         var result = await pipeline.GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "hi")], null, default);
+            [new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
 
         Assert.True(result.IsSuccess);
         Assert.Equal("ok", result.Value.Messages[0].Text);

@@ -16,8 +16,8 @@ public class SentinelReplayClientTests
         };
         var client = new SentinelReplayClient(responses);
 
-        var r1 = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "q1")]);
-        var r2 = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "q2")]);
+        var r1 = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "q1")], default, TestContext.Current.CancellationToken);
+        var r2 = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "q2")], default, TestContext.Current.CancellationToken);
 
         Assert.Equal("first", r1.Messages[0].Text);
         Assert.Equal("second", r2.Messages[0].Text);
@@ -27,10 +27,10 @@ public class SentinelReplayClientTests
     public async Task GetResponseAsync_Exhausted_Throws()
     {
         var client = new SentinelReplayClient([new ChatMessage(ChatRole.Assistant, "only")]);
-        _ = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "q1")]);
+        _ = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "q1")], default, TestContext.Current.CancellationToken);
 
         await Assert.ThrowsAsync<InvalidOperationException>(
-            () => client.GetResponseAsync([new ChatMessage(ChatRole.User, "q2")]));
+            () => client.GetResponseAsync([new ChatMessage(ChatRole.User, "q2")], default, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -38,6 +38,6 @@ public class SentinelReplayClientTests
     {
         var client = new SentinelReplayClient([new ChatMessage(ChatRole.Assistant, "x")]);
         Assert.Throws<NotSupportedException>(
-            () => client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "q")]));
+            () => client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "q")], default, TestContext.Current.CancellationToken));
     }
 }

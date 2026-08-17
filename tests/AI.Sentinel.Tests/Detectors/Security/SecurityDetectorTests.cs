@@ -22,14 +22,14 @@ public class SecurityDetectorTests
     public async Task PromptInjection_Detected(string text)
     {
         var d = new PromptInjectionDetector(TestOptions.WithFakeEmbeddings());
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.High);
     }
 
     [Fact] public async Task PromptInjection_CleanText_NotDetected()
     {
         var d = new PromptInjectionDetector(TestOptions.WithFakeEmbeddings());
-        var r = await d.AnalyzeAsync(Ctx("What is the weather today?"), default);
+        var r = await d.AnalyzeAsync(Ctx("What is the weather today?"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -40,7 +40,7 @@ public class SecurityDetectorTests
     public async Task CredentialExposure_Detected(string text)
     {
         var d = new CredentialExposureDetector();
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.High);
     }
 
@@ -50,7 +50,7 @@ public class SecurityDetectorTests
     public async Task DataExfiltration_Detected(string text)
     {
         var d = new DataExfiltrationDetector(TestOptions.WithFakeEmbeddings());
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Medium);
     }
 
@@ -62,7 +62,7 @@ public class SecurityDetectorTests
     public async Task PiiLeakage_HighOrAbove_Detected(string text)
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.High);
     }
 
@@ -70,7 +70,7 @@ public class SecurityDetectorTests
     public async Task PiiLeakage_Phone_MediumSeverity()
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx("Call me at 555-867-5309"), default);
+        var r = await d.AnalyzeAsync(Ctx("Call me at 555-867-5309"), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Medium);
     }
 
@@ -78,7 +78,7 @@ public class SecurityDetectorTests
     public async Task PiiLeakage_CleanText_NotDetected()
     {
         var d = new PiiLeakageDetector();
-        var r = await d.AnalyzeAsync(Ctx("What is the weather like today?"), default);
+        var r = await d.AnalyzeAsync(Ctx("What is the weather like today?"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -90,7 +90,7 @@ public class SecurityDetectorTests
         // >2 zero-width chars => High
         var text = "hello​‌‍ world";
         var d = new AdversarialUnicodeDetector();
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
     }
 
@@ -99,7 +99,7 @@ public class SecurityDetectorTests
     {
         var text = "hello​ world";
         var d = new AdversarialUnicodeDetector();
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.Medium, r.Severity);
     }
 
@@ -107,7 +107,7 @@ public class SecurityDetectorTests
     public async Task AdversarialUnicode_CleanText_NotDetected()
     {
         var d = new AdversarialUnicodeDetector();
-        var r = await d.AnalyzeAsync(Ctx("Hello, world!"), default);
+        var r = await d.AnalyzeAsync(Ctx("Hello, world!"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -125,7 +125,7 @@ public class SecurityDetectorTests
     public async Task CodeInjection_Detected(string text)
     {
         var d = new CodeInjectionDetector(TestOptions.WithFakeEmbeddings());
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.High);
     }
 
@@ -133,7 +133,7 @@ public class SecurityDetectorTests
     public async Task CodeInjection_CleanCode_NotDetected()
     {
         var d = new CodeInjectionDetector(TestOptions.WithFakeEmbeddings());
-        var r = await d.AnalyzeAsync(Ctx("Console.WriteLine(\"Hello\");"), default);
+        var r = await d.AnalyzeAsync(Ctx("Console.WriteLine(\"Hello\");"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -146,7 +146,7 @@ public class SecurityDetectorTests
     public async Task PromptTemplateLeakage_Detected(string text)
     {
         var d = new PromptTemplateLeakageDetector(TestOptions.WithFakeEmbeddings());
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.High);
     }
 
@@ -154,7 +154,7 @@ public class SecurityDetectorTests
     public async Task PromptTemplateLeakage_CleanText_NotDetected()
     {
         var d = new PromptTemplateLeakageDetector(TestOptions.WithFakeEmbeddings());
-        var r = await d.AnalyzeAsync(Ctx("Tell me about template engines in general"), default);
+        var r = await d.AnalyzeAsync(Ctx("Tell me about template engines in general"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 
@@ -166,7 +166,7 @@ public class SecurityDetectorTests
     public async Task LanguageSwitchAttack_Detected(string text)
     {
         var d = new LanguageSwitchAttackDetector(TestOptions.WithFakeEmbeddings());
-        var r = await d.AnalyzeAsync(Ctx(text), default);
+        var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.True(r.Severity >= Severity.Medium);
     }
 
@@ -174,7 +174,7 @@ public class SecurityDetectorTests
     public async Task LanguageSwitchAttack_CleanText_NotDetected()
     {
         var d = new LanguageSwitchAttackDetector(TestOptions.WithFakeEmbeddings());
-        var r = await d.AnalyzeAsync(Ctx("The answer is Moscow."), default);
+        var r = await d.AnalyzeAsync(Ctx("The answer is Moscow."), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.None, r.Severity);
     }
 }

@@ -79,7 +79,7 @@ public class McpCliTests
                 "databasePath": {{System.Text.Json.JsonSerializer.Serialize(dbPath)}},
                 "tools": { "Bash": { "role": "DBA" } }
             }
-            """);
+            """, TestContext.Current.CancellationToken);
         Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
         try
         {
@@ -115,7 +115,7 @@ public class McpCliTests
                 "tenantId": "11111111-1111-1111-1111-111111111111",
                 "tools": { "Bash": { "role": "Privileged Role Administrator" } }
             }
-            """);
+            """, TestContext.Current.CancellationToken);
         Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
         try
         {

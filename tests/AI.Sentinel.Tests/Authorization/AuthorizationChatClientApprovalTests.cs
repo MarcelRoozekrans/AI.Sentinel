@@ -48,7 +48,7 @@ public class AuthorizationChatClientApprovalTests
 
         // Seed a pending request so WaitForDecisionAsync has something to wait on.
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(caller, spec,
-            new ApprovalContext("delete_database", default, null), default);
+            new ApprovalContext("delete_database", default, null), TestContext.Current.CancellationToken);
 
         // Guard returns RequireApproval first; on re-query (after wait → Active) returns Allow,
         // matching DefaultToolCallGuard's real behaviour where EvaluateApprovalAsync returns null
@@ -61,9 +61,10 @@ public class AuthorizationChatClientApprovalTests
         var client = new AuthorizationChatClient(new FakeInner(), guard, () => caller, audit: null, approvalStore: store);
 
         // Approve in the background after a short delay
-        _ = Task.Run(async () => { await Task.Delay(100); await store.ApproveAsync(pending.RequestId, "boss", null, default); });
+        var ct = TestContext.Current.CancellationToken;
+        _ = Task.Run(async () => { await Task.Delay(100, ct); await store.ApproveAsync(pending.RequestId, "boss", null, ct); }, ct);
 
-        var response = await client.GetResponseAsync(MessagesWithToolCall());
+        var response = await client.GetResponseAsync(MessagesWithToolCall(), default, TestContext.Current.CancellationToken);
         Assert.NotNull(response);   // call proceeded — approval landed in time
     }
 
@@ -74,7 +75,7 @@ public class AuthorizationChatClientApprovalTests
         var caller = new TestSec("alice");
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(caller,
             new ApprovalSpec { PolicyName = "approval:delete_database" },
-            new ApprovalContext("delete_database", default, null), default);
+            new ApprovalContext("delete_database", default, null), TestContext.Current.CancellationToken);
 
         var guard = new StubGuard([
             AuthorizationDecision.RequireApproval("approval:delete_database", pending.RequestId, pending.ApprovalUrl, pending.RequestedAt, TimeSpan.FromMilliseconds(50)),
@@ -82,7 +83,7 @@ public class AuthorizationChatClientApprovalTests
 
         var client = new AuthorizationChatClient(new FakeInner(), guard, () => caller, audit: null, approvalStore: store);
 
-        var ex = await Assert.ThrowsAsync<ToolCallAuthorizationException>(() => client.GetResponseAsync(MessagesWithToolCall()));
+        var ex = await Assert.ThrowsAsync<ToolCallAuthorizationException>(() => client.GetResponseAsync(MessagesWithToolCall(), default, TestContext.Current.CancellationToken));
         Assert.Contains("timed out", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -93,7 +94,7 @@ public class AuthorizationChatClientApprovalTests
         var caller = new TestSec("alice");
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(caller,
             new ApprovalSpec { PolicyName = "approval:delete_database" },
-            new ApprovalContext("delete_database", default, null), default);
+            new ApprovalContext("delete_database", default, null), TestContext.Current.CancellationToken);
 
         var guard = new StubGuard([
             AuthorizationDecision.RequireApproval("approval:delete_database", pending.RequestId, pending.ApprovalUrl, pending.RequestedAt, TimeSpan.FromSeconds(2)),
@@ -101,9 +102,10 @@ public class AuthorizationChatClientApprovalTests
 
         var client = new AuthorizationChatClient(new FakeInner(), guard, () => caller, audit: null, approvalStore: store);
 
-        _ = Task.Run(async () => { await Task.Delay(50); await store.DenyAsync(pending.RequestId, "boss", "no", default); });
+        var ct = TestContext.Current.CancellationToken;
+        _ = Task.Run(async () => { await Task.Delay(50, ct); await store.DenyAsync(pending.RequestId, "boss", "no", ct); }, ct);
 
-        var ex = await Assert.ThrowsAsync<ToolCallAuthorizationException>(() => client.GetResponseAsync(MessagesWithToolCall()));
+        var ex = await Assert.ThrowsAsync<ToolCallAuthorizationException>(() => client.GetResponseAsync(MessagesWithToolCall(), default, TestContext.Current.CancellationToken));
         Assert.Contains("denied", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -116,7 +118,7 @@ public class AuthorizationChatClientApprovalTests
         var caller = new TestSec("alice");
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(caller,
             new ApprovalSpec { PolicyName = "approval:delete_database" },
-            new ApprovalContext("delete_database", default, null), default);
+            new ApprovalContext("delete_database", default, null), TestContext.Current.CancellationToken);
 
         var guard = new StubGuard([
             AuthorizationDecision.RequireApproval(
@@ -129,10 +131,11 @@ public class AuthorizationChatClientApprovalTests
 
         // Approve in background — guard's first response is RequireApproval; client waits;
         // store flips to Active; client re-queries; guard returns the second sequence entry (Deny).
-        _ = Task.Run(async () => { await Task.Delay(50); await store.ApproveAsync(pending.RequestId, "boss", null, default); });
+        var ct = TestContext.Current.CancellationToken;
+        _ = Task.Run(async () => { await Task.Delay(50, ct); await store.ApproveAsync(pending.RequestId, "boss", null, ct); }, ct);
 
         var ex = await Assert.ThrowsAsync<ToolCallAuthorizationException>(
-            () => client.GetResponseAsync(MessagesWithToolCall()));
+            () => client.GetResponseAsync(MessagesWithToolCall(), default, TestContext.Current.CancellationToken));
         Assert.Contains("stacked policy denied", ex.Message, StringComparison.Ordinal);
     }
 }

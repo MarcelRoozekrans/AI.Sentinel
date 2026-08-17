@@ -32,7 +32,7 @@ public class InMemoryApprovalStoreTests
     public async Task EnsureRequest_FirstCall_ReturnsPending()
     {
         var store = new InMemoryApprovalStore();
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Pending>(state);
     }
 
@@ -40,8 +40,8 @@ public class InMemoryApprovalStoreTests
     public async Task EnsureRequest_RepeatedCall_DedupesByCallerAndPolicy()
     {
         var store = new InMemoryApprovalStore();
-        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        var second = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        var second = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Pending>(second);
         Assert.Equal(first.RequestId, ((ApprovalState.Pending)second).RequestId);
     }
@@ -50,9 +50,9 @@ public class InMemoryApprovalStoreTests
     public async Task ApproveAsync_TransitionsToActive()
     {
         var store = new InMemoryApprovalStore();
-        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        await store.ApproveAsync(pending.RequestId, "approver", note: null, default);
-        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.ApproveAsync(pending.RequestId, "approver", note: null, TestContext.Current.CancellationToken);
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Active>(state);
     }
 
@@ -60,15 +60,15 @@ public class InMemoryApprovalStoreTests
     public async Task DenyAsync_FirstCallObservesDenied_SecondCallCreatesFresh()
     {
         var store = new InMemoryApprovalStore();
-        var pending1 = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        await store.DenyAsync(pending1.RequestId, "approver", "no", default);
+        var pending1 = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.DenyAsync(pending1.RequestId, "approver", "no", TestContext.Current.CancellationToken);
 
         // First call after deny: caller observes the terminal state once.
-        var afterDeny = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var afterDeny = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Denied>(afterDeny);
 
         // Second call: dedupe was cleared on the previous call → fresh Pending with NEW request id.
-        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         var pending2 = Assert.IsType<ApprovalState.Pending>(retry);
         Assert.NotEqual(pending1.RequestId, pending2.RequestId, StringComparer.Ordinal);
     }
@@ -81,16 +81,16 @@ public class InMemoryApprovalStoreTests
             MakeCaller(),
             MakeSpec(grant: TimeSpan.FromMilliseconds(50)),
             MakeCtx(),
-            default);
-        await store.ApproveAsync(pending1.RequestId, "approver", null, default);
-        await Task.Delay(150);
+            TestContext.Current.CancellationToken);
+        await store.ApproveAsync(pending1.RequestId, "approver", null, TestContext.Current.CancellationToken);
+        await Task.Delay(150, TestContext.Current.CancellationToken);
 
         // First call after expiry: observe Denied (terminal state communicated to caller).
-        var afterExpiry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var afterExpiry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         Assert.IsType<ApprovalState.Denied>(afterExpiry);
 
         // Second call: dedupe was cleared on the previous call → fresh Pending with NEW request id.
-        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
+        var retry = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
         var pending2 = Assert.IsType<ApprovalState.Pending>(retry);
         Assert.NotEqual(pending1.RequestId, pending2.RequestId, StringComparer.Ordinal);
     }
@@ -101,7 +101,7 @@ public class InMemoryApprovalStoreTests
         var store = new InMemoryApprovalStore();
         var caller = MakeCaller();
         var tasks = Enumerable.Range(0, 100)
-            .Select(_ => Task.Run(() => store.EnsureRequestAsync(caller, MakeSpec(), MakeCtx(), default).AsTask()))
+            .Select(_ => Task.Run(() => store.EnsureRequestAsync(caller, MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken).AsTask()))
             .ToArray();
         var results = await Task.WhenAll(tasks);
 
@@ -115,10 +115,10 @@ public class InMemoryApprovalStoreTests
     public async Task WaitForDecision_TriggersOnApprove()
     {
         var store = new InMemoryApprovalStore();
-        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), default);
-        var waitTask = store.WaitForDecisionAsync(pending.RequestId, TimeSpan.FromSeconds(2), default).AsTask();
-        await Task.Delay(50);
-        await store.ApproveAsync(pending.RequestId, "a", null, default);
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        var waitTask = store.WaitForDecisionAsync(pending.RequestId, TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken).AsTask();
+        await Task.Delay(50, TestContext.Current.CancellationToken);
+        await store.ApproveAsync(pending.RequestId, "a", null, TestContext.Current.CancellationToken);
         var result = await waitTask;
         Assert.IsType<ApprovalState.Active>(result);
     }
@@ -127,12 +127,12 @@ public class InMemoryApprovalStoreTests
     public async Task ListPending_ReturnsOnlyPendingRequests()
     {
         var store = new InMemoryApprovalStore();
-        var p1 = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller("a"), MakeSpec("p1"), MakeCtx(), default);
-        await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec("p2"), MakeCtx(), default);
-        await store.ApproveAsync(p1.RequestId, "a", null, default);
+        var p1 = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller("a"), MakeSpec("p1"), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec("p2"), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.ApproveAsync(p1.RequestId, "a", null, TestContext.Current.CancellationToken);
 
         var pending = new List<PendingRequest>();
-        await foreach (var r in store.ListPendingAsync(default)) pending.Add(r);
+        await foreach (var r in store.ListPendingAsync(TestContext.Current.CancellationToken)) pending.Add(r);
         Assert.Single(pending);
         Assert.Equal("p2", pending[0].PolicyName);
     }

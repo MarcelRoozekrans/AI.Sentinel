@@ -114,7 +114,7 @@ public class InterventionEngineTests
         engine.Apply(CriticalResult());
 
         // Give the async continuation time to complete
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
         // No assertion needed beyond "did not throw" — the test verifies the async fault
         // path (ContinueWith) is reached without crashing the caller
     }

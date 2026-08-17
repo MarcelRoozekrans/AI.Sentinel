@@ -37,10 +37,10 @@ public class DashboardAuthTests
                     });
                 });
             })
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
 
         var client = host.GetTestClient();
-        var response = await client.GetAsync("/sentinel/");
+        var response = await client.GetAsync("/sentinel/", TestContext.Current.CancellationToken);
 
         Assert.True(authMiddlewareCalled, "Auth middleware should have been called");
     }
@@ -69,10 +69,10 @@ public class DashboardAuthTests
                     });
                 });
             })
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
 
         var client = host.GetTestClient();
-        var response = await client.GetAsync("/sentinel/");
+        var response = await client.GetAsync("/sentinel/", TestContext.Current.CancellationToken);
 
         Assert.Equal(403, (int)response.StatusCode);
     }
@@ -91,10 +91,10 @@ public class DashboardAuthTests
                 });
                 web.Configure(app => app.UseAISentinel("/sentinel"));
             })
-            .StartAsync();
+            .StartAsync(TestContext.Current.CancellationToken);
 
         var client = host.GetTestClient();
-        var response = await client.GetAsync("/sentinel/static/evil.txt");
+        var response = await client.GetAsync("/sentinel/static/evil.txt", TestContext.Current.CancellationToken);
 
         Assert.Equal(404, (int)response.StatusCode);
     }

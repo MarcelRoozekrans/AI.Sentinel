@@ -26,7 +26,7 @@ public class SentinelPipelineRateLimitTests
         for (var i = 0; i < 3; i++)
         {
             var result = await sentinel.GetResponseResultAsync(
-                [new ChatMessage(ChatRole.User, "hi")], null, default);
+                [new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
             Assert.True(result.IsSuccess);
         }
     }
@@ -35,11 +35,11 @@ public class SentinelPipelineRateLimitTests
     public async Task ExceedsBurst_ReturnsRateLimitExceeded()
     {
         var sentinel = Build(maxCallsPerSecond: 1, burstSize: 2);
-        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
-        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
+        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
+        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
 
         var result = await sentinel.GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "hi")], null, default);
+            [new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
         Assert.True(result.IsFailure);
         Assert.IsType<SentinelError.RateLimitExceeded>(result.Error);
     }
@@ -51,7 +51,7 @@ public class SentinelPipelineRateLimitTests
         for (var i = 0; i < 50; i++)
         {
             var result = await sentinel.GetResponseResultAsync(
-                [new ChatMessage(ChatRole.User, "hi")], null, default);
+                [new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
             Assert.True(result.IsSuccess);
         }
     }
@@ -72,12 +72,12 @@ public class SentinelPipelineRateLimitTests
         };
 
         // Exhaust session-A bucket (burst = 1)
-        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], opts1, default);
-        var resultA = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], opts1, default);
+        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], opts1, TestContext.Current.CancellationToken);
+        var resultA = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], opts1, TestContext.Current.CancellationToken);
         Assert.IsType<SentinelError.RateLimitExceeded>(resultA.Error);
 
         // Session-B is independent — should succeed
-        var resultB = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], opts2, default);
+        var resultB = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], opts2, TestContext.Current.CancellationToken);
         Assert.True(resultB.IsSuccess);
     }
 
@@ -101,8 +101,8 @@ public class SentinelPipelineRateLimitTests
         meterListener.Start();
 
         var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
-        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
-        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
+        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
+        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
 
         Assert.Contains(measurements, m =>
             string.Equals(m.Name, "sentinel.rate_limit.exceeded", StringComparison.Ordinal) &&
@@ -125,19 +125,19 @@ public class SentinelPipelineRateLimitTests
 
         var optsA = new ChatOptions { AdditionalProperties = new AdditionalPropertiesDictionary { ["sentinel.session_id"] = "session-A" } };
 
-        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], optsA, default);
-        var exhausted = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], optsA, default);
+        _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], optsA, TestContext.Current.CancellationToken);
+        var exhausted = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], optsA, TestContext.Current.CancellationToken);
         Assert.IsType<SentinelError.RateLimitExceeded>(exhausted.Error);
 
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
 
         for (var i = 0; i < 256; i++)
         {
             var sweepOpts = new ChatOptions { AdditionalProperties = new AdditionalPropertiesDictionary { ["sentinel.session_id"] = $"sweep-{i}" } };
-            _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], sweepOpts, default);
+            _ = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], sweepOpts, TestContext.Current.CancellationToken);
         }
 
-        var restored = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], optsA, default);
+        var restored = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], optsA, TestContext.Current.CancellationToken);
         Assert.True(restored.IsSuccess);
     }
 

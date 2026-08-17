@@ -56,7 +56,7 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
             Mode = SqliteOpenMode.ReadOnly,
         };
         await using var conn = new SqliteConnection(csb.ToString());
-        await conn.OpenAsync();
+        await conn.OpenAsync(TestContext.Current.CancellationToken);
 
         // session_id column: TEXT, nullable (notnull=0).
         using (var colCmd = conn.CreateCommand())
@@ -65,8 +65,8 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
                 SELECT type, "notnull" FROM pragma_table_info('audit_entries')
                  WHERE name = 'session_id';
                 """;
-            await using var reader = await colCmd.ExecuteReaderAsync();
-            Assert.True(await reader.ReadAsync(), "session_id column not found on audit_entries");
+            await using var reader = await colCmd.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            Assert.True(await reader.ReadAsync(TestContext.Current.CancellationToken), "session_id column not found on audit_entries");
             Assert.Equal("TEXT", reader.GetString(0));
             Assert.Equal(0, reader.GetInt32(1));
         }
@@ -78,7 +78,7 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
                 SELECT name FROM pragma_index_list('audit_entries')
                  WHERE name = 'idx_audit_session';
                 """;
-            var raw = (string?)await idxCmd.ExecuteScalarAsync();
+            var raw = (string?)await idxCmd.ExecuteScalarAsync(TestContext.Current.CancellationToken);
             Assert.Equal("idx_audit_session", raw);
         }
     }
@@ -106,7 +106,7 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
         // Step 3: verify both new columns exist on a fresh raw connection.
         await using (var conn = new SqliteConnection(csb.ToString()))
         {
-            await conn.OpenAsync();
+            await conn.OpenAsync(TestContext.Current.CancellationToken);
             using var cmd = conn.CreateCommand();
             cmd.CommandText = """
                 SELECT name FROM pragma_table_info('audit_entries')
@@ -114,16 +114,16 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
                  ORDER BY name;
                 """;
             var found = new List<string>();
-            await using var reader = await cmd.ExecuteReaderAsync();
-            while (await reader.ReadAsync()) found.Add(reader.GetString(0));
+            await using var reader = await cmd.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            while (await reader.ReadAsync(TestContext.Current.CancellationToken)) found.Add(reader.GetString(0));
             Assert.Equal(new[] { "policy_code", "session_id" }, found.ToArray());
 
             // Step 4: legacy row picks up the v1→v2 NOT NULL DEFAULT for policy_code,
             // and session_id is NULL (v2→v3 ALTER added it nullable, no default).
             using var rowCmd = conn.CreateCommand();
             rowCmd.CommandText = "SELECT policy_code, session_id FROM audit_entries WHERE id = 'legacy-1';";
-            await using var rowReader = await rowCmd.ExecuteReaderAsync();
-            Assert.True(await rowReader.ReadAsync(), "legacy-1 row not found after migration");
+            await using var rowReader = await rowCmd.ExecuteReaderAsync(TestContext.Current.CancellationToken);
+            Assert.True(await rowReader.ReadAsync(TestContext.Current.CancellationToken), "legacy-1 row not found after migration");
             Assert.Equal("policy_denied", rowReader.GetString(0));
             Assert.True(rowReader.IsDBNull(1), "session_id should be NULL on legacy row");
         }

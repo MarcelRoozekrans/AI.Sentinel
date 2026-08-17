@@ -53,14 +53,14 @@ public sealed class SqliteSchemaDefaultMatchesConstantTests : IDisposable
             Mode = SqliteOpenMode.ReadOnly,
         };
         await using var conn = new SqliteConnection(csb.ToString());
-        await conn.OpenAsync();
+        await conn.OpenAsync(TestContext.Current.CancellationToken);
 
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             SELECT dflt_value FROM pragma_table_info('audit_entries')
              WHERE name = 'policy_code';
             """;
-        var raw = (string?)await cmd.ExecuteScalarAsync();
+        var raw = (string?)await cmd.ExecuteScalarAsync(TestContext.Current.CancellationToken);
         Assert.NotNull(raw);
 
         // pragma_table_info returns the default verbatim from the DDL — for a TEXT column with

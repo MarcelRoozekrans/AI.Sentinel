@@ -22,7 +22,7 @@ public class DashboardAuthzFeedTests
         await store.AppendAsync(NewEntry("PROMPT-INJECTION", "harmless"), CancellationToken.None);
 
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/feed");
+        var html = await client.GetStringAsync("/sentinel/api/feed", TestContext.Current.CancellationToken);
 
         Assert.Contains("audit-row-authz", html, StringComparison.Ordinal);
         Assert.Contains("AUTHZ-DENY", html, StringComparison.Ordinal);
@@ -42,7 +42,7 @@ public class DashboardAuthzFeedTests
         await store.AppendAsync(NewEntry("PROMPT-INJECTION", "harmless"), CancellationToken.None);
 
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/feed?filter=authz");
+        var html = await client.GetStringAsync("/sentinel/api/feed?filter=authz", TestContext.Current.CancellationToken);
 
         Assert.Contains("audit-row-authz", html, StringComparison.Ordinal);
         Assert.DoesNotContain("PROMPT-INJECTION", html, StringComparison.Ordinal);
@@ -58,7 +58,7 @@ public class DashboardAuthzFeedTests
         await store.AppendAsync(NewEntry("PROMPT-INJECTION", "harmless"), CancellationToken.None);
 
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/feed?filter=authz");
+        var html = await client.GetStringAsync("/sentinel/api/feed?filter=authz", TestContext.Current.CancellationToken);
 
         Assert.Contains("AUTHZ-DENY", html, StringComparison.Ordinal);
         Assert.DoesNotContain("PROMPT-INJECTION", html, StringComparison.Ordinal);
@@ -73,7 +73,7 @@ public class DashboardAuthzFeedTests
         await store.AppendAsync(NewEntry("PROMPT-INJECTION", "harmless"), CancellationToken.None);
 
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/feed");
+        var html = await client.GetStringAsync("/sentinel/api/feed", TestContext.Current.CancellationToken);
 
         Assert.DoesNotContain("audit-row-authz", html, StringComparison.Ordinal);
     }
@@ -84,7 +84,7 @@ public class DashboardAuthzFeedTests
         var host = await BuildHostAsync();
 
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/feed");
+        var html = await client.GetStringAsync("/sentinel/api/feed", TestContext.Current.CancellationToken);
 
         Assert.Contains("feed-empty", html, StringComparison.Ordinal);
         Assert.Contains("agents are quiet", html, StringComparison.Ordinal);
@@ -99,7 +99,7 @@ public class DashboardAuthzFeedTests
         await store.AppendAsync(NewEntry("PROMPT-INJECTION", "harmless"), CancellationToken.None);
 
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/feed?filter=authz");
+        var html = await client.GetStringAsync("/sentinel/api/feed?filter=authz", TestContext.Current.CancellationToken);
 
         Assert.Contains("feed-empty", html, StringComparison.Ordinal);
         Assert.Contains("No events match this filter", html, StringComparison.Ordinal);
@@ -117,7 +117,7 @@ public class DashboardAuthzFeedTests
         await store.AppendAsync(NewEntry("AUTHZ-DENY", "tenant inactive", policyCode: "tenant_inactive"), CancellationToken.None);
 
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/feed");
+        var html = await client.GetStringAsync("/sentinel/api/feed", TestContext.Current.CancellationToken);
 
         Assert.Contains("<span class=\"badge code\">tenant_inactive</span>", html, StringComparison.Ordinal);
     }
@@ -133,7 +133,7 @@ public class DashboardAuthzFeedTests
         await store.AppendAsync(NewEntry("AUTHZ-DENY", "denied", policyCode: null), CancellationToken.None);
 
         var client = host.GetTestClient();
-        var html = await client.GetStringAsync("/sentinel/api/feed");
+        var html = await client.GetStringAsync("/sentinel/api/feed", TestContext.Current.CancellationToken);
 
         Assert.Contains("<span class=\"badge code\">policy_denied</span>", html, StringComparison.Ordinal);
     }
@@ -144,7 +144,7 @@ public class DashboardAuthzFeedTests
         var host = await BuildHostAsync();
         var client = host.GetTestClient();
 
-        var html = await client.GetStringAsync("/sentinel/");
+        var html = await client.GetStringAsync("/sentinel/", TestContext.Current.CancellationToken);
 
         Assert.Contains("data-filter=\"authorization\"", html, StringComparison.Ordinal);
         Assert.Contains("Authorization", html, StringComparison.Ordinal);
@@ -159,7 +159,7 @@ public class DashboardAuthzFeedTests
         var host = await BuildHostAsync();
         var client = host.GetTestClient();
 
-        var html = await client.GetStringAsync("/sentinel/");
+        var html = await client.GetStringAsync("/sentinel/", TestContext.Current.CancellationToken);
 
         Assert.Contains("data-filter=\"security\"",        html, StringComparison.Ordinal);
         Assert.Contains("data-filter=\"hallucination\"",   html, StringComparison.Ordinal);

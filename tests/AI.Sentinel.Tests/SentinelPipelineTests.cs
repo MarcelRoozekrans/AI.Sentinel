@@ -28,7 +28,7 @@ public class SentinelPipelineTests
     public async Task GetResponseResultAsync_CleanMessage_ReturnsSuccess()
     {
         var result = await Build().GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, default);
+            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
         Assert.True(result.IsSuccess);
     }
 
@@ -36,7 +36,7 @@ public class SentinelPipelineTests
     public async Task GetResponseResultAsync_QuarantineThreat_ReturnsFailure()
     {
         var result = await Build([new AlwaysCriticalDetector()]).GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, default);
+            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
         Assert.True(result.IsFailure);
         Assert.IsType<SentinelError.ThreatDetected>(result.Error);
     }
@@ -45,7 +45,7 @@ public class SentinelPipelineTests
     public async Task GetResponseResultAsync_InnerClientThrows_ReturnsPipelineFailure()
     {
         var result = await Build(inner: new ThrowingChatClient()).GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, default);
+            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
         Assert.True(result.IsFailure);
         Assert.IsType<SentinelError.PipelineFailure>(result.Error);
     }
@@ -55,9 +55,9 @@ public class SentinelPipelineTests
     {
         var sink = new RecordingAlertSink();
         _ = await Build([new AlwaysCriticalDetector()], alertSink: sink).GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "hostile")], null, default);
+            [new ChatMessage(ChatRole.User, "hostile")], null, TestContext.Current.CancellationToken);
         // Fire-and-forget is async; give it a moment to complete.
-        await Task.Delay(100);
+        await Task.Delay(100, TestContext.Current.CancellationToken);
         Assert.Equal(1, sink.CallCount);
         Assert.IsType<SentinelError.ThreatDetected>(sink.LastError);
     }
@@ -67,7 +67,7 @@ public class SentinelPipelineTests
     {
         var sink = new RecordingAlertSink();
         _ = await Build(alertSink: sink).GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, default);
+            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
         Assert.Equal(0, sink.CallCount);
     }
 
@@ -77,7 +77,7 @@ public class SentinelPipelineTests
         // inner client returns a message that the detector flags
         var inner = new TestChatClient("malicious reply");
         var result = await Build([new ResponseOnlyDetector()], inner: inner)
-            .GetResponseResultAsync([new ChatMessage(ChatRole.User, "clean prompt")], null, default);
+            .GetResponseResultAsync([new ChatMessage(ChatRole.User, "clean prompt")], null, TestContext.Current.CancellationToken);
         Assert.True(result.IsFailure);
         Assert.IsType<SentinelError.ThreatDetected>(result.Error);
     }
@@ -148,7 +148,7 @@ public class SentinelPipelineTests
     {
         var sentinel = Build();
         var error = await sentinel.ScanMessagesAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, default);
+            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
         Assert.Null(error);
     }
 
@@ -157,7 +157,7 @@ public class SentinelPipelineTests
     {
         var sentinel = Build([new AlwaysCriticalDetector()]);
         var error = await sentinel.ScanMessagesAsync(
-            [new ChatMessage(ChatRole.User, "hi")], null, default);
+            [new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
         Assert.IsType<SentinelError.ThreatDetected>(error);
     }
 
@@ -166,7 +166,7 @@ public class SentinelPipelineTests
     {
         var sentinel = Build(inner: new ThrowingChatClient());
         var error = await sentinel.ScanMessagesAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, default);
+            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
         Assert.Null(error);
     }
 
@@ -180,8 +180,8 @@ public class SentinelPipelineTests
         var sentinel = new SentinelPipeline(
             new TestChatClient("ok"), pipeline, audit, engine, opts);
 
-        _ = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
-        var error = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, default);
+        _ = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
+        var error = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
 
         Assert.IsType<SentinelError.RateLimitExceeded>(error);
     }
@@ -207,7 +207,7 @@ public class SentinelPipelineTests
         var result = await sentinel.GetResponseResultAsync(
             [new ChatMessage(ChatRole.User, "What's the weather?")],
             null,
-            default);
+            TestContext.Current.CancellationToken);
 
         Assert.True(result.IsFailure);
         Assert.IsType<SentinelError.ThreatDetected>(result.Error);
