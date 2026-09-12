@@ -291,4 +291,54 @@ public class DetectorDocumentationTests
         // A reformatted header would make the whole assertion silently vacuous.
         Assert.Equal(2, filesWithTable);
     }
+
+    /// <summary>#216: the two mapping tables used different Top 10 versions, so "LLM07" meant
+    /// "System Prompt Leakage" in one document and "Insecure Plugin Design" in the other. Whoever
+    /// cites AI.Sentinel's OWASP coverage in a questionnaire got a different answer depending on
+    /// which page they read. The categories must stay identical.</summary>
+    [Fact]
+    public void BothOwaspTables_UseTheSameCategories()
+    {
+        var perFile = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        foreach (var file in DocFiles())
+        {
+            var categories = new List<string>();
+            var inTable = false;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                if (line.Contains("Fires by default", StringComparison.Ordinal) && line.StartsWith('|'))
+                {
+                    inTable = true;
+                    continue;
+                }
+
+                if (!inTable) continue;
+                if (!line.StartsWith('|')) { inTable = false; continue; }
+                if (IsSeparatorRow(line)) continue;
+
+                var cells = line.Split('|');
+                if (cells.Length < 3) continue;
+
+                // README carries the threat name in its own column; the website folds it into the
+                // first. Normalise to "LLM0n threat name" so the two are comparable.
+                var label = Normalise(cells[1]).Replace("**", string.Empty, StringComparison.Ordinal);
+                if (!label.StartsWith("LLM", StringComparison.Ordinal)) continue;
+
+                var threat = label.Length > 5 ? label[5..].Trim() : Normalise(cells[2]);
+                categories.Add($"{label[..5]} {threat}");
+            }
+
+            if (categories.Count > 0) perFile[Path.GetFileName(file)] = categories;
+        }
+
+        Assert.Equal(2, perFile.Count);
+        var reference = perFile.First();
+        foreach (var (name, categories) in perFile)
+        {
+            Assert.Equal(reference.Value, categories, StringComparer.Ordinal);
+            Assert.Equal(10, categories.Count);
+            _ = name;
+        }
+    }
 }

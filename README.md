@@ -260,18 +260,18 @@ Detectors run in these modes:
 
 | OWASP | Threat | Detectors | Fires by default |
 |---|---|---|---|
-| LLM01 | Prompt Injection | `PromptInjectionDetector`, `IndirectInjectionDetector`, `ToolPoisoningDetector` | ⚠️ partial (1/3) |
-| LLM02 | Sensitive Info Disclosure | `CredentialExposureDetector`, `PiiLeakageDetector`, `SystemPromptLeakageDetector`, `PromptTemplateLeakageDetector` | ⚠️ partial (2/4) |
+| LLM01 | Prompt Injection | `PromptInjectionDetector`, `JailbreakDetector`, `IndirectInjectionDetector`, `ToolPoisoningDetector` | ⚠️ partial (2/4) |
+| LLM02 | Sensitive Information Disclosure | `CredentialExposureDetector`, `PiiLeakageDetector`, `DataExfiltrationDetector`, `InformationFlowDetector` | ⚠️ partial (2/4) |
 | LLM03 | Supply Chain | `SupplyChainPoisoningDetector` | ❌ none |
-| LLM04 | Data & Model Poisoning | `DataExfiltrationDetector`, `InformationFlowDetector` | ❌ none |
+| LLM04 | Data & Model Poisoning | (out of scope — poisoning happens at training or fine-tuning time and is not observable at inference; see LLM08 for retrieval-time poisoning) | — |
 | LLM05 | Improper Output Handling | `CodeInjectionDetector`, `OutputSchemaDetector` | ❌ none |
 | LLM06 | Excessive Agency | `ExcessiveAgencyDetector`, `ToolCallFrequencyDetector` | ⚠️ partial (1/2) |
-| LLM07 | System Prompt Leakage | `SystemPromptLeakageDetector`, `GovernanceGapDetector` | ❌ none |
+| LLM07 | System Prompt Leakage | `SystemPromptLeakageDetector`, `PromptTemplateLeakageDetector`, `GovernanceGapDetector` | ❌ none |
 | LLM08 | Vector & Embedding Weaknesses | `VectorRetrievalPoisoningDetector` | ❌ none |
-| LLM09 | Misinformation | `PhantomCitationDetector`, `GroundlessStatisticDetector`, `StaleKnowledgeDetector`, `UncertaintyPropagationDetector` | ❌ none |
+| LLM09 | Misinformation | `PhantomCitationDetector`, `GroundlessStatisticDetector`, `StaleKnowledgeDetector`, `UncertaintyPropagationDetector`, `SourceGroundingDetector`, `ConfidenceDecayDetector` | ❌ none |
 | LLM10 | Unbounded Consumption | `UnboundedConsumptionDetector`, `RepetitionLoopDetector` | ✅ yes |
 
-> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Six of the ten categories are in that state out of the box. **LLM01 Prompt Injection** is no longer one of them: `SEC‑01` and `SEC‑05` carry a rule layer that catches the unambiguous phrasings with no generator configured.
+> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Five of the nine in-scope categories are in that state out of the box. **LLM01 Prompt Injection** is not one of them: `SEC‑01` and `SEC‑05` carry a rule layer that catches the unambiguous phrasings with no generator configured.
 
 ---
 

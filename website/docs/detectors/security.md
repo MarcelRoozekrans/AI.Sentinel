@@ -70,19 +70,19 @@ opts.Configure<JailbreakDetector>(c =>
 });
 ```
 
-## OWASP LLM Top 10 mapping
+## OWASP LLM Top 10 (2025) Coverage
 
 | OWASP LLM | Detectors | Fires by default |
 |---|---|---|
-| **LLM01** Prompt Injection | SEC-01, SEC-09, SEC-31, SEC-26 | ⚠️ partial (1/4) |
-| **LLM02** Insecure Output Handling | SEC-25, SEC-29 | ❌ none |
-| **LLM03** Training Data Poisoning | (out of scope — detect at training time, not at inference) | — |
-| **LLM04** Model DoS | OPS-11 (UnboundedConsumption), SEC-19 (ToolCallFrequency) | ✅ yes |
-| **LLM05** Supply Chain | SEC-17 | ❌ none |
-| **LLM06** Sensitive Information Disclosure | SEC-02, SEC-20, SEC-23, SEC-14 | ⚠️ partial (2/4) |
-| **LLM07** Insecure Plugin Design | SEC-03, SEC-18 | ❌ none |
-| **LLM08** Excessive Agency | SEC-21 | ❌ none |
-| **LLM09** Overreliance | HAL-04 (SourceGrounding), HAL-05 (ConfidenceDecay) | ❌ none |
-| **LLM10** Model Theft | (out of scope — needs upstream rate-limiting + auth) | — |
+| **LLM01** Prompt Injection | SEC-01, SEC-05, SEC-09, SEC-03 | ⚠️ partial (2/4) |
+| **LLM02** Sensitive Information Disclosure | SEC-02, SEC-23, SEC-04, SEC-14 | ⚠️ partial (2/4) |
+| **LLM03** Supply Chain | SEC-17 | ❌ none |
+| **LLM04** Data & Model Poisoning | (out of scope — poisoning happens at training or fine-tuning time and is not observable at inference; see LLM08 for retrieval-time poisoning) | — |
+| **LLM05** Improper Output Handling | SEC-25, SEC-29 | ❌ none |
+| **LLM06** Excessive Agency | SEC-21, SEC-19 | ⚠️ partial (1/2) |
+| **LLM07** System Prompt Leakage | SEC-20, SEC-26, SEC-16 | ❌ none |
+| **LLM08** Vector & Embedding Weaknesses | SEC-31 | ❌ none |
+| **LLM09** Misinformation | HAL-01, HAL-08, HAL-06, HAL-09, HAL-04, HAL-05 | ❌ none |
+| **LLM10** Unbounded Consumption | OPS-11, OPS-02 | ✅ yes |
 
-> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Five of the eight in-scope categories are in that state out of the box. **LLM01 Prompt Injection** is no longer one of them: `SEC-01` and `SEC-05` carry a rule layer that fires without a generator.
+> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Five of the nine in-scope categories are in that state out of the box. **LLM01 Prompt Injection** is not one of them: `SEC-01` and `SEC-05` carry a rule layer that fires without a generator.
