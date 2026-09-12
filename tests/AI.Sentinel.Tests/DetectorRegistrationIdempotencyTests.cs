@@ -95,6 +95,51 @@ public class DetectorRegistrationIdempotencyTests
         Assert.Equal(new[] { "CUSTOM-01", "CUSTOM-02" }, ids, StringComparer.Ordinal);
     }
 
+    /// <summary>README.md documents extracting a shared <c>Action&lt;SentinelOptions&gt;</c> and applying it to
+    /// the default pipeline and each named one. When that shared action contains a type-based
+    /// <c>AddDetector&lt;T&gt;()</c>, T must still land in the global pool exactly once — two instances of one
+    /// type cannot be configured apart, since Configure&lt;T&gt; is keyed by type.</summary>
+    [Fact]
+    public void AddAISentinel_SharedBaseConfigAcrossPipelines_RegistersUserDetectorTypeOnce()
+    {
+        Action<SentinelOptions> baseCfg = o => o.AddDetector<SharedBaseConfigDetector>();
+
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => baseCfg(o));
+        services.AddAISentinel("strict", o => baseCfg(o));
+        services.AddAISentinel("lenient", o => baseCfg(o));
+
+        var registered = services.BuildServiceProvider().GetServices<IDetector>()
+            .OfType<SharedBaseConfigDetector>()
+            .ToList();
+
+        Assert.Single(registered);
+    }
+
+    [Fact]
+    public async Task SharedBaseConfigDetector_ReportsItsFindingOnce()
+    {
+        Action<SentinelOptions> baseCfg = o => o.AddDetector<SharedBaseConfigDetector>();
+
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => baseCfg(o));
+        services.AddAISentinel("strict", o => baseCfg(o));
+
+        var pipeline = services.BuildServiceProvider().GetRequiredService<IDetectionPipeline>();
+        var result = await pipeline.RunAsync(LeakedCredentialContext(), TestContext.Current.CancellationToken);
+
+        Assert.Single(result.Detections, d => string.Equals(d.DetectorId.Value, SharedBaseConfigDetector.DetectorIdValue, StringComparison.Ordinal));
+    }
+
+    private sealed class SharedBaseConfigDetector : IDetector
+    {
+        public const string DetectorIdValue = "SHARED-01";
+        public DetectorId Id => new(DetectorIdValue);
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(DetectionResult.WithSeverity(Id, Severity.Low, "shared-base-config probe"));
+    }
+
     private sealed class ConfigurableTestDetector(string id) : IDetector
     {
         public DetectorId Id => new(id);
