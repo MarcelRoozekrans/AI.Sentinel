@@ -54,6 +54,16 @@ public static class Program
         var provider = BuildProvider(embeddingGenerator, approvalConfig);
         await using var _ = provider.ConfigureAwait(false);
 
+        // This host registers no logging provider, so the library's ILogger warning reaches nobody.
+        // Emit it to stderr instead — stdout carries the hook JSON protocol. Not gated on verbose: a
+        // security control that is switched off should say so without a debug flag. The hook runs once
+        // per prompt, so SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING exists for operators who have accepted
+        // that SEC-01 and SEC-05 will not fire and do not want the reminder every time.
+        if (!config.SuppressSemanticWarning && provider.DescribeInertSemanticDetection() is { } semanticWarning)
+        {
+            await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
+        }
+
         var adapter = new HookAdapter(provider, config);
         var output = await adapter.HandleAsync(evt, input, default).ConfigureAwait(false);
 

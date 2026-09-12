@@ -69,7 +69,14 @@ public static class McpProxy
             cancellationToken: ct).ConfigureAwait(false);
         try
         {
-            var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator, out var auditStore);
+            var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator, out var auditStore, out var inertSemanticWarning);
+
+            // No logging provider here either — surface it on stderr so an inert SEC-01 isn't mistaken
+            // for a clean scan. Suppressible via SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING (#170).
+            if (!config.SuppressSemanticWarning && inertSemanticWarning is not null)
+            {
+                await stderr.WriteLineAsync(inertSemanticWarning).ConfigureAwait(false);
+            }
 
             var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver, approvalStore, approvalWait);
 

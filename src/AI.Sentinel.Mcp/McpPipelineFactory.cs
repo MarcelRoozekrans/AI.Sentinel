@@ -19,7 +19,7 @@ internal static class McpPipelineFactory
 {
     public static SentinelPipeline Create(HookConfig config, McpDetectorPreset preset,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
-        => Create(config, preset, embeddingGenerator, out _);
+        => Create(config, preset, embeddingGenerator, out _, out _);
 
     /// <summary>
     /// Same as <see cref="Create(HookConfig, McpDetectorPreset, IEmbeddingGenerator{string, Embedding{float}}?)"/>
@@ -31,6 +31,16 @@ internal static class McpPipelineFactory
         McpDetectorPreset preset,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         out IAuditStore auditStore)
+        => Create(config, preset, embeddingGenerator, out auditStore, out _);
+
+    /// <summary>As above, also reporting whether semantic detection is inert — this host registers no
+    /// logging provider, so the proxy writes the warning to stderr itself (#170).</summary>
+    public static SentinelPipeline Create(
+        HookConfig config,
+        McpDetectorPreset preset,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
+        out IAuditStore auditStore,
+        out string? inertSemanticWarning)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -48,6 +58,8 @@ internal static class McpPipelineFactory
             McpDetectorPreset.All => BuildAllDetectors(options),
             _                     => BuildSecurityDetectors(options),
         };
+
+        inertSemanticWarning = ServiceCollectionExtensions.DescribeInertSemanticDetection(options, detectors);
 
         var ringBuffer = new RingBufferAuditStore(capacity: 1024);
         auditStore = ringBuffer;

@@ -87,6 +87,7 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 | `SENTINEL_HOOK_ON_MEDIUM` | `Warn` | Action for Medium |
 | `SENTINEL_HOOK_ON_LOW` | `Allow` | Action for Low |
 | `SENTINEL_HOOK_VERBOSE` | `false` | Stderr diagnostic per call |
+| `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | Suppress the inert-semantic-detection warning |
 
 ### MCP-specific
 

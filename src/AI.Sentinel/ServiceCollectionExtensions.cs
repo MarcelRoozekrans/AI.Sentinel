@@ -223,14 +223,7 @@ public static class ServiceCollectionExtensions
         builder.Use((inner, sp) =>
         {
             var opts = sp.GetRequiredService<SentinelOptions>();
-            if (opts.EmbeddingGenerator is null)
-            {
-                var logger = sp.GetService<ILogger<SentinelPipeline>>();
-                var semanticCount = sp.GetServices<IDetector>().Count(d => d is SemanticDetectorBase);
-                logger?.LogWarning(
-                    "SentinelOptions.EmbeddingGenerator is not configured. All {Count} semantic detectors will return Clean until an IEmbeddingGenerator is provided.",
-                    semanticCount);
-            }
+            WarnIfSemanticDetectionInert(sp, opts, pipelineName: null);
             return new SentinelChatClient(
                 inner,
                 sp.GetRequiredService<IDetectionPipeline>(),
@@ -265,14 +258,7 @@ public static class ServiceCollectionExtensions
                     $"AI.Sentinel pipeline '{name}': shared infrastructure (IAuditStore, IAlertSink, IAuditForwarder) is missing. Call services.AddAISentinel(...) once before registering or resolving named pipelines — the default unnamed call wires the shared audit store, forwarders, and alert sink.");
             }
 
-            if (opts.EmbeddingGenerator is null)
-            {
-                var logger = sp.GetService<ILogger<SentinelPipeline>>();
-                var semanticCount = sp.GetServices<IDetector>().Count(d => d is SemanticDetectorBase);
-                logger?.LogWarning(
-                    "AI.Sentinel pipeline '{Name}': EmbeddingGenerator is not configured. All {Count} semantic detectors will return Clean until an IEmbeddingGenerator is provided.",
-                    name, semanticCount);
-            }
+            WarnIfSemanticDetectionInert(sp, opts, pipelineName: name);
 
             return new SentinelChatClient(
                 inner,
@@ -284,11 +270,70 @@ public static class ServiceCollectionExtensions
                 sp.GetServices<IAuditForwarder>());       // shared
         });
 
+    /// <summary>Builds the "semantic detection is inert" warning, or <see langword="null"/> when it is active.</summary>
+    private static string? InertSemanticWarning(SentinelOptions? opts, IServiceProvider sp, string? pipelineName)
+    {
+        if (opts is null || opts.EmbeddingGenerator is not null)
+        {
+            return null;
+        }
+
+        var count = sp.GetServices<IDetector>().Count(d => d is SemanticDetectorBase);
+        if (count == 0)
+        {
+            return null;
+        }
+
+        return InertSemanticMessage(count, pipelineName);
+    }
+
+    private static string InertSemanticMessage(int count, string? pipelineName)
+    {
+        var scope = pipelineName is null ? "AI.Sentinel" : $"AI.Sentinel pipeline '{pipelineName}'";
+        return $"{scope}: EmbeddingGenerator is not configured — all {count} semantic detectors, including SEC-01 PromptInjection and SEC-05 Jailbreak, return Clean on every scan. Set SentinelOptions.EmbeddingGenerator to enable semantic detection.";
+    }
+
+    private static void WarnIfSemanticDetectionInert(IServiceProvider sp, SentinelOptions? opts, string? pipelineName)
+    {
+        if (InertSemanticWarning(opts, sp, pipelineName) is not { } warning)
+        {
+            return;
+        }
+
+        sp.GetService<ILogger<SentinelPipeline>>()?.LogWarning("{SentinelWarning}", warning);
+    }
+
+    /// <summary>Returns a warning when semantic detection cannot fire, or <see langword="null"/> when it is
+    /// active. Hosts with an <see cref="ILogger"/> get this logged automatically when the pipeline is built;
+    /// hosts without one — the CLI tools register no logging provider — call this and write the result
+    /// to stderr. Without it an inert SEC-01 is indistinguishable from "no threat found" (#170).</summary>
+    public static string? DescribeInertSemanticDetection(this IServiceProvider sp)
+    {
+        ArgumentNullException.ThrowIfNull(sp);
+        return InertSemanticWarning(sp.GetService<SentinelOptions>(), sp, pipelineName: null);
+    }
+
+    /// <summary>As <see cref="DescribeInertSemanticDetection(IServiceProvider)"/>, for hosts that compose
+    /// their detector set by hand instead of through DI — the MCP proxy builds its own preset list.</summary>
+    public static string? DescribeInertSemanticDetection(SentinelOptions options, IEnumerable<IDetector> detectors)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(detectors);
+        if (options.EmbeddingGenerator is not null)
+        {
+            return null;
+        }
+
+        var count = detectors.Count(d => d is SemanticDetectorBase);
+        return count == 0 ? null : InertSemanticMessage(count, pipelineName: null);
+    }
+
     public static SentinelPipeline BuildSentinelPipeline(
         this IServiceProvider sp,
         IChatClient innerClient)
     {
         ArgumentNullException.ThrowIfNull(innerClient);
+        WarnIfSemanticDetectionInert(sp, sp.GetService<SentinelOptions>(), pipelineName: null);
         return new SentinelPipeline(
             innerClient,
             sp.GetRequiredService<IDetectionPipeline>(),

@@ -1,3 +1,4 @@
+using AI.Sentinel;
 using System.CommandLine;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Detection;
@@ -88,6 +89,14 @@ public static class ScanCommand
 
             var (provider, pipeline) = ForensicsPipelineFactory.Build(replayClient, embeddingGenerator);
             await using var _ = provider.ConfigureAwait(false);
+
+            // No logging provider is registered here, so the library's ILogger warning reaches nobody.
+            // Without this, a scan of a conversation containing a textbook injection reports Clean and
+            // gives no hint that the detectors for it never ran (#170).
+            if (provider.DescribeInertSemanticDetection() is { } semanticWarning)
+            {
+                await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
+            }
 
             var result = await ReplayRunner.RunAsync(file, conversation, pipeline, ct).ConfigureAwait(false);
 
