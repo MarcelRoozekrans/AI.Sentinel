@@ -189,7 +189,7 @@ Detectors run in these modes:
 | `SEC‑05` | Jailbreak | Rule + Semantic ⚠️ | Jailbreak attempt phrases. Unambiguous ones (`DAN mode`, `unrestricted AI mode`) are matched by rule; roleplay exploits need a generator |
 | `SEC‑06` | PrivilegeEscalation | Semantic ⚠️ | Role/permission escalation requests |
 | `SEC‑07` | CovertChannel | Semantic ⚠️ | Encoding-based hidden payloads |
-| `SEC‑08` | EntropyCovertChannel | Stub | Statistical entropy anomalies in output — **not implemented; always returns `Clean`** |
+| `SEC‑08` | EntropyCovertChannel | Rule-based | Long, structureless, high-entropy runs — the shape encoded or encrypted data takes when smuggled through text. Tuned to exclude hashes, identifiers and URLs |
 | `SEC‑09` | IndirectInjection | Semantic ⚠️ | Injection via retrieved documents or tool results |
 | `SEC‑10` | AgentImpersonation | Semantic ⚠️ | Model claiming to be a different agent or system |
 | `SEC‑11` | MemoryCorruption | Semantic ⚠️ | Attempts to corrupt agent memory/context |
@@ -421,7 +421,7 @@ builder.Services.AddAISentinel(opts =>
     // options.EmbeddingCache = new MyRedisEmbeddingCache(...);
 
     // Optional: LLM second-pass classifier. It re-classifies findings already at Medium or
-// above — it cannot make the two Stub detectors (SEC-08, SEC-18) fire, as they return Clean.
+// above — it cannot make a Stub detector (SEC-18) fire, as it returns Clean.
     opts.EscalationClient = new OpenAIChatClient("gpt-4o-mini", ...);
 
     // Audit ring buffer size (in-process, no external store required)

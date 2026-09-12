@@ -432,4 +432,31 @@ public class DetectorDocumentationTests
 
         return files.Where(File.Exists).ToList();
     }
+
+    /// <summary>The converse of EveryStubDetector_IsDocumentedAsAStub, and the direction that was
+    /// missing. That test walks the actual stubs and checks the docs; it says nothing about a row
+    /// labelled Stub whose detector is no longer one. When SEC-08 became a real rule-based detector
+    /// the tables went on calling it a placeholder that never fires, and every guard stayed green —
+    /// a control understated rather than overstated, but drift either way.</summary>
+    [Fact]
+    public void EveryRowLabelledStub_IsActuallyAStub()
+    {
+        var stubIds = new HashSet<string>(StubDetectorIds(), StringComparer.Ordinal);
+        var wrong = new List<string>();
+
+        foreach (var row in DetectorReferenceRows())
+        {
+            if (!row.TypeCell.Contains(StubLabel, StringComparison.Ordinal)) continue;
+
+            var id = row.IdCell.Replace("`", string.Empty, StringComparison.Ordinal)
+                .Replace("*", string.Empty, StringComparison.Ordinal).Trim();
+
+            if (!stubIds.Contains(id))
+            {
+                wrong.Add($"{row.File}: {id} is documented as a Stub but no longer is one");
+            }
+        }
+
+        Assert.Empty(wrong);
+    }
 }
