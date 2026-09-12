@@ -209,7 +209,7 @@ Detectors run in three modes:
 | `SEC‑19` | ToolCallFrequency | Rule-based | Counts `ChatRole.Tool` messages; flags sessions with excessive tool invocations |
 | `SEC‑21` | ExcessiveAgency | Semantic ⚠️ | Detects autonomous-action language ("I deleted", "I deployed", "I executed") |
 | `SEC‑22` | HumanTrustManipulation | Semantic ⚠️ | Spots rapport/authority manipulation ("you can trust me", "I am your advisor") |
-| `SEC‑29` | OutputSchema | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05) |
+| `SEC‑29` | OutputSchema | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05). **Inactive unless** `opts.ExpectedResponseType` *and* an `ISerializerDispatcher` are supplied — neither is registered by default |
 | `SEC‑30` | ShorthandEmergence | Semantic ⚠️ | Counts unknown all-caps tokens that may signal emergent covert language |
 | `SEC‑31` | VectorRetrievalPoisoning | Semantic ⚠️ | Detects malicious instructions embedded in RAG-retrieved document chunks (OWASP LLM08) |
 
@@ -263,14 +263,14 @@ Detectors run in three modes:
 | LLM02 | Sensitive Info Disclosure | `CredentialExposureDetector`, `PiiLeakageDetector`, `SystemPromptLeakageDetector`, `PromptTemplateLeakageDetector` | ⚠️ partial (2/4) |
 | LLM03 | Supply Chain | `SupplyChainPoisoningDetector` | ❌ none |
 | LLM04 | Data & Model Poisoning | `DataExfiltrationDetector`, `InformationFlowDetector` | ❌ none |
-| LLM05 | Improper Output Handling | `CodeInjectionDetector`, `OutputSchemaDetector` | ⚠️ partial (1/2) |
+| LLM05 | Improper Output Handling | `CodeInjectionDetector`, `OutputSchemaDetector` | ❌ none |
 | LLM06 | Excessive Agency | `ExcessiveAgencyDetector`, `ToolCallFrequencyDetector` | ⚠️ partial (1/2) |
 | LLM07 | System Prompt Leakage | `SystemPromptLeakageDetector`, `GovernanceGapDetector` | ❌ none |
 | LLM08 | Vector & Embedding Weaknesses | `VectorRetrievalPoisoningDetector` | ❌ none |
 | LLM09 | Misinformation | `PhantomCitationDetector`, `GroundlessStatisticDetector`, `StaleKnowledgeDetector`, `UncertaintyPropagationDetector` | ❌ none |
 | LLM10 | Unbounded Consumption | `UnboundedConsumptionDetector`, `RepetitionLoopDetector` | ✅ yes |
 
-> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Six of the ten categories, including **LLM01 Prompt Injection**, are in that state out of the box.
+> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Seven of the ten categories, including **LLM01 Prompt Injection**, are in that state out of the box.
 
 ---
 
@@ -414,12 +414,13 @@ builder.Services.AddAISentinel(opts =>
     opts.OnLow      = SentinelAction.Log;
     // opts.OnLow   = SentinelAction.PassThrough;  // silent
 
-    // Optional: embedding provider for 38 semantic detectors (language-agnostic detection)
+    // Optional: embedding provider for the 41 semantic detectors (language-agnostic detection)
     opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(...);
     // Optional: custom embedding cache (default: in-memory LRU, 1 024 entries)
     // options.EmbeddingCache = new MyRedisEmbeddingCache(...);
 
-    // Optional: LLM second-pass classifier for 2 stub detectors (ToolDescriptionDivergenceDetector)
+    // Optional: LLM second-pass classifier. It re-classifies findings already at Medium or
+// above — it cannot make the two Stub detectors (SEC-08, SEC-18) fire, as they return Clean.
     opts.EscalationClient = new OpenAIChatClient("gpt-4o-mini", ...);
 
     // Audit ring buffer size (in-process, no external store required)

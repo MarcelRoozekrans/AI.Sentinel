@@ -78,7 +78,11 @@ See the [`Configure<T>` page](../configuration/fluent-config) for tuning pattern
 
 ## Escalation — LLM classifier
 
-Some detectors (`SEC-08 EntropyCovertChannel`, future stub detectors) flag content as *suspicious* but don't have enough signal to be confident. They implement `ILlmEscalatingDetector` instead of `IDetector`.
+Detectors implementing `ILlmEscalatingDetector` can have a finding re-classified by a second-pass LLM — `SEC-02 CredentialExposure`, `SEC-23 PiiLeakage` and `SEC-19 ToolCallFrequency` among them.
+
+:::caution
+Escalation only re-classifies a finding a detector has **already** produced. The two `Stub` detectors (`SEC-08 EntropyCovertChannel`, `SEC-18 ToolDescriptionDivergence`) always return `Clean`, so setting `opts.EscalationClient` cannot make them fire.
+:::
 
 When such a detector emits `Severity.Medium` or higher, the pipeline runs a second-pass LLM classifier:
 
