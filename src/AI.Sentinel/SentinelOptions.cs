@@ -115,6 +115,19 @@ public sealed class SentinelOptions
     /// </summary>
     public IEmbeddingCache? EmbeddingCache { get; set; }
 
+    /// <summary>Cache for the reference embeddings of each semantic detector's example phrases.
+    /// Separate from <see cref="EmbeddingCache"/>, which holds scan-time input vectors: example
+    /// phrases are static and non-sensitive, so this cache is safe to persist, whereas scan input is
+    /// the user's prompt and its embedding is invertible to approximate source text.
+    /// <para>
+    /// When <see langword="null"/> (the default) example phrases are embedded on every first scan.
+    /// A long-lived host pays that once at startup; a per-invocation host pays it every time, which is
+    /// what makes a persistent implementation such as <see cref="FileSystemEmbeddingCache"/> worth
+    /// supplying there. No bundled CLI sets this yet — they cannot configure an embedding generator at
+    /// all, so nothing to cache.
+    /// </para></summary>
+    public IEmbeddingCache? ExampleEmbeddingCache { get; set; }
+
     /// <summary>
     /// System message text prepended to every outbound chat call. <see langword="null"/> disables hardening
     /// (default).
