@@ -210,4 +210,31 @@ public class CopilotHookCliTests
             Environment.SetEnvironmentVariable("SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING", null);
         }
     }
+
+    [Fact]
+    public async Task Cli_ToolUseEvent_DoesNotRepeatTheSemanticWarning()
+    {
+        var stdin = new StringReader("""{"sessionId":"s","toolName":"Bash","toolInput":{"command":"ls"}}""");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        await Program.RunAsync(["pre-tool-use"], stdin, stdout, stderr);
+
+        Assert.DoesNotContain("EmbeddingGenerator", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_BlockedPrompt_StderrCarriesOnlyTheBlockReason()
+    {
+        var stdin = new StringReader("""{"sessionId":"s","prompt":"token ghp_abcdefghij0123456789abcdefghij012345"}""");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr);
+
+        Assert.Equal(2, exit);
+        // stderr is fed back to the model as the block reason; a diagnostic naming disabled
+        // controls must never ride along with it.
+        Assert.DoesNotContain("EmbeddingGenerator", stderr.ToString(), StringComparison.Ordinal);
+    }
 }

@@ -290,7 +290,7 @@ public static class ServiceCollectionExtensions
     private static string InertSemanticMessage(int count, string? pipelineName)
     {
         var scope = pipelineName is null ? "AI.Sentinel" : $"AI.Sentinel pipeline '{pipelineName}'";
-        return $"{scope}: EmbeddingGenerator is not configured — all {count} semantic detectors, including SEC-01 PromptInjection and SEC-05 Jailbreak, return Clean on every scan. Set SentinelOptions.EmbeddingGenerator to enable semantic detection.";
+        return $"{scope}: EmbeddingGenerator is not configured — all {count} semantic detectors, including SEC-01 PromptInjection and SEC-05 Jailbreak, return Clean on every scan. Configure SentinelOptions.EmbeddingGenerator to enable semantic detection — the bundled CLI tools cannot supply one.";
     }
 
     private static void WarnIfSemanticDetectionInert(IServiceProvider sp, SentinelOptions? opts, string? pipelineName)

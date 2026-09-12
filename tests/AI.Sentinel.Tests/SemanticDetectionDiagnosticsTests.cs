@@ -71,4 +71,18 @@ public class SemanticDetectionDiagnosticsTests
 
         Assert.Contains(injection.Detections, d => string.Equals(d.DetectorId.Value, "SEC-01", StringComparison.Ordinal));
     }
+
+    /// <summary>The MCP proxy folds this into a single key=value / NDJSON record, so it must not
+    /// contain a line break.</summary>
+    [Fact]
+    public void InertSemanticWarning_IsASingleLine()
+    {
+        var provider = new ServiceCollection().AddAISentinel().BuildServiceProvider();
+
+        var warning = provider.DescribeInertSemanticDetection();
+
+        Assert.NotNull(warning);
+        Assert.DoesNotContain((char)10, warning);
+        Assert.DoesNotContain((char)13, warning);
+    }
 }
