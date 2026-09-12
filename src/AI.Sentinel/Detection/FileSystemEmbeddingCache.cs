@@ -51,7 +51,7 @@ public sealed class FileSystemEmbeddingCache : IEmbeddingCache, IDisposable
     /// leaving the cache permanently cold and the feature apparently inert.</summary>
     private const int AutoFlushThreshold = 64;
 
-    private const int WriteAttempts = 8;
+    private const int WriteAttempts = 10;
     private const int WriteRetryDelayMs = 5;
 
     private readonly string _path;
@@ -127,17 +127,29 @@ public sealed class FileSystemEmbeddingCache : IEmbeddingCache, IDisposable
 
     /// <summary>Merges what is on disk and rewrites the file. Called automatically once enough entries
     /// have accumulated, and on dispose.</summary>
-    public void Flush()
+    /// <returns><see langword="true"/> when the entries reached disk. A <see langword="false"/> means
+    /// writers were contending and this process gave up: nothing is lost that was already stored, but
+    /// the next process re-embeds what this one would have cached.</returns>
+    public bool Flush()
     {
+        for (var attempt = 0; attempt < WriteAttempts; attempt++)
+        {
+            lock (_lock)
+            {
+                if (!_dirty) return true;
+                if (TryMergeAndWrite()) return true;
+            }
+
+            // Sleep outside the lock. Every semantic detector shares one example cache, so holding it
+            // through the backoff would stall all of them on TryGet while one writer waits its turn.
+            // Backoff with jitter: a fixed cadence makes concurrent writers collide in lockstep.
+            var delay = (WriteRetryDelayMs * (attempt + 1)) + Random.Shared.Next(WriteRetryDelayMs);
+            Thread.Sleep(delay);
+        }
+
         lock (_lock)
         {
-            if (!_dirty) return;
-
-            for (var attempt = 0; attempt < WriteAttempts; attempt++)
-            {
-                if (TryMergeAndWrite()) return;
-                Thread.Sleep(WriteRetryDelayMs);
-            }
+            return !_dirty;
         }
     }
 

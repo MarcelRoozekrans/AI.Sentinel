@@ -204,13 +204,13 @@ public class ResourceReadInterceptorTests
     }
 
     [Fact]
-    public async Task ResourceRead_PipelineThrows_FailsOpen_LogsAndContinues()
+    public async Task ResourceRead_FailingDetectors_AreSkippedAndReported_AndTheReadContinues()
     {
-        // Wire a throwing embedding generator. Every semantic detector in the Security preset
-        // calls EnsureInitializedAsync → EmbedExamplesAsync → GenerateAsync at first scan, so
-        // the throw bubbles up through DetectionPipeline.RunAsync (Task.WhenAll) and out of
-        // SentinelPipeline.ScanMessagesAsync — exactly the path ResourceReadInterceptor's
-        // try/catch is meant to swallow.
+        // Wire a throwing embedding generator. Every semantic detector in the Security preset calls
+        // EnsureInitializedAsync → EmbedExamplesAsync → GenerateAsync at first scan, so each throws.
+        // DetectionPipeline now isolates that: the failing detectors are skipped and reported, and
+        // the scan completes on the detectors that did work rather than aborting. The read is still
+        // forwarded, but because the scan ran — not because the interceptor swallowed a thrown scan.
         await using var h = await StartHarnessAsync(new ThrowingEmbeddingGenerator());
 
         var expectedResult = new ReadResourceResult
@@ -236,10 +236,8 @@ public class ResourceReadInterceptorTests
         Assert.Single(result.Contents);
         var forwarded = Assert.IsType<TextResourceContents>(result.Contents[0]);
         Assert.Equal("scan me — pipeline will throw", forwarded.Text);
-        // (c) Stderr carries the fail-open log line with the original exception type name.
-        Assert.Contains("event=resources_read", stderr, StringComparison.Ordinal);
-        Assert.Contains("action=fail_open", stderr, StringComparison.Ordinal);
-        Assert.Contains("uri=file:///should-fail-open.txt", stderr, StringComparison.Ordinal);
+        // (c) The degraded detectors are reported rather than passing silently as clean.
+        Assert.Contains("failed and was skipped", stderr, StringComparison.Ordinal);
     }
 
     [Fact]

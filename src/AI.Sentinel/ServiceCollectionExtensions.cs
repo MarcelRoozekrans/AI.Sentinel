@@ -123,7 +123,8 @@ public static class ServiceCollectionExtensions
                 sp.GetServices<IDetector>(),
                 opts.GetDetectorConfigurations(),
                 opts.EscalationClient,
-                sp.GetService<ILogger<DetectionPipeline>>()));
+                sp.GetService<ILogger<DetectionPipeline>>(),
+                opts.OnDetectorFailure));
 
     private static IToolCallGuard BuildToolCallGuard(IServiceCollection services, SentinelOptions opts, IServiceProvider sp)
     {

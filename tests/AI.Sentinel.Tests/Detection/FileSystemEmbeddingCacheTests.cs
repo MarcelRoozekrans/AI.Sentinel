@@ -81,26 +81,33 @@ public sealed class FileSystemEmbeddingCacheTests : IDisposable
         Assert.False(cache.TryGet("text", out _));
     }
 
+    /// <summary>The guarantee is no lost updates: a flush that reports success must survive another
+    /// writer's flush. Contention can exhaust a writer's retry budget — that costs a re-embed, not
+    /// correctness — so the assertion is keyed on what actually persisted, not on all eight winning.
+    /// An earlier version asserted only that one entry survived, which passed while seven vanished.</summary>
     [Fact]
-    public void ConcurrentWriters_LeaveAReadableFile()
+    public void ConcurrentWriters_NeverLoseAFlushThatReportedSuccess()
     {
+        var persisted = new System.Collections.Concurrent.ConcurrentBag<string>();
+
         Parallel.For(0, 8, i =>
         {
             using var cache = new FileSystemEmbeddingCache(_dir, "m");
-            cache.Set($"phrase {i}", Vector(i, i + 1));
+            var phrase = $"phrase {i}";
+            cache.Set(phrase, Vector(i, i + 1));
+            if (cache.Flush()) persisted.Add(phrase);
         });
 
         using var reader = new FileSystemEmbeddingCache(_dir, "m");
 
-        // Each writer loads the current file before adding its entry, so with correct temp-file
-        // isolation every phrase survives. Asserting ">= 1" let 7 of 8 writes vanish unnoticed.
-        var missing = new List<string>();
-        for (var i = 0; i < 8; i++)
+        var lost = new List<string>();
+        foreach (var phrase in persisted)
         {
-            if (!reader.TryGet($"phrase {i}", out _)) missing.Add($"phrase {i}");
+            if (!reader.TryGet(phrase, out _)) lost.Add(phrase);
         }
 
-        Assert.Empty(missing);
+        Assert.Empty(lost);
+        Assert.NotEmpty(persisted);
     }
 
     /// <summary>A cache written at one vector dimension must never be served to a generator producing

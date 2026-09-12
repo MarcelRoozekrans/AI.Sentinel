@@ -2,6 +2,8 @@ using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel;
+using AI.Sentinel.Detection;
+using AI.Sentinel.Embeddings;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Configuration;
 using AI.Sentinel.Approvals.EntraPim;
@@ -52,7 +54,19 @@ public static class Program
         var (approvalConfig, configExit) = await TryLoadApprovalConfigAsync(stderr).ConfigureAwait(false);
         if (configExit is { } code) return code;
 
-        var provider = BuildProvider(embeddingGenerator, approvalConfig);
+        // A caller-supplied generator wins; otherwise read SENTINEL_EMBEDDING_* so the hook can do
+        // semantic detection at all. A misconfigured setting is reported rather than leaving SEC-01
+        // and SEC-05 quietly inert, which is the failure this whole feature removes.
+        string? embeddingError = null;
+        using var embeddings = embeddingGenerator is null
+            ? SentinelEmbeddingSetup.TryCreateFromEnvironment(ReadEnvironment(), out embeddingError)
+            : null;
+        if (embeddingError is not null)
+        {
+            await stderr.WriteLineAsync(embeddingError).ConfigureAwait(false);
+        }
+
+        var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message));
         await using var _ = provider.ConfigureAwait(false);
 
         var adapter = new CopilotHookAdapter(provider, config);
@@ -108,6 +122,22 @@ public static class Program
         }
     }
 
+    /// <summary>Embedding settings do not carry the SENTINEL_HOOK_ prefix that BuildHookEnvVars
+    /// filters on, so they are read separately.</summary>
+    private static Dictionary<string, string?> ReadEnvironment()
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is string key && key.StartsWith("SENTINEL_EMBEDDING_", StringComparison.Ordinal))
+            {
+                env[key] = entry.Value as string;
+            }
+        }
+
+        return env;
+    }
+
     private static Dictionary<string, string?> BuildHookEnvVars() =>
         Environment.GetEnvironmentVariables()
             .Cast<System.Collections.DictionaryEntry>()
@@ -138,7 +168,9 @@ public static class Program
     /// </summary>
     internal static ServiceProvider BuildProvider(
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
-        ApprovalConfig? approvalConfig)
+        ApprovalConfig? approvalConfig,
+        IEmbeddingCache? exampleEmbeddingCache = null,
+        Action<string>? detectorFailureSink = null)
     {
         var services = new ServiceCollection();
         var backendKind = approvalConfig is null
@@ -164,6 +196,10 @@ public static class Program
             opts.OnMedium = SentinelAction.Quarantine;
             opts.OnLow = SentinelAction.Quarantine;
             opts.EmbeddingGenerator = embeddingGenerator;
+            // Without this the hook re-embeds every detector's example phrases on every invocation.
+            opts.ExampleEmbeddingCache = exampleEmbeddingCache;
+            // No logging provider here, so a detector that fails would degrade silently.
+            opts.OnDetectorFailure = detectorFailureSink;
             if (approvalConfig is not null)
                 ApprovalBackendSelector.Configure(opts, approvalConfig);
         });
