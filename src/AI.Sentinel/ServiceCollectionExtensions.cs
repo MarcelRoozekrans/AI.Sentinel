@@ -1,5 +1,6 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using AI.Sentinel.Alerts;
 using AI.Sentinel.Approvals;
@@ -73,7 +74,7 @@ public static class ServiceCollectionExtensions
             services.AddSingleton<IAlertSink>(_ => BuildAlertSink(opts));
             services.AddSingleton<IAuditStore>(BuildAuditStore(opts));
             services.AddSingleton(sp => BuildInterventionEngine(opts, sp));
-            services.AddAISentinelDetectors();
+            AddOfficialDetectorsOnce(services);
             RegisterUserDetectors(services, opts);
             services.AddSingleton<IDetectionPipeline>(sp => BuildDetectionPipeline(opts, sp));
             services.AddSingleton<IToolCallGuard>(sp => BuildToolCallGuard(services, opts, sp));
@@ -86,10 +87,11 @@ public static class ServiceCollectionExtensions
             services.AddKeyedSingleton(name, opts);
             services.AddKeyedSingleton(name, (sp, _) => BuildInterventionEngine(opts, sp));
 
-            // Detectors registered globally — official via source-gen (idempotent), user detectors via
-            // RegisterUserDetectors (adds to the global IDetector pool). User-added detectors from any
-            // named pipeline are visible to ALL pipelines; per-name customization rides on Configure<T>.
-            services.AddAISentinelDetectors();
+            // Detectors registered globally — the official set exactly once (see AddOfficialDetectorsOnce),
+            // user detectors via RegisterUserDetectors (adds to the global IDetector pool). User-added
+            // detectors from any named pipeline are visible to ALL pipelines; per-name customization
+            // rides on Configure<T>.
+            AddOfficialDetectorsOnce(services);
             RegisterUserDetectors(services, opts);
 
             services.AddKeyedSingleton<IDetectionPipeline>(name, (sp, _) => BuildDetectionPipeline(opts, sp));
@@ -147,13 +149,39 @@ public static class ServiceCollectionExtensions
         return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, approvalStore, logger);
     }
 
+    /// <summary>Presence of this marker proves the official detector set is already in the container.</summary>
+    private sealed class OfficialDetectorsRegistered;
+
+    /// <summary>Registers the source-generated official detector set exactly once per <see cref="IServiceCollection"/>.
+    /// The generated <c>AddAISentinelDetectors</c> is not idempotent — every detector is annotated
+    /// <c>[Singleton(As = typeof(IDetector), AllowMultiple = true)]</c>, which opts out of ZeroAlloc.Inject's
+    /// TryAdd-by-default, so each call appends another full set. Without this guard the README's
+    /// named-pipeline example (default + "strict" + "lenient") built a pipeline holding three copies of
+    /// the set, running every detector three times per scan and reporting each finding three times.</summary>
+    private static void AddOfficialDetectorsOnce(IServiceCollection services)
+    {
+        if (services.Any(d => d.ServiceType == typeof(OfficialDetectorsRegistered)))
+        {
+            return;
+        }
+
+        services.AddSingleton(new OfficialDetectorsRegistered());
+        services.AddAISentinelDetectors();
+    }
+
     private static void RegisterUserDetectors(IServiceCollection services, SentinelOptions opts)
     {
         foreach (var reg in opts.GetDetectorRegistrations())
         {
             if (reg.Factory is null)
             {
-                services.AddSingleton(typeof(IDetector), reg.DetectorType);
+                // A type-based registration carries no per-instance state, and Configure<T> is keyed by
+                // type, so a repeat of the same type is always redundant. This happens for real via the
+                // shared base-config recipe in the README's "Named pipelines" section: one
+                // Action<SentinelOptions> containing AddDetector<T>(), applied to the default pipeline
+                // and to each named one. Factory registrations are left alone — two factories may
+                // legitimately produce differently-constructed instances of the same type.
+                services.TryAddEnumerable(ServiceDescriptor.Singleton(typeof(IDetector), reg.DetectorType));
             }
             else
             {
