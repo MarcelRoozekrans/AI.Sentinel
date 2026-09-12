@@ -18,7 +18,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-05** | `JailbreakDetector` | Semantic ⚠️ | Jailbreak attempt phrases (DAN, roleplay exploits) |
 | **SEC-06** | `PrivilegeEscalationDetector` | Semantic ⚠️ | Role / permission escalation requests |
 | **SEC-07** | `CovertChannelDetector` | Semantic ⚠️ | Encoding-based hidden payloads |
-| **SEC-08** | `EntropyCovertChannelDetector` | LLM escalation | Statistical entropy anomalies in output |
+| **SEC-08** | `EntropyCovertChannelDetector` | Stub | Statistical entropy anomalies in output — **not implemented; always returns `Clean`** |
 | **SEC-09** | `IndirectInjectionDetector` | Semantic ⚠️ | Injection via retrieved documents or tool results |
 | **SEC-10** | `AgentImpersonationDetector` | Semantic ⚠️ | Model claiming to be a different agent or system |
 | **SEC-11** | `MemoryCorruptionDetector` | Semantic ⚠️ | Attempts to corrupt agent memory / context |
@@ -28,9 +28,9 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-15** | `PhantomCitationSecurityDetector` | Semantic ⚠️ | Security-context hallucinated authority sources |
 | **SEC-16** | `GovernanceGapDetector` | Semantic ⚠️ | Policy / compliance bypass attempts |
 | **SEC-17** | `SupplyChainPoisoningDetector` | Semantic ⚠️ | Compromised dependency suggestions |
-| **SEC-18** | `ToolDescriptionDivergenceDetector` | Stub | Tool description changed at runtime vs. original declaration (requires tool-descriptor snapshot) |
+| **SEC-18** | `ToolDescriptionDivergenceDetector` | Stub | Tool description changed at runtime vs. original declaration — **not implemented; always returns `Clean`** (requires a tool-descriptor snapshot) |
 | **SEC-19** | `ToolCallFrequencyDetector` | Rule-based | Counts `ChatRole.Tool` messages; flags sessions with excessive tool invocations |
-| **SEC-20** | `SystemPromptLeakageDetector` | Semantic ⚠️ | Verbatim fragments of the system prompt echoed in conversation history |
+| **SEC-20** | `SystemPromptLeakageDetector` | Semantic ⚠️ | Requests to reveal the system prompt or hidden instructions. Does **not** detect the system prompt itself appearing in output — it has no copy to compare against |
 | **SEC-21** | `ExcessiveAgencyDetector` | Semantic ⚠️ | Autonomous-action language ("I deleted", "I deployed", "I executed") |
 | **SEC-22** | `HumanTrustManipulationDetector` | Semantic ⚠️ | Rapport / authority manipulation ("you can trust me", "I am your advisor") |
 | **SEC-23** | `PiiLeakageDetector` | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email + name, phone, DOB |
@@ -72,15 +72,17 @@ opts.Configure<JailbreakDetector>(c =>
 
 ## OWASP LLM Top 10 mapping
 
-| OWASP LLM | Detectors |
-|---|---|
-| **LLM01** Prompt Injection | SEC-01, SEC-09, SEC-31, SEC-26 |
-| **LLM02** Insecure Output Handling | SEC-25, SEC-29 |
-| **LLM03** Training Data Poisoning | (out of scope — detect at training time, not at inference) |
-| **LLM04** Model DoS | OPS-11 (UnboundedConsumption), SEC-19 (ToolCallFrequency) |
-| **LLM05** Supply Chain | SEC-17 |
-| **LLM06** Sensitive Information Disclosure | SEC-02, SEC-20, SEC-23, SEC-14 |
-| **LLM07** Insecure Plugin Design | SEC-03, SEC-18 |
-| **LLM08** Excessive Agency | SEC-21 |
-| **LLM09** Overreliance | HAL-04 (SourceGrounding), HAL-05 (ConfidenceDecay) |
-| **LLM10** Model Theft | (out of scope — needs upstream rate-limiting + auth) |
+| OWASP LLM | Detectors | Fires by default |
+|---|---|---|
+| **LLM01** Prompt Injection | SEC-01, SEC-09, SEC-31, SEC-26 | ❌ none |
+| **LLM02** Insecure Output Handling | SEC-25, SEC-29 | ⚠️ partial (1/2) |
+| **LLM03** Training Data Poisoning | (out of scope — detect at training time, not at inference) | — |
+| **LLM04** Model DoS | OPS-11 (UnboundedConsumption), SEC-19 (ToolCallFrequency) | ✅ yes |
+| **LLM05** Supply Chain | SEC-17 | ❌ none |
+| **LLM06** Sensitive Information Disclosure | SEC-02, SEC-20, SEC-23, SEC-14 | ⚠️ partial (2/4) |
+| **LLM07** Insecure Plugin Design | SEC-03, SEC-18 | ❌ none |
+| **LLM08** Excessive Agency | SEC-21 | ❌ none |
+| **LLM09** Overreliance | HAL-04 (SourceGrounding), HAL-05 (ConfidenceDecay) | ❌ none |
+| **LLM10** Model Theft | (out of scope — needs upstream rate-limiting + auth) | — |
+
+> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Six of the ten categories, including **LLM01 Prompt Injection**, are in that state out of the box.

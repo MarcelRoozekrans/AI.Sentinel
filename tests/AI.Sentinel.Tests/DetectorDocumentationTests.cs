@@ -1,5 +1,6 @@
 using System.Reflection;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Detectors;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -12,6 +13,7 @@ public class DetectorDocumentationTests
 {
     private const string RuleBasedLabel = "Rule-based";
     private const string MarkerLabel = "⚠️";
+    private const string StubLabel = "Stub";
 
     private static DirectoryInfo RepoRoot()
     {
@@ -148,5 +150,113 @@ public class DetectorDocumentationTests
         }
 
         Assert.Empty(undocumented);
+    }
+
+    private static IReadOnlyList<string> StubDetectorIds()
+    {
+        var provider = new ServiceCollection().AddAISentinel().BuildServiceProvider();
+        return provider.GetServices<IDetector>()
+            .Where(d => d is StubDetector)
+            .Select(d => d.Id.Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>A StubDetector always returns Clean, and DetectionPipeline only escalates results at
+    /// Severity.Medium or above — so a stub can never fire, with or without an EscalationClient. Any
+    /// label other than "Stub" (SEC-08 said "LLM escalation") promises a capability that does not exist.</summary>
+    [Fact]
+    public void EveryStubDetector_IsDocumentedAsAStub()
+    {
+        var stubIds = StubDetectorIds();
+        Assert.NotEmpty(stubIds);
+
+        var mislabelled = new List<string>();
+
+        foreach (var file in DocFiles())
+        {
+            var name = Path.GetFileName(file);
+            foreach (var line in File.ReadAllLines(file))
+            {
+                if (!line.StartsWith('|')) continue;
+                var cells = line.Split('|');
+                if (cells.Length < 4 || !IsTypeCell(cells[3])) continue;
+
+                var idCell = Normalise(cells[1]);
+                foreach (var sid in stubIds)
+                {
+                    if (idCell.Contains(sid, StringComparison.Ordinal)
+                        && !cells[3].Contains(StubLabel, StringComparison.Ordinal))
+                    {
+                        mislabelled.Add($"{name}: {sid} -> '{cells[3].Trim()}'");
+                    }
+                }
+            }
+        }
+
+        Assert.Empty(mislabelled);
+    }
+
+    private sealed record DetectorKind(string Id, string TypeName, bool FiresByDefault);
+
+    private static IReadOnlyList<DetectorKind> AllDetectorKinds()
+    {
+        var provider = new ServiceCollection().AddAISentinel().BuildServiceProvider();
+        var result = new List<DetectorKind>();
+        foreach (var d in provider.GetServices<IDetector>())
+        {
+            var inert = d is SemanticDetectorBase || d is StubDetector;
+            result.Add(new DetectorKind(d.Id.Value, d.GetType().Name, !inert));
+        }
+
+        return result;
+    }
+
+    /// <summary>The OWASP mapping is the table a compliance reader checks, and it cited detectors that
+    /// cannot fire in a stock install. The "Fires by default" verdict is recomputed here from the
+    /// registered detectors so the table cannot drift back into claiming coverage it does not have.</summary>
+    [Fact]
+    public void OwaspMapping_CoverageColumnMatchesTheRegisteredDetectors()
+    {
+        var kinds = AllDetectorKinds();
+        var wrong = new List<string>();
+
+        foreach (var file in DocFiles())
+        {
+            var name = Path.GetFileName(file);
+            var inTable = false;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                if (line.Contains("| Fires by default |", StringComparison.Ordinal)) { inTable = true; continue; }
+                if (inTable && !line.StartsWith('|')) { inTable = false; continue; }
+                if (!inTable || !line.StartsWith('|')) continue;
+
+                var cells = line.Split('|');
+                if (cells.Length < 4) continue;
+
+                var row = Normalise(line);
+                var total = 0;
+                var active = 0;
+                foreach (var k in kinds)
+                {
+                    var named = row.Contains(k.Id, StringComparison.Ordinal)
+                        || row.Contains(k.TypeName, StringComparison.Ordinal);
+                    if (!named) continue;
+                    total++;
+                    if (k.FiresByDefault) active++;
+                }
+
+                if (total == 0) continue;   // out-of-scope rows
+
+                var verdict = cells[^2];
+                var expected = active == total ? "yes" : active == 0 ? "none" : "partial";
+                if (!verdict.Contains(expected, StringComparison.Ordinal))
+                {
+                    wrong.Add($"{name}: '{cells[1].Trim()}' says '{verdict.Trim()}', expected {expected} ({active}/{total})");
+                }
+            }
+        }
+
+        Assert.Empty(wrong);
     }
 }
