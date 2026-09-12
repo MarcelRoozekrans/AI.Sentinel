@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Domain;
 
@@ -56,19 +57,77 @@ public abstract class SemanticDetectorBase : IDetector
     protected virtual float MediumThreshold => 0.82f;
     protected virtual float LowThreshold    => 0.75f;
 
+    /// <summary>High-precision pattern checked before any embedding call. A match returns
+    /// <see cref="FastPathSeverity"/> immediately.</summary>
+    /// <remarks>
+    /// This is what lets a detector degrade instead of disappearing: semantic detection is off in a
+    /// default install, so without a rule layer SEC-01 and SEC-05 return Clean for a textbook
+    /// injection. It also short-circuits the obvious cases when a generator <em>is</em> configured,
+    /// saving a round-trip.
+    /// <para>
+    /// Only unambiguous phrasings belong here. The regex detectors these replaced carried loose
+    /// patterns — <c>pretend you are</c>, <c>act as if</c>, bare <c>jailbreak</c> — that fire on
+    /// ordinary text; a default-on control which blocks those gets switched off, which is worse than
+    /// missing them. Anything needing context stays semantic-only.
+    /// </para>
+    /// </remarks>
+    protected virtual Regex? FastPathPattern => null;
+
+    /// <summary>Whether this detector has a rule layer, and therefore fires without an embedding
+    /// generator. Used by the documentation guard so the coverage tables cannot claim a control is
+    /// inactive in a default install when it is not.</summary>
+    public bool HasRuleFastPath => FastPathPattern is not null;
+
+    /// <summary>Severity reported when <see cref="FastPathPattern"/> matches.</summary>
+    protected virtual Severity FastPathSeverity => HighSeverity;
+
     /// <summary>Extracts the text to embed from the context. Override to scan a specific message role.</summary>
     protected virtual string GetText(SentinelContext ctx) => ctx.TextContent;
 
+    /// <summary>Text the rule layer examines: the newest message, and only when it is incoming input.</summary>
+    /// <remarks>
+    /// Deliberately not <see cref="SentinelContext.TextContent"/>, which joins the whole conversation.
+    /// The pipeline receives the full history every turn, so a rule match on an early message would
+    /// re-match on every later one and block the session permanently, with no recovery short of
+    /// truncating history. Similarity scores dilute as a conversation grows; an exact match never does.
+    /// <para>
+    /// Restricted to <see cref="ChatRole.User"/> because a literal-phrase rule cannot tell an attack
+    /// from a quotation of one. Applied to the response leg it blocks a model refusal that echoes the
+    /// phrase, and applied to tool results it blocks an agent for reading security documentation —
+    /// this repository's own README contains the phrase. Prompt injection is about instructions
+    /// arriving as input; injection carried in retrieved content is SEC-09's job, where semantic
+    /// scoring can weigh context. The semantic path still covers every leg.
+    /// </para>
+    /// </remarks>
+    protected virtual string GetFastPathText(SentinelContext ctx)
+    {
+        if (ctx.Messages.Count == 0) return string.Empty;
+
+        var newest = ctx.Messages[ctx.Messages.Count - 1];
+        return newest.Role == ChatRole.User ? newest.Text ?? string.Empty : string.Empty;
+    }
+
     public async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
+        var text = GetText(ctx);
+        if (string.IsNullOrWhiteSpace(text))
+            return DetectionResult.Clean(Id);
+
+        // Rule layer first: it needs no generator, so it works in a default install, and it saves a
+        // round-trip on the unambiguous cases when a generator is configured.
+        if (FastPathPattern is { } pattern)
+        {
+            var match = pattern.Match(GetFastPathText(ctx));
+            if (match.Success)
+            {
+                return DetectionResult.WithSeverity(Id, FastPathSeverity, $"Rule match — '{Sanitise(match.Value)}'");
+            }
+        }
+
         if (_generator is null)
             return DetectionResult.Clean(Id);
 
         await EnsureInitializedAsync(ct).ConfigureAwait(false);
-
-        var text = GetText(ctx);
-        if (string.IsNullOrWhiteSpace(text))
-            return DetectionResult.Clean(Id);
 
         var vector = await GetEmbeddingAsync(text, ct).ConfigureAwait(false);
 
@@ -80,6 +139,33 @@ public abstract class SemanticDetectorBase : IDetector
             return DetectionResult.WithSeverity(Id, LowSeverity, "Semantic match — low-severity threat pattern");
 
         return DetectionResult.Clean(Id);
+    }
+
+    /// <summary>Collapses whitespace and truncates matched text before it reaches a reason string.
+    /// The match is attacker-controlled and every whitespace class in these patterns spans newlines,
+    /// so an unsanitised value could forge extra lines in report output that prints one finding per
+    /// line.</summary>
+    private static string Sanitise(string value)
+    {
+        const int MaxLength = 120;
+        var collapsed = new System.Text.StringBuilder(Math.Min(value.Length, MaxLength));
+        var lastWasSpace = false;
+        foreach (var c in value)
+        {
+            if (collapsed.Length >= MaxLength) break;
+
+            if (char.IsWhiteSpace(c) || char.IsControl(c))
+            {
+                if (!lastWasSpace) collapsed.Append(' ');
+                lastWasSpace = true;
+                continue;
+            }
+
+            collapsed.Append(c);
+            lastWasSpace = false;
+        }
+
+        return collapsed.ToString().Trim();
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct)

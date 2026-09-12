@@ -11,11 +11,11 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| **SEC-01** | `PromptInjectionDetector` | Semantic ⚠️ | Override / injection phrase patterns (`ignore all previous instructions`, `you are now a different AI`, etc.) |
+| **SEC-01** | `PromptInjectionDetector` | Rule + Semantic ⚠️ | Override / injection phrase patterns. The unambiguous phrasings are matched by rule and need no generator; paraphrases need one |
 | **SEC-02** | `CredentialExposureDetector` | Rule-based | API keys, tokens, private keys, secrets in output |
 | **SEC-03** | `ToolPoisoningDetector` | Semantic ⚠️ | Suspicious tool-call manipulation patterns |
 | **SEC-04** | `DataExfiltrationDetector` | Semantic ⚠️ | Base64 blobs, high-entropy encoded data |
-| **SEC-05** | `JailbreakDetector` | Semantic ⚠️ | Jailbreak attempt phrases (DAN, roleplay exploits) |
+| **SEC-05** | `JailbreakDetector` | Rule + Semantic ⚠️ | Jailbreak attempt phrases. Unambiguous ones (`DAN mode`, `unrestricted AI mode`) are matched by rule; roleplay exploits need a generator |
 | **SEC-06** | `PrivilegeEscalationDetector` | Semantic ⚠️ | Role / permission escalation requests |
 | **SEC-07** | `CovertChannelDetector` | Semantic ⚠️ | Encoding-based hidden payloads |
 | **SEC-08** | `EntropyCovertChannelDetector` | Stub | Statistical entropy anomalies in output — **not implemented; always returns `Clean`** |
@@ -74,7 +74,7 @@ opts.Configure<JailbreakDetector>(c =>
 
 | OWASP LLM | Detectors | Fires by default |
 |---|---|---|
-| **LLM01** Prompt Injection | SEC-01, SEC-09, SEC-31, SEC-26 | ❌ none |
+| **LLM01** Prompt Injection | SEC-01, SEC-09, SEC-31, SEC-26 | ⚠️ partial (1/4) |
 | **LLM02** Insecure Output Handling | SEC-25, SEC-29 | ❌ none |
 | **LLM03** Training Data Poisoning | (out of scope — detect at training time, not at inference) | — |
 | **LLM04** Model DoS | OPS-11 (UnboundedConsumption), SEC-19 (ToolCallFrequency) | ✅ yes |
@@ -85,4 +85,4 @@ opts.Configure<JailbreakDetector>(c =>
 | **LLM09** Overreliance | HAL-04 (SourceGrounding), HAL-05 (ConfidenceDecay) | ❌ none |
 | **LLM10** Model Theft | (out of scope — needs upstream rate-limiting + auth) | — |
 
-> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Six of the eight in-scope categories, including **LLM01 Prompt Injection**, are in that state out of the box.
+> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Five of the eight in-scope categories are in that state out of the box. **LLM01 Prompt Injection** is no longer one of them: `SEC-01` and `SEC-05` carry a rule layer that fires without a generator.

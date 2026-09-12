@@ -191,7 +191,11 @@ public class DetectorDocumentationTests
         var result = new List<DetectorKind>();
         foreach (var d in provider.GetServices<IDetector>())
         {
-            var inert = d is SemanticDetectorBase
+            // A semantic detector with a rule layer does fire in a default install: the rule half
+            // needs no generator. Treating it as inert let the OWASP table keep claiming LLM01 had no
+            // active control after SEC-01 gained one — the guard agreeing with a stale table because
+            // its own model was stale.
+            var inert = (d is SemanticDetectorBase { HasRuleFastPath: false })
                 || d is StubDetector
                 || ConfigGatedDetectorIds.Contains(d.Id.Value);
             result.Add(new DetectorKind(d.Id.Value, d.GetType().Name, !inert));
