@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [2.0.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.0.1...v2.0.2) (2026-09-12)
+
+
+### Bug Fixes
+
+* **diagnostics:** stop semantic detectors failing silently ([#214](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/214)) ([e80e735](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/e80e735fa8e9839e95e24a59c9e67b12d068e8ee))
+
 ## [2.0.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.0.0...v2.0.1) (2026-07-25)
 
 
