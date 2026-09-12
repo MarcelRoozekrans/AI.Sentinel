@@ -102,14 +102,23 @@ public class HookCliTests
     [Fact]
     public async Task Cli_NonVerbose_CleanPrompt_EmitsNothingToStderr()
     {
-        var stdin = new StringReader("""{"session_id":"sess-42","prompt":"hello"}""");
-        var stdout = new StringWriter();
-        var stderr = new StringWriter();
+        // Semantic detection is inert by default and now says so; opt out to assert no OTHER chatter.
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING", "1");
+        try
+        {
+            var stdin = new StringReader("""{"session_id":"sess-42","prompt":"hello"}""");
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+            var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
 
-        Assert.Equal(0, exit);
-        Assert.Empty(stderr.ToString());
+            Assert.Equal(0, exit);
+            Assert.Empty(stderr.ToString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING", null);
+        }
     }
 
     [Fact]
@@ -198,5 +207,77 @@ public class HookCliTests
         Assert.IsType<EntraPimApprovalStore>(store);
         var opts = provider.GetRequiredService<EntraPimOptions>();
         Assert.Equal("11111111-1111-1111-1111-111111111111", opts.TenantId);
+    }
+
+    [Fact]
+    public async Task Cli_NoEmbeddingGenerator_WarnsOnStderrThatSemanticDetectionIsOff()
+    {
+        var stdin = new StringReader("""{"session_id":"s","prompt":"hello"}""");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+
+        Assert.Contains("EmbeddingGenerator", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("semantic detectors", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_WithEmbeddingGenerator_DoesNotWarnAboutSemanticDetection()
+    {
+        var stdin = new StringReader("""{"session_id":"s","prompt":"hello"}""");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr, new FakeEmbeddingGenerator());
+
+        Assert.DoesNotContain("EmbeddingGenerator is not configured", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_SuppressSemanticWarning_SilencesTheStartupWarning()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING", "1");
+        try
+        {
+            var stdin = new StringReader("""{"session_id":"s","prompt":"hello"}""");
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+
+            await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+
+            Assert.Empty(stderr.ToString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING", null);
+        }
+    }
+
+    [Fact]
+    public async Task Cli_ToolUseEvent_DoesNotRepeatTheSemanticWarning()
+    {
+        var stdin = new StringReader("""{"session_id":"s","tool_name":"Bash","tool_input":{"command":"ls"}}""");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        await Program.RunAsync(["pre-tool-use"], stdin, stdout, stderr);
+
+        Assert.DoesNotContain("EmbeddingGenerator", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_BlockedPrompt_StderrCarriesOnlyTheBlockReason()
+    {
+        var stdin = new StringReader("""{"session_id":"s","prompt":"token ghp_abcdefghij0123456789abcdefghij012345"}""");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr);
+
+        Assert.Equal(2, exit);
+        // stderr is fed back to the model as the block reason; a diagnostic naming disabled
+        // controls must never ride along with it.
+        Assert.DoesNotContain("EmbeddingGenerator", stderr.ToString(), StringComparison.Ordinal);
     }
 }

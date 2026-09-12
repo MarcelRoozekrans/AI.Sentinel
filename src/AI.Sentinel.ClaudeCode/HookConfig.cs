@@ -13,12 +13,15 @@ namespace AI.Sentinel.ClaudeCode;
 /// <param name="OnMedium">Decision to return when the detection pipeline reports <c>Medium</c> severity.</param>
 /// <param name="OnLow">Decision to return when the detection pipeline reports <c>Low</c> severity.</param>
 /// <param name="Verbose">When true, the hook CLI emits diagnostic output.</param>
+/// <param name="SuppressSemanticWarning">When true, suppresses the startup warning that semantic
+/// detection is inert. Set it only after accepting that SEC-01 and SEC-05 will not fire.</param>
 public sealed record HookConfig(
     HookDecision OnCritical = HookDecision.Block,
     HookDecision OnHigh = HookDecision.Block,
     HookDecision OnMedium = HookDecision.Warn,
     HookDecision OnLow = HookDecision.Allow,
-    bool Verbose = false)
+    bool Verbose = false,
+    bool SuppressSemanticWarning = false)
 {
     /// <summary>
     /// Resolves the caller identity from the hook input. When <c>null</c> (the default),
@@ -34,7 +37,8 @@ public sealed record HookConfig(
             OnHigh:     ParseDecision(env, "SENTINEL_HOOK_ON_HIGH",     HookDecision.Block),
             OnMedium:   ParseDecision(env, "SENTINEL_HOOK_ON_MEDIUM",   HookDecision.Warn),
             OnLow:      ParseDecision(env, "SENTINEL_HOOK_ON_LOW",      HookDecision.Allow),
-            Verbose:    ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"));
+            Verbose:    ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"),
+            SuppressSemanticWarning: ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"));
     }
 
     private static HookDecision ParseDecision(IReadOnlyDictionary<string, string?> env, string key, HookDecision fallback)

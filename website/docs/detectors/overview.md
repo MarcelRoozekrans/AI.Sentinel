@@ -18,7 +18,7 @@ AI.Sentinel ships with **55 built-in detectors** across three categories:
 Every detector falls into one of three execution modes:
 
 - **Rule-based** — fast regex or heuristic. Always active. Sub-microsecond per call.
-- **Semantic** — uses embedding cosine similarity via `IEmbeddingGenerator`. Language-agnostic. **No-op until `opts.EmbeddingGenerator` is configured.**
+- **Semantic ⚠️** — uses embedding cosine similarity via `IEmbeddingGenerator`. Language-agnostic. **Returns `Clean` on every scan until `opts.EmbeddingGenerator` is configured.** The ⚠️ marks a detector inactive in a default install — and unavailable entirely in the hook CLIs and `sentinel scan`, which cannot supply a generator.
 - **LLM escalation** — fires a second-pass LLM classifier. **No-op until `opts.EscalationClient` is configured.** Used for ambiguous or low-confidence rule-based hits.
 
 ## Severity model

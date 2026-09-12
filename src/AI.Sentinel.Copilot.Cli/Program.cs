@@ -66,6 +66,19 @@ public static class Program
             await EmitVerboseAsync(stderr, "sentinel-copilot-hook", args[0], input.SessionId, output).ConfigureAwait(false);
         }
 
+        // This host registers no logging provider, so the library's ILogger warning reaches nobody;
+        // write it to stderr instead. Restricted to the prompt-submit event on the Allow path: the
+        // binary also serves pre/post-tool-use (so every tool call would repeat it), and on Block and
+        // Warn stderr carries the reason the host feeds back to the model — a diagnostic must not
+        // ride along with it, least of all one naming which controls are switched off.
+        if (!config.SuppressSemanticWarning
+            && evt == CopilotHookEvent.UserPromptSubmitted
+            && output.Decision == HookDecision.Allow
+            && provider.DescribeInertSemanticDetection() is { } semanticWarning)
+        {
+            await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
+        }
+
         return output.Decision switch
         {
             HookDecision.Block => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 2).ConfigureAwait(false),

@@ -19,7 +19,8 @@ public sealed record CopilotHookConfig(
     HookDecision OnHigh = HookDecision.Block,
     HookDecision OnMedium = HookDecision.Warn,
     HookDecision OnLow = HookDecision.Allow,
-    bool Verbose = false)
+    bool Verbose = false,
+    bool SuppressSemanticWarning = false)
 {
     /// <summary>
     /// Resolves the caller identity from the hook input. When <c>null</c> (the default),
@@ -38,7 +39,8 @@ public sealed record CopilotHookConfig(
             OnHigh:     ParseDecision(env, "SENTINEL_HOOK_ON_HIGH",     HookDecision.Block),
             OnMedium:   ParseDecision(env, "SENTINEL_HOOK_ON_MEDIUM",   HookDecision.Warn),
             OnLow:      ParseDecision(env, "SENTINEL_HOOK_ON_LOW",      HookDecision.Allow),
-            Verbose:    ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"));
+            Verbose:    ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"),
+            SuppressSemanticWarning: ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"));
     }
 
     /// <summary>

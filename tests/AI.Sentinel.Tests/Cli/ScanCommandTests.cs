@@ -220,4 +220,24 @@ public class ScanCommandTests
             File.Delete(tempBaseline);
         }
     }
+
+    /// <summary>#170 — scan reported Clean for conversations containing textbook injections because
+    /// every semantic detector was inert, with nothing on stderr to say so.</summary>
+    [Fact]
+    public async Task Scan_NoEmbeddingGenerator_WarnsOnStderrThatSemanticDetectionIsOff()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        await ScanCommand.RunAsync(
+            Fixture("clean-openai.json"),
+            ConversationFormat.Auto,
+            OutputFormat.Text,
+            stdout,
+            stderr,
+            TestContext.Current.CancellationToken);
+
+        Assert.Contains("EmbeddingGenerator", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("semantic detectors", stderr.ToString(), StringComparison.Ordinal);
+    }
 }

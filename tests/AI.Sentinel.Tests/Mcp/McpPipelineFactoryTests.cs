@@ -102,4 +102,23 @@ public class McpPipelineFactoryTests
 
         Assert.Equal(expected, actual);
     }
+
+    [Fact]
+    public void Create_NoEmbeddingGenerator_ReportsSemanticDetectionInert()
+    {
+        McpPipelineFactory.Create(new HookConfig(), McpDetectorPreset.All,
+            embeddingGenerator: null, out _, out var warning);
+
+        Assert.NotNull(warning);
+        Assert.Contains("EmbeddingGenerator", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Create_WithEmbeddingGenerator_ReportsNothing()
+    {
+        McpPipelineFactory.Create(new HookConfig(), McpDetectorPreset.All,
+            new FakeEmbeddingGenerator(), out _, out var warning);
+
+        Assert.Null(warning);
+    }
 }

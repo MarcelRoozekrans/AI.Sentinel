@@ -89,6 +89,14 @@ public static class ScanCommand
             var (provider, pipeline) = ForensicsPipelineFactory.Build(replayClient, embeddingGenerator);
             await using var _ = provider.ConfigureAwait(false);
 
+            // No logging provider is registered here, so the library's ILogger warning reaches nobody.
+            // Without this, a scan of a conversation containing a textbook injection reports Clean and
+            // gives no hint that the detectors for it never ran (#170).
+            if (!SuppressSemanticWarning() && provider.DescribeInertSemanticDetection() is { } semanticWarning)
+            {
+                await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
+            }
+
             var result = await ReplayRunner.RunAsync(file, conversation, pipeline, ct).ConfigureAwait(false);
 
             var text = output == OutputFormat.Json
@@ -119,6 +127,15 @@ public static class ScanCommand
             await stderr.WriteAsync($"Error: {ex.Message}\n").ConfigureAwait(false);
             return 2;
         }
+    }
+
+    /// <summary>Mirrors the hook CLIs' opt-out so a scan piped into jq can be silenced too.</summary>
+    private static bool SuppressSemanticWarning()
+    {
+        var v = Environment.GetEnvironmentVariable("SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING");
+        return string.Equals(v, "1", StringComparison.Ordinal)
+            || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(v, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<bool> ApplyBaselineAsync(

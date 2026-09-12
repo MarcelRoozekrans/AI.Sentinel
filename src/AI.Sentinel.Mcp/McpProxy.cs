@@ -69,7 +69,20 @@ public static class McpProxy
             cancellationToken: ct).ConfigureAwait(false);
         try
         {
-            var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator, out var auditStore);
+            var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator, out var auditStore, out var inertSemanticWarning);
+
+            // No logging provider here either — surface it on stderr so an inert SEC-01 isn't mistaken
+            // for a clean scan. Routed through StderrLogger because this stream is structured
+            // (key=value, or NDJSON under SENTINEL_MCP_LOG_JSON=1); raw prose would break consumers.
+            // Emitted once per proxy process. Suppressible via SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING.
+            if (!config.SuppressSemanticWarning && inertSemanticWarning is not null)
+            {
+                await stderr.WriteLineAsync(StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["event"] = "semantic_detection_inert",
+                    ["detail"] = inertSemanticWarning,
+                })).ConfigureAwait(false);
+            }
 
             var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver, approvalStore, approvalWait);
 
