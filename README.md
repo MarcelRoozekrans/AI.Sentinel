@@ -212,6 +212,7 @@ Detectors run in these modes:
 | `SEC‑22` | HumanTrustManipulation | Semantic ⚠️ | Spots rapport/authority manipulation ("you can trust me", "I am your advisor") |
 | `SEC‑29` | OutputSchema | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05). **Inactive unless** `opts.ExpectedResponseType` *and* an `ISerializerDispatcher` are supplied — neither is registered by default |
 | `SEC‑30` | ShorthandEmergence | Semantic ⚠️ | Counts unknown all-caps tokens that may signal emergent covert language |
+| `SEC‑32` | SystemPromptEcho | Rule-based | The system prompt appearing verbatim in the model's output. Compares the generated message against the conversation's system prompt; SEC-20 covers *requests* to reveal it |
 | `SEC‑31` | VectorRetrievalPoisoning | Semantic ⚠️ | Detects malicious instructions embedded in RAG-retrieved document chunks (OWASP LLM08) |
 
 ### Hallucination (9)
@@ -266,7 +267,7 @@ Detectors run in these modes:
 | LLM04 | Data & Model Poisoning | (out of scope — poisoning happens at training or fine-tuning time and is not observable at inference; see LLM08 for retrieval-time poisoning) | — |
 | LLM05 | Improper Output Handling | `CodeInjectionDetector`, `OutputSchemaDetector` | ❌ none |
 | LLM06 | Excessive Agency | `ExcessiveAgencyDetector`, `ToolCallFrequencyDetector` | ⚠️ partial (1/2) |
-| LLM07 | System Prompt Leakage | `SystemPromptLeakageDetector`, `PromptTemplateLeakageDetector`, `GovernanceGapDetector` | ❌ none |
+| LLM07 | System Prompt Leakage | `SystemPromptEchoDetector`, `SystemPromptLeakageDetector`, `PromptTemplateLeakageDetector`, `GovernanceGapDetector` | ⚠️ partial (1/4) |
 | LLM08 | Vector & Embedding Weaknesses | `VectorRetrievalPoisoningDetector` | ❌ none |
 | LLM09 | Misinformation | `PhantomCitationDetector`, `GroundlessStatisticDetector`, `StaleKnowledgeDetector`, `UncertaintyPropagationDetector`, `SourceGroundingDetector`, `ConfidenceDecayDetector` | ❌ none |
 | LLM10 | Unbounded Consumption | `UnboundedConsumptionDetector`, `RepetitionLoopDetector` | ✅ yes |

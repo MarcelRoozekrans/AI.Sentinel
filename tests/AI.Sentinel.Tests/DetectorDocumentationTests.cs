@@ -459,4 +459,30 @@ public class DetectorDocumentationTests
 
         Assert.Empty(wrong);
     }
+
+    /// <summary>The general case, after four narrower guards each missed the direction their author
+    /// was not thinking about. The semantic and stub guards assert their own kind is documented, so a
+    /// new rule-based detector could ship with no row anywhere and every test stayed green — which is
+    /// exactly what happened when SEC-32 was added. A detector nobody documented is one nobody can
+    /// know is protecting them.</summary>
+    [Fact]
+    public void EveryRegisteredDetector_IsDocumented()
+    {
+        var documented = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var row in DetectorReferenceRows())
+        {
+            foreach (var kind in AllDetectorKinds())
+            {
+                if (row.IdCell.Contains(kind.Id, StringComparison.Ordinal)) documented.Add(kind.Id);
+            }
+        }
+
+        var missing = new List<string>();
+        foreach (var kind in AllDetectorKinds())
+        {
+            if (!documented.Contains(kind.Id)) missing.Add($"{kind.Id} ({kind.TypeName})");
+        }
+
+        Assert.Empty(missing);
+    }
 }

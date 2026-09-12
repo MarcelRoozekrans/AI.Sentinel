@@ -71,8 +71,10 @@ public sealed class SentinelPipeline(
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var sessionId = SessionId.New();
 
+        var systemPrompt = SystemPromptOf(messageList);
+
         var promptError = await ScanAsync(messageList, sessionId,
-            options.DefaultSenderId, options.DefaultReceiverId, ct).ConfigureAwait(false);
+            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt).ConfigureAwait(false);
         if (promptError is not null)
             return Result<ChatResponse, SentinelError>.Failure(promptError);
 
@@ -92,7 +94,7 @@ public sealed class SentinelPipeline(
         IReadOnlyList<ChatMessage> responseMessages =
             response.Messages as IReadOnlyList<ChatMessage> ?? response.Messages.ToList();
         var responseError = await ScanAsync(responseMessages, sessionId,
-            options.DefaultReceiverId, options.DefaultSenderId, ct).ConfigureAwait(false);
+            options.DefaultReceiverId, options.DefaultSenderId, ct, systemPrompt).ConfigureAwait(false);
         if (responseError is not null)
             return Result<ChatResponse, SentinelError>.Failure(responseError);
 
@@ -117,8 +119,10 @@ public sealed class SentinelPipeline(
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var sessionId = SessionId.New();
 
+        var systemPrompt = SystemPromptOf(messageList);
+
         var promptError = await ScanAsync(messageList, sessionId,
-            options.DefaultSenderId, options.DefaultReceiverId, ct).ConfigureAwait(false);
+            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt).ConfigureAwait(false);
         if (promptError is not null)
             return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(promptError);
 
@@ -143,7 +147,7 @@ public sealed class SentinelPipeline(
             [new ChatMessage(ChatRole.Assistant, responseText)];
 
         var responseError = await ScanAsync(responseMessages, sessionId,
-            options.DefaultReceiverId, options.DefaultSenderId, ct).ConfigureAwait(false);
+            options.DefaultReceiverId, options.DefaultSenderId, ct, systemPrompt).ConfigureAwait(false);
         if (responseError is not null)
             return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(responseError);
 
@@ -168,7 +172,18 @@ public sealed class SentinelPipeline(
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var sessionId = SessionId.New();
         return await ScanAsync(messageList, sessionId,
-            options.DefaultSenderId, options.DefaultReceiverId, ct).ConfigureAwait(false);
+            options.DefaultSenderId, options.DefaultReceiverId, ct, SystemPromptOf(messageList)).ConfigureAwait(false);
+    }
+
+    /// <summary>Returns the conversation's system prompt, if one was supplied.</summary>
+    private static string? SystemPromptOf(IReadOnlyList<ChatMessage> msgs)
+    {
+        for (var i = 0; i < msgs.Count; i++)
+        {
+            if (msgs[i].Role == ChatRole.System) return msgs[i].Text;
+        }
+
+        return null;
     }
 
     private async ValueTask<SentinelError?> ScanAsync(
@@ -176,9 +191,10 @@ public sealed class SentinelPipeline(
         SessionId sessionId,
         AgentId sender,
         AgentId receiver,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? systemPrompt = null)
     {
-        var ctx = new SentinelContext(sender, receiver, sessionId, msgs, []);
+        var ctx = new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt);
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
         await AppendAuditAsync(pipelineResult, msgs, sessionId, ct).ConfigureAwait(false);

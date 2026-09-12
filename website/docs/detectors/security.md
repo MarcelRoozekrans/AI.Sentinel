@@ -41,6 +41,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-28** | `RefusalBypassDetector` | Semantic ⚠️ | Model complied with a request it should have refused (caller-supplied forbidden patterns) |
 | **SEC-29** | `OutputSchemaDetector` | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05). **Inactive unless** `SentinelOptions.ExpectedResponseType` *and* an `ISerializerDispatcher` are supplied — neither is registered by default |
 | **SEC-30** | `ShorthandEmergenceDetector` | Semantic ⚠️ | Unknown all-caps tokens that may signal emergent covert language |
+| **SEC-32** | `SystemPromptEchoDetector` | Rule-based | The system prompt appearing verbatim in the model's output. Compares the generated message against the conversation's system prompt; SEC-20 covers *requests* to reveal it |
 | **SEC-31** | `VectorRetrievalPoisoningDetector` | Semantic ⚠️ | Malicious instructions embedded in RAG-retrieved document chunks (OWASP LLM08) |
 
 ## Severity ranges
@@ -80,7 +81,7 @@ opts.Configure<JailbreakDetector>(c =>
 | **LLM04** Data & Model Poisoning | (out of scope — poisoning happens at training or fine-tuning time and is not observable at inference; see LLM08 for retrieval-time poisoning) | — |
 | **LLM05** Improper Output Handling | SEC-25, SEC-29 | ❌ none |
 | **LLM06** Excessive Agency | SEC-21, SEC-19 | ⚠️ partial (1/2) |
-| **LLM07** System Prompt Leakage | SEC-20, SEC-26, SEC-16 | ❌ none |
+| **LLM07** System Prompt Leakage | SEC-32, SEC-20, SEC-26, SEC-16 | ⚠️ partial (1/4) |
 | **LLM08** Vector & Embedding Weaknesses | SEC-31 | ❌ none |
 | **LLM09** Misinformation | HAL-01 (PhantomCitation), HAL-08 (GroundlessStatistic), HAL-06 (StaleKnowledge), HAL-09 (UncertaintyPropagation), HAL-04 (SourceGrounding), HAL-05 (ConfidenceDecay) — see [hallucination detectors](./hallucination) | ❌ none |
 | **LLM10** Unbounded Consumption | OPS-11 (UnboundedConsumption), OPS-02 (RepetitionLoop) — see [operational detectors](./operational) | ✅ yes |
