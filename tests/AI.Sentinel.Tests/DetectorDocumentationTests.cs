@@ -1,5 +1,6 @@
 using System.Reflection;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Detectors;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -12,6 +13,7 @@ public class DetectorDocumentationTests
 {
     private const string RuleBasedLabel = "Rule-based";
     private const string MarkerLabel = "⚠️";
+    private const string StubLabel = "Stub";
 
     private static DirectoryInfo RepoRoot()
     {
@@ -42,15 +44,39 @@ public class DetectorDocumentationTests
     private static string Normalise(string cell) =>
         cell.Replace('‑', '-').Replace('‐', '-').Replace('–', '-').Trim();
 
-    /// <summary>Detector docs contain other tables (tuning notes, false-positive guidance) whose third
-    /// column is prose. Only treat a row as a Type row when that cell holds a known type label.</summary>
-    private static bool IsTypeCell(string cell)
+    private sealed record DocRow(string File, string IdCell, string TypeCell);
+
+    /// <summary>Rows of the detector reference tables, found by their header rather than by guessing at
+    /// the cell contents. Detector docs contain other tables (tuning notes, false-positive guidance)
+    /// whose third column is prose, and an earlier version of this guard skipped any row whose third
+    /// cell was not a recognised label — so labelling a detector "Heuristic" made the row invisible.</summary>
+    private static IReadOnlyList<DocRow> DetectorReferenceRows()
     {
-        var v = cell.Trim();
-        return v.StartsWith("Rule-based", StringComparison.Ordinal)
-            || v.StartsWith("Semantic", StringComparison.Ordinal)
-            || v.StartsWith("LLM escalation", StringComparison.Ordinal)
-            || v.StartsWith("Stub", StringComparison.Ordinal);
+        var rows = new List<DocRow>();
+        foreach (var file in DocFiles())
+        {
+            var name = Path.GetFileName(file);
+            var inTable = false;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                if (line.StartsWith('|') && line.Contains("| Type |", StringComparison.Ordinal))
+                {
+                    inTable = true;
+                    continue;
+                }
+
+                if (!inTable) continue;
+                if (!line.StartsWith('|')) { inTable = false; continue; }
+                if (IsSeparatorRow(line)) continue;
+
+                var cells = line.Split('|');
+                if (cells.Length < 5) continue;
+
+                rows.Add(new DocRow(name, Normalise(cells[1]), cells[3]));
+            }
+        }
+
+        return rows;
     }
 
     private static IReadOnlyList<string> SemanticDetectorIds()
@@ -70,33 +96,14 @@ public class DetectorDocumentationTests
         Assert.NotEmpty(semanticIds);
 
         var offenders = new List<string>();
-
-        foreach (var file in DocFiles())
+        foreach (var row in DetectorReferenceRows())
         {
-            var name = Path.GetFileName(file);
-            foreach (var line in File.ReadAllLines(file))
+            foreach (var sid in semanticIds)
             {
-                if (!line.StartsWith('|')) continue;
-
-                var rawCells = line.Split('|');
-                if (rawCells.Length < 4) continue;
-
-                var idCell = Normalise(rawCells[1]);
-                string? matchedId = null;
-                for (var i = 0; i < semanticIds.Count; i++)
+                if (row.IdCell.Contains(sid, StringComparison.Ordinal)
+                    && row.TypeCell.Contains(RuleBasedLabel, StringComparison.Ordinal))
                 {
-                    if (idCell.Contains(semanticIds[i], StringComparison.Ordinal))
-                    {
-                        matchedId = semanticIds[i];
-                        break;
-                    }
-                }
-
-                if (matchedId is null) continue;
-
-                if (IsTypeCell(rawCells[3]) && rawCells[3].Contains(RuleBasedLabel, StringComparison.Ordinal))
-                {
-                    offenders.Add($"{name}: {matchedId}");
+                    offenders.Add($"{row.File}: {sid}");
                 }
             }
         }
@@ -104,49 +111,180 @@ public class DetectorDocumentationTests
         Assert.Empty(offenders);
     }
 
-    /// <summary>Every semantic detector must be documented, and every row documenting one must carry
-    /// the marker. Rejecting only the literal "Rule-based" let a new detector be documented with a
-    /// plain "Semantic" label, or omitted entirely, while reintroducing the drift this guard prevents.
-    /// Aggregated across files because the website splits the tables by category.</summary>
+    /// <summary>Every semantic detector must be documented, and every row documenting one must carry the
+    /// marker. Rejecting only the literal "Rule-based" let a new detector be documented with a plain
+    /// "Semantic" label, or omitted entirely, while reintroducing the drift this guard prevents.</summary>
     [Fact]
     public void EverySemanticDetector_IsDocumentedAndEveryRowCarriesTheMarker()
     {
         var semanticIds = SemanticDetectorIds();
+        AssertDocumentedWithLabel(semanticIds, MarkerLabel);
+    }
+
+    /// <summary>A StubDetector always returns Clean, and DetectionPipeline only escalates results at
+    /// Severity.Medium or above — so a stub can never fire, with or without an EscalationClient. Any
+    /// label other than "Stub" (SEC-08 said "LLM escalation") promises a capability that does not exist.</summary>
+    [Fact]
+    public void EveryStubDetector_IsDocumentedAsAStub()
+    {
+        var stubIds = StubDetectorIds();
+        Assert.NotEmpty(stubIds);
+        AssertDocumentedWithLabel(stubIds, StubLabel);
+    }
+
+    /// <summary>Asserts each id appears in the reference tables and that every row for it carries the
+    /// expected label — both halves matter, since an undocumented detector drifts just as silently as a
+    /// mislabelled one.</summary>
+    private static void AssertDocumentedWithLabel(IReadOnlyList<string> ids, string expectedLabel)
+    {
         var documented = new HashSet<string>(StringComparer.Ordinal);
-        var unmarked = new List<string>();
+        var mislabelled = new List<string>();
 
-        foreach (var file in DocFiles())
+        foreach (var row in DetectorReferenceRows())
         {
-            var name = Path.GetFileName(file);
-            foreach (var line in File.ReadAllLines(file))
+            foreach (var id in ids)
             {
-                if (!line.StartsWith('|')) continue;
-                var cells = line.Split('|');
-                if (cells.Length < 4) continue;
+                if (!row.IdCell.Contains(id, StringComparison.Ordinal)) continue;
 
-                var idCell = Normalise(cells[1]);
-                foreach (var sid in semanticIds)
+                documented.Add(id);
+                if (!row.TypeCell.Contains(expectedLabel, StringComparison.Ordinal))
                 {
-                    if (!idCell.Contains(sid, StringComparison.Ordinal)) continue;
-                    if (!IsTypeCell(cells[3])) continue;
-
-                    documented.Add(sid);
-                    if (!cells[3].Contains(MarkerLabel, StringComparison.Ordinal))
-                    {
-                        unmarked.Add($"{name}: {sid} -> '{cells[3].Trim()}'");
-                    }
+                    mislabelled.Add($"{row.File}: {id} -> '{row.TypeCell.Trim()}'");
                 }
             }
         }
 
-        Assert.Empty(unmarked);
+        Assert.Empty(mislabelled);
 
         var undocumented = new List<string>();
-        foreach (var sid in semanticIds)
+        foreach (var id in ids)
         {
-            if (!documented.Contains(sid)) undocumented.Add(sid);
+            if (!documented.Contains(id)) undocumented.Add(id);
         }
 
         Assert.Empty(undocumented);
+    }
+
+    private static IReadOnlyList<string> StubDetectorIds()
+    {
+        var provider = new ServiceCollection().AddAISentinel().BuildServiceProvider();
+        return provider.GetServices<IDetector>()
+            .Where(d => d is StubDetector)
+            .Select(d => d.Id.Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+    }
+
+
+    private sealed record DetectorKind(string Id, string TypeName, bool FiresByDefault);
+
+    /// <summary>Detectors that are neither semantic nor stubs but still return Clean in a stock install
+    /// because they are gated on caller configuration. SEC-29 OutputSchema needs both
+    /// SentinelOptions.ExpectedResponseType and an ISerializerDispatcher, and the library registers
+    /// neither. This set is hand-maintained — there is no way to detect a config gate by reflection —
+    /// so a new config-gated detector must be added here or the coverage table will overstate it.</summary>
+    private static readonly HashSet<string> ConfigGatedDetectorIds = new(StringComparer.Ordinal) { "SEC-29" };
+
+    private static IReadOnlyList<DetectorKind> AllDetectorKinds()
+    {
+        var provider = new ServiceCollection().AddAISentinel().BuildServiceProvider();
+        var result = new List<DetectorKind>();
+        foreach (var d in provider.GetServices<IDetector>())
+        {
+            var inert = d is SemanticDetectorBase
+                || d is StubDetector
+                || ConfigGatedDetectorIds.Contains(d.Id.Value);
+            result.Add(new DetectorKind(d.Id.Value, d.GetType().Name, !inert));
+        }
+
+        return result;
+    }
+
+    private static bool IsSeparatorRow(string line)
+    {
+        foreach (var c in line)
+        {
+            if (c is not ('|' or '-' or ':' or ' ')) return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Counts the detectors an OWASP row names, and how many of them fire in a stock install.
+    /// Class names are matched backticked: "CovertChannelDetector" (SEC-07) is a suffix of
+    /// "EntropyCovertChannelDetector" (SEC-08), so unanchored matching would double-count.</summary>
+    private static (int Total, int Active) CountDetectorsNamedIn(string row, IReadOnlyList<DetectorKind> kinds)
+    {
+        var total = 0;
+        var active = 0;
+        foreach (var k in kinds)
+        {
+            var named = row.Contains(k.Id, StringComparison.Ordinal)
+                || row.Contains("`" + k.TypeName + "`", StringComparison.Ordinal);
+            if (!named) continue;
+
+            total++;
+            if (k.FiresByDefault) active++;
+        }
+
+        return (total, active);
+    }
+
+    /// <summary>The OWASP mapping is the table a compliance reader checks, and it cited detectors that
+    /// cannot fire in a stock install. The "Fires by default" verdict is recomputed here from the
+    /// registered detectors so the table cannot drift back into claiming coverage it does not have.</summary>
+    [Fact]
+    public void OwaspMapping_CoverageColumnMatchesTheRegisteredDetectors()
+    {
+        var kinds = AllDetectorKinds();
+        var wrong = new List<string>();
+        var filesWithTable = 0;
+
+        foreach (var file in DocFiles())
+        {
+            var name = Path.GetFileName(file);
+            var inTable = false;
+            foreach (var line in File.ReadAllLines(file))
+            {
+                if (line.Contains("Fires by default", StringComparison.Ordinal) && line.StartsWith('|'))
+                {
+                    inTable = true;
+                    filesWithTable++;
+                    continue;
+                }
+                if (inTable && !line.StartsWith('|')) { inTable = false; continue; }
+                if (!inTable || !line.StartsWith('|')) continue;
+
+                var cells = line.Split('|');
+                if (cells.Length < 4) continue;
+                if (IsSeparatorRow(line)) continue;
+
+                var row = Normalise(line);
+                var (total, active) = CountDetectorsNamedIn(row, kinds);
+
+                if (total == 0)
+                {
+                    // Only an explicitly out-of-scope row may name no detector. Anything else means a
+                    // renamed detector silently stopped being checked — the drift this guard exists for.
+                    if (!row.Contains("out of scope", StringComparison.Ordinal))
+                    {
+                        wrong.Add($"{name}: '{cells[1].Trim()}' names no known detector");
+                    }
+
+                    continue;
+                }
+
+                var verdict = cells[^2];
+                var expected = active == total ? "yes" : active == 0 ? "none" : "partial";
+                if (!verdict.Contains(expected, StringComparison.Ordinal))
+                {
+                    wrong.Add($"{name}: '{cells[1].Trim()}' says '{verdict.Trim()}', expected {expected} ({active}/{total})");
+                }
+            }
+        }
+
+        Assert.Empty(wrong);
+        // A reformatted header would make the whole assertion silently vacuous.
+        Assert.Equal(2, filesWithTable);
     }
 }
