@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [2.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.1.0...v2.2.0) (2026-09-12)
+
+
+### Features
+
+* **cli:** configure semantic detection through SENTINEL_EMBEDDING_ vars ([#220](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/220)) ([74afde6](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/74afde668d06a8ae1e3f04c717bc911a5ecf141e))
+* **detectors:** rule layer so SEC-01 and SEC-05 fire without embeddings ([#222](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/222)) ([c070f26](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/c070f26bf3dc6a754d7900a56768ae9d0e550f8b))
+
 ## [2.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.0.2...v2.1.0) (2026-09-12)
 
 
