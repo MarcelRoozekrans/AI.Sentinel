@@ -88,6 +88,11 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 | `SENTINEL_HOOK_ON_LOW` | `Allow` | Action for Low |
 | `SENTINEL_HOOK_VERBOSE` | `false` | Stderr diagnostic per call |
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | Suppress the inert-semantic-detection warning |
+| `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
+| `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
+| `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |
+| `SENTINEL_EMBEDDING_DIMENSIONS` | — | Vector length, when the model allows a choice |
+| `SENTINEL_EMBEDDING_CACHE_DIR` | per-user cache dir | Where reference vectors are cached. Must not be world-writable — see below |
 
 ### MCP-specific
 

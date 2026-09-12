@@ -12,6 +12,8 @@ using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using ZeroAlloc.Authorization;
 
+using AI.Sentinel.Embeddings;
+
 namespace AI.Sentinel.Mcp;
 
 /// <summary>
@@ -69,7 +71,20 @@ public static class McpProxy
             cancellationToken: ct).ConfigureAwait(false);
         try
         {
-            var pipeline = McpPipelineFactory.Create(config, preset, embeddingGenerator, out var auditStore, out var inertSemanticWarning);
+            // The proxy is long-lived, so it pays the embedding cost once — but it still shares the
+            // example cache so a restart is cheap.
+            string? embeddingError = null;
+            using var embeddings = embeddingGenerator is null
+                ? SentinelEmbeddingSetup.TryCreateFromEnvironment(ReadEmbeddingEnvironment(), out embeddingError)
+                : null;
+            if (embeddingError is not null)
+            {
+                await stderr.WriteLineAsync(embeddingError).ConfigureAwait(false);
+            }
+
+            var pipeline = McpPipelineFactory.Create(
+                config, preset, embeddingGenerator ?? embeddings?.Generator,
+                out var auditStore, out var inertSemanticWarning, embeddings?.ExampleCache);
 
             // No logging provider here either — surface it on stderr so an inert SEC-01 isn't mistaken
             // for a clean scan. Routed through StderrLogger because this stream is structured
@@ -138,6 +153,21 @@ public static class McpProxy
                 ["grace_s"] = grace.TotalSeconds.ToString("0", CultureInfo.InvariantCulture),
             });
         }
+    }
+
+    /// <summary>Embedding settings, read directly because they carry no host-specific prefix.</summary>
+    private static Dictionary<string, string?> ReadEmbeddingEnvironment()
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is string key && key.StartsWith("SENTINEL_EMBEDDING_", StringComparison.Ordinal))
+            {
+                env[key] = entry.Value as string;
+            }
+        }
+
+        return env;
     }
 
     private static McpServerOptions BuildServerOptions(

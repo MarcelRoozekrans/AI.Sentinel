@@ -237,4 +237,28 @@ public class CopilotHookCliTests
         // controls must never ride along with it.
         Assert.DoesNotContain("EmbeddingGenerator", stderr.ToString(), StringComparison.Ordinal);
     }
+
+    /// <summary>A typo in the embedding settings must be reported, not silently leave SEC-01 and
+    /// SEC-05 inert — the exact failure #170 is about.</summary>
+    [Fact]
+    public async Task Cli_MalformedEmbeddingEndpoint_ReportsItOnStderr()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_EMBEDDING_ENDPOINT", "not a url");
+        Environment.SetEnvironmentVariable("SENTINEL_EMBEDDING_MODEL", "m");
+        try
+        {
+            var stdin = new StringReader("""{"sessionId":"s","prompt":"hello"}""");
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+
+            await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr);
+
+            Assert.Contains("SENTINEL_EMBEDDING_ENDPOINT", stderr.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_EMBEDDING_ENDPOINT", null);
+            Environment.SetEnvironmentVariable("SENTINEL_EMBEDDING_MODEL", null);
+        }
+    }
 }

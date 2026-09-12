@@ -40,7 +40,8 @@ internal static class McpPipelineFactory
         McpDetectorPreset preset,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         out IAuditStore auditStore,
-        out string? inertSemanticWarning)
+        out string? inertSemanticWarning,
+        IEmbeddingCache? exampleEmbeddingCache = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -51,6 +52,7 @@ internal static class McpPipelineFactory
             OnMedium           = MapDecision(config.OnMedium),
             OnLow              = MapDecision(config.OnLow),
             EmbeddingGenerator = embeddingGenerator,
+            ExampleEmbeddingCache = exampleEmbeddingCache,
         };
 
         var detectors = preset switch

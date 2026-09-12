@@ -175,7 +175,7 @@ Detectors run in three modes:
 - **LLM escalation** — not a detector type but a second pass: when `opts.EscalationClient` is set, a finding already at `Medium` or above is re-classified by an LLM. It upgrades or downgrades existing findings; it cannot create one.
 - **Stub** — a placeholder with no implementation; always returns `Clean`. Setting `opts.EscalationClient` does **not** activate it, because escalation only re-classifies findings a detector has already produced.
 
-> **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so all 41 detectors marked ⚠️ return `Clean` on every scan — including `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls. The hook CLIs (`sentinel-hook`, `sentinel-copilot-hook`) and `sentinel scan` have no way to supply a generator, so semantic detection is unavailable there entirely. Set `opts.EmbeddingGenerator` to turn it on; AI.Sentinel warns at startup when it is missing.
+> **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so all 41 detectors marked ⚠️ return `Clean` on every scan — including `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls. Set `opts.EmbeddingGenerator` to turn it on; AI.Sentinel warns at startup when it is missing. The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` — see [Enabling semantic detection in the CLIs](#enabling-semantic-detection-in-the-clis).
 
 ### Security (31)
 
@@ -739,6 +739,32 @@ Both adapters share the same env-var contract — configure once, applies to bot
 | `SENTINEL_HOOK_ON_LOW` | `Allow` | `Block` / `Warn` / `Allow` |
 | `SENTINEL_HOOK_VERBOSE` | `false` | `1` / `true` / `yes` → emit a one-line diagnostic to stderr on every invocation |
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | `1` / `true` / `yes` → suppress the startup warning that semantic detection is inert. Set only after accepting that SEC-01 and SEC-05 will not fire |
+| `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
+| `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
+| `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |
+| `SENTINEL_EMBEDDING_DIMENSIONS` | — | Vector length, when the model allows a choice |
+| `SENTINEL_EMBEDDING_CACHE_DIR` | per-user cache dir | Where reference vectors are cached. Must not be world-writable — see below |
+
+### Enabling semantic detection in the CLIs
+
+Semantic detectors — including `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak` — return `Clean` until an embedding generator is configured. Any endpoint speaking the OpenAI `/v1/embeddings` shape works, cloud or local:
+
+```bash
+# OpenAI
+export SENTINEL_EMBEDDING_ENDPOINT=https://api.openai.com/v1/embeddings
+export SENTINEL_EMBEDDING_MODEL=text-embedding-3-small
+export SENTINEL_EMBEDDING_API_KEY=sk-...
+
+# or entirely local, no API key
+export SENTINEL_EMBEDDING_ENDPOINT=http://localhost:11434/v1/embeddings
+export SENTINEL_EMBEDDING_MODEL=nomic-embed-text
+```
+
+A misconfigured setting is reported on stderr by name rather than leaving detection quietly off.
+
+**Reference vectors are cached on disk.** Each detector's example phrases must be embedded before it can score anything — 82 requests for the built-in set. A hook runs one process per prompt and per tool call, so without a cache that cost would land on every keystroke. The first run pays it; later runs pay one request, for the text being scanned. Only the static example phrases are cached: the text being scanned is never written to disk, because an embedding can be inverted to approximate its source.
+
+> **The cache file is not authenticated.** Anyone who can write `SENTINEL_EMBEDDING_CACHE_DIR` can replace the reference vectors with noise, which would push every detector below threshold and silently disable semantic detection. The default is a per-user directory (`%LOCALAPPDATA%i-sentinel\embeddings`, or `$XDG_CACHE_HOME/ai-sentinel/embeddings`); if you override it, do not point it at a shared or world-writable path.
 
 `Block` → hook exits 2, which both Claude Code and Copilot surface as "call blocked" with the detector ID + reason on stderr. `Warn` → exit 0 with the reason on stderr (visible in the agent's log). `Allow` → silent pass.
 

@@ -51,7 +51,7 @@ public sealed class FileSystemEmbeddingCache : IEmbeddingCache, IDisposable
     /// leaving the cache permanently cold and the feature apparently inert.</summary>
     private const int AutoFlushThreshold = 64;
 
-    private const int WriteAttempts = 8;
+    private const int WriteAttempts = 10;
     private const int WriteRetryDelayMs = 5;
 
     private readonly string _path;
@@ -127,17 +127,27 @@ public sealed class FileSystemEmbeddingCache : IEmbeddingCache, IDisposable
 
     /// <summary>Merges what is on disk and rewrites the file. Called automatically once enough entries
     /// have accumulated, and on dispose.</summary>
-    public void Flush()
+    /// <returns><see langword="true"/> when the entries reached disk. A <see langword="false"/> means
+    /// writers were contending and this process gave up: nothing is lost that was already stored, but
+    /// the next process re-embeds what this one would have cached.</returns>
+    public bool Flush()
     {
         lock (_lock)
         {
-            if (!_dirty) return;
+            if (!_dirty) return true;
 
             for (var attempt = 0; attempt < WriteAttempts; attempt++)
             {
-                if (TryMergeAndWrite()) return;
-                Thread.Sleep(WriteRetryDelayMs);
+                if (TryMergeAndWrite()) return true;
+
+                // Backoff with jitter: a fixed cadence makes concurrent writers collide in lockstep
+                // and burn the whole budget re-colliding. Worst case here is well under a second, and
+                // losing the flush costs the next process a full re-embed.
+                var delay = (WriteRetryDelayMs * (attempt + 1)) + Random.Shared.Next(WriteRetryDelayMs);
+                Thread.Sleep(delay);
             }
+
+            return false;
         }
     }
 

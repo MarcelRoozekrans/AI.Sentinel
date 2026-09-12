@@ -1,6 +1,7 @@
 using System.CommandLine;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Embeddings;
 
 namespace AI.Sentinel.Cli;
 
@@ -86,7 +87,10 @@ public static class ScanCommand
             var replayResponses = conversation.Turns.Select(t => t.Response).ToArray();
             var replayClient = new SentinelReplayClient(replayResponses);
 
-            var (provider, pipeline) = ForensicsPipelineFactory.Build(replayClient, embeddingGenerator);
+            using var embeddings = await ResolveEmbeddingsAsync(embeddingGenerator, stderr).ConfigureAwait(false);
+
+            var (provider, pipeline) = ForensicsPipelineFactory.Build(
+                replayClient, embeddingGenerator ?? embeddings?.Generator, embeddings?.ExampleCache);
             await using var _ = provider.ConfigureAwait(false);
 
             // No logging provider is registered here, so the library's ILogger warning reaches nobody.
@@ -130,6 +134,37 @@ public static class ScanCommand
     }
 
     /// <summary>Mirrors the hook CLIs' opt-out so a scan piped into jq can be silenced too.</summary>
+    /// <summary>A caller-supplied generator wins; otherwise read SENTINEL_EMBEDDING_* so a scan can
+    /// use semantic detection instead of silently reporting Clean for what it cannot see.</summary>
+    private static async Task<SentinelEmbeddingSetup?> ResolveEmbeddingsAsync(
+        IEmbeddingGenerator<string, Embedding<float>>? supplied, TextWriter stderr)
+    {
+        if (supplied is not null) return null;
+
+        var setup = SentinelEmbeddingSetup.TryCreateFromEnvironment(ReadEmbeddingEnvironment(), out var error);
+        if (error is not null)
+        {
+            await stderr.WriteLineAsync(error).ConfigureAwait(false);
+        }
+
+        return setup;
+    }
+
+    /// <summary>Embedding settings, read directly because they carry no host-specific prefix.</summary>
+    private static Dictionary<string, string?> ReadEmbeddingEnvironment()
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is string key && key.StartsWith("SENTINEL_EMBEDDING_", StringComparison.Ordinal))
+            {
+                env[key] = entry.Value as string;
+            }
+        }
+
+        return env;
+    }
+
     private static bool SuppressSemanticWarning()
     {
         var v = Environment.GetEnvironmentVariable("SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING");
