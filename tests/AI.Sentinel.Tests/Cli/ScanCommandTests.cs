@@ -240,4 +240,52 @@ public class ScanCommandTests
         Assert.Contains("EmbeddingGenerator", stderr.ToString(), StringComparison.Ordinal);
         Assert.Contains("semantic detectors", stderr.ToString(), StringComparison.Ordinal);
     }
+
+    /// <summary>#170 closed with a note that `sentinel scan` "has no option to scan the prompt
+    /// direction" because it reported Clean for a conversation whose user turn held a textbook
+    /// injection. ReplayRunner does scan the prompt leg — the Clean result was the inert-detector
+    /// bug, not a missing option. With SEC-01's rule layer the same fixture is now flagged with no
+    /// embedding generator configured, which is what a forensics scan in CI would see.</summary>
+    [Fact]
+    public async Task Scan_InjectionInTheUserTurn_IsFlagged_WithNoEmbeddingGenerator()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await ScanCommand.RunAsync(
+            Fixture("injection-openai.json"),
+            ConversationFormat.Auto,
+            OutputFormat.Json,
+            stdout,
+            stderr,
+            TestContext.Current.CancellationToken);
+
+        // Exit 0 is correct here: scan reports, and gating is opt-in through --expect /
+        // --min-severity. The detection appearing at all is the fix.
+        Assert.Contains("SEC-01", stdout.ToString(), StringComparison.Ordinal);
+        Assert.Equal(0, exit);
+    }
+
+    /// <summary>--min-severity is a positive assertion — "this conversation must contain at least
+    /// this severity" — used to regression-test detectors against known-bad fixtures. With SEC-01
+    /// inert the scan reported MaxSeverity None, so this assertion failed and the fixture could not
+    /// be used that way. It now passes.</summary>
+    [Fact]
+    public async Task Scan_InjectionInTheUserTurn_SatisfiesAMinSeverityAssertion()
+    {
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await ScanCommand.RunAsync(
+            Fixture("injection-openai.json"),
+            ConversationFormat.Auto,
+            OutputFormat.Text,
+            stdout,
+            stderr,
+            TestContext.Current.CancellationToken,
+            expectedDetectors: null,
+            minSeverity: Severity.High);
+
+        Assert.Equal(0, exit);
+    }
 }

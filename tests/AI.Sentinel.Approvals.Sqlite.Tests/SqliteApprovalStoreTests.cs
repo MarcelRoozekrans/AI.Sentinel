@@ -140,7 +140,11 @@ public sealed class SqliteApprovalStoreTests : IDisposable
         await Task.Delay(50, TestContext.Current.CancellationToken);
         cts.Cancel();
 
-        await Assert.ThrowsAsync<TaskCanceledException>(() => waitTask);
+        // ThrowsAsync demands an exact type, but which cancellation exception surfaces is a race:
+        // a token tripped inside Task.Delay yields TaskCanceledException, one observed by an earlier
+        // await in the poll loop yields OperationCanceledException. The contract is "cancellation
+        // propagates", so assert that rather than an implementation detail.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => waitTask);
     }
 
     [Fact]
