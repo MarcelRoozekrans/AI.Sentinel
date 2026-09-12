@@ -108,11 +108,15 @@ public class PipelineForwarderIntegrationTests
         var sp = services.BuildServiceProvider();
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
-        var sw = System.Diagnostics.Stopwatch.StartNew();
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
-        sw.Stop();
 
-        Assert.True(sw.Elapsed < TimeSpan.FromMilliseconds(500), $"Pipeline should NOT block on slow forwarder; elapsed={sw.Elapsed}");
+        // The invariant is "the pipeline did not await the forwarder", not "the call took under
+        // 500 ms". A wall-clock threshold fails on a loaded machine for reasons unrelated to the
+        // forwarder — which is how this test cost a release once. If the pipeline had awaited a
+        // two-second forwarder, it would have finished; that it has not is the actual proof.
+        await WaitUntilAsync(() => slow.Started);
+        Assert.True(slow.Started, "the forwarder never ran, so the test proves nothing");
+        Assert.False(slow.Completed, "the pipeline awaited the slow forwarder");
     }
 
     /// <summary>
@@ -141,8 +145,20 @@ public class PipelineForwarderIntegrationTests
 
     private sealed class SlowForwarder(TimeSpan delay) : IAuditForwarder
     {
+        public volatile bool Started;
+        public volatile bool Completed;
+
         public ValueTask SendAsync(IReadOnlyList<AuditEntry> batch, CancellationToken ct)
-            => new(Task.Delay(delay, ct));
+        {
+            Started = true;
+            return new(RunAsync(ct));
+        }
+
+        private async Task RunAsync(CancellationToken ct)
+        {
+            await Task.Delay(delay, ct).ConfigureAwait(false);
+            Completed = true;
+        }
     }
 
     private sealed class EchoChatClient : IChatClient
