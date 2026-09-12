@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [2.3.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.2.0...v2.3.0) (2026-09-12)
+
+
+### Features
+
+* **detectors:** implement SEC-08 and drop the unreachable escalation promise ([#225](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/225)) ([8e91706](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/8e91706787c0d32c7bcc95c39ecde34f1ab8b4b9)), closes [#213](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/213)
+* **detectors:** SEC-32 detects the system prompt leaking into output ([#227](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/227)) ([7a66fd2](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/7a66fd256c6670c8ad79ba8fe8acb98beaad4429)), closes [#212](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/212)
+
 ## [2.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.1.0...v2.2.0) (2026-09-12)
 
 
