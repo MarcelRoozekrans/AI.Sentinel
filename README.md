@@ -172,20 +172,21 @@ Detectors run in three modes:
 
 - **Rule-based** — fast regex or heuristic, always active, sub-microsecond per call
 - **Semantic ⚠️** — uses embedding cosine similarity via `EmbeddingGenerator`. Language-agnostic. **Returns `Clean` on every scan until `opts.EmbeddingGenerator` is configured.** The ⚠️ marks a detector that is inactive in a default install.
+- **Rule + Semantic ⚠️** — a high-precision rule layer runs first and always, so the unambiguous phrasings are caught with no generator; anything needing context falls through to the semantic path. The ⚠️ applies to that second half only.
 - **LLM escalation** — not a detector type but a second pass: when `opts.EscalationClient` is set, a finding already at `Medium` or above is re-classified by an LLM. It upgrades or downgrades existing findings; it cannot create one.
 - **Stub** — a placeholder with no implementation; always returns `Clean`. Setting `opts.EscalationClient` does **not** activate it, because escalation only re-classifies findings a detector has already produced.
 
-> **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so all 41 detectors marked ⚠️ return `Clean` on every scan — including `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls. Set `opts.EmbeddingGenerator` to turn it on; AI.Sentinel warns at startup when it is missing. The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` — see [Enabling semantic detection in the CLIs](#enabling-semantic-detection-in-the-clis).
+> **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so the 39 detectors marked `Semantic ⚠️` return `Clean` on every scan. `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls, are the exception: their rule layer catches the unambiguous phrasings regardless, and only paraphrases need a generator. Set `opts.EmbeddingGenerator` to turn it on; AI.Sentinel warns at startup when it is missing. The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` — see [Enabling semantic detection in the CLIs](#enabling-semantic-detection-in-the-clis).
 
 ### Security (31)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| `SEC‑01` | PromptInjection | Semantic ⚠️ | Override/injection phrase patterns (`ignore all previous instructions`, `you are now a different AI`, etc.) |
+| `SEC‑01` | PromptInjection | Rule + Semantic ⚠️ | Override/injection phrase patterns. The unambiguous phrasings (`ignore all previous instructions`, `you are now a different AI`) are matched by rule and need no generator; paraphrases need one |
 | `SEC‑02` | CredentialExposure | Rule-based | API keys, tokens, private keys, secrets in output |
 | `SEC‑03` | ToolPoisoning | Semantic ⚠️ | Suspicious tool-call manipulation patterns |
 | `SEC‑04` | DataExfiltration | Semantic ⚠️ | Base64 blobs, high-entropy encoded data |
-| `SEC‑05` | Jailbreak | Semantic ⚠️ | Jailbreak attempt phrases (DAN, roleplay exploits) |
+| `SEC‑05` | Jailbreak | Rule + Semantic ⚠️ | Jailbreak attempt phrases. Unambiguous ones (`DAN mode`, `unrestricted AI mode`) are matched by rule; roleplay exploits need a generator |
 | `SEC‑06` | PrivilegeEscalation | Semantic ⚠️ | Role/permission escalation requests |
 | `SEC‑07` | CovertChannel | Semantic ⚠️ | Encoding-based hidden payloads |
 | `SEC‑08` | EntropyCovertChannel | Stub | Statistical entropy anomalies in output — **not implemented; always returns `Clean`** |
@@ -259,7 +260,7 @@ Detectors run in three modes:
 
 | OWASP | Threat | Detectors | Fires by default |
 |---|---|---|---|
-| LLM01 | Prompt Injection | `PromptInjectionDetector`, `IndirectInjectionDetector`, `ToolPoisoningDetector` | ❌ none |
+| LLM01 | Prompt Injection | `PromptInjectionDetector`, `IndirectInjectionDetector`, `ToolPoisoningDetector` | ⚠️ partial (1/3) |
 | LLM02 | Sensitive Info Disclosure | `CredentialExposureDetector`, `PiiLeakageDetector`, `SystemPromptLeakageDetector`, `PromptTemplateLeakageDetector` | ⚠️ partial (2/4) |
 | LLM03 | Supply Chain | `SupplyChainPoisoningDetector` | ❌ none |
 | LLM04 | Data & Model Poisoning | `DataExfiltrationDetector`, `InformationFlowDetector` | ❌ none |
@@ -270,7 +271,7 @@ Detectors run in three modes:
 | LLM09 | Misinformation | `PhantomCitationDetector`, `GroundlessStatisticDetector`, `StaleKnowledgeDetector`, `UncertaintyPropagationDetector` | ❌ none |
 | LLM10 | Unbounded Consumption | `UnboundedConsumptionDetector`, `RepetitionLoopDetector` | ✅ yes |
 
-> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Seven of the ten categories, including **LLM01 Prompt Injection**, are in that state out of the box.
+> **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Six of the ten categories are in that state out of the box. **LLM01 Prompt Injection** is no longer one of them: `SEC‑01` and `SEC‑05` carry a rule layer that catches the unambiguous phrasings with no generator configured.
 
 ---
 

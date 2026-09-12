@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Domain;
 
@@ -56,19 +57,54 @@ public abstract class SemanticDetectorBase : IDetector
     protected virtual float MediumThreshold => 0.82f;
     protected virtual float LowThreshold    => 0.75f;
 
+    /// <summary>High-precision pattern checked before any embedding call. A match returns
+    /// <see cref="FastPathSeverity"/> immediately.</summary>
+    /// <remarks>
+    /// This is what lets a detector degrade instead of disappearing: semantic detection is off in a
+    /// default install, so without a rule layer SEC-01 and SEC-05 return Clean for a textbook
+    /// injection. It also short-circuits the obvious cases when a generator <em>is</em> configured,
+    /// saving a round-trip.
+    /// <para>
+    /// Only unambiguous phrasings belong here. The regex detectors these replaced carried loose
+    /// patterns — <c>pretend you are</c>, <c>act as if</c>, bare <c>jailbreak</c> — that fire on
+    /// ordinary text; a default-on control which blocks those gets switched off, which is worse than
+    /// missing them. Anything needing context stays semantic-only.
+    /// </para>
+    /// </remarks>
+    protected virtual Regex? FastPathPattern => null;
+
+    /// <summary>Whether this detector has a rule layer, and therefore fires without an embedding
+    /// generator. Used by the documentation guard so the coverage tables cannot claim a control is
+    /// inactive in a default install when it is not.</summary>
+    public bool HasRuleFastPath => FastPathPattern is not null;
+
+    /// <summary>Severity reported when <see cref="FastPathPattern"/> matches.</summary>
+    protected virtual Severity FastPathSeverity => HighSeverity;
+
     /// <summary>Extracts the text to embed from the context. Override to scan a specific message role.</summary>
     protected virtual string GetText(SentinelContext ctx) => ctx.TextContent;
 
     public async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
+        var text = GetText(ctx);
+        if (string.IsNullOrWhiteSpace(text))
+            return DetectionResult.Clean(Id);
+
+        // Rule layer first: it needs no generator, so it works in a default install, and it saves a
+        // round-trip on the unambiguous cases when a generator is configured.
+        if (FastPathPattern is { } pattern)
+        {
+            var match = pattern.Match(text);
+            if (match.Success)
+            {
+                return DetectionResult.WithSeverity(Id, FastPathSeverity, $"Rule match — '{match.Value}'");
+            }
+        }
+
         if (_generator is null)
             return DetectionResult.Clean(Id);
 
         await EnsureInitializedAsync(ct).ConfigureAwait(false);
-
-        var text = GetText(ctx);
-        if (string.IsNullOrWhiteSpace(text))
-            return DetectionResult.Clean(Id);
 
         var vector = await GetEmbeddingAsync(text, ct).ConfigureAwait(false);
 
