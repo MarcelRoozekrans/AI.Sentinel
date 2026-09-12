@@ -84,16 +84,28 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>Extracts the text to embed from the context. Override to scan a specific message role.</summary>
     protected virtual string GetText(SentinelContext ctx) => ctx.TextContent;
 
-    /// <summary>Text the rule layer examines: the newest message only.</summary>
+    /// <summary>Text the rule layer examines: the newest message, and only when it is incoming input.</summary>
     /// <remarks>
     /// Deliberately not <see cref="SentinelContext.TextContent"/>, which joins the whole conversation.
     /// The pipeline receives the full history every turn, so a rule match on an early message would
     /// re-match on every later one and block the session permanently, with no recovery short of
-    /// truncating history. Similarity scores dilute as a conversation grows; an exact match never
-    /// does. A literal injection is caught as it arrives, which is when it matters.
+    /// truncating history. Similarity scores dilute as a conversation grows; an exact match never does.
+    /// <para>
+    /// Restricted to <see cref="ChatRole.User"/> because a literal-phrase rule cannot tell an attack
+    /// from a quotation of one. Applied to the response leg it blocks a model refusal that echoes the
+    /// phrase, and applied to tool results it blocks an agent for reading security documentation —
+    /// this repository's own README contains the phrase. Prompt injection is about instructions
+    /// arriving as input; injection carried in retrieved content is SEC-09's job, where semantic
+    /// scoring can weigh context. The semantic path still covers every leg.
+    /// </para>
     /// </remarks>
-    protected virtual string GetFastPathText(SentinelContext ctx) =>
-        ctx.Messages.Count == 0 ? string.Empty : ctx.Messages[ctx.Messages.Count - 1].Text ?? string.Empty;
+    protected virtual string GetFastPathText(SentinelContext ctx)
+    {
+        if (ctx.Messages.Count == 0) return string.Empty;
+
+        var newest = ctx.Messages[ctx.Messages.Count - 1];
+        return newest.Role == ChatRole.User ? newest.Text ?? string.Empty : string.Empty;
+    }
 
     public async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
