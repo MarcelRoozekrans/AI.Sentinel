@@ -128,6 +128,12 @@ public sealed class SentinelOptions
     /// </para></summary>
     public IEmbeddingCache? ExampleEmbeddingCache { get; set; }
 
+    /// <summary>Invoked when a detector throws and is skipped for a scan. A detector that reaches the
+    /// network can fail for reasons unrelated to the content, and the scan continues without it — this
+    /// is how a host without an <see cref="Microsoft.Extensions.Logging.ILogger"/> (the CLI tools)
+    /// learns that a control was unavailable rather than clean.</summary>
+    public Action<string>? OnDetectorFailure { get; set; }
+
     /// <summary>
     /// System message text prepended to every outbound chat call. <see langword="null"/> disables hardening
     /// (default).

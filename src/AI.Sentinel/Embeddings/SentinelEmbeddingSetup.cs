@@ -34,6 +34,7 @@ public sealed class SentinelEmbeddingSetup : IDisposable
     private const string ApiKeyKey = "SENTINEL_EMBEDDING_API_KEY";
     private const string DimensionsKey = "SENTINEL_EMBEDDING_DIMENSIONS";
     private const string CacheDirKey = "SENTINEL_EMBEDDING_CACHE_DIR";
+    private const int MaxDimensions = 1 << 16;
 
     private readonly OpenAICompatibleEmbeddingGenerator _generator;
     private readonly FileSystemEmbeddingCache _cache;
@@ -58,16 +59,28 @@ public sealed class SentinelEmbeddingSetup : IDisposable
     {
         get
         {
-            var root = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
-            if (string.IsNullOrWhiteSpace(root))
+            // XDG_CACHE_HOME is a Unix convention, and honouring it on Windows would let an
+            // unrelated variable redirect the cache. Even on Unix it is caller-controlled, so it is
+            // only taken when absolute — a relative value would resolve against the working directory.
+            if (!OperatingSystem.IsWindows())
             {
-                root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                var xdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+                if (!string.IsNullOrWhiteSpace(xdg) && Path.IsPathRooted(xdg))
+                {
+                    return Path.Combine(xdg, "ai-sentinel", "embeddings");
+                }
+
+                var unixHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (!string.IsNullOrWhiteSpace(unixHome))
+                {
+                    return Path.Combine(unixHome, ".cache", "ai-sentinel", "embeddings");
+                }
             }
 
+            var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             if (string.IsNullOrWhiteSpace(root))
             {
-                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                root = Path.Combine(home, ".cache");
+                root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache");
             }
 
             return Path.Combine(root, "ai-sentinel", "embeddings");
@@ -112,9 +125,13 @@ public sealed class SentinelEmbeddingSetup : IDisposable
         var dimensionsValue = Read(environment, DimensionsKey);
         if (dimensionsValue is not null)
         {
-            if (!int.TryParse(dimensionsValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) || parsed <= 0)
+            // The upper bound is checked here rather than left to the cache constructor: an
+            // ArgumentOutOfRangeException there is caught below and reported as an unusable cache
+            // directory, sending the operator to check permissions for a mistyped number.
+            if (!int.TryParse(dimensionsValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+                || parsed <= 0 || parsed > MaxDimensions)
             {
-                configurationError = $"AI.Sentinel: {DimensionsKey} must be a positive integer ('{dimensionsValue}') — semantic detection stays off.";
+                configurationError = $"AI.Sentinel: {DimensionsKey} must be an integer between 1 and {MaxDimensions} ('{dimensionsValue}') — semantic detection stays off.";
                 return null;
             }
 

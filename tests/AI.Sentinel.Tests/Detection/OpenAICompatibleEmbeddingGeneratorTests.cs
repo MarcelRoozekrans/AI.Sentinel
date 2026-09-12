@@ -157,4 +157,38 @@ public class OpenAICompatibleEmbeddingGeneratorTests
         Assert.Equal("text-embedding-3-small", generator.Metadata.DefaultModelId);
         Assert.Equal(1536, generator.Metadata.DefaultModelDimensions);
     }
+
+    /// <summary>Configured dimensions must be sent, not merely reported in metadata. The persistent
+    /// cache binds its file to the configured value, so a provider returning its default length
+    /// instead writes a header that contradicts its own entries — and every later process rejects the
+    /// file as corrupt and re-embeds all 82 phrases, forever, silently.</summary>
+    [Fact]
+    public async Task GenerateAsync_SendsConfiguredDimensions_WhenTheCallerSuppliesNoOptions()
+    {
+        var handler = new StubHandler(_ => Json(EmbeddingsResponse([1f, 2f])));
+        using var client = new HttpClient(handler);
+        using var generator = new OpenAICompatibleEmbeddingGenerator(
+            client, new Uri("https://example.invalid/v1/embeddings"), "m", apiKey: null, dimensions: 2);
+
+        await generator.GenerateAsync(["hello"], null, TestContext.Current.CancellationToken);
+
+        using var sent = JsonDocument.Parse(handler.LastBody!);
+        Assert.Equal(2, sent.RootElement.GetProperty("dimensions").GetInt32());
+    }
+
+    /// <summary>If the provider ignores the requested length, fail here rather than let a vector of
+    /// the wrong size poison the cache.</summary>
+    [Fact]
+    public async Task GenerateAsync_Throws_WhenAVectorLengthContradictsTheConfiguredDimensions()
+    {
+        var handler = new StubHandler(_ => Json(EmbeddingsResponse([1f, 2f, 3f])));
+        using var client = new HttpClient(handler);
+        using var generator = new OpenAICompatibleEmbeddingGenerator(
+            client, new Uri("https://example.invalid/v1/embeddings"), "m", apiKey: null, dimensions: 2);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await generator.GenerateAsync(["hello"], null, TestContext.Current.CancellationToken));
+
+        Assert.Contains("dimension", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
 }

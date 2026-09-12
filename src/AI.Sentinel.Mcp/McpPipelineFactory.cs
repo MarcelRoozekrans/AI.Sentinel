@@ -41,7 +41,8 @@ internal static class McpPipelineFactory
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         out IAuditStore auditStore,
         out string? inertSemanticWarning,
-        IEmbeddingCache? exampleEmbeddingCache = null)
+        IEmbeddingCache? exampleEmbeddingCache = null,
+        Action<string>? detectorFailureSink = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -53,6 +54,7 @@ internal static class McpPipelineFactory
             OnLow              = MapDecision(config.OnLow),
             EmbeddingGenerator = embeddingGenerator,
             ExampleEmbeddingCache = exampleEmbeddingCache,
+            OnDetectorFailure = detectorFailureSink,
         };
 
         var detectors = preset switch
@@ -68,7 +70,8 @@ internal static class McpPipelineFactory
 
         return new SentinelPipeline(
             innerClient:        UnusedChatClient.Instance,
-            pipeline:           new DetectionPipeline(detectors, configurations: null, escalationClient: null),
+            pipeline:           new DetectionPipeline(detectors, configurations: null, escalationClient: null,
+                                    logger: null, onDetectorFailure: detectorFailureSink),
             auditStore:         ringBuffer,
             interventionEngine: new InterventionEngine(options, mediator: null),
             options:            options);

@@ -30,6 +30,7 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
     private readonly Uri _endpoint;
     private readonly string _model;
     private readonly string? _apiKey;
+    private readonly int? _dimensions;
 
     /// <param name="http">Client used for requests. Not disposed unless this instance created it.</param>
     /// <param name="endpoint">Full embeddings URL, e.g. <c>https://api.openai.com/v1/embeddings</c>.</param>
@@ -61,6 +62,7 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
         _endpoint = endpoint;
         _model = model;
         _apiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey;
+        _dimensions = dimensions;
 
         Metadata = new EmbeddingGeneratorMetadata(
             providerName: "openai-compatible",
@@ -86,7 +88,7 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
         using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint)
         {
             Content = JsonContent.Create(
-                new EmbeddingRequest(inputs, options?.ModelId ?? _model, options?.Dimensions),
+                new EmbeddingRequest(inputs, options?.ModelId ?? _model, options?.Dimensions ?? _dimensions),
                 EmbeddingJsonContext.Default.EmbeddingRequest),
         };
 
@@ -138,6 +140,16 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
         var result = new GeneratedEmbeddings<Embedding<float>>(expected);
         foreach (var vector in ordered)
         {
+            // A provider that ignores the requested length must fail here. The persistent cache binds
+            // its file to the configured dimension, so a wrong-sized vector would write a header that
+            // contradicts its own entries — and every later process would reject the file as corrupt
+            // and re-embed everything, silently and forever.
+            if (_dimensions is { } expectedLength && vector.Length != expectedLength)
+            {
+                throw new InvalidOperationException(
+                    $"Embedding endpoint {_endpoint} returned a vector of dimension {vector.Length}, but {expectedLength} was requested.");
+            }
+
             result.Add(new Embedding<float>(vector));
         }
 

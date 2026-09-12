@@ -90,7 +90,8 @@ public static class ScanCommand
             using var embeddings = await ResolveEmbeddingsAsync(embeddingGenerator, stderr).ConfigureAwait(false);
 
             var (provider, pipeline) = ForensicsPipelineFactory.Build(
-                replayClient, embeddingGenerator ?? embeddings?.Generator, embeddings?.ExampleCache);
+                replayClient, embeddingGenerator ?? embeddings?.Generator, embeddings?.ExampleCache,
+                message => stderr.WriteLine(message));
             await using var _ = provider.ConfigureAwait(false);
 
             // No logging provider is registered here, so the library's ILogger warning reaches nobody.
@@ -133,7 +134,6 @@ public static class ScanCommand
         }
     }
 
-    /// <summary>Mirrors the hook CLIs' opt-out so a scan piped into jq can be silenced too.</summary>
     /// <summary>A caller-supplied generator wins; otherwise read SENTINEL_EMBEDDING_* so a scan can
     /// use semantic detection instead of silently reporting Clean for what it cannot see.</summary>
     private static async Task<SentinelEmbeddingSetup?> ResolveEmbeddingsAsync(

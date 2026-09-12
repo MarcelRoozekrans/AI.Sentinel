@@ -66,7 +66,7 @@ public static class Program
             await stderr.WriteLineAsync(embeddingError).ConfigureAwait(false);
         }
 
-        var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache);
+        var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message));
         await using var _ = provider.ConfigureAwait(false);
 
         var adapter = new CopilotHookAdapter(provider, config);
@@ -169,7 +169,8 @@ public static class Program
     internal static ServiceProvider BuildProvider(
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         ApprovalConfig? approvalConfig,
-        IEmbeddingCache? exampleEmbeddingCache = null)
+        IEmbeddingCache? exampleEmbeddingCache = null,
+        Action<string>? detectorFailureSink = null)
     {
         var services = new ServiceCollection();
         var backendKind = approvalConfig is null
@@ -197,6 +198,8 @@ public static class Program
             opts.EmbeddingGenerator = embeddingGenerator;
             // Without this the hook re-embeds every detector's example phrases on every invocation.
             opts.ExampleEmbeddingCache = exampleEmbeddingCache;
+            // No logging provider here, so a detector that fails would degrade silently.
+            opts.OnDetectorFailure = detectorFailureSink;
             if (approvalConfig is not null)
                 ApprovalBackendSelector.Configure(opts, approvalConfig);
         });

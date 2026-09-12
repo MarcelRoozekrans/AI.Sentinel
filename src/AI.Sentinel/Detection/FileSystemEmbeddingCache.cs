@@ -132,22 +132,24 @@ public sealed class FileSystemEmbeddingCache : IEmbeddingCache, IDisposable
     /// the next process re-embeds what this one would have cached.</returns>
     public bool Flush()
     {
-        lock (_lock)
+        for (var attempt = 0; attempt < WriteAttempts; attempt++)
         {
-            if (!_dirty) return true;
-
-            for (var attempt = 0; attempt < WriteAttempts; attempt++)
+            lock (_lock)
             {
+                if (!_dirty) return true;
                 if (TryMergeAndWrite()) return true;
-
-                // Backoff with jitter: a fixed cadence makes concurrent writers collide in lockstep
-                // and burn the whole budget re-colliding. Worst case here is well under a second, and
-                // losing the flush costs the next process a full re-embed.
-                var delay = (WriteRetryDelayMs * (attempt + 1)) + Random.Shared.Next(WriteRetryDelayMs);
-                Thread.Sleep(delay);
             }
 
-            return false;
+            // Sleep outside the lock. Every semantic detector shares one example cache, so holding it
+            // through the backoff would stall all of them on TryGet while one writer waits its turn.
+            // Backoff with jitter: a fixed cadence makes concurrent writers collide in lockstep.
+            var delay = (WriteRetryDelayMs * (attempt + 1)) + Random.Shared.Next(WriteRetryDelayMs);
+            Thread.Sleep(delay);
+        }
+
+        lock (_lock)
+        {
+            return !_dirty;
         }
     }
 

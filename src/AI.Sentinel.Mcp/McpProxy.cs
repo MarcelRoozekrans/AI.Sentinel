@@ -84,7 +84,8 @@ public static class McpProxy
 
             var pipeline = McpPipelineFactory.Create(
                 config, preset, embeddingGenerator ?? embeddings?.Generator,
-                out var auditStore, out var inertSemanticWarning, embeddings?.ExampleCache);
+                out var auditStore, out var inertSemanticWarning, embeddings?.ExampleCache,
+                ReportDetectorFailure);
 
             // No logging provider here either — surface it on stderr so an inert SEC-01 isn't mistaken
             // for a clean scan. Routed through StderrLogger because this stream is structured
@@ -154,6 +155,16 @@ public static class McpProxy
             });
         }
     }
+
+    /// <summary>A detector that fails is skipped for that scan rather than aborting it, but the
+    /// operator has to learn a control was unavailable. Routed through StderrLogger so it joins the
+    /// proxy's structured stream instead of breaking NDJSON consumers.</summary>
+    private static void ReportDetectorFailure(string message) =>
+        StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["event"] = "detector_failed",
+            ["detail"] = message,
+        });
 
     /// <summary>Embedding settings, read directly because they carry no host-specific prefix.</summary>
     private static Dictionary<string, string?> ReadEmbeddingEnvironment()

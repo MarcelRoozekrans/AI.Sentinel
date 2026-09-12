@@ -20,7 +20,8 @@ public static class ForensicsPipelineFactory
     public static (ServiceProvider Provider, SentinelPipeline Pipeline) Build(
         IChatClient innerClient,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
-        IEmbeddingCache? exampleEmbeddingCache = null)
+        IEmbeddingCache? exampleEmbeddingCache = null,
+        Action<string>? detectorFailureSink = null)
     {
         ArgumentNullException.ThrowIfNull(innerClient);
 
@@ -33,6 +34,7 @@ public static class ForensicsPipelineFactory
             opts.OnLow = SentinelAction.Quarantine;
             opts.EmbeddingGenerator = embeddingGenerator;
             opts.ExampleEmbeddingCache = exampleEmbeddingCache;
+            opts.OnDetectorFailure = detectorFailureSink;
         });
         var provider = services.BuildServiceProvider();
         var pipeline = provider.BuildSentinelPipeline(innerClient);

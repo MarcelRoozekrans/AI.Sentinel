@@ -11,12 +11,14 @@ public sealed class DetectionPipeline : IDetectionPipeline
     private readonly DetectorConfiguration?[] _configurations;
     private readonly IChatClient? _escalationClient;
     private readonly ILogger<DetectionPipeline>? _logger;
+    private readonly Action<string>? _onDetectorFailure;
 
     public DetectionPipeline(
         IEnumerable<IDetector> detectors,
         IReadOnlyDictionary<Type, DetectorConfiguration>? configurations,
         IChatClient? escalationClient,
-        ILogger<DetectionPipeline>? logger = null)
+        ILogger<DetectionPipeline>? logger = null,
+        Action<string>? onDetectorFailure = null)
     {
         var enabled = new List<IDetector>();
         var enabledConfigs = new List<DetectorConfiguration?>();
@@ -41,6 +43,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         _configurations   = enabledConfigs.ToArray();
         _escalationClient = escalationClient;
         _logger           = logger;
+        _onDetectorFailure = onDetectorFailure;
     }
 
     private static int SeverityScore(Severity s) => s switch
@@ -63,7 +66,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         {
             // Start all detectors
             for (int i = 0; i < _detectors.Length; i++)
-                vTasks[i] = _detectors[i].AnalyzeAsync(ctx, ct);
+                vTasks[i] = SafeAnalyzeAsync(_detectors[i], ctx, ct);
 
             // Fast path: all completed synchronously (typical for rule-based detectors with cached clean results)
             if (AllCompletedSuccessfully(vTasks, _detectors.Length))
@@ -108,6 +111,36 @@ public sealed class DetectionPipeline : IDetectionPipeline
         }
 
         return BuildResult(results);
+    }
+
+    /// <summary>Runs one detector, degrading a failure to Clean.</summary>
+    /// <remarks>
+    /// A detector that reaches the network — any SemanticDetectorBase once an embedding endpoint is
+    /// configured — can throw for reasons that have nothing to do with the content: the endpoint is
+    /// down, the key expired, the provider rate-limited. Letting that escape aborts the whole scan,
+    /// and in the hook CLIs a thrown scan exits 1, which the host treats as a tool failure rather
+    /// than a block. The prompt would then proceed unscanned by <em>every</em> detector, including the
+    /// rule-based ones that never needed the network. One control being unavailable must not disable
+    /// the rest.
+    /// </remarks>
+    private async ValueTask<DetectionResult> SafeAnalyzeAsync(IDetector detector, SentinelContext ctx, CancellationToken ct)
+    {
+        try
+        {
+            return await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // The caller asked to stop; that is not a detector fault.
+            throw;
+        }
+        catch (Exception ex)
+        {
+            var message = $"AI.Sentinel: detector {detector.Id.Value} failed and was skipped for this scan ({ex.GetType().Name}: {ex.Message}). Other detectors still ran.";
+            _logger?.LogWarning(ex, "AI.Sentinel: detector {DetectorId} failed and was skipped for this scan.", detector.Id.Value);
+            _onDetectorFailure?.Invoke(message);
+            return DetectionResult.Clean(detector.Id);
+        }
     }
 
     private void ApplySeverityClamp(DetectionResult[] results)

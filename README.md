@@ -764,7 +764,7 @@ A misconfigured setting is reported on stderr by name rather than leaving detect
 
 **Reference vectors are cached on disk.** Each detector's example phrases must be embedded before it can score anything — 82 requests for the built-in set. A hook runs one process per prompt and per tool call, so without a cache that cost would land on every keystroke. The first run pays it; later runs pay one request, for the text being scanned. Only the static example phrases are cached: the text being scanned is never written to disk, because an embedding can be inverted to approximate its source.
 
-> **The cache file is not authenticated.** Anyone who can write `SENTINEL_EMBEDDING_CACHE_DIR` can replace the reference vectors with noise, which would push every detector below threshold and silently disable semantic detection. The default is a per-user directory (`%LOCALAPPDATA%i-sentinel\embeddings`, or `$XDG_CACHE_HOME/ai-sentinel/embeddings`); if you override it, do not point it at a shared or world-writable path.
+> **The cache file is not authenticated.** Anyone who can write `SENTINEL_EMBEDDING_CACHE_DIR` can replace the reference vectors with noise, which would push every detector below threshold and silently disable semantic detection. The default is a per-user directory (`%LOCALAPPDATA%\ai-sentinel\embeddings`, or `$XDG_CACHE_HOME/ai-sentinel/embeddings`); if you override it, do not point it at a shared or world-writable path.
 
 `Block` → hook exits 2, which both Claude Code and Copilot surface as "call blocked" with the detector ID + reason on stderr. `Warn` → exit 0 with the reason on stderr (visible in the agent's log). `Allow` → silent pass.
 
