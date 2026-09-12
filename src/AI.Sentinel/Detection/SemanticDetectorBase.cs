@@ -20,6 +20,7 @@ public abstract class SemanticDetectorBase : IDetector
 {
     private readonly IEmbeddingGenerator<string, Embedding<float>>? _generator;
     private readonly IEmbeddingCache _cache;
+    private readonly IEmbeddingCache? _exampleCache;
     private ReadOnlyMemory<float>[]? _highVectors;
     private ReadOnlyMemory<float>[]? _mediumVectors;
     private ReadOnlyMemory<float>[]? _lowVectors;
@@ -31,6 +32,7 @@ public abstract class SemanticDetectorBase : IDetector
         ArgumentNullException.ThrowIfNull(options);
         _generator = options.EmbeddingGenerator;
         _cache = options.EmbeddingCache ?? new InMemoryLruEmbeddingCache();
+        _exampleCache = options.ExampleEmbeddingCache;
     }
 
     public abstract DetectorId Id { get; }
@@ -98,8 +100,43 @@ public abstract class SemanticDetectorBase : IDetector
     private async Task<ReadOnlyMemory<float>[]> EmbedExamplesAsync(string[] examples, CancellationToken ct)
     {
         if (examples.Length == 0) return [];
-        var results = await _generator!.GenerateAsync(examples, cancellationToken: ct).ConfigureAwait(false);
-        return [.. results.Select(e => e.Vector)];
+
+        if (_exampleCache is null)
+        {
+            var direct = await _generator!.GenerateAsync(examples, cancellationToken: ct).ConfigureAwait(false);
+            return [.. direct.Select(e => e.Vector)];
+        }
+
+        // Embed only what the cache is missing. A warm persistent cache turns this whole method into
+        // lookups, which is what makes semantic detection affordable in a per-invocation host.
+        var vectors = new ReadOnlyMemory<float>[examples.Length];
+        var missingText = new List<string>();
+        var missingIndex = new List<int>();
+
+        for (var i = 0; i < examples.Length; i++)
+        {
+            if (_exampleCache.TryGet(examples[i], out var hit))
+            {
+                vectors[i] = hit.Vector;
+            }
+            else
+            {
+                missingText.Add(examples[i]);
+                missingIndex.Add(i);
+            }
+        }
+
+        if (missingText.Count > 0)
+        {
+            var fresh = await _generator!.GenerateAsync(missingText, cancellationToken: ct).ConfigureAwait(false);
+            for (var i = 0; i < missingIndex.Count; i++)
+            {
+                _exampleCache.Set(missingText[i], fresh[i]);
+                vectors[missingIndex[i]] = fresh[i].Vector;
+            }
+        }
+
+        return vectors;
     }
 
     private async Task<ReadOnlyMemory<float>> GetEmbeddingAsync(string text, CancellationToken ct)
