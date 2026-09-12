@@ -129,6 +129,14 @@ public abstract class SemanticDetectorBase : IDetector
         if (missingText.Count > 0)
         {
             var fresh = await _generator!.GenerateAsync(missingText, cancellationToken: ct).ConfigureAwait(false);
+            if (fresh.Count != missingText.Count)
+            {
+                // A provider that batches, dedupes or drops inputs would otherwise pair vectors with
+                // the wrong phrases and persist them under the wrong keys.
+                throw new InvalidOperationException(
+                    $"Embedding generator returned {fresh.Count} vectors for {missingText.Count} inputs; results must correspond one-to-one and in order.");
+            }
+
             for (var i = 0; i < missingIndex.Count; i++)
             {
                 _exampleCache.Set(missingText[i], fresh[i]);

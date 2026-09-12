@@ -121,8 +121,10 @@ public sealed class SentinelOptions
     /// the user's prompt and its embedding is invertible to approximate source text.
     /// <para>
     /// When <see langword="null"/> (the default) example phrases are embedded on every first scan.
-    /// A long-lived host pays that once at startup; a per-invocation host such as the hook CLIs pays
-    /// it every time, so those supply a persistent implementation.
+    /// A long-lived host pays that once at startup; a per-invocation host pays it every time, which is
+    /// what makes a persistent implementation such as <see cref="FileSystemEmbeddingCache"/> worth
+    /// supplying there. No bundled CLI sets this yet — they cannot configure an embedding generator at
+    /// all, so nothing to cache.
     /// </para></summary>
     public IEmbeddingCache? ExampleEmbeddingCache { get; set; }
 
