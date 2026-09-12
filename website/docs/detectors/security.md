@@ -11,37 +11,37 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| **SEC-01** | `PromptInjectionDetector` | Rule-based | Override / injection phrase patterns (`ignore all previous instructions`, `you are now a different AI`, etc.) |
+| **SEC-01** | `PromptInjectionDetector` | Semantic ⚠️ | Override / injection phrase patterns (`ignore all previous instructions`, `you are now a different AI`, etc.) |
 | **SEC-02** | `CredentialExposureDetector` | Rule-based | API keys, tokens, private keys, secrets in output |
-| **SEC-03** | `ToolPoisoningDetector` | Rule-based | Suspicious tool-call manipulation patterns |
-| **SEC-04** | `DataExfiltrationDetector` | Rule-based | Base64 blobs, high-entropy encoded data |
-| **SEC-05** | `JailbreakDetector` | Rule-based | Jailbreak attempt phrases (DAN, roleplay exploits) |
-| **SEC-06** | `PrivilegeEscalationDetector` | Rule-based | Role / permission escalation requests |
-| **SEC-07** | `CovertChannelDetector` | Semantic | Encoding-based hidden payloads |
+| **SEC-03** | `ToolPoisoningDetector` | Semantic ⚠️ | Suspicious tool-call manipulation patterns |
+| **SEC-04** | `DataExfiltrationDetector` | Semantic ⚠️ | Base64 blobs, high-entropy encoded data |
+| **SEC-05** | `JailbreakDetector` | Semantic ⚠️ | Jailbreak attempt phrases (DAN, roleplay exploits) |
+| **SEC-06** | `PrivilegeEscalationDetector` | Semantic ⚠️ | Role / permission escalation requests |
+| **SEC-07** | `CovertChannelDetector` | Semantic ⚠️ | Encoding-based hidden payloads |
 | **SEC-08** | `EntropyCovertChannelDetector` | LLM escalation | Statistical entropy anomalies in output |
-| **SEC-09** | `IndirectInjectionDetector` | Semantic | Injection via retrieved documents or tool results |
-| **SEC-10** | `AgentImpersonationDetector` | Semantic | Model claiming to be a different agent or system |
-| **SEC-11** | `MemoryCorruptionDetector` | Semantic | Attempts to corrupt agent memory / context |
-| **SEC-12** | `UnauthorizedAccessDetector` | Semantic | Attempts to access restricted resources |
-| **SEC-13** | `ShadowServerDetector` | Semantic | Redirection to unauthorised endpoints |
-| **SEC-14** | `InformationFlowDetector` | Semantic | Cross-context data leakage |
-| **SEC-15** | `PhantomCitationSecurityDetector` | Semantic | Security-context hallucinated authority sources |
-| **SEC-16** | `GovernanceGapDetector` | Semantic | Policy / compliance bypass attempts |
-| **SEC-17** | `SupplyChainPoisoningDetector` | Semantic | Compromised dependency suggestions |
+| **SEC-09** | `IndirectInjectionDetector` | Semantic ⚠️ | Injection via retrieved documents or tool results |
+| **SEC-10** | `AgentImpersonationDetector` | Semantic ⚠️ | Model claiming to be a different agent or system |
+| **SEC-11** | `MemoryCorruptionDetector` | Semantic ⚠️ | Attempts to corrupt agent memory / context |
+| **SEC-12** | `UnauthorizedAccessDetector` | Semantic ⚠️ | Attempts to access restricted resources |
+| **SEC-13** | `ShadowServerDetector` | Semantic ⚠️ | Redirection to unauthorised endpoints |
+| **SEC-14** | `InformationFlowDetector` | Semantic ⚠️ | Cross-context data leakage |
+| **SEC-15** | `PhantomCitationSecurityDetector` | Semantic ⚠️ | Security-context hallucinated authority sources |
+| **SEC-16** | `GovernanceGapDetector` | Semantic ⚠️ | Policy / compliance bypass attempts |
+| **SEC-17** | `SupplyChainPoisoningDetector` | Semantic ⚠️ | Compromised dependency suggestions |
 | **SEC-18** | `ToolDescriptionDivergenceDetector` | Stub | Tool description changed at runtime vs. original declaration (requires tool-descriptor snapshot) |
 | **SEC-19** | `ToolCallFrequencyDetector` | Rule-based | Counts `ChatRole.Tool` messages; flags sessions with excessive tool invocations |
-| **SEC-20** | `SystemPromptLeakageDetector` | Rule-based | Verbatim fragments of the system prompt echoed in conversation history |
-| **SEC-21** | `ExcessiveAgencyDetector` | Semantic | Autonomous-action language ("I deleted", "I deployed", "I executed") |
-| **SEC-22** | `HumanTrustManipulationDetector` | Semantic | Rapport / authority manipulation ("you can trust me", "I am your advisor") |
+| **SEC-20** | `SystemPromptLeakageDetector` | Semantic ⚠️ | Verbatim fragments of the system prompt echoed in conversation history |
+| **SEC-21** | `ExcessiveAgencyDetector` | Semantic ⚠️ | Autonomous-action language ("I deleted", "I deployed", "I executed") |
+| **SEC-22** | `HumanTrustManipulationDetector` | Semantic ⚠️ | Rapport / authority manipulation ("you can trust me", "I am your advisor") |
 | **SEC-23** | `PiiLeakageDetector` | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email + name, phone, DOB |
 | **SEC-24** | `AdversarialUnicodeDetector` | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions |
-| **SEC-25** | `CodeInjectionDetector` | Rule-based | SQL injection, shell metacharacters, path traversal in LLM-generated code |
-| **SEC-26** | `PromptTemplateLeakageDetector` | Rule-based | Prompt scaffolding markers — `{{variable}}`, `<SYSTEM>`, `[INST]` |
-| **SEC-27** | `LanguageSwitchAttackDetector` | Rule-based | Abrupt script / language switch mid-response — injection vector via non-Latin text |
-| **SEC-28** | `RefusalBypassDetector` | Rule-based | Model complied with a request it should have refused (caller-supplied forbidden patterns) |
+| **SEC-25** | `CodeInjectionDetector` | Semantic ⚠️ | SQL injection, shell metacharacters, path traversal in LLM-generated code |
+| **SEC-26** | `PromptTemplateLeakageDetector` | Semantic ⚠️ | Prompt scaffolding markers — `{{variable}}`, `<SYSTEM>`, `[INST]` |
+| **SEC-27** | `LanguageSwitchAttackDetector` | Semantic ⚠️ | Abrupt script / language switch mid-response — injection vector via non-Latin text |
+| **SEC-28** | `RefusalBypassDetector` | Semantic ⚠️ | Model complied with a request it should have refused (caller-supplied forbidden patterns) |
 | **SEC-29** | `OutputSchemaDetector` | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05) |
-| **SEC-30** | `ShorthandEmergenceDetector` | Semantic | Unknown all-caps tokens that may signal emergent covert language |
-| **SEC-31** | `VectorRetrievalPoisoningDetector` | Semantic | Malicious instructions embedded in RAG-retrieved document chunks (OWASP LLM08) |
+| **SEC-30** | `ShorthandEmergenceDetector` | Semantic ⚠️ | Unknown all-caps tokens that may signal emergent covert language |
+| **SEC-31** | `VectorRetrievalPoisoningDetector` | Semantic ⚠️ | Malicious instructions embedded in RAG-retrieved document chunks (OWASP LLM08) |
 
 ## Severity ranges
 

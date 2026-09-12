@@ -11,15 +11,15 @@ Hallucination detectors look for fabricated or unsupported content — phantom c
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| **HAL-01** | `PhantomCitationDetector` | Rule-based | Fake DOIs, arXiv IDs, `.invalid` / `.nonexistent` domains |
-| **HAL-02** | `SelfConsistencyDetector` | Rule-based | Numeric inconsistency (values differing by >10×) |
-| **HAL-03** | `CrossAgentContradictionDetector` | Semantic | Contradictions between agents in a multi-agent session |
-| **HAL-04** | `SourceGroundingDetector` | Semantic | Claims unsupported by provided context |
-| **HAL-05** | `ConfidenceDecayDetector` | Semantic | Confidence degradation across turns |
-| **HAL-06** | `StaleKnowledgeDetector` | Semantic | Time-sensitive facts stated as current ("the latest version is X", "the current CEO is Y") |
-| **HAL-07** | `IntraSessionContradictionDetector` | Semantic | Model contradicts itself within the same conversation |
-| **HAL-08** | `GroundlessStatisticDetector` | Rule-based | Specific percentages / statistics asserted without any source in the provided context |
-| **HAL-09** | `UncertaintyPropagationDetector` | Semantic | Hedged statements that contradict a definitive assertion in the same response |
+| **HAL-01** | `PhantomCitationDetector` | Semantic ⚠️ | Fake DOIs, arXiv IDs, `.invalid` / `.nonexistent` domains |
+| **HAL-02** | `SelfConsistencyDetector` | Semantic ⚠️ | Numeric inconsistency (values differing by >10×) |
+| **HAL-03** | `CrossAgentContradictionDetector` | Semantic ⚠️ | Contradictions between agents in a multi-agent session |
+| **HAL-04** | `SourceGroundingDetector` | Semantic ⚠️ | Claims unsupported by provided context |
+| **HAL-05** | `ConfidenceDecayDetector` | Semantic ⚠️ | Confidence degradation across turns |
+| **HAL-06** | `StaleKnowledgeDetector` | Semantic ⚠️ | Time-sensitive facts stated as current ("the latest version is X", "the current CEO is Y") |
+| **HAL-07** | `IntraSessionContradictionDetector` | Semantic ⚠️ | Model contradicts itself within the same conversation |
+| **HAL-08** | `GroundlessStatisticDetector` | Semantic ⚠️ | Specific percentages / statistics asserted without any source in the provided context |
+| **HAL-09** | `UncertaintyPropagationDetector` | Semantic ⚠️ | Hedged statements that contradict a definitive assertion in the same response |
 
 ## When these matter
 

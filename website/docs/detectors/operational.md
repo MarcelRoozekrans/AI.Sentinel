@@ -15,16 +15,16 @@ Operational detectors flag UX and quality issues — repetition loops, truncated
 | **OPS-02** | `RepetitionLoopDetector` | Rule-based | Same sentence repeated 3+ times |
 | **OPS-03** | `IncompleteCodeBlockDetector` | Rule-based | Unclosed code fences |
 | **OPS-04** | `PlaceholderTextDetector` | Rule-based | `TODO`, `[INSERT HERE]`, `Lorem ipsum` leftovers |
-| **OPS-05** | `ContextCollapseDetector` | Semantic | Loss of conversational context across turns |
-| **OPS-06** | `AgentProbingDetector` | Semantic | Attempts to map agent capabilities or system prompt |
-| **OPS-07** | `QueryIntentDetector` | Semantic | Malicious intent hidden in benign-looking queries |
-| **OPS-08** | `ResponseCoherenceDetector` | Semantic | Response that doesn't address the question asked |
+| **OPS-05** | `ContextCollapseDetector` | Semantic ⚠️ | Loss of conversational context across turns |
+| **OPS-06** | `AgentProbingDetector` | Semantic ⚠️ | Attempts to map agent capabilities or system prompt |
+| **OPS-07** | `QueryIntentDetector` | Semantic ⚠️ | Malicious intent hidden in benign-looking queries |
+| **OPS-08** | `ResponseCoherenceDetector` | Semantic ⚠️ | Response that doesn't address the question asked |
 | **OPS-09** | `TruncatedOutputDetector` | Rule-based | Mid-sentence truncation and unclosed code fences |
-| **OPS-10** | `WaitingForContextDetector` | Semantic | Stall phrases when the user prompt was substantive |
+| **OPS-10** | `WaitingForContextDetector` | Semantic ⚠️ | Stall phrases when the user prompt was substantive |
 | **OPS-11** | `UnboundedConsumptionDetector` | Rule-based | Compares response length to prompt length; flags unbounded expansion (OWASP LLM04) |
-| **OPS-12** | `SemanticRepetitionDetector` | Semantic | Same idea restated with different wording — extends RepetitionLoop beyond literal string matching |
-| **OPS-13** | `PersonaDriftDetector` | Semantic | Tone, persona, or stated identity shifts significantly across turns — context poisoning signal |
-| **OPS-14** | `SycophancyDetector` | Semantic | Model reverses a stated position purely because the user pushed back — epistemic cowardice |
+| **OPS-12** | `SemanticRepetitionDetector` | Semantic ⚠️ | Same idea restated with different wording — extends RepetitionLoop beyond literal string matching |
+| **OPS-13** | `PersonaDriftDetector` | Semantic ⚠️ | Tone, persona, or stated identity shifts significantly across turns — context poisoning signal |
+| **OPS-14** | `SycophancyDetector` | Semantic ⚠️ | Model reverses a stated position purely because the user pushed back — epistemic cowardice |
 | **OPS-15** | `WrongLanguageDetector` | Rule-based | Response language doesn't match the user's language (script / charset detection) |
 
 ## Severity guidance
