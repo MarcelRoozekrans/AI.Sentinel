@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [2.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.0.2...v2.1.0) (2026-09-12)
+
+
+### Features
+
+* **detection:** persistent cache for detector example embeddings ([#218](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/218)) ([cec335c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/cec335cbef81efc2e09931d465c33d6aa6ed2d3c))
+
 ## [2.0.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.0.1...v2.0.2) (2026-09-12)
 
 
