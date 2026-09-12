@@ -82,7 +82,7 @@ opts.Configure<JailbreakDetector>(c =>
 | **LLM06** Excessive Agency | SEC-21, SEC-19 | ⚠️ partial (1/2) |
 | **LLM07** System Prompt Leakage | SEC-20, SEC-26, SEC-16 | ❌ none |
 | **LLM08** Vector & Embedding Weaknesses | SEC-31 | ❌ none |
-| **LLM09** Misinformation | HAL-01, HAL-08, HAL-06, HAL-09, HAL-04, HAL-05 | ❌ none |
-| **LLM10** Unbounded Consumption | OPS-11, OPS-02 | ✅ yes |
+| **LLM09** Misinformation | HAL-01 (PhantomCitation), HAL-08 (GroundlessStatistic), HAL-06 (StaleKnowledge), HAL-09 (UncertaintyPropagation), HAL-04 (SourceGrounding), HAL-05 (ConfidenceDecay) — see [hallucination detectors](./hallucination) | ❌ none |
+| **LLM10** Unbounded Consumption | OPS-11 (UnboundedConsumption), OPS-02 (RepetitionLoop) — see [operational detectors](./operational) | ✅ yes |
 
 > **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Five of the nine in-scope categories are in that state out of the box. **LLM01 Prompt Injection** is not one of them: `SEC-01` and `SEC-05` carry a rule layer that fires without a generator.
