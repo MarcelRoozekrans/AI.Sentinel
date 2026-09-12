@@ -10,7 +10,8 @@ public sealed class SentinelContext(
     SessionId SessionId,
     IReadOnlyList<ChatMessage> Messages,
     IReadOnlyList<AuditEntry> History,
-    string? LlmId = null)
+    string? LlmId = null,
+    string? systemPrompt = null)
 {
     public AgentId SenderId { get; } = SenderId;
     public AgentId ReceiverId { get; } = ReceiverId;
@@ -18,6 +19,14 @@ public sealed class SentinelContext(
     public IReadOnlyList<ChatMessage> Messages { get; } = Messages;
     public IReadOnlyList<AuditEntry> History { get; } = History;
     public string? LlmId { get; } = LlmId;
+
+    /// <summary>The conversation's system prompt, when one was supplied.</summary>
+    /// <remarks>
+    /// Carried on both scan legs so a detector can compare the model's output against it. The
+    /// response leg scans only the generated message, so without this the prompt is unavailable
+    /// exactly where a leak would appear.
+    /// </remarks>
+    public string? SystemPrompt { get; } = systemPrompt;
 
     private string? _textContent;
 

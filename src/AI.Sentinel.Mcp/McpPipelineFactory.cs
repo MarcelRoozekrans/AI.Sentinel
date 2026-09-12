@@ -113,6 +113,41 @@ internal static class McpPipelineFactory
     internal static IDetector[] BuildAllDetectors() => BuildAllDetectors(new SentinelOptions());
 
     internal static IDetector[] BuildAllDetectors(SentinelOptions options) =>
+        [.. BuildSecuritySection(options), .. BuildQualitySection(options)];
+
+    /// <summary>Split from BuildAllDetectors only to stay inside the method-length limit; the two
+    /// halves together must still mirror every [Singleton] detector in the assembly.</summary>
+    private static IDetector[] BuildQualitySection(SentinelOptions options) =>
+    [
+        // Hallucination (9)
+        new PhantomCitationDetector(options),
+        new SelfConsistencyDetector(options),
+        new SourceGroundingDetector(options),
+        new ConfidenceDecayDetector(options),
+        new CrossAgentContradictionDetector(options),
+        new GroundlessStatisticDetector(options),
+        new IntraSessionContradictionDetector(options),
+        new StaleKnowledgeDetector(options),
+        new UncertaintyPropagationDetector(options),
+        // Operational (15)
+        new BlankResponseDetector(),
+        new RepetitionLoopDetector(),
+        new ContextCollapseDetector(options),
+        new AgentProbingDetector(options),
+        new QueryIntentDetector(options),
+        new IncompleteCodeBlockDetector(),
+        new PlaceholderTextDetector(),
+        new ResponseCoherenceDetector(options),
+        new PersonaDriftDetector(options),
+        new SemanticRepetitionDetector(options),
+        new SycophancyDetector(options),
+        new WrongLanguageDetector(),
+        new TruncatedOutputDetector(),
+        new UnboundedConsumptionDetector(),
+        new WaitingForContextDetector(options),
+    ];
+
+    private static IDetector[] BuildSecuritySection(SentinelOptions options) =>
     [
         // Security (31)
         new PromptInjectionDetector(options),
@@ -140,38 +175,13 @@ internal static class McpPipelineFactory
         new PromptTemplateLeakageDetector(options),
         new RefusalBypassDetector(options),
         new SystemPromptLeakageDetector(options),
+        new SystemPromptEchoDetector(),
         new ToolDescriptionDivergenceDetector(),
         new ToolCallFrequencyDetector(),
         new ExcessiveAgencyDetector(options),
         new HumanTrustManipulationDetector(options),
         new ShorthandEmergenceDetector(options),
         new VectorRetrievalPoisoningDetector(options),
-        // Hallucination (9)
-        new PhantomCitationDetector(options),
-        new SelfConsistencyDetector(options),
-        new SourceGroundingDetector(options),
-        new ConfidenceDecayDetector(options),
-        new CrossAgentContradictionDetector(options),
-        new GroundlessStatisticDetector(options),
-        new IntraSessionContradictionDetector(options),
-        new StaleKnowledgeDetector(options),
-        new UncertaintyPropagationDetector(options),
-        // Operational (15)
-        new BlankResponseDetector(),
-        new RepetitionLoopDetector(),
-        new ContextCollapseDetector(options),
-        new AgentProbingDetector(options),
-        new QueryIntentDetector(options),
-        new IncompleteCodeBlockDetector(),
-        new PlaceholderTextDetector(),
-        new ResponseCoherenceDetector(options),
-        new PersonaDriftDetector(options),
-        new SemanticRepetitionDetector(options),
-        new SycophancyDetector(options),
-        new WrongLanguageDetector(),
-        new TruncatedOutputDetector(),
-        new UnboundedConsumptionDetector(),
-        new WaitingForContextDetector(options),
     ];
 
     // IChatClient satisfying SentinelPipeline's signature. Never invoked because
