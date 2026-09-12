@@ -21,7 +21,7 @@ Operational detectors flag UX and quality issues — repetition loops, truncated
 | **OPS-08** | `ResponseCoherenceDetector` | Semantic ⚠️ | Response that doesn't address the question asked |
 | **OPS-09** | `TruncatedOutputDetector` | Rule-based | Mid-sentence truncation and unclosed code fences |
 | **OPS-10** | `WaitingForContextDetector` | Semantic ⚠️ | Stall phrases when the user prompt was substantive |
-| **OPS-11** | `UnboundedConsumptionDetector` | Rule-based | Compares response length to prompt length; flags unbounded expansion (OWASP LLM04) |
+| **OPS-11** | `UnboundedConsumptionDetector` | Rule-based | Compares response length to prompt length; flags unbounded expansion (OWASP LLM10) |
 | **OPS-12** | `SemanticRepetitionDetector` | Semantic ⚠️ | Same idea restated with different wording — extends RepetitionLoop beyond literal string matching |
 | **OPS-13** | `PersonaDriftDetector` | Semantic ⚠️ | Tone, persona, or stated identity shifts significantly across turns — context poisoning signal |
 | **OPS-14** | `SycophancyDetector` | Semantic ⚠️ | Model reverses a stated position purely because the user pushed back — epistemic cowardice |
@@ -58,7 +58,7 @@ For most apps, leave both enabled and route at `Medium` so audit captures the si
 
 ## OPS-11 UnboundedConsumption — DoS prevention
 
-This one *can* warrant `Alert` or `Quarantine`. The detector compares response length to prompt length and flags ratios that look like the model is being prompted to emit unbounded output ("write me 10,000 words about X", followed by 50,000 words of output). This is an OWASP LLM04 signal — token cost amplification.
+This one *can* warrant `Alert` or `Quarantine`. The detector compares response length to prompt length and flags ratios that look like the model is being prompted to emit unbounded output ("write me 10,000 words about X", followed by 50,000 words of output). This is an OWASP LLM10 signal — token cost amplification.
 
 Tune the threshold by subclassing or routing aggressively:
 

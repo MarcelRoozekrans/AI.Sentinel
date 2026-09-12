@@ -291,4 +291,145 @@ public class DetectorDocumentationTests
         // A reformatted header would make the whole assertion silently vacuous.
         Assert.Equal(2, filesWithTable);
     }
+
+    /// <summary>#216: the two mapping tables used different Top 10 versions, so "LLM07" meant
+    /// "System Prompt Leakage" in one document and "Insecure Plugin Design" in the other. Whoever
+    /// cites AI.Sentinel's OWASP coverage in a questionnaire got a different answer depending on
+    /// which page they read. Categories and detector membership must both stay identical — the
+    /// detector sets had diverged too, and comparing only the category labels would let that half
+    /// of the defect return unnoticed.</summary>
+    [Fact]
+    public void BothOwaspTables_AgreeOnCategoriesAndMembership()
+    {
+        var kinds = AllDetectorKinds();
+        var perFile = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
+        foreach (var file in DocFiles())
+        {
+            var rows = ReadOwaspRows(file, kinds);
+            if (rows.Count > 0) perFile[Path.GetFileName(file)] = rows;
+        }
+
+        Assert.Equal(2, perFile.Count);
+
+        var names = perFile.Keys.ToList();
+        var first = perFile[names[0]];
+        var second = perFile[names[1]];
+
+        // Name both files: when this fires, the maintainer has to know which page to correct.
+        Assert.True(
+            first.SequenceEqual(second, StringComparer.Ordinal),
+            $"OWASP tables disagree.{Environment.NewLine}{names[0]}:{Environment.NewLine}  " +
+            string.Join($"{Environment.NewLine}  ", first) +
+            $"{Environment.NewLine}{names[1]}:{Environment.NewLine}  " +
+            string.Join($"{Environment.NewLine}  ", second));
+
+        Assert.Equal(10, first.Count);
+    }
+
+    /// <summary>Renders each OWASP row as "LLM0n threat | id,id,id" so two tables written in
+    /// different styles — the README names classes, the website names ids — are comparable.</summary>
+    private static List<string> ReadOwaspRows(string file, IReadOnlyList<DetectorKind> kinds)
+    {
+        var rows = new List<string>();
+        var inTable = false;
+
+        foreach (var line in File.ReadAllLines(file))
+        {
+            if (line.Contains("Fires by default", StringComparison.Ordinal) && line.StartsWith('|'))
+            {
+                inTable = true;
+                continue;
+            }
+
+            if (!inTable) continue;
+            if (!line.StartsWith('|')) { inTable = false; continue; }
+            if (IsSeparatorRow(line)) continue;
+
+            var cells = line.Split('|');
+            if (cells.Length < 3) continue;
+
+            var label = Normalise(cells[1]).Replace("**", string.Empty, StringComparison.Ordinal);
+            if (!label.StartsWith("LLM", StringComparison.Ordinal)) continue;
+
+            // Split on the first space rather than slicing at a fixed index: a footnote marker or a
+            // typo would otherwise produce an opaque mismatch, or throw.
+            var space = label.IndexOf(' ', StringComparison.Ordinal);
+            var id = space < 0 ? label : label[..space];
+            var threat = space < 0 ? Normalise(cells[2]) : label[(space + 1)..].Trim();
+
+            var row = Normalise(line);
+            var members = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (var k in kinds)
+            {
+                if (row.Contains(k.Id, StringComparison.Ordinal)
+                    || row.Contains("`" + k.TypeName + "`", StringComparison.Ordinal)
+                    || row.Contains("(" + k.TypeName.Replace("Detector", string.Empty, StringComparison.Ordinal) + ")", StringComparison.Ordinal))
+                {
+                    members.Add(k.Id);
+                }
+            }
+
+            rows.Add($"{id} {threat} | {string.Join(",", members)}");
+        }
+
+        return rows;
+    }
+
+    /// <summary>A category the mapping tables declare out of scope must not be claimed as covered
+    /// anywhere else. The tables agreeing with each other is not enough: OPS-11 was annotated
+    /// "(OWASP LLM04)" on the operational detectors page under the old 2023 numbering, so a
+    /// compliance reader was told LLM04 was covered on one page and uncovered on two others —
+    /// #216's defect relocated to a third document rather than removed.</summary>
+    [Fact]
+    public void NoDocumentClaimsACategoryTheTablesCallOutOfScope()
+    {
+        var outOfScope = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var file in DocFiles())
+        {
+            foreach (var line in File.ReadAllLines(file))
+            {
+                if (!line.StartsWith('|')) continue;
+                if (!line.Contains("out of scope", StringComparison.Ordinal)) continue;
+
+                var label = Normalise(line.Split('|')[1]).Replace("**", string.Empty, StringComparison.Ordinal);
+                if (label.StartsWith("LLM", StringComparison.Ordinal))
+                {
+                    var space = label.IndexOf(' ', StringComparison.Ordinal);
+                    outOfScope.Add(space < 0 ? label : label[..space]);
+                }
+            }
+        }
+
+        Assert.NotEmpty(outOfScope);
+
+        var offenders = new List<string>();
+        foreach (var file in AllDocumentationFiles())
+        {
+            var text = File.ReadAllText(file);
+            foreach (var category in outOfScope)
+            {
+                if (text.Contains("OWASP " + category, StringComparison.Ordinal))
+                {
+                    offenders.Add($"{Path.GetFileName(file)} claims OWASP {category}, which the mapping tables call out of scope");
+                }
+            }
+        }
+
+        Assert.Empty(offenders);
+    }
+
+    /// <summary>Every markdown file that could carry an OWASP claim, not just the detector tables.</summary>
+    private static IReadOnlyList<string> AllDocumentationFiles()
+    {
+        var root = RepoRoot();
+        var files = new List<string> { Path.Combine(root.FullName, "README.md") };
+        var docs = Path.Combine(root.FullName, "website", "docs");
+        if (Directory.Exists(docs))
+        {
+            files.AddRange(Directory.GetFiles(docs, "*.md", SearchOption.AllDirectories));
+        }
+
+        return files.Where(File.Exists).ToList();
+    }
 }
