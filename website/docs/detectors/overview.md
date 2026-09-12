@@ -15,7 +15,7 @@ AI.Sentinel ships with **55 built-in detectors** across three categories:
 
 ## Detector modes
 
-Every detector falls into one of three execution modes, and a fourth label marks placeholders:
+Every detector falls into one of these execution modes:
 
 - **Rule-based** — fast regex or heuristic. Always active. Sub-microsecond per call.
 - **Semantic ⚠️** — uses embedding cosine similarity via `IEmbeddingGenerator`. Language-agnostic. **Returns `Clean` on every scan until `opts.EmbeddingGenerator` is configured.** The ⚠️ marks a detector inactive in a default install. The CLIs and MCP proxy enable it with `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL`.

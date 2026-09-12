@@ -168,7 +168,7 @@ IChatClient.GetResponseAsync(messages)
 
 ## Detectors (55)
 
-Detectors run in three modes:
+Detectors run in these modes:
 
 - **Rule-based** — fast regex or heuristic, always active, sub-microsecond per call
 - **Semantic ⚠️** — uses embedding cosine similarity via `EmbeddingGenerator`. Language-agnostic. **Returns `Clean` on every scan until `opts.EmbeddingGenerator` is configured.** The ⚠️ marks a detector that is inactive in a default install.

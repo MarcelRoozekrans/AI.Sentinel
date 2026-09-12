@@ -279,7 +279,7 @@ public static class ServiceCollectionExtensions
             return null;
         }
 
-        var count = sp.GetServices<IDetector>().Count(d => d is SemanticDetectorBase);
+        var count = sp.GetServices<IDetector>().Count(d => d is SemanticDetectorBase { HasRuleFastPath: false });
         if (count == 0)
         {
             return null;
@@ -291,7 +291,10 @@ public static class ServiceCollectionExtensions
     private static string InertSemanticMessage(int count, string? pipelineName)
     {
         var scope = pipelineName is null ? "AI.Sentinel" : $"AI.Sentinel pipeline '{pipelineName}'";
-        return $"{scope}: EmbeddingGenerator is not configured — all {count} semantic detectors, including SEC-01 PromptInjection and SEC-05 Jailbreak, return Clean on every scan. Configure SentinelOptions.EmbeddingGenerator to enable semantic detection — the bundled CLI tools cannot supply one.";
+        // SEC-01 and SEC-05 are deliberately excluded from the count: their rule layer fires without
+        // a generator, so naming them here would contradict the Critical block the very next line of
+        // output may carry.
+        return $"{scope}: EmbeddingGenerator is not configured — {count} semantic detectors return Clean on every scan. SEC-01 PromptInjection and SEC-05 Jailbreak still catch the unambiguous phrasings through their rule layer, but paraphrases go undetected. Set SENTINEL_EMBEDDING_ENDPOINT and SENTINEL_EMBEDDING_MODEL, or SentinelOptions.EmbeddingGenerator, to enable the rest.";
     }
 
     private static void WarnIfSemanticDetectionInert(IServiceProvider sp, SentinelOptions? opts, string? pipelineName)
@@ -325,7 +328,7 @@ public static class ServiceCollectionExtensions
             return null;
         }
 
-        var count = detectors.Count(d => d is SemanticDetectorBase);
+        var count = detectors.Count(d => d is SemanticDetectorBase { HasRuleFastPath: false });
         return count == 0 ? null : InertSemanticMessage(count, pipelineName: null);
     }
 

@@ -84,6 +84,17 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>Extracts the text to embed from the context. Override to scan a specific message role.</summary>
     protected virtual string GetText(SentinelContext ctx) => ctx.TextContent;
 
+    /// <summary>Text the rule layer examines: the newest message only.</summary>
+    /// <remarks>
+    /// Deliberately not <see cref="SentinelContext.TextContent"/>, which joins the whole conversation.
+    /// The pipeline receives the full history every turn, so a rule match on an early message would
+    /// re-match on every later one and block the session permanently, with no recovery short of
+    /// truncating history. Similarity scores dilute as a conversation grows; an exact match never
+    /// does. A literal injection is caught as it arrives, which is when it matters.
+    /// </remarks>
+    protected virtual string GetFastPathText(SentinelContext ctx) =>
+        ctx.Messages.Count == 0 ? string.Empty : ctx.Messages[ctx.Messages.Count - 1].Text ?? string.Empty;
+
     public async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         var text = GetText(ctx);
@@ -94,10 +105,10 @@ public abstract class SemanticDetectorBase : IDetector
         // round-trip on the unambiguous cases when a generator is configured.
         if (FastPathPattern is { } pattern)
         {
-            var match = pattern.Match(text);
+            var match = pattern.Match(GetFastPathText(ctx));
             if (match.Success)
             {
-                return DetectionResult.WithSeverity(Id, FastPathSeverity, $"Rule match — '{match.Value}'");
+                return DetectionResult.WithSeverity(Id, FastPathSeverity, $"Rule match — '{Sanitise(match.Value)}'");
             }
         }
 
@@ -116,6 +127,33 @@ public abstract class SemanticDetectorBase : IDetector
             return DetectionResult.WithSeverity(Id, LowSeverity, "Semantic match — low-severity threat pattern");
 
         return DetectionResult.Clean(Id);
+    }
+
+    /// <summary>Collapses whitespace and truncates matched text before it reaches a reason string.
+    /// The match is attacker-controlled and every whitespace class in these patterns spans newlines,
+    /// so an unsanitised value could forge extra lines in report output that prints one finding per
+    /// line.</summary>
+    private static string Sanitise(string value)
+    {
+        const int MaxLength = 120;
+        var collapsed = new System.Text.StringBuilder(Math.Min(value.Length, MaxLength));
+        var lastWasSpace = false;
+        foreach (var c in value)
+        {
+            if (collapsed.Length >= MaxLength) break;
+
+            if (char.IsWhiteSpace(c) || char.IsControl(c))
+            {
+                if (!lastWasSpace) collapsed.Append(' ');
+                lastWasSpace = true;
+                continue;
+            }
+
+            collapsed.Append(c);
+            lastWasSpace = false;
+        }
+
+        return collapsed.ToString().Trim();
     }
 
     private async Task EnsureInitializedAsync(CancellationToken ct)
