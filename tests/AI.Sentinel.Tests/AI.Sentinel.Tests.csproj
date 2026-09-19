@@ -22,7 +22,7 @@
     <PackageReference Include="xunit.v3" Version="4.0.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
     <PackageReference Include="NSubstitute" Version="6.2.0" />
-    <PackageReference Include="ZeroAlloc.Serialisation" Version="2.4.1" />
+    <PackageReference Include="ZeroAlloc.Serialisation" Version="2.4.2" />
     <PackageReference Include="ZeroAlloc.Serialisation.SystemTextJson" Version="2.4.*" />
     <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.10.0" />
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.10.0" />
