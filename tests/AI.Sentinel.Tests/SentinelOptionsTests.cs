@@ -78,6 +78,26 @@ public class SentinelOptionsTests
     }
 
     [Fact]
+    public void InvalidOptions_ReportOneGreaterThanFailurePerOffendingProperty()
+    {
+        var opts = new SentinelOptions
+        {
+            AuditCapacity      = 0,
+            MaxCallsPerSecond  = 0,
+            BurstSize          = 0,
+            SessionIdleTimeout = TimeSpan.Zero,
+        };
+
+        var failures = new SentinelOptionsValidator().Validate(opts).Failures.ToArray();
+
+        Assert.Equal(
+            ["AuditCapacity", "MaxCallsPerSecond", "BurstSize", "SessionIdleTimeout"],
+            failures.Select(f => f.PropertyName),
+            StringComparer.Ordinal);
+        Assert.All(failures, f => Assert.Equal("GreaterThan", f.ErrorCode));
+    }
+
+    [Fact]
     public void ExpectedResponseType_DefaultsToNull()
     {
         var opts = new SentinelOptions();
