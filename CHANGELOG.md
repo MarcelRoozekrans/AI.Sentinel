@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [2.3.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.3.0...v2.3.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* restore green build after ZeroAlloc.Serialisation and Validation bumps ([#292](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/292)) ([fc1a7b1](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/fc1a7b1b1628e3d7f21a702beebb6a7d4a9b0f1e))
+
 ## [2.3.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.2.0...v2.3.0) (2026-09-12)
 
 
