@@ -7,7 +7,7 @@ using AI.Sentinel.Domain;
 
 namespace AI.Sentinel;
 
-// [Validate] — will emit SentinelOptionsValidator when ZeroAlloc.Validation source generator ships
+// [Validate] makes the ZeroAlloc.Validation source generator emit SentinelOptionsValidator.
 [Validate]
 public sealed class SentinelOptions
 {
@@ -55,8 +55,7 @@ public sealed class SentinelOptions
     /// <summary>Optional secondary IChatClient used for LLM escalation on borderline detections.</summary>
     public IChatClient? EscalationClient { get; set; }
 
-    // [GreaterThan(0)] — enforced by SentinelOptionsValidator (ZeroAlloc.Validation source gen not yet available in v0.2.3)
-    [GreaterThan(0)]
+    [GreaterThan(0, ErrorCode = "GreaterThan")]
     public int AuditCapacity { get; set; } = 10_000;
 
     public SentinelAction OnCritical { get; set; } = SentinelAction.Quarantine;
@@ -80,18 +79,19 @@ public sealed class SentinelOptions
     /// Null (default) = no rate limiting. Pair with <see cref="BurstSize"/> to allow
     /// initial spikes while capping sustained throughput.
     /// Uses <c>ZeroAlloc.Resilience.RateLimiter</c> — one bucket per session key.</summary>
-    [GreaterThan(0)]
+    [GreaterThan(0, ErrorCode = "GreaterThan")]
     public int? MaxCallsPerSecond { get; set; }
 
     /// <summary>Burst capacity — initial and maximum token count for the per-session rate limiter.
     /// Defaults to <see cref="MaxCallsPerSecond"/> when null.
     /// Set higher than <see cref="MaxCallsPerSecond"/> to absorb short spikes without throttling.</summary>
-    [GreaterThan(0)]
+    [GreaterThan(0, ErrorCode = "GreaterThan")]
     public int? BurstSize { get; set; }
 
     /// <summary>Inactivity window after which per-session dedup state and rate-limiter
     /// buckets are evicted from in-memory dictionaries. Default: 1 hour.
     /// Increase for long-lived sessions; decrease for very high-cardinality session keys.</summary>
+    [PositiveTimeSpan]
     public TimeSpan SessionIdleTimeout { get; set; } = TimeSpan.FromHours(1);
 
     /// <summary>Optional expected response type for structured-output LLM calls.
