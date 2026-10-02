@@ -10,6 +10,12 @@
       "matchPackageNames": ["Microsoft.AspNetCore.TestHost"],
       "matchCurrentValue": "/^8\\./",
       "allowedVersions": "<9.0.0"
+    },
+    {
+      "description": "ZeroAlloc.Serialisation.SystemTextJson requires a ZeroAlloc.Serialisation at least as new as itself, and AI.Sentinel.Tests references both directly. The shared preset groups only ZeroAlloc.Serialisation + generator, so the SystemTextJson bump arrived alone in #288, raised that floor past the pinned ZeroAlloc.Serialisation and broke restore with NU1605. Keep the family in one group so it always moves together.",
+      "matchManagers": ["nuget"],
+      "matchPackageNames": ["ZeroAlloc.Serialisation.SystemTextJson"],
+      "groupName": "ZeroAlloc.Serialisation + generator"
     }
   ]
 }
