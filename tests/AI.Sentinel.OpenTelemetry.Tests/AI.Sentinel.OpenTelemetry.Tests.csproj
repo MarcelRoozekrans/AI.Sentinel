@@ -14,7 +14,7 @@
     <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.19.*" />
     <PackageReference Include="OpenTelemetry.Exporter.InMemory" Version="1.19.*" />
     <PackageReference Include="Microsoft.Extensions.Logging" Version="10.0.12" />
-    <PackageReference Include="xunit.v3" Version="4.0.1" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0" />
+    <PackageReference Include="xunit.v3" Version="4.0.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
   </ItemGroup>
 </Project>
