@@ -31,7 +31,7 @@
     <PackageReference Include="ZeroAlloc.Inject.Generator" Version="1.11.0" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
     <PackageReference Include="ZeroAlloc.Resilience" Version="3.3.*" />
     <PackageReference Include="ZeroAlloc.Serialisation" Version="2.6.0" />
-    <PackageReference Include="ZeroAlloc.Telemetry" Version="1.11.0" />
+    <PackageReference Include="ZeroAlloc.Telemetry" Version="1.12.0" />
     <PackageReference Include="ZeroAlloc.Authorization" Version="2.1.5" />
   </ItemGroup>
 </Project>
