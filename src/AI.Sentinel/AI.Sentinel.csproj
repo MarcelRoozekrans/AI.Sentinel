@@ -22,7 +22,7 @@
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.12" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.12" />
     <PackageReference Include="ZeroAlloc.AsyncEvents" Version="1.1.*" />
-    <PackageReference Include="ZeroAlloc.Collections" Version="1.1.1*" />
+    <PackageReference Include="ZeroAlloc.Collections" Version="1.2.*" />
     <PackageReference Include="ZeroAlloc.Results" Version="1.2.*" />
     <PackageReference Include="ZeroAlloc.ValueObjects" Version="2.0.12" />
     <PackageReference Include="ZeroAlloc.Validation" Version="2.1.*" />
