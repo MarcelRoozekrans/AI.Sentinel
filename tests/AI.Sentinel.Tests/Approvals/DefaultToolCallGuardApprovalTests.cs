@@ -10,10 +10,8 @@ public class DefaultToolCallGuardApprovalTests
 {
     private sealed record TestSec(string Id) : ISecurityContext
     {
-#pragma warning disable HLQ001 // Boxing on init is fine for a test helper
         public IReadOnlySet<string> Roles { get; } = new HashSet<string>(StringComparer.Ordinal);
         public IReadOnlyDictionary<string, string> Claims { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
-#pragma warning restore HLQ001
     }
 
     private sealed class StubStore(ApprovalState fixedResult) : IApprovalStore

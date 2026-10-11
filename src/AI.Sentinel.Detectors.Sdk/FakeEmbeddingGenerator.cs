@@ -50,14 +50,10 @@ public sealed class FakeEmbeddingGenerator : IEmbeddingGenerator<string, Embeddi
         var norm = MathF.Sqrt(sumSq);
         if (norm > 0f)
         {
-            // HLQ013 prefers foreach for read-only span iteration; in-place normalization
-            // requires index-based mutation, so a manual for-loop is the right shape here.
-#pragma warning disable HLQ013
             for (var i = 0; i < span.Length; i++)
             {
                 span[i] /= norm;
             }
-#pragma warning restore HLQ013
         }
         return vec;
     }
