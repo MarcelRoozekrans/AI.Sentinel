@@ -43,10 +43,8 @@ public class EntraPimApprovalStoreTests
     private sealed class TestSecurityContext(string id) : ISecurityContext
     {
         public string Id { get; } = id;
-#pragma warning disable HLQ001
         public IReadOnlySet<string> Roles { get; } = new HashSet<string>(StringComparer.Ordinal);
         public IReadOnlyDictionary<string, string> Claims { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
-#pragma warning restore HLQ001
     }
 
     /// <summary>Configurable fake; observable counters; status sequences keyed per request id.</summary>
