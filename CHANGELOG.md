@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [2.3.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.3.1...v2.3.2) (2026-10-11)
+
+
+### Bug Fixes
+
+* **deps:** pin ZeroAlloc.Serialisation.SystemTextJson exactly in the tests ([#329](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/329)) ([ff8f7ef](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ff8f7ef7d64bb7521a0ed835af9643ed87b7971d))
+
 ## [2.3.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.3.0...v2.3.1) (2026-10-02)
 
 
