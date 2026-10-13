@@ -132,4 +132,30 @@ public sealed class SqliteSchemaV4MigrationTests : IDisposable
 
         Assert.Equal("h-denial", first.PreviousHash);
     }
+
+    [Fact]
+    public async Task FailedV4Migration_RollsBackAndReleasesTheFile()
+    {
+        await SeedV3DatabaseAsync();
+        // A view under the chain-head name makes the migration's last statement fail, after the
+        // table rebuild has already written inside the transaction.
+        await ExecuteAsync("CREATE VIEW audit_chain_head AS SELECT 1 AS id, 'x' AS hash;");
+
+        Assert.ThrowsAny<SqliteException>(() => new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }));
+
+        // The failed open must not keep a write lock: a short timeout turns a leaked lock into a fast failure.
+        var csb = new SqliteConnectionStringBuilder(ConnectionString) { DefaultTimeout = 1 };
+        await using var conn = new SqliteConnection(csb.ToString());
+        await conn.OpenAsync(TestContext.Current.CancellationToken);
+        using var write = conn.CreateCommand();
+        write.CommandText = "BEGIN IMMEDIATE; ROLLBACK;";
+        await write.ExecuteNonQueryAsync(TestContext.Current.CancellationToken);
+
+        using var version = conn.CreateCommand();
+        version.CommandText = "PRAGMA user_version;";
+        Assert.Equal(3L, await version.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+        using var notNull = conn.CreateCommand();
+        notNull.CommandText = """SELECT "notnull" FROM pragma_table_info('audit_entries') WHERE name = 'policy_code';""";
+        Assert.Equal(1L, await notNull.ExecuteScalarAsync(TestContext.Current.CancellationToken));
+    }
 }

@@ -74,7 +74,8 @@ internal static class SqliteSchema
         // Single, explicit version-bump after all migration steps complete.
         // Each MigrateXToYAsync helper changes only the shape; only this line updates
         // user_version, so adding future migrations is one-line-mechanical. v3→v4 rebuilds
-        // the table inside its own transaction, so an interrupted run leaves v3 intact.
+        // the table and bumps user_version inside its own transaction, so a failed run
+        // rolls back to v3 and releases its lock.
         if (current < CurrentVersion)
         {
             using var bump = conn.CreateCommand();
@@ -128,9 +129,11 @@ internal static class SqliteSchema
         // policy_code. Detection rows only ever held the old column default, so they become NULL;
         // AUTHZ-DENY rows keep their code. The chain head is seeded from the newest row, so the
         // first 3.0 entry links to the last entry written before the upgrade.
+        // Disposing an uncommitted transaction rolls it back; a failing statement alone does not.
+        using var tx = conn.BeginTransaction();
         using var migrate = conn.CreateCommand();
+        migrate.Transaction = tx;
         migrate.CommandText = $"""
-            BEGIN;
             DROP TABLE IF EXISTS audit_entries_v4;
             CREATE TABLE audit_entries_v4 (
             {AuditEntriesColumns}
@@ -147,9 +150,10 @@ internal static class SqliteSchema
             {ChainHeadTable}
             INSERT OR REPLACE INTO audit_chain_head (id, hash)
             SELECT 1, hash FROM audit_entries ORDER BY sequence DESC LIMIT 1;
-            COMMIT;
+            PRAGMA user_version = 4;
             """;
         await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
     }
 
     internal static async Task<int> GetVersionAsync(SqliteConnection conn, CancellationToken ct)

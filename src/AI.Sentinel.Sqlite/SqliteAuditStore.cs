@@ -44,13 +44,23 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             Mode = SqliteOpenMode.ReadWriteCreate,
         };
         _connection = new SqliteConnection(csb.ToString());
-        _connection.Open();
+        try
+        {
+            _connection.Open();
 
-        // Schema bootstrap is synchronous in ctor — failure here surfaces immediately
-        // rather than on first append.
-        SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
-        _sequence = LoadHighestSequence();
-        _lastHash = LoadLastHash();
+            // Schema bootstrap is synchronous in ctor — failure here surfaces immediately
+            // rather than on first append.
+            SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
+            _sequence = LoadHighestSequence();
+            _lastHash = LoadLastHash();
+        }
+        catch
+        {
+            // Nothing else owns the connection yet; leaving it open would hold its file handle,
+            // and any lock, until the finalizer runs.
+            _connection.Dispose();
+            throw;
+        }
 
         var hasTimeRetention = options.RetentionPeriod is { } r && r > TimeSpan.Zero;
         var hasSizeCap = options.MaxDatabaseSizeBytes is { } b && b > 0;
