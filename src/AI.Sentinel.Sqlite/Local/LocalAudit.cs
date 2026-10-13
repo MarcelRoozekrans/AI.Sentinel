@@ -35,6 +35,7 @@ internal static class LocalAudit
         var sqlite = Read(env, prefix + "AUDIT_SQLITE");
         var databasePath = sqlite switch
         {
+            null when !Path.IsPathRooted(defaultDatabasePath) => NoDataFolder(problems),
             null => defaultDatabasePath,
             _ when string.Equals(sqlite, "off", StringComparison.OrdinalIgnoreCase) => null,
             _ => sqlite,
@@ -58,6 +59,14 @@ internal static class LocalAudit
         var store = OpenStore(settings, problems);
         var forwarders = OpenForwarders(settings, problems);
         return new LocalAuditSession(store, source, forwarders, problems);
+    }
+
+    /// <summary>An unset HOME makes the per-user data folder empty and the default path relative, which
+    /// would put a database in the current directory. Recording is switched off instead.</summary>
+    private static string? NoDataFolder(ICollection<string> problems)
+    {
+        problems.Add("No per-user data folder was found, so audit recording is off. Set the AUDIT_SQLITE variable to a database path to record.");
+        return null;
     }
 
     private static string? Read(IReadOnlyDictionary<string, string?> env, string name) =>

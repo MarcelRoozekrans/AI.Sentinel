@@ -16,6 +16,7 @@ internal sealed class LocalAuditSession : IAsyncDisposable
     private readonly SourceTaggingAuditStore _store;
     private readonly TrackingAuditForwarder[] _forwarders;
     private readonly LocalAuditProblems _problems;
+    private int _disposed;
 
     /// <param name="innerStore">The store entries are appended to. The session owns and disposes it.</param>
     /// <param name="source">The <see cref="AuditEntry.Source"/> stamped on every entry.</param>
@@ -62,6 +63,8 @@ internal sealed class LocalAuditSession : IAsyncDisposable
     /// in <see cref="Problems"/> and the rest are still disposed, so it cannot change a CLI's exit.</summary>
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+
         foreach (var forwarder in _forwarders)
         {
             await DisposeSafelyAsync(forwarder, "an audit forwarder").ConfigureAwait(false);

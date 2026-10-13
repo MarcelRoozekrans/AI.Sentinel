@@ -87,19 +87,16 @@ public static class Program
         // On Block and Warn stderr carries the reason fed back to the model, so audit and semantic
         // diagnostics stay off it. An audit failure never changes the decision.
         var allowed = output.Decision == HookDecision.Allow;
-        await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || allowed, stderr).ConfigureAwait(false);
+        var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || allowed, stderr).ConfigureAwait(false);
         if (allowed && evt == HookEvent.UserPromptSubmit && !config.SuppressSemanticWarning
             && provider.DescribeInertSemanticDetection() is { } semanticWarning)
         {
             await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
         }
 
-        return output.Decision switch
-        {
-            HookDecision.Block => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 2).ConfigureAwait(false),
-            HookDecision.Warn => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 0).ConfigureAwait(false),
-            _ => 0,
-        };
+        var exit = await ExitCodeAsync(stderr, output).ConfigureAwait(false);
+        await CloseAuditAsync(audit, reported, config.Verbose, stderr).ConfigureAwait(false);
+        return exit;
     }
 
     /// <summary>Every hook process records to the shared local audit file unless
@@ -114,17 +111,41 @@ public static class Program
 
     /// <summary>Entries are forwarded on background tasks; wait (bounded) so an NDJSON line is on disk
     /// before the process exits, then report the problems when <paramref name="report"/> allows.</summary>
-    private static async Task FlushAndReportAuditAsync(
+    private static async Task<int> FlushAndReportAuditAsync(
         LocalAuditSession audit, List<string> settingsProblems, bool report, TextWriter stderr)
     {
         await audit.FlushAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
-        if (!report) return;
+        if (!report) return int.MaxValue;
+        var seen = audit.Problems.Count;
         settingsProblems.AddRange(audit.Problems);
         foreach (var problem in settingsProblems)
         {
             await stderr.WriteLineAsync($"[sentinel-hook] audit: {problem}").ConfigureAwait(false);
         }
+
+        return seen;
     }
+
+    /// <summary>Disposes the audit session. With verbose on, reports problems raised while closing it
+    /// that <see cref="FlushAndReportAuditAsync"/> has not already printed.</summary>
+    private static async Task CloseAuditAsync(LocalAuditSession audit, int alreadyReported, bool verbose, TextWriter stderr)
+    {
+        await audit.DisposeAsync().ConfigureAwait(false);
+        if (!verbose) return;
+        var closing = audit.Problems;
+        for (var i = alreadyReported; i < closing.Count; i++)
+        {
+            await stderr.WriteLineAsync($"[sentinel-hook] audit: {closing[i]}").ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<int> ExitCodeAsync(TextWriter stderr, HookOutput output) =>
+        output.Decision switch
+        {
+            HookDecision.Block => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 2).ConfigureAwait(false),
+            HookDecision.Warn => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 0).ConfigureAwait(false),
+            _ => 0,
+        };
 
     private static async Task<(HookInput? Input, int Exit)> ReadInputAsync(TextReader stdin, TextWriter stderr)
     {

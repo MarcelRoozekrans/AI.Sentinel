@@ -13,12 +13,14 @@ public class HookCliAuditTests : IDisposable
 
     private readonly string _dir = HookAuditTestSupport.NewTempDir();
     private readonly string? _prevSqlite = Environment.GetEnvironmentVariable(HookAuditTestSupport.SqliteVar);
+    private readonly string? _prevVerbose = Environment.GetEnvironmentVariable("SENTINEL_HOOK_VERBOSE");
     private readonly string? _prevNdjson = Environment.GetEnvironmentVariable(HookAuditTestSupport.NdjsonVar);
 
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, _prevSqlite);
         Environment.SetEnvironmentVariable(HookAuditTestSupport.NdjsonVar, _prevNdjson);
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", _prevVerbose);
         HookAuditTestSupport.DeleteDir(_dir);
         GC.SuppressFinalize(this);
     }
@@ -81,6 +83,19 @@ public class HookCliAuditTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Contains("audit", stderr, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task AuditPathIsADirectory_OnBlock_WithVerbose_ReportsTheProblem()
+    {
+        Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, _dir);
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", "1");
+
+        var (exit, stderr) = await RunAsync(Injection);
+
+        Assert.Equal(2, exit);
+        Assert.Contains("SEC-01", stderr, StringComparison.Ordinal);
+        Assert.Contains("audit:", stderr, StringComparison.Ordinal);
     }
 
     [Fact]

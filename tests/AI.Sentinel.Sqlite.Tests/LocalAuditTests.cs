@@ -62,6 +62,29 @@ public sealed class LocalAuditTests : IDisposable
     }
 
     [Fact]
+    public void ReadSettings_RelativeDefault_TurnsSqliteOffAndReportsIt()
+    {
+        var problems = new List<string>();
+
+        var settings = LocalAudit.ReadSettings(Env(), Hook, Path.Combine("ai-sentinel", "audit.db"), problems);
+
+        Assert.Null(settings.DatabasePath);
+        var problem = Assert.Single(problems);
+        Assert.Contains("audit recording is off", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReadSettings_ExplicitRelativePath_IsTheOperatorsChoice()
+    {
+        var problems = new List<string>();
+
+        var settings = LocalAudit.ReadSettings(Env((Hook + "AUDIT_SQLITE", "rel/audit.db")), Hook, "", problems);
+
+        Assert.Equal("rel/audit.db", settings.DatabasePath);
+        Assert.Empty(problems);
+    }
+
+    [Fact]
     public void ReadSettings_SqlitePath_OverridesTheDefault()
     {
         var problems = new List<string>();
