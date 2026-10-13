@@ -375,6 +375,51 @@ public sealed class LocalAuditTests : IDisposable
         Assert.Empty(session.Problems);
     }
 
+    [Fact]
+    public void Problems_AreStoredAndReportedOncePerDistinctMessage()
+    {
+        var reported = new List<string>();
+        var problems = new LocalAuditProblems(reported.Add);
+
+        problems.Add("disk full");
+        problems.Add("disk full");
+        problems.Add("other");
+        problems.Add("disk full");
+
+        Assert.Equal(["disk full", "other"], problems.Snapshot());
+        Assert.Equal(["disk full", "other"], reported);
+    }
+
+    [Fact]
+    public async Task Open_ReportsAnOpenProblemThroughTheCallbackAsItIsRecorded()
+    {
+        Directory.CreateDirectory(_root);
+        var blocker = Path.Combine(_root, "blocker");
+        await File.WriteAllTextAsync(blocker, "not a directory", TestContext.Current.CancellationToken);
+        var reported = new List<string>();
+
+        await using var session = LocalAudit.Open(
+            new LocalAuditSettings(Path.Combine(blocker, "audit.db"), null, DefaultCap), AuditSources.Mcp, reported.Add);
+
+        var problem = Assert.Single(reported);
+        Assert.Contains("Could not open the audit database", problem, StringComparison.Ordinal);
+        Assert.Equal(reported, session.Problems);
+    }
+
+    [Fact]
+    public async Task Session_ReportsARepeatedAppendFailureOnce()
+    {
+        var reported = new List<string>();
+        var problems = new LocalAuditProblems(reported.Add);
+        await using var session = new LocalAuditSession(new ThrowingAuditStore(), AuditSources.Mcp, [], problems);
+
+        await session.Store.AppendAsync(Make("a"), TestContext.Current.CancellationToken);
+        await session.Store.AppendAsync(Make("b"), TestContext.Current.CancellationToken);
+
+        Assert.Single(reported);
+        Assert.Single(session.Problems);
+    }
+
     private sealed class ThrowingAuditStore : IAuditStore
     {
         public ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct) =>

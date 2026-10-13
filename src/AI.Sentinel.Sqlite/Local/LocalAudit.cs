@@ -52,10 +52,12 @@ internal static class LocalAudit
     /// with one entry in <see cref="LocalAuditSession.Problems"/>.</summary>
     /// <param name="settings">From <see cref="ReadSettings"/>.</param>
     /// <param name="source">One of <see cref="AuditSources"/>, stamped on every entry.</param>
-    public static LocalAuditSession Open(LocalAuditSettings settings, string source)
+    /// <param name="onProblem">Optional. Invoked once per distinct problem as it is recorded, including
+    /// problems found during this call, so a long-running CLI can report them without waiting for shutdown.</param>
+    public static LocalAuditSession Open(LocalAuditSettings settings, string source, Action<string>? onProblem = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        var problems = new LocalAuditProblems();
+        var problems = new LocalAuditProblems(onProblem);
         var store = OpenStore(settings, problems);
         var forwarders = OpenForwarders(settings, problems);
         return new LocalAuditSession(store, source, forwarders, problems);

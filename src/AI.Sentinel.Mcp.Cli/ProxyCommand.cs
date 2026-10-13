@@ -62,7 +62,8 @@ internal static class ProxyCommand
         // Opening never throws; problems are reported on stderr, which is not model-facing here.
         var settingsProblems = new List<string>();
         var settings = LocalAudit.ReadSettings(envVars, "SENTINEL_MCP_", LocalAudit.DefaultDatabasePath(), settingsProblems);
-        var audit = LocalAudit.Open(settings, AuditSources.Mcp);
+        // Later problems are reported the moment they are recorded, so a killed proxy still reports them.
+        var audit = LocalAudit.Open(settings, AuditSources.Mcp, problem => ReportProblem(problem, stderr));
         try
         {
             await ReportProblemsAsync(settingsProblems, stderr).ConfigureAwait(false);
@@ -84,25 +85,32 @@ internal static class ProxyCommand
     }
 
     /// <summary>Entries are forwarded on background tasks; wait (bounded) so an NDJSON line is on disk
-    /// before the process exits, dispose the session, then report every problem it collected.</summary>
+    /// before the process exits, then dispose the session. Problems were already reported as they happened,
+    /// except any raised while disposing, which are reported here.</summary>
     private static async Task CloseAuditAsync(LocalAuditSession audit, TextWriter stderr)
     {
         await audit.FlushAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
         await audit.DisposeAsync().ConfigureAwait(false);
-        await ReportProblemsAsync(audit.Problems, stderr).ConfigureAwait(false);
     }
 
     private static async Task ReportProblemsAsync(IReadOnlyList<string> problems, TextWriter stderr)
     {
         foreach (var problem in problems)
         {
-            await stderr.WriteLineAsync(StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["event"] = "audit_unavailable",
-                ["detail"] = problem,
-            })).ConfigureAwait(false);
+            await stderr.WriteLineAsync(FormatProblem(problem)).ConfigureAwait(false);
         }
     }
+
+    /// <summary>Synchronous because the problem callback is; stderr writes are short.</summary>
+    private static void ReportProblem(string problem, TextWriter stderr) =>
+        stderr.WriteLine(FormatProblem(problem));
+
+    private static string FormatProblem(string problem) =>
+        StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["event"] = "audit_unavailable",
+            ["detail"] = problem,
+        });
 
     private static async Task<int> RunProxyAsync(
         string targetCommand, string[] targetArgs, HookConfig config, McpDetectorPreset preset,

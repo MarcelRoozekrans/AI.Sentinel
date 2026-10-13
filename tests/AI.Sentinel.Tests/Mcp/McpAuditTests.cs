@@ -280,6 +280,52 @@ public class McpAuditTests : McpAuditOffFixtureBase
         }
     }
 
+    [Fact]
+    public async Task ProxyCommand_ReportsAnUnopenableAuditFileWhileStillRunning()
+    {
+        var dir = HookAuditTestSupport.NewTempDir();
+        var blocker = Path.Combine(dir, "blocker");
+        await File.WriteAllTextAsync(blocker, "not a directory", TestContext.Current.CancellationToken);
+        Environment.SetEnvironmentVariable(SqliteVar, Path.Combine(blocker, "audit.db"));
+        try
+        {
+            var captured = new StringWriter();
+            var stderr = TextWriter.Synchronized(captured);
+            await using var fake = new FakeMcpServer();
+            var targetTransport = fake.Start();
+            var hostToProxy = new Pipe();
+            var proxyToHost = new Pipe();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+
+            var run = ProxyCommand.RunAsync(
+                ["proxy", "--target", "fake"], TextReader.Null, TextWriter.Null, stderr, cts.Token,
+                () => (new StreamServerTransport(hostToProxy.Reader.AsStream(), proxyToHost.Writer.AsStream(),
+                           "proxy-server", NullLoggerFactory.Instance),
+                       targetTransport));
+
+            await using (var driver = await McpClient.CreateAsync(
+                new StreamClientTransport(hostToProxy.Writer.AsStream(), proxyToHost.Reader.AsStream(), NullLoggerFactory.Instance),
+                clientOptions: null, loggerFactory: NullLoggerFactory.Instance, cancellationToken: cts.Token))
+            {
+                // The proxy is serving: it answered the handshake and has not been asked to stop.
+                Assert.False(run.IsCompleted);
+                Assert.Contains("event=audit_unavailable", captured.ToString(), StringComparison.Ordinal);
+                Assert.Contains("Could not open the audit database", captured.ToString(), StringComparison.Ordinal);
+
+                await cts.CancelAsync();
+                Assert.Equal(0, await run);
+            }
+
+            var occurrences = captured.ToString().Split("Could not open the audit database").Length - 1;
+            Assert.Equal(1, occurrences);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(SqliteVar, "off");
+            HookAuditTestSupport.DeleteDir(dir);
+        }
+    }
+
     private static async Task RunProxyWithBlockedCallAsync(TextWriter stderr)
     {
         await using var fake = new FakeMcpServer();
