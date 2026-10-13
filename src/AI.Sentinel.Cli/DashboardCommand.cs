@@ -35,6 +35,14 @@ public static class DashboardCommand
             Description = "Port to listen on (127.0.0.1 only). Use 0 for any free port.",
             DefaultValueFactory = _ => DefaultPort,
         };
+        portOpt.Validators.Add(result =>
+        {
+            var port = result.GetValueOrDefault<int>();
+            if (port is < 0 or > 65535)
+            {
+                result.AddError($"--port must be between 0 and 65535, but was {port.ToString(CultureInfo.InvariantCulture)}.");
+            }
+        });
 
         var cmd = new Command("dashboard", "Browse the local audit file in the AI.Sentinel dashboard.")
         {

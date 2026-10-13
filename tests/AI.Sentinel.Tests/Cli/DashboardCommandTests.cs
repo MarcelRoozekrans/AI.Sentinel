@@ -133,6 +133,36 @@ public class DashboardCommandTests : IDisposable
         Assert.Contains("--db", stderr.ToString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("-5")]
+    [InlineData("70000")]
+    public async Task Command_PortOutOfRange_IsAParseErrorWithoutAStackTrace(string port)
+    {
+        var root = new System.CommandLine.RootCommand { DashboardCommand.Build(() => Path.Combine(_dir, "audit.db")) };
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await root.Parse(["dashboard", "--port", port]).InvokeAsync(
+            new System.CommandLine.InvocationConfiguration { Output = stdout, Error = stderr },
+            TestContext.Current.CancellationToken);
+
+        Assert.NotEqual(0, exit);
+        var text = stdout + stderr.ToString();
+        Assert.Contains("--port", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("Exception", text, StringComparison.Ordinal);
+        Assert.DoesNotContain(" at ", text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("0")]
+    [InlineData("65535")]
+    public void Command_PortInRange_Parses(string port)
+    {
+        var root = new System.CommandLine.RootCommand { DashboardCommand.Build(() => Path.Combine(_dir, "audit.db")) };
+
+        Assert.Empty(root.Parse(["dashboard", "--port", port]).Errors);
+    }
+
     [Fact]
     public async Task Start_PrintsChainVerification()
     {
