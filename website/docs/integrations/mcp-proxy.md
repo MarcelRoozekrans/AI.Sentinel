@@ -142,6 +142,24 @@ Default stderr format is grep-friendly `key=value` lines:
 
 Set `SENTINEL_MCP_LOG_JSON=1` for NDJSON output (one log record per line) — easier for log aggregators to parse than the default key=value form.
 
+## Audit
+
+The proxy records findings, authorization denials and approval holds to `ai-sentinel/audit.db` under the per-user data folder by default, with `Source` set to `mcp`. Allowed calls are not recorded. The file is shared with `sentinel-hook` and `sentinel-copilot-hook`. All entries from one proxy run share one session id. On Linux and macOS the directory is created `0700` and the files `0600`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SENTINEL_MCP_AUDIT_SQLITE` | `<data folder>/ai-sentinel/audit.db` | A database path, or `off` (any case) for the in-memory ring buffer |
+| `SENTINEL_MCP_AUDIT_NDJSON` | — | A file path. Adds an NDJSON copy of every entry |
+| `SENTINEL_MCP_AUDIT_MAX_MB` | `100` | Size cap in megabytes, enforced when the proxy opens the file. `0` means no cap |
+
+An audit failure never changes a decision. The proxy logs it on stderr as an `audit_unavailable` event:
+
+```
+event=audit_unavailable detail=...
+```
+
+Browse the file with `sentinel dashboard` from the `AI.Sentinel.Cli` tool; see [Claude Code → Audit destination](./claude-code#audit-destination).
+
 ## Capability mirroring (v1.1)
 
 The proxy mirrors target server capabilities — it only advertises `tools` / `prompts` / `resources` to the host when the upstream target advertises them. So if your filesystem MCP server doesn't expose `prompts`, the proxy doesn't either, and the host's `prompts/list` calls return cleanly empty rather than confusingly "supported but empty".

@@ -42,7 +42,7 @@ The embedded dashboard ships in `AI.Sentinel.AspNetCore`. Mount it on any ASP.NE
 | `AI.Sentinel` | Core — pipeline, 56 detectors, intervention engine, audit store |
 | `AI.Sentinel.Detectors.Sdk` | SDK for writing and testing custom detectors — `SentinelContextBuilder`, `FakeEmbeddingGenerator`, worked examples |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
-| `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
+| `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI, and `sentinel dashboard` to browse the audit file the hooks and the MCP proxy write |
 | `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
 | `AI.Sentinel.Copilot` / `AI.Sentinel.Copilot.Cli` | GitHub Copilot native hook adapter — wire into `hooks.json` to scan userPromptSubmitted, preToolUse, postToolUse |
 | `AI.Sentinel.Mcp` / `AI.Sentinel.Mcp.Cli` | `dotnet tool install AI.Sentinel.Mcp.Cli` — stdio MCP proxy that scans `tools/call` + `prompts/get` for any MCP-speaking host (Cursor, Continue, Cline, Windsurf, Copilot) |
@@ -283,7 +283,7 @@ AI.Sentinel provides runtime building blocks for several technical obligations o
 | Article | Requirement | What AI.Sentinel provides | Active by default |
 |---|---|---|---|
 | Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors |
-| Art. 12 | Record-keeping (automatic logging) | Every detection and authorization denial is written to `IAuditStore` and linked into a SHA-256 hash chain, so an edited, inserted or deleted entry is detectable with `AuditHashChain.VerifyAsync`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`; forwarders mirror it, chain hashes included, to NDJSON, Azure Sentinel or OpenTelemetry | ⚠️ partial: hash-chained, but in an in-memory ring buffer capped at `opts.AuditCapacity` entries and lost on restart |
+| Art. 12 | Record-keeping (automatic logging) | Every detection and authorization denial is written to `IAuditStore` and linked into a SHA-256 hash chain, so an edited, inserted or deleted entry is detectable with `AuditHashChain.VerifyAsync`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`, and the `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` CLIs use it by default, recording a `Source` on each entry; forwarders mirror it, chain hashes included, to NDJSON, Azure Sentinel or OpenTelemetry | ⚠️ partial: hash-chained. The hook CLIs and the MCP proxy record findings, denials and approval holds durably to a local SQLite file by default. An in-process app still defaults to the in-memory ring buffer, capped at `opts.AuditCapacity` entries and lost on restart, until it registers `AI.Sentinel.Sqlite` |
 | Art. 14 | Human oversight | [Tool-call authorization](#tool-call-authorization) and the [approval workflow](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview): `RequireApproval` holds a tool call until a person approves it in the dashboard or in Entra PIM (`AI.Sentinel.Approvals.Sqlite`, `AI.Sentinel.Approvals.EntraPim`). The dashboard shows detections live | ❌ none: every tool call is allowed until policies or approvals are configured |
 | Art. 15 | Accuracy, robustness and cybersecurity | The [56 detectors](#detectors-56), [OWASP LLM Top 10 coverage](#owasp-llm-top-10-2025-coverage) and [prompt hardening](#prompt-hardening-owasp-llm01--preventive) | ⚠️ partial: 15 rule-based detectors; the 39 semantic ones need an `EmbeddingGenerator` and `SystemPrefix` is opt-in |
 | Art. 50 | Transparency obligations | Not covered yet ([#336](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/336)) | — |
@@ -615,6 +615,16 @@ sentinel scan conversation.json
 
 Exit codes: `0` scan completed (no failing assertions), `1` assertion failed or baseline regression, `2` I/O or parse error.
 
+### `sentinel dashboard` (browse the local audit file)
+
+The Claude Code hook, the Copilot hook and the MCP proxy record every finding, authorization denial and approval hold to `ai-sentinel/audit.db` under the per-user data folder (`~/.local/share` on Linux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows). Allowed calls are not recorded. `sentinel dashboard` serves the embedded dashboard over that file:
+
+```
+sentinel dashboard [--db <path>] [--port <port>]   # default: http://127.0.0.1:5170/ai-sentinel/
+```
+
+It listens on loopback only and does not open a browser. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a missing file, never appends, and shows no approvals panel. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Audit recording in the CLIs](#audit-recording-in-the-clis) for the settings.
+
 The CLI's core types — `SentinelReplayClient`, `ConversationLoader`, `ReplayRunner`, `ReplayResult` — are all `public`, so callers can reference `AI.Sentinel.Cli` programmatically from their own xUnit tests to assert detection behavior on saved conversations.
 
 ---
@@ -800,6 +810,18 @@ Set `SENTINEL_HOOK_VERBOSE=1` to emit a grep-friendly one-liner to stderr on eve
 
 Useful when wiring the hook for the first time ("did it run?") or when a block was expected but didn't happen. Leave off in steady state — the normal Block/Warn reason is already on stderr.
 
+### Audit recording in the CLIs
+
+`sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` record to a shared SQLite file by default, with `Source` set to `claude-code`, `copilot` or `mcp`. Several processes may write to it at once. On Linux and macOS the directory is created `0700` and the files `0600`. If no per-user data folder exists, recording is off and a problem is reported.
+
+| Variable (hooks) | MCP proxy | Default | Purpose |
+|---|---|---|---|
+| `SENTINEL_HOOK_AUDIT_SQLITE` | `SENTINEL_MCP_AUDIT_SQLITE` | `<data folder>/ai-sentinel/audit.db` | A database path, or `off` for the in-memory ring buffer |
+| `SENTINEL_HOOK_AUDIT_NDJSON` | `SENTINEL_MCP_AUDIT_NDJSON` | — | A file path; adds an NDJSON copy (not safe for several writer processes on Windows, see [#349](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/349)) |
+| `SENTINEL_HOOK_AUDIT_MAX_MB` | `SENTINEL_MCP_AUDIT_MAX_MB` | `100` | Size cap in MB, enforced when the CLI opens the file; `0` means no cap. The CLIs never `VACUUM`, so the file stops growing at about the cap instead of shrinking |
+
+An audit failure never changes a decision. A hook prints it to stderr with the prefix `[sentinel-hook] audit:` only on Allow, or on any decision when `SENTINEL_HOOK_VERBOSE` is set; the MCP proxy logs it as the `audit_unavailable` event.
+
 ### Native binary (optional, faster cold start)
 
 The hook CLIs are Native-AOT ready. Both `.csproj` files gate `PackAsTool` behind `PublishAot`, so a single source tree produces either the `dotnet tool` NuGet package or a ~6.5 MB single-file native binary, depending on how you publish it.
@@ -855,7 +877,7 @@ All metrics and spans are zero-cost when no listener is registered — there is 
 
 ## Audit store
 
-All detections (regardless of severity) are written to a **ring buffer audit store** in process memory. Capacity defaults to 10,000 entries; oldest entries are overwritten when full.
+All detections (regardless of severity) are written to a **ring buffer audit store** in process memory. Capacity defaults to 10,000 entries; oldest entries are overwritten when full. (The hook CLIs and the MCP proxy differ: they record to a durable SQLite file by default, see [Audit recording in the CLIs](#audit-recording-in-the-clis).)
 
 Query the store directly:
 

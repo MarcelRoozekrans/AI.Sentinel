@@ -83,13 +83,14 @@ Use it during initial wiring to confirm the hook actually runs — Copilot's hoo
 
 ## Audit destination
 
-Same options as the Claude Code adapter:
+Same as the Claude Code adapter: the hook records findings, authorization denials and approval holds to `ai-sentinel/audit.db` under the per-user data folder by default, with `Source` set to `copilot`. Allowed calls are not recorded. The variables are the same three, shared with `sentinel-hook`:
 
-- **NDJSON file** — `SENTINEL_HOOK_AUDIT_NDJSON=/var/log/ai-sentinel/copilot.ndjson`
-- **SQLite** — `SENTINEL_HOOK_AUDIT_SQLITE=/home/me/.local/share/ai-sentinel/copilot.db`
+- **SQLite** — `SENTINEL_HOOK_AUDIT_SQLITE=/home/me/.local/share/ai-sentinel/copilot.db` moves the database; `off` disables it
+- **NDJSON copy** — `SENTINEL_HOOK_AUDIT_NDJSON=/var/log/ai-sentinel/copilot.ndjson`
+- **Size cap** — `SENTINEL_HOOK_AUDIT_MAX_MB` (default `100`, `0` for no cap)
 - **Programmatic** — reference `AI.Sentinel.Copilot` library directly
 
-See [Claude Code → Audit destination](./claude-code#audit-destination) for the full matrix and shipping recipes — the env vars and file formats are identical.
+An audit failure never changes a decision, and on Block and Warn it is not printed to stderr unless `SENTINEL_HOOK_VERBOSE` is set; on Allow it is printed with the prefix `[sentinel-copilot-hook] audit:`. See [Claude Code → Audit destination](./claude-code#audit-destination) for the full details, including `sentinel dashboard` to browse the file.
 
 ## Native binary (faster cold start)
 

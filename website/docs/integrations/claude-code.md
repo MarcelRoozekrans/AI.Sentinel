@@ -95,35 +95,57 @@ Useful when wiring the hook for the first time ("did it actually run?") or when 
 
 ## Audit destination
 
-By default, the hook runs in-process and uses an ephemeral `RingBufferAuditStore` — audit entries are lost when the hook exits. Three options for persistence:
+The hook records to a local SQLite file by default, with no configuration. Every entry goes to `ai-sentinel/audit.db` under the per-user data folder: `~/.local/share` on Linux, `~/Library/Application Support` on macOS and `%LOCALAPPDATA%` on Windows.
 
-### NDJSON file
+- **What is recorded:** findings, authorization denials and approval holds. Allowed calls are not recorded.
+- **Where it is shared:** the Copilot hook and the MCP proxy write to the same file, so one database holds everything your agents did. Several processes can write to it at once. Each entry's `Source` says which tool wrote it: `claude-code`, `copilot` or `mcp`.
+- **Session id:** hook entries carry the session id Claude Code passes to the hook.
+- **Permissions:** on Linux and macOS the directory is created `0700` and the files `0600`.
+- **No data folder:** if the machine has no per-user data folder (for instance `HOME` is unset), recording is off and the hook reports a problem. Set `SENTINEL_HOOK_AUDIT_SQLITE` to a path to record anyway.
+- **Chain:** the entries form a SHA-256 hash chain that continues across invocations. Browse and verify the file with [`sentinel dashboard`](#browse-the-audit-file).
 
-Set the audit path via env var; the hook will append to it across invocations:
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_AUDIT_SQLITE` | `<data folder>/ai-sentinel/audit.db` | A database path, or `off` (any case) to use the in-memory ring buffer and lose entries when the hook exits |
+| `SENTINEL_HOOK_AUDIT_NDJSON` | — | A file path. Adds an NDJSON copy of every entry, next to the database |
+| `SENTINEL_HOOK_AUDIT_MAX_MB` | `100` | Size cap in megabytes. `0` means no cap |
+
+**Size cap.** The cap is enforced when the hook opens the file: the oldest entries are deleted until the file is under the cap. The hook never runs `VACUUM`, because that would hold the write lock for a long time, so the file stops growing at about the cap instead of shrinking.
+
+**Failures never change a decision.** If the audit file cannot be opened or written, the hook still allows, warns or blocks exactly as it would have. On `Block` and `Warn` the audit problem is not printed to stderr, because stderr carries the reason Claude Code feeds back to the model, unless `SENTINEL_HOOK_VERBOSE` is set. On `Allow` it is printed with the prefix `[sentinel-hook] audit:`.
+
+### NDJSON copy
 
 ```bash
 export SENTINEL_HOOK_AUDIT_NDJSON=/var/log/ai-sentinel/claude-code.ndjson
 ```
 
-One line per audit entry; ship via Filebeat/Vector. See [NDJSON file forwarder](../audit-forwarders/ndjson) for shipping recipes.
+One line per audit entry; ship via Filebeat/Vector. See [NDJSON file forwarder](../audit-forwarders/ndjson) for shipping recipes. The NDJSON file does not support several processes writing to the same file on Windows (see [#349](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/349)), so give each tool its own path there.
 
-### SQLite
+### Browse the audit file
 
 ```bash
-export SENTINEL_HOOK_AUDIT_SQLITE=/home/me/.local/share/ai-sentinel/claude-code.db
+dotnet tool install -g AI.Sentinel.Cli
+sentinel dashboard
 ```
 
-Single-file persistent store. Hash chain across invocations. Useful for forensic spot-checks via the (planned) `AI.Sentinel.Cli` query commands.
+`sentinel dashboard [--db <path>] [--port <port>]` serves the dashboard over the audit file at `http://127.0.0.1:5170/ai-sentinel/` by default. It listens on loopback only and does not open a browser. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a file that does not exist, never appends to the file and shows no approvals panel. It needs the ASP.NET Core runtime, which the .NET SDK includes. The dashboard has a Source column and a `source` filter, so you can separate Claude Code, Copilot and MCP entries.
 
 ### Programmatic
 
-For custom audit destinations or richer integration, reference the `AI.Sentinel.ClaudeCode` library directly in a C# host:
+For custom audit destinations or richer integration, reference the `AI.Sentinel.ClaudeCode` library directly in a C# host. Register AI.Sentinel and your own `IAuditStore` in DI, then hand the provider to `HookAdapter`:
 
 ```csharp
 using AI.Sentinel.ClaudeCode;
-var adapter = new HookAdapter(/* configure DI for AI.Sentinel + custom IAuditStore */);
-await adapter.RunAsync(stdin: Console.OpenStandardInput(), stdout: Console.OpenStandardOutput());
+
+var adapter = new HookAdapter(provider, HookConfig.FromEnvironment(env));
+var input = new HookInput(
+    SessionId: "sess-42", Prompt: "hello", ToolName: null, ToolInput: null, ToolResponse: null);
+HookOutput output = await adapter.HandleAsync(HookEvent.UserPromptSubmit, input, ct);
+// output.Decision is Allow, Warn or Block; output.Reason explains a Warn or Block.
 ```
+
+`provider` is an `IServiceProvider`, `env` an `IReadOnlyDictionary<string, string?>` and `ct` a `CancellationToken`. `HookConfig` is optional; without it the defaults apply.
 
 Useful when you want a hook that ships entries to your own backend (Splunk, custom REST API, etc.) without going through file forwarders.
 

@@ -31,8 +31,11 @@ public sealed record AuditEntry(
     string DetectorId,
     string Summary,
     string? PolicyCode = null,  // AUTHZ-DENY entries only
-    string? SessionId = null);
+    string? SessionId = null,
+    string? Source = null);   // the tool that wrote the entry; null for in-process apps
 ```
+
+`Source` names the tool that wrote the entry. `AuditSources` holds the values: `AuditSources.ClaudeCode` (`claude-code`), `AuditSources.Copilot` (`copilot`) and `AuditSources.Mcp` (`mcp`). The CLIs set it; an in-process app leaves it `null`. It is covered by the hash chain, so changing it breaks the link. The hook CLIs and the MCP proxy record to a durable SQLite file by default; an in-process app still defaults to the in-memory ring buffer.
 
 The store links every entry it appends into a SHA-256 hash chain ([`AuditHashChain`](#hash-chain-verification)). An entry's `Hash` covers its own fields and the previous entry's hash, so **editing, inserting or deleting any entry breaks the link to the entry after it**. Callers pass `Hash: string.Empty, PreviousHash: null`; whatever they pass is replaced.
 
@@ -113,7 +116,8 @@ public sealed record AuditQuery(
     DateTimeOffset? To = null,
     int PageSize = 200,
     bool Reverse = false,       // newest first
-    string? SessionId = null);
+    string? SessionId = null,
+    string? Source = null);     // only entries from this tool; both stores filter on it
 ```
 
 ```csharp
