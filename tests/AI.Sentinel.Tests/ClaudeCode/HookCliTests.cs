@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AI.Sentinel.Tests.ClaudeCode;
 
 [Collection("NonParallel")]
-public class HookCliTests
+public class HookCliTests : HookAuditOffFixtureBase
 {
     [Fact]
     public async Task Cli_CleanPrompt_ExitsZero()
