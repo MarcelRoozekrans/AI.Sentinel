@@ -199,7 +199,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-        Assert.Equal(3, version);
+        Assert.Equal(4, version);
     }
 
     [Fact]
@@ -340,5 +340,66 @@ public sealed class SqliteAuditStoreTests : IDisposable
         var chain = await VerifyAsync(store);
         Assert.True(chain.IsIntact);
         Assert.Equal(storedOld.Hash, chain.AnchorHash);
+    }
+
+    [Fact]
+    public async Task RetentionPeriod_NeverDeletesFromTheMiddleOfTheChain()
+    {
+        // Callers stamp Timestamp before the store's lock, so concurrent writers can append an
+        // older timestamp after a younger one. Retention must only cut a prefix of the chain.
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            RetentionPeriod = TimeSpan.FromDays(7),
+        });
+        var now = DateTimeOffset.UtcNow;
+        await store.AppendAsync(Make("expired-1") with { Timestamp = now - TimeSpan.FromDays(10) }, CancellationToken.None);
+        await store.AppendAsync(Make("young") with { Timestamp = now - TimeSpan.FromDays(1) }, CancellationToken.None);
+        await store.AppendAsync(Make("expired-behind-young") with { Timestamp = now - TimeSpan.FromDays(10) }, CancellationToken.None);
+        await store.AppendAsync(Make("fresh") with { Timestamp = now }, CancellationToken.None);
+
+        await store.RunRetentionForTestingAsync(CancellationToken.None);
+
+        var remaining = new List<string>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(), CancellationToken.None))
+            remaining.Add(e.Id);
+        Assert.Equal(["young", "expired-behind-young", "fresh"], remaining);
+        Assert.True((await VerifyAsync(store)).IsIntact);
+    }
+
+    [Fact]
+    public async Task HashChain_SurvivesRetentionEmptyingTheTable()
+    {
+        AuditEntry last;
+        await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            RetentionPeriod = TimeSpan.FromDays(7),
+        }))
+        {
+            await store.AppendAsync(Make("old-1") with { Timestamp = DateTimeOffset.UtcNow - TimeSpan.FromDays(10) }, CancellationToken.None);
+            last = await store.AppendAsync(Make("old-2") with { Timestamp = DateTimeOffset.UtcNow - TimeSpan.FromDays(9) }, CancellationToken.None);
+            await store.RunRetentionForTestingAsync(CancellationToken.None);
+        }
+
+        await using var reopened = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+        var next = await reopened.AppendAsync(Make("after"), CancellationToken.None);
+
+        // A null PreviousHash here would read as "complete from the first entry" and hide the deletion.
+        Assert.Equal(last.Hash, next.PreviousHash);
+    }
+
+    [Fact]
+    public async Task FailedAppend_LeavesTheChainHeadUnchanged()
+    {
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+        var first = await store.AppendAsync(Make("e1"), CancellationToken.None);
+
+        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(
+            () => store.AppendAsync(Make("e1"), CancellationToken.None).AsTask());
+        var second = await store.AppendAsync(Make("e2"), CancellationToken.None);
+
+        Assert.Equal(first.Hash, second.PreviousHash);
+        Assert.True((await VerifyAsync(store)).IsIntact);
     }
 }

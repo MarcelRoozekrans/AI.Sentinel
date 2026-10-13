@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using AI.Sentinel.Audit;
-using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using Microsoft.Data.Sqlite;
 
@@ -70,21 +69,22 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(entry);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        // Non-AUTHZ entries pass null; the column is NOT NULL with default 'policy_denied'.
-        // Hash the value that is persisted, so the entry read back verifies against its hash.
-        entry = entry with { PolicyCode = entry.PolicyCode ?? SentinelDenyCodes.PolicyDenied };
-
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             entry = AuditHashChain.Link(entry, _lastHash);
             var seq = ++_sequence;
+            // The entry and the chain head commit together, so a failed insert never moves the head.
+            using var tx = _connection.BeginTransaction();
             using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO audit_entries
                     (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id)
                 VALUES
                     ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session);
+                INSERT INTO audit_chain_head (id, hash) VALUES (1, $hash)
+                    ON CONFLICT (id) DO UPDATE SET hash = excluded.hash;
                 """;
             cmd.Parameters.AddWithValue("$id", entry.Id);
             cmd.Parameters.AddWithValue("$ts", entry.Timestamp.UtcTicks);
@@ -94,11 +94,12 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("$prev", (object?)entry.PreviousHash ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$summary", entry.Summary);
             cmd.Parameters.AddWithValue("$seq", seq);
-            cmd.Parameters.AddWithValue("$code", entry.PolicyCode);
+            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? DBNull.Value);
             // session_id is nullable: detectors that don't carry a session pass null and we
             // round-trip that as DBNull for dashboard queries to filter on IS NULL.
             cmd.Parameters.AddWithValue("$session", (object?)entry.SessionId ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
             _lastHash = entry.Hash;
             return entry;
         }
@@ -196,7 +197,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     private string? LoadLastHash()
     {
         using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT hash FROM audit_entries ORDER BY sequence DESC LIMIT 1;";
+        cmd.CommandText = "SELECT hash FROM audit_chain_head WHERE id = 1;";
         var raw = cmd.ExecuteScalar();
         return raw is null or DBNull ? null : (string)raw;
     }
@@ -214,7 +215,15 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
                 {
                     var cutoff = DateTimeOffset.UtcNow - retention;
                     using var cmd = _connection.CreateCommand();
-                    cmd.CommandText = "DELETE FROM audit_entries WHERE timestamp < $cutoff;";
+                    // Delete only the longest expired prefix in append order. Timestamps are taken
+                    // before the write lock, so an expired entry can follow a younger one; deleting
+                    // by timestamp alone would cut the hash chain in the middle.
+                    cmd.CommandText = """
+                        DELETE FROM audit_entries
+                         WHERE sequence < COALESCE(
+                             (SELECT MIN(sequence) FROM audit_entries WHERE timestamp >= $cutoff),
+                             (SELECT MAX(sequence) + 1 FROM audit_entries));
+                        """;
                     cmd.Parameters.AddWithValue("$cutoff", cutoff.UtcTicks);
                     cmd.ExecuteNonQuery();
                 }
