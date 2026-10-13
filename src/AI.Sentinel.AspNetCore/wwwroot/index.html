@@ -286,7 +286,7 @@
         const chip = document.querySelector('#feed-chips .feed-chip[data-filter="' + filter + '"]');
         if (chip) activate(chip);  // already calls refreshFeed
       }
-      // If a filter or q was set without a filter, no activate() was called — fire one explicit
+      // If a filter or q was set without a chip filter, no activate() was called — fire one explicit
       // refreshFeed so the very first request honours the URL state. Without this the literal
       // hx-get="api/feed" triggers an unfiltered load and the user sees a 'pill says filtering /
       // table shows everything' inconsistency until the first chip click.

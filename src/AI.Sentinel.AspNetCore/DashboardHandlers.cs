@@ -64,7 +64,7 @@ internal static class DashboardHandlers
         var source  = (string?)ctx.Request.Query["source"];
 
         var entries = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50, SessionId: session, Source: source), ctx.RequestAborted).ConfigureAwait(false))
+        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50, Reverse: true, SessionId: session, Source: source), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
         var filtered = FilterAuditEntries(entries, filter, q, session, source).ToList();

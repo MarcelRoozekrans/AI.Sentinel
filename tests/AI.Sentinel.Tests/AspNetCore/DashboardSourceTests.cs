@@ -127,6 +127,37 @@ public class DashboardSourceTests
         Assert.Contains(">ev&quot;il&lt;b&gt;</a>", html, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Feed_WithoutFilters_ShowsNewestEntriesNotOldest()
+    {
+        using var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(NewEntry("SEC-OLDEST", "x", null), CancellationToken.None);
+        for (var i = 0; i < 55; i++)
+            await store.AppendAsync(NewEntry("SEC-MID", "x", null), CancellationToken.None);
+        await store.AppendAsync(NewEntry("SEC-NEWEST", "x", null), CancellationToken.None);
+
+        var html = await host.GetTestClient().GetStringAsync("/sentinel/api/feed", TestContext.Current.CancellationToken);
+
+        Assert.Contains("SEC-NEWEST", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("SEC-OLDEST", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Feed_SourceCombinedWithCategory_IntersectsBoth()
+    {
+        using var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(NewEntry("SEC-HIT", "x", AuditSources.Mcp), CancellationToken.None);
+        await store.AppendAsync(NewEntry("HAL-MISS-CATEGORY", "x", AuditSources.Mcp), CancellationToken.None);
+        await store.AppendAsync(NewEntry("SEC-MISS-SOURCE", "x", AuditSources.Copilot), CancellationToken.None);
+
+        var html = await host.GetTestClient().GetStringAsync("/sentinel/api/feed?source=mcp&filter=security", TestContext.Current.CancellationToken);
+
+        Assert.Contains("SEC-HIT", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("MISS", html, StringComparison.Ordinal);
+    }
+
     private static async Task<IHost> BuildHostAsync() =>
         await new HostBuilder()
             .ConfigureWebHost(web =>
