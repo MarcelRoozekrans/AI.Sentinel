@@ -21,8 +21,11 @@ internal sealed class AuthorizationChatClient(
     IToolCallGuard guard,
     Func<ISecurityContext> callerProvider,
     IAuditStore? audit,
-    IApprovalStore? approvalStore = null) : IChatClient
+    IApprovalStore? approvalStore = null,
+    IAuditForwarder[]? forwarders = null) : IChatClient
 {
+    private readonly IAuditForwarder[] _forwarders = forwarders ?? [];
+
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
@@ -147,7 +150,7 @@ internal sealed class AuthorizationChatClient(
             policyName: deny?.PolicyName ?? "?",
             reason: deny?.Reason ?? "?",
             policyCode: deny?.Code ?? SentinelDenyCodes.PolicyDenied);
-        await audit.AppendAsync(entry, ct).ConfigureAwait(false);
+        await audit.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null)

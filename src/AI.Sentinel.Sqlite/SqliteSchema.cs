@@ -4,7 +4,39 @@ namespace AI.Sentinel.Sqlite;
 
 internal static class SqliteSchema
 {
-    internal const int CurrentVersion = 3;
+    internal const int CurrentVersion = 4;
+
+    // Shared by the fresh-schema path and the v3→v4 table rebuild, so both land on the same shape.
+    // policy_code is nullable: only AUTHZ-DENY entries carry one, and the stored value is hashed.
+    private const string AuditEntriesColumns = """
+                id            TEXT PRIMARY KEY,
+                timestamp     INTEGER NOT NULL,
+                severity      INTEGER NOT NULL,
+                detector_id   TEXT NOT NULL,
+                hash          TEXT NOT NULL,
+                previous_hash TEXT,
+                summary       TEXT NOT NULL,
+                sequence      INTEGER NOT NULL,
+                policy_code   TEXT,
+                session_id    TEXT
+        """;
+
+    private const string AuditEntriesIndexes = """
+        CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_entries (timestamp);
+        CREATE INDEX IF NOT EXISTS idx_audit_detector  ON audit_entries (detector_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_severity  ON audit_entries (severity);
+        CREATE INDEX IF NOT EXISTS idx_audit_sequence  ON audit_entries (sequence);
+        CREATE INDEX IF NOT EXISTS idx_audit_session   ON audit_entries (session_id);
+        """;
+
+    // One row holding the Hash of the last appended entry. Kept apart from audit_entries so the
+    // chain continues even after retention deletes every entry.
+    private const string ChainHeadTable = """
+        CREATE TABLE IF NOT EXISTS audit_chain_head (
+            id   INTEGER PRIMARY KEY CHECK (id = 1),
+            hash TEXT NOT NULL
+        );
+        """;
 
     internal static async Task InitializeAsync(SqliteConnection conn, CancellationToken ct)
     {
@@ -37,10 +69,13 @@ internal static class SqliteSchema
         // runs the v2→v3 step. The final block sets user_version to CurrentVersion.
         if (current < 2) await MigrateV1ToV2Async(conn, ct).ConfigureAwait(false);
         if (current < 3) await MigrateV2ToV3Async(conn, ct).ConfigureAwait(false);
+        if (current < 4) await MigrateV3ToV4Async(conn, ct).ConfigureAwait(false);
 
         // Single, explicit version-bump after all migration steps complete.
-        // Each MigrateXToYAsync helper does pure additive DDL — only this line
-        // updates user_version, so adding future migrations is one-line-mechanical.
+        // Each MigrateXToYAsync helper changes only the shape; only this line updates
+        // user_version, so adding future migrations is one-line-mechanical. v3→v4 rebuilds
+        // the table and bumps user_version inside its own transaction, so a failed run
+        // rolls back to v3 and releases its lock.
         if (current < CurrentVersion)
         {
             using var bump = conn.CreateCommand();
@@ -56,22 +91,10 @@ internal static class SqliteSchema
         using var migrate = conn.CreateCommand();
         migrate.CommandText = $"""
             CREATE TABLE IF NOT EXISTS audit_entries (
-                id            TEXT PRIMARY KEY,
-                timestamp     INTEGER NOT NULL,
-                severity      INTEGER NOT NULL,
-                detector_id   TEXT NOT NULL,
-                hash          TEXT NOT NULL,
-                previous_hash TEXT,
-                summary       TEXT NOT NULL,
-                sequence      INTEGER NOT NULL,
-                policy_code   TEXT NOT NULL DEFAULT 'policy_denied',
-                session_id    TEXT
+            {AuditEntriesColumns}
             );
-            CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_entries (timestamp);
-            CREATE INDEX IF NOT EXISTS idx_audit_detector  ON audit_entries (detector_id);
-            CREATE INDEX IF NOT EXISTS idx_audit_severity  ON audit_entries (severity);
-            CREATE INDEX IF NOT EXISTS idx_audit_sequence  ON audit_entries (sequence);
-            CREATE INDEX IF NOT EXISTS idx_audit_session   ON audit_entries (session_id);
+            {AuditEntriesIndexes}
+            {ChainHeadTable}
             PRAGMA user_version = {CurrentVersion};
             """;
         await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
@@ -98,6 +121,39 @@ internal static class SqliteSchema
             CREATE INDEX IF NOT EXISTS idx_audit_session ON audit_entries (session_id);
             """;
         await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    private static async Task MigrateV3ToV4Async(SqliteConnection conn, CancellationToken ct)
+    {
+        // v3→v4: SQLite cannot drop NOT NULL in place, so rebuild audit_entries with a nullable
+        // policy_code. Detection rows only ever held the old column default, so they become NULL;
+        // AUTHZ-DENY rows keep their code. The chain head is seeded from the newest row, so the
+        // first 3.0 entry links to the last entry written before the upgrade.
+        // Disposing an uncommitted transaction rolls it back; a failing statement alone does not.
+        using var tx = conn.BeginTransaction();
+        using var migrate = conn.CreateCommand();
+        migrate.Transaction = tx;
+        migrate.CommandText = $"""
+            DROP TABLE IF EXISTS audit_entries_v4;
+            CREATE TABLE audit_entries_v4 (
+            {AuditEntriesColumns}
+            );
+            INSERT INTO audit_entries_v4
+                (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id)
+            SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence,
+                   CASE WHEN detector_id = 'AUTHZ-DENY' THEN policy_code ELSE NULL END,
+                   session_id
+              FROM audit_entries;
+            DROP TABLE audit_entries;
+            ALTER TABLE audit_entries_v4 RENAME TO audit_entries;
+            {AuditEntriesIndexes}
+            {ChainHeadTable}
+            INSERT OR REPLACE INTO audit_chain_head (id, hash)
+            SELECT 1, hash FROM audit_entries ORDER BY sequence DESC LIMIT 1;
+            PRAGMA user_version = 4;
+            """;
+        await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        await tx.CommitAsync(ct).ConfigureAwait(false);
     }
 
     internal static async Task<int> GetVersionAsync(SqliteConnection conn, CancellationToken ct)

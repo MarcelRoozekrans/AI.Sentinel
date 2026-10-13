@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using AI.Sentinel.Audit;
-using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using Microsoft.Data.Sqlite;
 
@@ -9,8 +8,9 @@ namespace AI.Sentinel.Sqlite;
 
 /// <summary>
 /// Persistent <see cref="IAuditStore"/> backed by a single-file SQLite database.
-/// Survives process restarts, maintains the hash chain across restarts, and supports
-/// optional time-based retention via a background sweep timer.
+/// Survives process restarts, links every appended entry into the <see cref="AuditHashChain"/>
+/// and continues that chain across restarts, and supports optional time-based retention via a
+/// background sweep timer.
 /// </summary>
 public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
 {
@@ -19,6 +19,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly Timer? _retentionTimer;
     private long _sequence;
+    private string? _lastHash;
     private bool _disposed;
 
     public SqliteAuditStore(SqliteAuditStoreOptions options)
@@ -43,12 +44,23 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             Mode = SqliteOpenMode.ReadWriteCreate,
         };
         _connection = new SqliteConnection(csb.ToString());
-        _connection.Open();
+        try
+        {
+            _connection.Open();
 
-        // Schema bootstrap is synchronous in ctor — failure here surfaces immediately
-        // rather than on first append.
-        SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
-        _sequence = LoadHighestSequence();
+            // Schema bootstrap is synchronous in ctor — failure here surfaces immediately
+            // rather than on first append.
+            SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
+            _sequence = LoadHighestSequence();
+            _lastHash = LoadLastHash();
+        }
+        catch
+        {
+            // Nothing else owns the connection yet; leaving it open would hold its file handle,
+            // and any lock, until the finalizer runs.
+            _connection.Dispose();
+            throw;
+        }
 
         var hasTimeRetention = options.RetentionPeriod is { } r && r > TimeSpan.Zero;
         var hasSizeCap = options.MaxDatabaseSizeBytes is { } b && b > 0;
@@ -62,7 +74,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
     }
 
-    public async ValueTask AppendAsync(AuditEntry entry, CancellationToken ct)
+    public async ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -70,13 +82,19 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            entry = AuditHashChain.Link(entry, _lastHash);
             var seq = ++_sequence;
+            // The entry and the chain head commit together, so a failed insert never moves the head.
+            using var tx = _connection.BeginTransaction();
             using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO audit_entries
                     (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id)
                 VALUES
                     ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session);
+                INSERT INTO audit_chain_head (id, hash) VALUES (1, $hash)
+                    ON CONFLICT (id) DO UPDATE SET hash = excluded.hash;
                 """;
             cmd.Parameters.AddWithValue("$id", entry.Id);
             cmd.Parameters.AddWithValue("$ts", entry.Timestamp.UtcTicks);
@@ -86,13 +104,14 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("$prev", (object?)entry.PreviousHash ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$summary", entry.Summary);
             cmd.Parameters.AddWithValue("$seq", seq);
-            // Non-AUTHZ entries pass null; the column is NOT NULL with default 'policy_denied'
-            // so we coalesce here to keep the wire shape stable across detector kinds.
-            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? SentinelDenyCodes.PolicyDenied);
+            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? DBNull.Value);
             // session_id is nullable: detectors that don't carry a session pass null and we
             // round-trip that as DBNull for dashboard queries to filter on IS NULL.
             cmd.Parameters.AddWithValue("$session", (object?)entry.SessionId ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+            _lastHash = entry.Hash;
+            return entry;
         }
         finally
         {
@@ -185,6 +204,14 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         return raw is null or DBNull ? 0L : Convert.ToInt64(raw, CultureInfo.InvariantCulture);
     }
 
+    private string? LoadLastHash()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT hash FROM audit_chain_head WHERE id = 1;";
+        var raw = cmd.ExecuteScalar();
+        return raw is null or DBNull ? null : (string)raw;
+    }
+
     private void SweepRetention()
     {
         if (_disposed) return;
@@ -198,7 +225,15 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
                 {
                     var cutoff = DateTimeOffset.UtcNow - retention;
                     using var cmd = _connection.CreateCommand();
-                    cmd.CommandText = "DELETE FROM audit_entries WHERE timestamp < $cutoff;";
+                    // Delete only the longest expired prefix in append order. Timestamps are taken
+                    // before the write lock, so an expired entry can follow a younger one; deleting
+                    // by timestamp alone would cut the hash chain in the middle.
+                    cmd.CommandText = """
+                        DELETE FROM audit_entries
+                         WHERE sequence < COALESCE(
+                             (SELECT MIN(sequence) FROM audit_entries WHERE timestamp >= $cutoff),
+                             (SELECT MAX(sequence) + 1 FROM audit_entries));
+                        """;
                     cmd.Parameters.AddWithValue("$cutoff", cutoff.UtcTicks);
                     cmd.ExecuteNonQuery();
                 }
@@ -282,22 +317,6 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     }
 
     // ---- Test helpers (exposed via InternalsVisibleTo) ------------------------------------------
-
-    internal async Task<string?> GetLastHashForTestingAsync(CancellationToken ct)
-    {
-        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = "SELECT hash FROM audit_entries ORDER BY sequence DESC LIMIT 1;";
-            var raw = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-            return raw is null or DBNull ? null : (string)raw;
-        }
-        finally
-        {
-            _writeLock.Release();
-        }
-    }
 
     /// <summary>Runs a single retention sweep synchronously. Test hook so the timer-driven sweep
     /// can be exercised deterministically without sleeping on the timer interval.</summary>

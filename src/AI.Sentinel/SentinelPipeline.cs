@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Alerts;
@@ -32,18 +31,8 @@ public sealed class SentinelPipeline(
 {
     private static readonly ActivitySource _activitySource = new("ai.sentinel");
     private readonly ConcurrentDictionary<string, RateLimiterEntry> _rateLimiters = new(StringComparer.Ordinal);
-    private readonly IAuditForwarder[] _forwarders = forwarders is null
-        ? Array.Empty<IAuditForwarder>()
-        : ToArraySafely(forwarders);
+    private readonly IAuditForwarder[] _forwarders = AuditForwarding.Snapshot(forwarders);
     private int _rateLimiterWriteCount;
-
-    private static IAuditForwarder[] ToArraySafely(IEnumerable<IAuditForwarder> source)
-    {
-        if (source is IAuditForwarder[] arr) return arr;
-        var list = new List<IAuditForwarder>();
-        foreach (var f in source) list.Add(f);
-        return list.ToArray();
-    }
 
     // EmbeddingGenerator not set — all SemanticDetectorBase subclasses return Clean.
     // Set SentinelOptions.EmbeddingGenerator to enable language-agnostic detection.
@@ -197,7 +186,7 @@ public sealed class SentinelPipeline(
         var ctx = new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt);
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
-        await AppendAuditAsync(pipelineResult, msgs, sessionId, ct).ConfigureAwait(false);
+        await AppendAuditAsync(pipelineResult, sessionId, ct).ConfigureAwait(false);
 
         scanActivity?.SetTag("sentinel.severity", pipelineResult.MaxSeverity.ToString());
         scanActivity?.SetTag("sentinel.is_clean", pipelineResult.IsClean);
@@ -302,55 +291,21 @@ public sealed class SentinelPipeline(
 
     private async Task AppendAuditAsync(
         PipelineResult result,
-        IReadOnlyList<ChatMessage> msgs,
         SessionId sessionId,
         CancellationToken ct)
     {
-        var content = msgs.LastOrDefault()?.Text ?? "";
-        var hash = ComputeHash(content);
         foreach (var detection in result.Detections)
         {
+            // Hash and PreviousHash are assigned by the store when it links the entry into its chain.
             var entry = new AuditEntry(
                 Guid.NewGuid().ToString("N"),
                 DateTimeOffset.UtcNow,
-                hash, null,
+                Hash: string.Empty, PreviousHash: null,
                 detection.Severity,
                 detection.DetectorId.Value,
                 detection.Reason,
                 SessionId: sessionId.Value);
-            await auditStore.AppendAsync(entry, ct).ConfigureAwait(false);
-            ForwardEntry(entry, ct);
+            await auditStore.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
         }
-    }
-
-    /// <summary>Fire-and-forget mirror of a successfully-appended audit entry to every registered <see cref="IAuditForwarder"/>.
-    /// Each forwarder runs on its own <see cref="Task.Run"/> continuation so a slow or buffered implementation cannot
-    /// add latency to the pipeline. Exceptions are swallowed defensively even though forwarders MUST NOT throw.</summary>
-    private void ForwardEntry(AuditEntry entry, CancellationToken ct)
-    {
-        if (_forwarders.Length == 0) return;
-        foreach (var forwarder in _forwarders)
-        {
-            var captured = forwarder;
-            _ = Task.Run(async () =>
-            {
-#pragma warning disable ERP022 // fire-and-forget: forwarder failure must never surface to the caller
-                try
-                {
-                    await captured.SendAsync(new[] { entry }, ct).ConfigureAwait(false);
-                }
-                catch
-                {
-                    // IAuditForwarder MUST NOT throw, but defend in depth.
-                }
-#pragma warning restore ERP022
-            }, ct);
-        }
-    }
-
-    private static string ComputeHash(string input)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 }

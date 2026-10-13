@@ -7,16 +7,22 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, I
 {
     private readonly HeapRingBuffer<AuditEntry> _buffer = new(capacity);
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private string? _lastHash;
 
-    public async ValueTask AppendAsync(AuditEntry entry, CancellationToken ct)
+    public async ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(entry);
         await _lock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            // Overwrite oldest when full (ring buffer semantics)
+            var linked = AuditHashChain.Link(entry, _lastHash);
+            // Overwrite oldest when full (ring buffer semantics). The evicted entry's hash stays
+            // the PreviousHash of the new oldest entry, so the remaining chain still verifies.
             if (_buffer.IsFull)
                 _buffer.TryRead(out _);
-            _buffer.TryWrite(entry);
+            _buffer.TryWrite(linked);
+            _lastHash = linked.Hash;
+            return linked;
         }
         finally { _lock.Release(); }
     }

@@ -93,20 +93,17 @@ internal static class DashboardDemoSeed
             (Severity.Low,      "REPETITION-LOOP",  "Same 4-token sequence repeated 8 times in streamed response", 340),
         };
 
-        string? prevHash = null;
-        for (int i = 0; i < seeds.Length; i++)
+        // The store assigns Hash and PreviousHash as it links each entry into its chain.
+        foreach (var s in seeds)
         {
-            var s = seeds[i];
-            var hash = $"{(uint)HashCode.Combine(s.Detector, s.Summary, i):x8}{i:x8}";
             await store.AppendAsync(new AuditEntry(
                 Id:           Guid.NewGuid().ToString("N"),
                 Timestamp:    now.AddSeconds(-s.SecondsAgo),
-                Hash:         hash,
-                PreviousHash: prevHash,
+                Hash:         string.Empty,
+                PreviousHash: null,
                 Severity:     s.Sev,
                 DetectorId:   s.Detector,
                 Summary:      s.Summary), ct).ConfigureAwait(false);
-            prevHash = hash;
         }
     }
 }

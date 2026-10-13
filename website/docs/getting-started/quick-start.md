@@ -84,10 +84,10 @@ The default `RingBufferAuditStore` is in-memory and dies with the process. For p
 ```csharp
 // Add the package: dotnet add package AI.Sentinel.Sqlite
 
-builder.Services.AddSentinelSqliteAuditStore(new SqliteAuditStoreOptions
+builder.Services.AddSentinelSqliteStore(opts =>
 {
-    DatabasePath = "/var/lib/ai-sentinel/audit.db",
-    RetentionPeriod = TimeSpan.FromDays(90),
+    opts.DatabasePath = "/var/lib/ai-sentinel/audit.db";
+    opts.RetentionPeriod = TimeSpan.FromDays(90);
 });
 ```
 
