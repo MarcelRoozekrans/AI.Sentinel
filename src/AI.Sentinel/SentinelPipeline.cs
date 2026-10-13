@@ -151,11 +151,16 @@ public sealed class SentinelPipeline(
     /// <see cref="SentinelError.ThreatDetected"/> on detection.
     /// When <paramref name="sessionId"/> is supplied the audit entries carry it; otherwise a fresh id is minted per call.
     /// </remarks>
+    /// <param name="messages">The messages to scan.</param>
+    /// <param name="chatOptions">Options used for the rate-limit check; <see langword="null"/> for none.</param>
+    /// <param name="sessionId">The session recorded on the audit entries, as the <see cref="SessionId"/> domain type;
+    /// <see langword="null"/> mints a fresh id for this call.</param>
+    /// <param name="ct">Cancellation token.</param>
     public async ValueTask<SentinelError?> ScanMessagesAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions = null,
-        CancellationToken ct = default,
-        SessionId? sessionId = null)
+        SessionId? sessionId = null,
+        CancellationToken ct = default)
     {
         var rateError = CheckRateLimit(chatOptions);
         if (rateError is not null) return rateError;

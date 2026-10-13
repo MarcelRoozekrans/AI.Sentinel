@@ -124,7 +124,7 @@ public sealed class CopilotHookAdapter
         }
 
         var messages = BuildMessages(evt, input);
-        return await HookPipelineRunner.RunAsync(_provider, _config.ToSharedConfig(), messages, ct, input.SessionId).ConfigureAwait(false);
+        return await HookPipelineRunner.RunAsync(_provider, _config.ToSharedConfig(), messages, input.SessionId, ct).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<ChatMessage> BuildMessages(
