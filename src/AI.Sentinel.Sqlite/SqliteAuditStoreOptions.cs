@@ -13,7 +13,8 @@ public sealed class SqliteAuditStoreOptions
     /// Optional cap on the database size, measured as used bytes (pages in use times page size).
     /// When usage exceeds this, the background sweep, and the constructor when
     /// <see cref="EnforceSizeCapOnOpen"/> is set, deletes the oldest entries (in 10%-of-rows
-    /// batches, minimum 100) until usage is back under the cap. Unless
+    /// batches, minimum 100) until usage is back under the cap. Each sweep or open trim stops after at
+    /// most 8 batches, so a file far over the cap may take more than one sweep to come under it. Unless
     /// <see cref="VacuumAfterTrim"/> is false, each batch is followed by <c>VACUUM</c> so the
     /// file length shrinks too.
     /// Defence in depth against a runaway detector filling the disk faster than time-based

@@ -110,7 +110,7 @@ The hook records to a local SQLite file by default, with no configuration. Every
 | `SENTINEL_HOOK_AUDIT_NDJSON` | — | A file path. Adds an NDJSON copy of every entry, next to the database |
 | `SENTINEL_HOOK_AUDIT_MAX_MB` | `100` | Size cap in megabytes. `0` means no cap |
 
-**Size cap.** The cap is enforced when the hook opens the file: the oldest entries are deleted until the file is under the cap. The hook never runs `VACUUM`, because that would hold the write lock for a long time, so the file stops growing at about the cap instead of shrinking.
+**Size cap.** The cap is enforced when the hook opens the file. Usage is measured in pages in use (pages minus free pages, times page size), not in file length, so it drops as soon as rows are deleted. The oldest entries are deleted in batches of 10% of the rows, at least 100, and one trim stops after at most 8 batches. A file far over the cap can therefore need more than one open to come under it. The hook never runs `VACUUM`, because that would hold the write lock for a long time, so the file stops growing at about the cap instead of shrinking.
 
 **Failures never change a decision.** If the audit file cannot be opened or written, the hook still allows, warns or blocks exactly as it would have. On `Block` and `Warn` the audit problem is not printed to stderr, because stderr carries the reason Claude Code feeds back to the model, unless `SENTINEL_HOOK_VERBOSE` is set. On `Allow` it is printed with the prefix `[sentinel-hook] audit:`.
 

@@ -49,7 +49,7 @@ opts.VacuumAfterTrim = false;
 ```sql
 CREATE TABLE IF NOT EXISTS audit_entries (
     id            TEXT PRIMARY KEY,
-    timestamp     INTEGER NOT NULL,    -- Unix milliseconds
+    timestamp     INTEGER NOT NULL,    -- UTC ticks (DateTimeOffset.UtcTicks)
     severity      INTEGER NOT NULL,    -- enum value
     detector_id   TEXT NOT NULL,
     hash          TEXT NOT NULL,
@@ -122,7 +122,7 @@ Long retention periods are fine — SQLite handles billions of rows without perf
 opts.MaxDatabaseSizeBytes = 512L * 1024 * 1024; // 512 MB
 ```
 
-The size is measured as used bytes, meaning pages in use times page size. On the same sweep timer, the store deletes the oldest entries in batches of 10% (at least 100) until usage is under the cap. With `VacuumAfterTrim` true, the default, each batch is followed by `VACUUM` and a WAL truncate so the file shrinks; with it false, freed pages are reused and the file stops growing at about the cap. With `EnforceSizeCapOnOpen` set, the cap is also enforced once when the store opens. See [Options for short-lived writers](#options-for-short-lived-writers). Both strategies remove entries from the head of the hash chain only, so the remaining chain still verifies.
+The size is measured as used bytes, meaning pages in use times page size. On the same sweep timer, the store deletes the oldest entries in batches of 10% of the rows (at least 100) until usage is under the cap. Each sweep, and the trim on open, stops after at most 8 batches, so a file far over the cap may take more than one sweep to come under it. With `VacuumAfterTrim` true, the default, each batch is followed by `VACUUM` and a WAL truncate so the file shrinks; with it false, freed pages are reused and the file stops growing at about the cap. With `EnforceSizeCapOnOpen` set, the cap is also enforced once when the store opens. See [Options for short-lived writers](#options-for-short-lived-writers). Both strategies remove entries from the head of the hash chain only, so the remaining chain still verifies.
 
 ## Deployment patterns
 
