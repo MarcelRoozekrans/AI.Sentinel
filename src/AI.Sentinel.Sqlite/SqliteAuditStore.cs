@@ -27,6 +27,8 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(options.DatabasePath, nameof(options));
         _options = options;
 
+        ValidateBusyTimeout(options.BusyTimeout);
+
         var dir = Path.GetDirectoryName(options.DatabasePath);
         if (!string.IsNullOrEmpty(dir))
         {
@@ -53,6 +55,11 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             // Schema bootstrap is synchronous in ctor — failure here surfaces immediately
             // rather than on first append.
             SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
+
+            if (options.EnforceSizeCapOnOpen && options.MaxDatabaseSizeBytes is { } openCap && openCap > 0)
+            {
+                TrimOnOpen(openCap);
+            }
         }
         catch
         {
@@ -60,11 +67,6 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             // and any lock, until the finalizer runs.
             _connection.Dispose();
             throw;
-        }
-
-        if (options.EnforceSizeCapOnOpen && options.MaxDatabaseSizeBytes is { } openCap && openCap > 0)
-        {
-            TrimOnOpen(openCap);
         }
 
         var hasTimeRetention = options.RetentionPeriod is { } r && r > TimeSpan.Zero;
@@ -79,6 +81,15 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
     }
 
+    private static void ValidateBusyTimeout(TimeSpan busyTimeout)
+    {
+        if (busyTimeout < TimeSpan.Zero || busyTimeout.TotalSeconds > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(busyTimeout), busyTimeout, "BusyTimeout must be between zero and int.MaxValue seconds.");
+        }
+    }
+
     // Short-lived writers never reach the timer, so trim at construction. A failure, for example
     // a busy lock, must not leave the store unusable; the next open retries.
     private void TrimOnOpen(long maxBytes)
@@ -90,7 +101,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
         catch (SqliteException)
         {
-            // Same policy as the background sweep: swallow and retry later.
+            // Safe to swallow: trimming is best-effort and never needed for correctness, the
+            // background sweep treats SqliteException the same way, and the next open or sweep
+            // retries. Only the size bound is late, never the chain or the data.
         }
         finally
         {

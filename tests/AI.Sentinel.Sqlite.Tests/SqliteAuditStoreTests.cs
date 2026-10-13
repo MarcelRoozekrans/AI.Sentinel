@@ -353,6 +353,104 @@ public sealed class SqliteAuditStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task EnforceSizeCapOnOpen_False_LeavesOverCapFileUntouched()
+    {
+        var entries = MakeChain(500);
+        var used = await FillAsync(entries);
+
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            MaxDatabaseSizeBytes = (long)(used * 0.6),
+            EnforceSizeCapOnOpen = false,
+        });
+
+        var count = 0;
+        await foreach (var _ in store.QueryAsync(new AuditQuery(PageSize: 10_000), CancellationToken.None))
+        {
+            count++;
+        }
+        Assert.Equal(entries.Length, count);
+    }
+
+    [Fact]
+    public async Task EnforceSizeCapOnOpen_WithVacuum_ShrinksFileLength()
+    {
+        var entries = MakeChain(500);
+        var used = await FillAsync(entries);
+        var before = new FileInfo(_dbPath).Length;
+
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            MaxDatabaseSizeBytes = (long)(used * 0.6),
+            EnforceSizeCapOnOpen = true,
+            VacuumAfterTrim = true,
+        });
+
+        Assert.True(new FileInfo(_dbPath).Length < before);
+    }
+
+    [Fact]
+    public async Task EnforceSizeCapOnOpen_WhenLockHeld_IsSwallowedAndStoreStaysUsable()
+    {
+        var entries = MakeChain(500);
+        var used = await FillAsync(entries);
+
+        var holder = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = _dbPath, Pooling = false }.ToString());
+        holder.Open();
+        using (var begin = holder.CreateCommand())
+        {
+            begin.CommandText = "BEGIN IMMEDIATE;";
+            begin.ExecuteNonQuery();
+        }
+
+        SqliteAuditStore store;
+        try
+        {
+            store = new SqliteAuditStore(new SqliteAuditStoreOptions
+            {
+                DatabasePath = _dbPath,
+                BusyTimeout = TimeSpan.FromSeconds(1),
+                MaxDatabaseSizeBytes = (long)(used * 0.6),
+                EnforceSizeCapOnOpen = true,
+                VacuumAfterTrim = false,
+            });
+        }
+        finally
+        {
+            using (var rollback = holder.CreateCommand())
+            {
+                rollback.CommandText = "ROLLBACK;";
+                rollback.ExecuteNonQuery();
+            }
+            holder.Dispose();
+        }
+
+        await using (store)
+        {
+            var appended = await store.AppendAsync(Make("after-lock", entries[^1].Hash), CancellationToken.None);
+            Assert.Equal("after-lock", appended.Id);
+        }
+    }
+
+    [Fact]
+    public void BusyTimeout_OutOfRange_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            BusyTimeout = TimeSpan.FromSeconds(-1),
+        }));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            BusyTimeout = TimeSpan.FromSeconds(3_000_000_000d),
+        }));
+    }
+
+    [Fact]
     public async Task BusyTimeout_GivesUpQuickly()
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions

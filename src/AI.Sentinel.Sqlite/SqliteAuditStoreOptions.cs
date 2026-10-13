@@ -10,9 +10,12 @@ public sealed class SqliteAuditStoreOptions
     public TimeSpan? RetentionPeriod { get; set; }
 
     /// <summary>
-    /// Optional cap on the database size, measured as used bytes (pages in use times page size). When it exceeds this, the
-    /// background sweep deletes the oldest entries (in 10%-of-rows batches, minimum 100)
-    /// and runs <c>VACUUM</c> to reclaim space until the file is back under the cap.
+    /// Optional cap on the database size, measured as used bytes (pages in use times page size).
+    /// When usage exceeds this, the background sweep, and the constructor when
+    /// <see cref="EnforceSizeCapOnOpen"/> is set, deletes the oldest entries (in 10%-of-rows
+    /// batches, minimum 100) until usage is back under the cap. Unless
+    /// <see cref="VacuumAfterTrim"/> is false, each batch is followed by <c>VACUUM</c> so the
+    /// file length shrinks too.
     /// Defence in depth against a runaway detector filling the disk faster than time-based
     /// retention can kick in. Null = no size cap.
     /// </summary>
