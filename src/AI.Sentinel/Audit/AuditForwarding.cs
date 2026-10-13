@@ -23,15 +23,16 @@ internal static class AuditForwarding
         CancellationToken ct)
     {
         var stored = await store.AppendAsync(entry, ct).ConfigureAwait(false);
-        Forward(stored, forwarders, ct);
+        Forward(stored, forwarders);
         return stored;
     }
 
     /// <summary>Fire-and-forget mirror of <paramref name="entry"/> to every forwarder.
-    /// Each forwarder runs on its own <see cref="Task.Run(Func{Task}, CancellationToken)"/> continuation so a slow
-    /// or buffered implementation cannot add latency to the caller. Exceptions are swallowed defensively even
-    /// though forwarders MUST NOT throw.</summary>
-    private static void Forward(AuditEntry entry, IAuditForwarder[] forwarders, CancellationToken ct)
+    /// Each forwarder runs on its own <see cref="Task.Run(Func{Task})"/> continuation so a slow or buffered
+    /// implementation cannot add latency to the caller. The caller's token is not passed on: the entry is
+    /// already stored, and a request cancelled after that must not keep it from the forwarders.
+    /// Exceptions are swallowed defensively even though forwarders MUST NOT throw.</summary>
+    private static void Forward(AuditEntry entry, IAuditForwarder[] forwarders)
     {
         if (forwarders.Length == 0) return;
         foreach (var forwarder in forwarders)
@@ -42,14 +43,14 @@ internal static class AuditForwarding
 #pragma warning disable ERP022 // fire-and-forget: forwarder failure must never surface to the caller
                 try
                 {
-                    await captured.SendAsync(new[] { entry }, ct).ConfigureAwait(false);
+                    await captured.SendAsync(new[] { entry }, CancellationToken.None).ConfigureAwait(false);
                 }
                 catch
                 {
                     // IAuditForwarder MUST NOT throw, but defend in depth.
                 }
 #pragma warning restore ERP022
-            }, ct);
+            });
         }
     }
 }
