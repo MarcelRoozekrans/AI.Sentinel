@@ -9,9 +9,9 @@
 [![Docs](https://img.shields.io/badge/docs-marcelroozekrans.github.io-blue)](https://marcelroozekrans.github.io/AI.Sentinel/)
 [![Sponsor](https://img.shields.io/badge/sponsor-%E2%9D%A4-ec4899?logo=githubsponsors)](https://github.com/sponsors/MarcelRoozekrans)
 
-Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 55 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 56 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
-> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same 55 detectors, same audit trail, zero code changes in the host.
+> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same 56 detectors, same audit trail, zero code changes in the host.
 
 > **Approval workflows for high-stakes tool calls** (`delete_database`, `send_payment`, `rotate_secrets`) — pluggable backends include in-memory, SQLite (persists across CLI invocations), and **native Microsoft Entra PIM** (approvers act in the portal they already use). Operators approve/deny from the dashboard or the PIM portal; the conversation resumes when approval lands. See the [approvals docs](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview).
 
@@ -39,7 +39,7 @@ The embedded dashboard ships in `AI.Sentinel.AspNetCore`. Mount it on any ASP.NE
 
 | Package | Description |
 |---|---|
-| `AI.Sentinel` | Core — pipeline, 55 detectors, intervention engine, audit store |
+| `AI.Sentinel` | Core — pipeline, 56 detectors, intervention engine, audit store |
 | `AI.Sentinel.Detectors.Sdk` | SDK for writing and testing custom detectors — `SentinelContextBuilder`, `FakeEmbeddingGenerator`, worked examples |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
@@ -166,7 +166,7 @@ IChatClient.GetResponseAsync(messages)
 
 ---
 
-## Detectors (55)
+## Detectors (56)
 
 Detectors run in these modes:
 
@@ -178,7 +178,7 @@ Detectors run in these modes:
 
 > **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so the 39 detectors marked `Semantic ⚠️` return `Clean` on every scan. `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls, are the exception: their rule layer catches the unambiguous phrasings regardless, and only paraphrases need a generator. Set `opts.EmbeddingGenerator` to turn it on; AI.Sentinel warns at startup when it is missing. The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` — see [Enabling semantic detection in the CLIs](#enabling-semantic-detection-in-the-clis).
 
-### Security (31)
+### Security (32)
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
@@ -273,6 +273,25 @@ Detectors run in these modes:
 | LLM10 | Unbounded Consumption | `UnboundedConsumptionDetector`, `RepetitionLoopDetector` | ✅ yes |
 
 > **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Five of the nine in-scope categories are in that state out of the box. **LLM01 Prompt Injection** is not one of them: `SEC‑01` and `SEC‑05` carry a rule layer that catches the unambiguous phrasings with no generator configured.
+
+---
+
+## EU AI Act Coverage
+
+AI.Sentinel provides runtime building blocks for several technical obligations of [Regulation (EU) 2024/1689](https://eur-lex.europa.eu/eli/reg/2024/1689/oj), the AI Act. It does not make a system compliant on its own. Classification, risk management, technical documentation, conformity assessment and registration stay with the provider and deployer, and most of these articles bind high-risk systems specifically.
+
+| Article | Requirement | What AI.Sentinel provides | Active by default |
+|---|---|---|---|
+| Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors |
+| Art. 12 | Record-keeping (automatic logging) | Every detection is written to `IAuditStore`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`; forwarders mirror it to NDJSON, Azure Sentinel or OpenTelemetry. Entries are **not hash-chained yet**, so the log is not tamper-evident ([#342](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/342)) | ⚠️ partial: in-memory ring buffer only, capped at `opts.AuditCapacity` entries and lost on restart |
+| Art. 14 | Human oversight | [Tool-call authorization](#tool-call-authorization) and the [approval workflow](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview): `RequireApproval` holds a tool call until a person approves it in the dashboard or in Entra PIM (`AI.Sentinel.Approvals.Sqlite`, `AI.Sentinel.Approvals.EntraPim`). The dashboard shows detections live | ❌ none: every tool call is allowed until policies or approvals are configured |
+| Art. 15 | Accuracy, robustness and cybersecurity | The [56 detectors](#detectors-56), [OWASP LLM Top 10 coverage](#owasp-llm-top-10-2025-coverage) and [prompt hardening](#prompt-hardening-owasp-llm01--preventive) | ⚠️ partial: 15 rule-based detectors; the 39 semantic ones need an `EmbeddingGenerator` and `SystemPrefix` is opt-in |
+| Art. 50 | Transparency obligations | Not covered yet ([#336](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/336)) | — |
+| Art. 5 | Prohibited practices | Not covered yet ([#337](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/337)) | — |
+
+> **Active by default** means what a stock `AddAISentinel()` install does with no further configuration, as in the OWASP table above. The 15 rule-based detectors counted for Art. 15 are the 14 marked `Rule-based`, minus `SEC‑29 OutputSchema` (inactive without `opts.ExpectedResponseType`), plus the rule layers of `SEC‑01` and `SEC‑05`.
+
+> **Timeline.** The Art. 5 prohibitions have applied since 2 February 2025. [Regulation (EU) 2026/1744](https://eur-lex.europa.eu/eli/reg/2026/1744/oj), the Digital Omnibus on AI, in force since 27 July 2026, moved the obligations for Annex III high-risk systems from 2 August 2026 to **2 December 2027**, and for high-risk systems under Annex I to 2 August 2028. Check the regulation itself for the dates that apply to your system.
 
 ---
 

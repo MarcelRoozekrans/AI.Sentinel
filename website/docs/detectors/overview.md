@@ -5,11 +5,11 @@ title: Overview
 
 # Detector overview
 
-AI.Sentinel ships with **55 built-in detectors** across three categories:
+AI.Sentinel ships with **56 built-in detectors** across three categories:
 
 | Category | Count | Purpose |
 |---|---|---|
-| [**Security**](./security) | 31 | Prompt injection, jailbreaks, PII / credential leakage, covert channels, indirect injection, RAG poisoning |
+| [**Security**](./security) | 32 | Prompt injection, jailbreaks, PII / credential leakage, covert channels, indirect injection, RAG poisoning |
 | [**Hallucination**](./hallucination) | 9 | Phantom citations, fabricated authorities, contradictions, stale knowledge, confidence decay |
 | [**Operational**](./operational) | 15 | Repetition loops, blank responses, truncated output, language switches, persona drift, sycophancy |
 
