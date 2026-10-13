@@ -56,20 +56,84 @@ public class DashboardCommandTests : IDisposable
     public async Task Start_DoesNotAppend()
     {
         var db = await SeedAsync("SEC-01", "HAL-08");
+        var before = await SnapshotAsync(db);
 
         var dashboard = await DashboardCommand.StartAsync(
             db, 0, new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
         Assert.NotNull(dashboard);
-        using (var http = new HttpClient())
+        try
         {
+            using var http = new HttpClient();
             for (var i = 0; i < 2; i++)
             {
                 await http.GetAsync(new Uri(dashboard.Url, "api/feed"), TestContext.Current.CancellationToken);
             }
         }
-        await dashboard.DisposeAsync();
+        finally
+        {
+            await dashboard.DisposeAsync();
+        }
 
-        Assert.Equal(2, await CountAsync(db));
+        var after = await SnapshotAsync(db);
+        Assert.Equal(2, after.Ids.Count);
+        Assert.Equal(before.Ids, after.Ids);
+        Assert.Equal(before.LastHash, after.LastHash);
+    }
+
+    [Fact]
+    public async Task Start_RootRedirectsToTheDashboard()
+    {
+        var db = await SeedAsync("SEC-01");
+
+        await using var dashboard = await DashboardCommand.StartAsync(
+            db, 0, new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
+
+        Assert.NotNull(dashboard);
+        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+        var root = new Uri(dashboard.Url, "/");
+        var resp = await http.GetAsync(root, TestContext.Current.CancellationToken);
+
+        Assert.True((int)resp.StatusCode is >= 300 and < 400, $"expected a redirect, got {resp.StatusCode}");
+        Assert.EndsWith("/ai-sentinel/", resp.Headers.Location?.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Start_CancelledToken_ThrowsAndReleasesTheFile()
+    {
+        var db = await SeedAsync("SEC-01");
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => DashboardCommand.StartAsync(
+            db, 0, new StringWriter(), new StringWriter(), cts.Token));
+
+        File.Delete(db);
+        Assert.False(File.Exists(db));
+    }
+
+    [Fact]
+    public async Task Run_MissingFile_ExitsOne()
+    {
+        var exit = await DashboardCommand.RunAsync(
+            Path.Combine(_dir, "missing.db"), 0, new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exit);
+    }
+
+    [Fact]
+    public async Task Command_NoDbAndDefaultPathNotRooted_ExitsOneWithMessage()
+    {
+        var command = DashboardCommand.Build(() => "audit.db");
+        var root = new System.CommandLine.RootCommand { command };
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await root.Parse(["dashboard"]).InvokeAsync(
+            new System.CommandLine.InvocationConfiguration { Output = stdout, Error = stderr },
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--db", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -130,14 +194,17 @@ public class DashboardCommandTests : IDisposable
         return db;
     }
 
-    private static async Task<int> CountAsync(string db)
+    private static async Task<(List<string> Ids, string? LastHash)> SnapshotAsync(string db)
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = db });
-        var count = 0;
-        await foreach (var _ in store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), TestContext.Current.CancellationToken))
+        var ids = new List<string>();
+        string? lastHash = null;
+        await foreach (var entry in store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), TestContext.Current.CancellationToken))
         {
-            count++;
+            ids.Add(entry.Id);
+            lastHash = entry.Hash;
         }
-        return count;
+        ids.Sort(StringComparer.Ordinal);
+        return (ids, lastHash);
     }
 }

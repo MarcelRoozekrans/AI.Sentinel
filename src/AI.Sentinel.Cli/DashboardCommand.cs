@@ -21,12 +21,14 @@ public static class DashboardCommand
     private const int DefaultPort = 5170;
     private const string PathPrefix = "/ai-sentinel";
 
-    public static Command Build()
+    public static Command Build() => Build(LocalAudit.DefaultDatabasePath);
+
+    internal static Command Build(Func<string> defaultDatabasePath)
     {
         var dbOpt = new Option<string>("--db")
         {
             Description = "Path to the audit SQLite file. Defaults to the file the hooks and the MCP proxy write.",
-            DefaultValueFactory = _ => LocalAudit.DefaultDatabasePath(),
+            DefaultValueFactory = _ => defaultDatabasePath(),
         };
         var portOpt = new Option<int>("--port")
         {
@@ -91,6 +93,7 @@ public static class DashboardCommand
 
         SqliteAuditStore? store = null;
         WebApplication? app = null;
+        var started = false;
         try
         {
             store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = dbPath });
@@ -98,15 +101,7 @@ public static class DashboardCommand
             var verification = await AuditHashChain.VerifyAsync(
                 store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), ct), ct).ConfigureAwait(false);
 
-            var builder = WebApplication.CreateSlimBuilder();
-            builder.Logging.ClearProviders();
-            builder.WebHost.UseUrls(string.Create(CultureInfo.InvariantCulture, $"http://127.0.0.1:{port}"));
-            builder.Services.AddRouting();
-            builder.Services.AddSingleton<IAuditStore>(store);
-
-            app = builder.Build();
-            app.MapAISentinel(PathPrefix);
-            app.MapGet("/", () => Results.Redirect(PathPrefix + "/"));
+            app = BuildApp(store, port);
 
             await app.StartAsync(ct).ConfigureAwait(false);
 
@@ -118,6 +113,7 @@ public static class DashboardCommand
                 : $"Audit chain broken at entry {verification.FirstBrokenEntryId}").ConfigureAwait(false);
             await stdout.WriteLineAsync($"Dashboard: {url}").ConfigureAwait(false);
 
+            started = true;
             return new RunningDashboard(app, store, url);
         }
         catch (IOException ex)
@@ -129,15 +125,35 @@ public static class DashboardCommand
         {
             await stderr.WriteLineAsync($"Could not open the audit file {dbPath}: {ex.Message}").ConfigureAwait(false);
         }
+        finally
+        {
+            if (!started)
+            {
+                if (app is not null)
+                {
+                    await app.DisposeAsync().ConfigureAwait(false);
+                }
+                if (store is not null)
+                {
+                    await store.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+        }
 
-        if (app is not null)
-        {
-            await app.DisposeAsync().ConfigureAwait(false);
-        }
-        if (store is not null)
-        {
-            await store.DisposeAsync().ConfigureAwait(false);
-        }
         return null;
+    }
+
+    private static WebApplication BuildApp(SqliteAuditStore store, int port)
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.Logging.ClearProviders();
+        builder.WebHost.UseUrls(string.Create(CultureInfo.InvariantCulture, $"http://127.0.0.1:{port}"));
+        builder.Services.AddRouting();
+        builder.Services.AddSingleton<IAuditStore>(store);
+
+        var app = builder.Build();
+        app.MapAISentinel(PathPrefix);
+        app.MapGet("/", () => Results.Redirect(PathPrefix + "/"));
+        return app;
     }
 }

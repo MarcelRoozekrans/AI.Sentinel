@@ -34,8 +34,14 @@ public sealed class RunningDashboard : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await _app.StopAsync().ConfigureAwait(false);
-        await _app.DisposeAsync().ConfigureAwait(false);
-        await _store.DisposeAsync().ConfigureAwait(false);
+        try
+        {
+            await _app.StopAsync().ConfigureAwait(false);
+            await _app.DisposeAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            await _store.DisposeAsync().ConfigureAwait(false);
+        }
     }
 }
