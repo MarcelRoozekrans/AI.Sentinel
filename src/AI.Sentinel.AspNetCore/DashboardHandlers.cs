@@ -64,7 +64,7 @@ internal static class DashboardHandlers
         var source  = (string?)ctx.Request.Query["source"];
 
         var entries = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50), ctx.RequestAborted).ConfigureAwait(false))
+        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50, SessionId: session, Source: source), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
         var filtered = FilterAuditEntries(entries, filter, q, session, source).ToList();
@@ -123,7 +123,7 @@ internal static class DashboardHandlers
         if (!string.IsNullOrEmpty(e.SessionId))
         {
             var sessionShort = e.SessionId.Length > 8 ? e.SessionId[..8] : e.SessionId;
-            sb.Append("<a href=\"#\" class=\"session-link\" data-session=\"")
+            sb.Append("<a href=\"#\" class=\"session-link filter-link\" data-filter-key=\"session\" data-filter-value=\"")
               .Append(HtmlEncode(e.SessionId))
               .Append("\" title=\"")
               .Append(HtmlEncode(e.SessionId))
@@ -147,7 +147,7 @@ internal static class DashboardHandlers
         sb.Append("  <td class=\"source\">");
         if (!string.IsNullOrEmpty(source))
         {
-            sb.Append("<a href=\"#\" class=\"source-link\" data-source=\"")
+            sb.Append("<a href=\"#\" class=\"source-link filter-link\" data-filter-key=\"source\" data-filter-value=\"")
               .Append(HtmlEncode(source))
               .Append("\" title=\"Filter by source\">")
               .Append(HtmlEncode(source))
@@ -177,7 +177,7 @@ internal static class DashboardHandlers
     /// <remarks>Returns a lazy IEnumerable; callers that enumerate more than once should
     /// materialise via .ToList() to avoid re-evaluating predicates.</remarks>
     internal static IEnumerable<AuditEntry> FilterAuditEntries(
-        IEnumerable<AuditEntry> entries, string? category, string? q, string? session, string? source = null)
+        IEnumerable<AuditEntry> entries, string? category, string? q, string? session, string? source)
     {
         // Order is deliberate: cheap+selective filters (category, session) first,
         // expensive Contains() last so it runs on the smallest residual set.
@@ -303,14 +303,14 @@ internal static class DashboardHandlers
         // activity on long-running stores). Session is pushed down to the store so an
         // old-session export can't be silently emptied by newer entries filling the cap.
         await foreach (var e in store.QueryAsync(
-            new AuditQuery(PageSize: ExportPageCap, Reverse: true, SessionId: session),
+            new AuditQuery(PageSize: ExportPageCap, Reverse: true, SessionId: session, Source: source),
             ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
         // Session is now pushed down to the store; FilterAuditEntries only handles
         // the in-memory chip+q filters. Truncation (entries.Count >= ExportPageCap)
         // thus reflects "the store hit its cap for this session+severity selection."
-        var filtered = FilterAuditEntries(entries, filter, q, session: null, source)
+        var filtered = FilterAuditEntries(entries, filter, q, session: null, source: null)
             .OrderBy(e => e.Timestamp)
             .ToArray();
 

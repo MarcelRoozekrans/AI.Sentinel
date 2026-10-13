@@ -221,6 +221,11 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             sql.Append(" AND session_id = $session");
             cmd.Parameters.AddWithValue("$session", query.SessionId);
         }
+        if (!string.IsNullOrEmpty(query.Source))
+        {
+            sql.Append(" AND source = $source COLLATE NOCASE");
+            cmd.Parameters.AddWithValue("$source", query.Source);
+        }
 
         sql.Append(query.Reverse
             ? " ORDER BY sequence DESC LIMIT $limit"

@@ -23,8 +23,8 @@ public class DashboardSourceTests
 
         var html = await host.GetTestClient().GetStringAsync("/sentinel/api/feed", TestContext.Current.CancellationToken);
 
-        Assert.Contains("class=\"source-link\"", html, StringComparison.Ordinal);
-        Assert.Contains("data-source=\"claude-code\"", html, StringComparison.Ordinal);
+        Assert.Contains("class=\"source-link filter-link\"", html, StringComparison.Ordinal);
+        Assert.Contains("data-filter-key=\"source\" data-filter-value=\"claude-code\"", html, StringComparison.Ordinal);
         Assert.Contains(">claude-code</a>", html, StringComparison.Ordinal);
     }
 
@@ -82,6 +82,51 @@ public class DashboardSourceTests
         Assert.DoesNotContain("source-link", html, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Feed_MatchingEntryOlderThanFiftyNewerOnes_StillAppearsWithSourceFilter()
+    {
+        using var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(NewEntry("OLD-MCP", "old proxy entry", AuditSources.Mcp), CancellationToken.None);
+        for (var i = 0; i < 60; i++)
+            await store.AppendAsync(NewEntry("SEC-NEW", "newer", AuditSources.ClaudeCode), CancellationToken.None);
+
+        var html = await host.GetTestClient().GetStringAsync("/sentinel/api/feed?source=mcp", TestContext.Current.CancellationToken);
+
+        Assert.Contains("OLD-MCP", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("SEC-NEW", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Feed_SourceCombinedWithSession_IntersectsBoth()
+    {
+        using var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(NewEntry("HIT-01", "x", AuditSources.Mcp, "sess-A"), CancellationToken.None);
+        await store.AppendAsync(NewEntry("MISS-SESSION", "x", AuditSources.Mcp, "sess-B"), CancellationToken.None);
+        await store.AppendAsync(NewEntry("MISS-SOURCE", "x", AuditSources.Copilot, "sess-A"), CancellationToken.None);
+
+        var html = await host.GetTestClient().GetStringAsync("/sentinel/api/feed?source=mcp&session=sess-A", TestContext.Current.CancellationToken);
+
+        Assert.Contains("HIT-01", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("MISS-", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Feed_SourceWithMarkup_IsEncodedInCellTextAndDataAttribute()
+    {
+        using var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(NewEntry("SEC-01", "x", "ev\"il<b>"), CancellationToken.None);
+
+        var html = await host.GetTestClient().GetStringAsync("/sentinel/api/feed", TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain("ev\"il", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<b>", html, StringComparison.Ordinal);
+        Assert.Contains("data-filter-value=\"ev&quot;il&lt;b&gt;\"", html, StringComparison.Ordinal);
+        Assert.Contains(">ev&quot;il&lt;b&gt;</a>", html, StringComparison.Ordinal);
+    }
+
     private static async Task<IHost> BuildHostAsync() =>
         await new HostBuilder()
             .ConfigureWebHost(web =>
@@ -96,7 +141,7 @@ public class DashboardSourceTests
             })
             .StartAsync();
 
-    private static AuditEntry NewEntry(string detectorId, string summary, string? source) =>
+    private static AuditEntry NewEntry(string detectorId, string summary, string? source, string? sessionId = null) =>
         new(
             Id:           Guid.NewGuid().ToString("N"),
             Timestamp:    DateTimeOffset.UtcNow,
@@ -105,5 +150,6 @@ public class DashboardSourceTests
             Severity:     Severity.High,
             DetectorId:   detectorId,
             Summary:      summary,
+            SessionId:    sessionId,
             Source:       source);
 }

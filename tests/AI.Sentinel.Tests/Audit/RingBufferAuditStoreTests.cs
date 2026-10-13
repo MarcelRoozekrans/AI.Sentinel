@@ -138,4 +138,18 @@ public class RingBufferAuditStoreTests
         Assert.Equal(3, result.EntriesChecked);
         Assert.Equal(appended[1].Hash, result.AnchorHash);
     }
+
+    [Fact] public async Task Query_Source_FiltersIgnoringCase()
+    {
+        var store = new RingBufferAuditStore(capacity: 100);
+        await store.AppendAsync(new AuditEntry("1", DateTimeOffset.UtcNow, "h1", null, Severity.Low, "OPS-01", "a", Source: "mcp"), CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("2", DateTimeOffset.UtcNow, "h2", null, Severity.Low, "OPS-01", "b", Source: "copilot"), CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("3", DateTimeOffset.UtcNow, "h3", null, Severity.Low, "OPS-01", "c"), CancellationToken.None);
+
+        var results = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(Source: "MCP"), CancellationToken.None))
+            results.Add(e);
+
+        Assert.Equal("1", Assert.Single(results).Id);
+    }
 }

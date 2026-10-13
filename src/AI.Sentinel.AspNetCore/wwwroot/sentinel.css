@@ -122,7 +122,7 @@ main {
 table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
 th { text-align: left; color: var(--muted); padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); }
 td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #162032; white-space: nowrap; }
-td:nth-child(5) { white-space: normal; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+#feed-body td:nth-child(5) { white-space: normal; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
 
 .hash { font-family: 'Courier New', monospace; color: var(--muted); font-size: 0.7rem; }
 
@@ -315,8 +315,8 @@ tr.audit-row-authz td:first-child {
 @media (max-width: 900px) {
   main { grid-template-columns: 160px 1fr; }
   .gauge { width: 130px; }
-  table th:nth-child(7),
-  table td:nth-child(7) { display: none; }
+  #feed-table th:nth-child(7),
+  #feed-table td:nth-child(7) { display: none; }
 }
 
 /* Phone: collapse main grid to single column. Each panel stacks full-width. */

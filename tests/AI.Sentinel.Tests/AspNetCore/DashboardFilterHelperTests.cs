@@ -56,7 +56,7 @@ public class DashboardFilterHelperTests
             NewEntry("HAL-08",     "hallucinated citation"),
             NewEntry("AUTHZ-DENY", "policy denied delete_database"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: null, session: null).ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: null, session: null, source: null).ToList();
         Assert.Equal(3, result.Count);
     }
 
@@ -69,7 +69,7 @@ public class DashboardFilterHelperTests
             NewEntry("HAL-08",     "x"),
             NewEntry("AUTHZ-DENY", "x"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: "security", q: null, session: null).ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: "security", q: null, session: null, source: null).ToList();
         Assert.Single(result);
         Assert.Equal("SEC-01", result[0].DetectorId);
     }
@@ -83,7 +83,7 @@ public class DashboardFilterHelperTests
             NewEntry("SEC-01", "x", sessionId: "sess-B"),
             NewEntry("HAL-08", "x", sessionId: "sess-A"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: null, session: "sess-A").ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: null, session: "sess-A", source: null).ToList();
         Assert.Equal(2, result.Count);
         Assert.All(result, e => Assert.Equal("sess-A", e.SessionId));
     }
@@ -97,7 +97,7 @@ public class DashboardFilterHelperTests
             NewEntry("SEC-01", "Hallucinated function reference"),
             NewEntry("OPS-12", "Tool call to DELETE_DATABASE detected"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: "delete_database", session: null).ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: "delete_database", session: null, source: null).ToList();
         Assert.Equal(2, result.Count);
     }
 
@@ -121,7 +121,7 @@ public class DashboardFilterHelperTests
             PolicyCode:   null,
             SessionId:    null);
         var combined = entries.Concat(new[] { nullSessionEntry }).ToList();
-        var result = DashboardHandlers.FilterAuditEntries(combined, category: null, q: null, session: "sess-A").ToList();
+        var result = DashboardHandlers.FilterAuditEntries(combined, category: null, q: null, session: "sess-A", source: null).ToList();
         Assert.Equal(2, result.Count);
         Assert.All(result, e => Assert.Equal("sess-A", e.SessionId));
     }
@@ -136,7 +136,7 @@ public class DashboardFilterHelperTests
             NewEntry("AUTHZ-DENY", "delete_database",  sessionId: "sess-A"),
             NewEntry("SEC-01",     "prompt injection", sessionId: "sess-A"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: "security", q: "delete_database", session: "sess-A").ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: "security", q: "delete_database", session: "sess-A", source: null).ToList();
         Assert.Single(result);
         Assert.Equal("sess-A", result[0].SessionId);
         Assert.Equal("delete_database", result[0].Summary);
