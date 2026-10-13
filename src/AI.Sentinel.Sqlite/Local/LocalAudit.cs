@@ -54,7 +54,7 @@ internal static class LocalAudit
     public static LocalAuditSession Open(LocalAuditSettings settings, string source)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        var problems = new List<string>();
+        var problems = new LocalAuditProblems();
         var store = OpenStore(settings, problems);
         var forwarders = OpenForwarders(settings, problems);
         return new LocalAuditSession(store, source, forwarders, problems);
@@ -78,7 +78,7 @@ internal static class LocalAudit
         return DefaultMaxMegabytes * BytesPerMegabyte;
     }
 
-    private static IAuditStore OpenStore(LocalAuditSettings settings, List<string> problems)
+    private static IAuditStore OpenStore(LocalAuditSettings settings, LocalAuditProblems problems)
     {
         if (settings.DatabasePath is not { } path) return new RingBufferAuditStore();
 
@@ -86,6 +86,7 @@ internal static class LocalAudit
         try
         {
             CreatePrivateDirectory(path);
+            CreatePrivateFile(path);
             store = new SqliteAuditStore(new SqliteAuditStoreOptions
             {
                 DatabasePath = path,
@@ -107,14 +108,19 @@ internal static class LocalAudit
         return store;
     }
 
-    private static List<IAuditForwarder> OpenForwarders(LocalAuditSettings settings, List<string> problems)
+    private static List<IAuditForwarder> OpenForwarders(LocalAuditSettings settings, LocalAuditProblems problems)
     {
         var forwarders = new List<IAuditForwarder>();
         if (settings.NdjsonPath is not { } path) return forwarders;
 
         try
         {
-            forwarders.Add(new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = path }));
+            CreatePrivateFile(path);
+            forwarders.Add(new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions
+            {
+                FilePath = path,
+                OnError = problems.Add,
+            }));
         }
 #pragma warning disable CA1031 // An unusable NDJSON file is skipped; it must not stop the CLI.
         catch (Exception ex)
@@ -140,9 +146,31 @@ internal static class LocalAudit
         }
     }
 
-    /// <summary>Sets 0600 on the database and the WAL side files SQLite created alongside it.
+    /// <summary>On Unix, creates <paramref name="path"/> as an empty 0600 file unless it exists, so the
+    /// file is never readable by others, not even briefly. SQLite opens a zero-byte file as an empty
+    /// database and gives its <c>-wal</c> and <c>-shm</c> files the database's mode.</summary>
+    private static void CreatePrivateFile(string path)
+    {
+        if (OperatingSystem.IsWindows() || File.Exists(path)) return;
+
+        try
+        {
+            using var created = new FileStream(path, new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            });
+        }
+        catch (IOException) when (File.Exists(path))
+        {
+            // Another process created it first; it is used as it is.
+        }
+    }
+
+    /// <summary>Safety net: sets 0600 on the database and the WAL side files SQLite created alongside it.
     /// A failure leaves the store usable and is reported.</summary>
-    private static void RestrictToOwner(string databasePath, List<string> problems)
+    private static void RestrictToOwner(string databasePath, LocalAuditProblems problems)
     {
         if (OperatingSystem.IsWindows()) return;
 

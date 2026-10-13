@@ -15,26 +15,21 @@ internal sealed class LocalAuditSession : IAsyncDisposable
     private readonly IAuditStore _innerStore;
     private readonly SourceTaggingAuditStore _store;
     private readonly TrackingAuditForwarder[] _forwarders;
-    private readonly List<string> _problems;
-#if NET9_0_OR_GREATER
-    private readonly Lock _problemsLock = new();
-#else
-    private readonly object _problemsLock = new();
-#endif
+    private readonly LocalAuditProblems _problems;
 
     /// <param name="innerStore">The store entries are appended to. The session owns and disposes it.</param>
     /// <param name="source">The <see cref="AuditEntry.Source"/> stamped on every entry.</param>
     /// <param name="forwarders">Forwarders to track. The session owns and disposes them.</param>
-    /// <param name="problems">Problems already found while opening.</param>
+    /// <param name="problems">Where problems go, including any already found while opening.</param>
     internal LocalAuditSession(
         IAuditStore innerStore,
         string source,
         IEnumerable<IAuditForwarder> forwarders,
-        IEnumerable<string> problems)
+        LocalAuditProblems problems)
     {
         _innerStore = innerStore;
-        _problems = [.. problems];
-        _store = new SourceTaggingAuditStore(innerStore, source, AddProblem);
+        _problems = problems;
+        _store = new SourceTaggingAuditStore(innerStore, source, problems.Add);
         _forwarders = [.. forwarders.Select(f => new TrackingAuditForwarder(f))];
     }
 
@@ -45,16 +40,7 @@ internal sealed class LocalAuditSession : IAsyncDisposable
     public IReadOnlyList<IAuditForwarder> Forwarders => _forwarders;
 
     /// <summary>Human-readable problems found so far, one per problem, for the CLI to report.</summary>
-    public IReadOnlyList<string> Problems
-    {
-        get
-        {
-            lock (_problemsLock)
-            {
-                return [.. _problems];
-            }
-        }
-    }
+    public IReadOnlyList<string> Problems => _problems.Snapshot();
 
     /// <summary>
     /// Waits until every forwarder has sent as many entries as <see cref="Store"/> has seen appends,
@@ -72,22 +58,16 @@ internal sealed class LocalAuditSession : IAsyncDisposable
         }
     }
 
+    /// <summary>Disposes the forwarders, then the store. Never throws: a failing dispose is recorded
+    /// in <see cref="Problems"/> and the rest are still disposed, so it cannot change a CLI's exit.</summary>
     public async ValueTask DisposeAsync()
     {
         foreach (var forwarder in _forwarders)
         {
-            await forwarder.DisposeAsync().ConfigureAwait(false);
+            await DisposeSafelyAsync(forwarder, "an audit forwarder").ConfigureAwait(false);
         }
 
-        switch (_innerStore)
-        {
-            case IAsyncDisposable asyncDisposable:
-                await asyncDisposable.DisposeAsync().ConfigureAwait(false);
-                break;
-            case IDisposable disposable:
-                disposable.Dispose();
-                break;
-        }
+        await DisposeSafelyAsync(_innerStore, "the audit store").ConfigureAwait(false);
     }
 
     private bool AllSent(long target)
@@ -99,11 +79,25 @@ internal sealed class LocalAuditSession : IAsyncDisposable
         return true;
     }
 
-    private void AddProblem(string problem)
+    private async ValueTask DisposeSafelyAsync(object owned, string what)
     {
-        lock (_problemsLock)
+        try
         {
-            _problems.Add(problem);
+            switch (owned)
+            {
+                case IAsyncDisposable asyncDisposable:
+                    await asyncDisposable.DisposeAsync().ConfigureAwait(false);
+                    break;
+                case IDisposable disposable:
+                    disposable.Dispose();
+                    break;
+            }
+        }
+#pragma warning disable CA1031 // Shutdown must not fail because an audit component did.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            _problems.Add($"Could not close {what}: {ex.GetType().Name}: {ex.Message}");
         }
     }
 }

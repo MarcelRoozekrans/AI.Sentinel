@@ -164,13 +164,40 @@ public sealed class LocalAuditTests : IDisposable
 
         var dir = Path.Combine(_root, "ai-sentinel");
         var dbPath = Path.Combine(dir, "audit.db");
-        await using (var session = LocalAudit.Open(new LocalAuditSettings(dbPath, null, DefaultCap), AuditSources.ClaudeCode))
+        var ndjsonPath = Path.Combine(dir, "audit.ndjson");
+        await using (var session = LocalAudit.Open(new LocalAuditSettings(dbPath, ndjsonPath, DefaultCap), AuditSources.ClaudeCode))
+        {
+            await session.Store.AppendAsync(Make("e1"), TestContext.Current.CancellationToken);
+            Assert.Empty(session.Problems);
+        }
+
+        const UnixFileMode ownerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        Assert.Equal(ownerOnly | UnixFileMode.UserExecute, File.GetUnixFileMode(dir));
+        Assert.Equal(ownerOnly, File.GetUnixFileMode(dbPath));
+        Assert.Equal(ownerOnly, File.GetUnixFileMode(ndjsonPath));
+    }
+
+    [Fact]
+    public async Task Open_OnUnix_LeavesAnExistingDirectoryAlone()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Unix file modes do not apply on Windows.");
+            return;
+        }
+
+        const UnixFileMode shared = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+            | UnixFileMode.GroupRead | UnixFileMode.GroupExecute;
+        Directory.CreateDirectory(_root);
+        File.SetUnixFileMode(_root, shared);
+
+        await using (var session = LocalAudit.Open(
+            new LocalAuditSettings(Path.Combine(_root, "audit.db"), null, DefaultCap), AuditSources.ClaudeCode))
         {
             Assert.Empty(session.Problems);
         }
 
-        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(dir));
-        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(dbPath));
+        Assert.Equal(shared, File.GetUnixFileMode(_root));
     }
 
     [Fact]
@@ -228,10 +255,60 @@ public sealed class LocalAuditTests : IDisposable
     }
 
     [Fact]
+    public async Task Open_NdjsonSendFailure_BecomesASessionProblem()
+    {
+        var ndjsonPath = Path.Combine(_root, "audit.ndjson");
+        Directory.CreateDirectory(_root);
+        var session = LocalAudit.Open(new LocalAuditSettings(null, ndjsonPath, DefaultCap), AuditSources.ClaudeCode);
+        var forwarder = Assert.Single(session.Forwarders);
+        await session.DisposeAsync();
+
+        await forwarder.SendAsync([Make("e1")], TestContext.Current.CancellationToken);
+
+        var problem = Assert.Single(session.Problems);
+        Assert.Contains("send_dropped", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Session_AppendFailure_BecomesASessionProblem()
+    {
+        await using var session = new LocalAuditSession(new ThrowingAuditStore(), AuditSources.Mcp, [], new LocalAuditProblems());
+
+        await session.Store.AppendAsync(Make("e1"), TestContext.Current.CancellationToken);
+
+        var problem = Assert.Single(session.Problems);
+        Assert.Contains("disk full", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DisposeAsync_ForwarderDisposeThrows_StillDisposesTheStoreAndReports()
+    {
+        var store = new DisposalRecordingStore();
+        var session = new LocalAuditSession(store, AuditSources.Mcp, [new ThrowingDisposeForwarder()], new LocalAuditProblems());
+
+        await session.DisposeAsync();
+
+        Assert.True(store.Disposed);
+        var problem = Assert.Single(session.Problems);
+        Assert.Contains("dispose failed", problem, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task DisposeAsync_StoreDisposeThrows_ReturnsNormallyAndReports()
+    {
+        var session = new LocalAuditSession(
+            new DisposalRecordingStore(throwOnDispose: true), AuditSources.Mcp, [], new LocalAuditProblems());
+
+        await session.DisposeAsync();
+
+        Assert.Single(session.Problems);
+    }
+
+    [Fact]
     public async Task FlushAsync_WaitsForASendThatHasNotStartedYet()
     {
         var slow = new RecordingForwarder(TimeSpan.FromMilliseconds(300));
-        await using var session = new LocalAuditSession(new RingBufferAuditStore(), AuditSources.Mcp, [slow], []);
+        await using var session = new LocalAuditSession(new RingBufferAuditStore(), AuditSources.Mcp, [slow], new LocalAuditProblems());
 
         await session.Store.AppendAndForwardAsync(
             Make("e1"), AuditForwarding.Snapshot(session.Forwarders), TestContext.Current.CancellationToken);
@@ -244,7 +321,7 @@ public sealed class LocalAuditTests : IDisposable
     public async Task FlushAsync_ThrowingForwarder_DoesNotWaitForTheTimeout()
     {
         await using var session = new LocalAuditSession(
-            new RingBufferAuditStore(), AuditSources.Mcp, [new ThrowingForwarder()], []);
+            new RingBufferAuditStore(), AuditSources.Mcp, [new ThrowingForwarder()], new LocalAuditProblems());
 
         await session.Store.AppendAndForwardAsync(
             Make("e1"), AuditForwarding.Snapshot(session.Forwarders), TestContext.Current.CancellationToken);
@@ -282,6 +359,31 @@ public sealed class LocalAuditTests : IDisposable
 
         public IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct) =>
             throw new IOException("disk full");
+    }
+
+    private sealed class DisposalRecordingStore(bool throwOnDispose = false) : IAuditStore, IAsyncDisposable
+    {
+        private readonly RingBufferAuditStore _inner = new();
+
+        public bool Disposed { get; private set; }
+
+        public ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct) => _inner.AppendAsync(entry, ct);
+
+        public IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct) => _inner.QueryAsync(query, ct);
+
+        public ValueTask DisposeAsync()
+        {
+            Disposed = true;
+            _inner.Dispose();
+            return throwOnDispose ? ValueTask.FromException(new IOException("store dispose failed")) : ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class ThrowingDisposeForwarder : IAuditForwarder, IAsyncDisposable
+    {
+        public ValueTask SendAsync(IReadOnlyList<AuditEntry> batch, CancellationToken ct) => ValueTask.CompletedTask;
+
+        public ValueTask DisposeAsync() => ValueTask.FromException(new IOException("forwarder dispose failed"));
     }
 
     private sealed class RecordingForwarder(TimeSpan delay) : IAuditForwarder
