@@ -81,7 +81,7 @@ See the [`Configure<T>` page](../configuration/fluent-config) for tuning pattern
 Detectors implementing `ILlmEscalatingDetector` can have a finding re-classified by a second-pass LLM — `SEC-02 CredentialExposure`, `SEC-23 PiiLeakage` and `SEC-19 ToolCallFrequency` among them.
 
 :::caution
-Escalation only re-classifies a finding a detector has **already** produced. The two `Stub` detectors (`SEC-08 EntropyCovertChannel`, `SEC-18 ToolDescriptionDivergence`) always return `Clean`, so setting `opts.EscalationClient` cannot make them fire.
+Escalation only re-classifies a finding a detector has **already** produced. The `Stub` detector `SEC-18 ToolDescriptionDivergence` always returns `Clean`, so setting `opts.EscalationClient` cannot make it fire.
 :::
 
 When such a detector emits `Severity.Medium` or higher, the pipeline runs a second-pass LLM classifier:

@@ -3,7 +3,7 @@ sidebar_position: 2
 title: Security detectors
 ---
 
-# Security detectors (31)
+# Security detectors (32)
 
 The security category covers prompt injection, jailbreaks, credential / PII leakage, covert channels, indirect injection, and RAG poisoning. These are the highest-priority detectors for any production deployment.
 

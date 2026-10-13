@@ -14,7 +14,7 @@ That's it. No native dependencies, no out-of-process services, no databases unle
 
 ## Core install
 
-The minimum viable install — gets you the pipeline, all 55 detectors, the intervention engine, and the in-memory ring-buffer audit store:
+The minimum viable install — gets you the pipeline, all 56 detectors, the intervention engine, and the in-memory ring-buffer audit store:
 
 ```bash
 dotnet add package AI.Sentinel
@@ -87,7 +87,7 @@ CLIs ship as `dotnet tool` packages targeting net8.0 specifically. Library packa
 
 Once `AI.Sentinel` is installed and `AddAISentinel()` is called, these services are wired into DI as singletons:
 
-- `IDetectionPipeline` — runs the 55 detectors in parallel per call
+- `IDetectionPipeline` — runs the 56 detectors in parallel per call
 - `InterventionEngine` — applies the configured `OnCritical`/`OnHigh`/`OnMedium`/`OnLow` action
 - `IAuditStore` — `RingBufferAuditStore` (in-memory, bounded by `opts.AuditCapacity`, default 10,000)
 - `IAlertSink` — `NullAlertSink` unless `opts.AlertWebhook` is set
