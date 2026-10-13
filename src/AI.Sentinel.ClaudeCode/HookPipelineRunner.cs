@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
 
 namespace AI.Sentinel.ClaudeCode;
 
@@ -31,7 +32,7 @@ public static class HookPipelineRunner
         // never invokes it, so the client shape is irrelevant.
         var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
         var error = await pipeline.ScanMessagesAsync(
-            messages, null, ct, string.IsNullOrWhiteSpace(sessionId) ? null : new AI.Sentinel.Domain.SessionId(sessionId)).ConfigureAwait(false);
+            messages, null, ct, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId)).ConfigureAwait(false);
 
         if (error is SentinelError.ThreatDetected t)
         {
