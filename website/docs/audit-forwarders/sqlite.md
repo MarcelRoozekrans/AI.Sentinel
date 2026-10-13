@@ -122,7 +122,7 @@ Long retention periods are fine — SQLite handles billions of rows without perf
 opts.MaxDatabaseSizeBytes = 512L * 1024 * 1024; // 512 MB
 ```
 
-On the same sweep timer, the store deletes the oldest entries in batches of 10% (at least 100) and runs `VACUUM` until the file is under the cap. Both strategies remove entries from the head of the hash chain only, so the remaining chain still verifies.
+The size is measured as used bytes, meaning pages in use times page size. On the same sweep timer, the store deletes the oldest entries in batches of 10% (at least 100) until usage is under the cap. With `VacuumAfterTrim` true, the default, each batch is followed by `VACUUM` and a WAL truncate so the file shrinks; with it false, freed pages are reused and the file stops growing at about the cap. With `EnforceSizeCapOnOpen` set, the cap is also enforced once when the store opens. See [Options for short-lived writers](#options-for-short-lived-writers). Both strategies remove entries from the head of the hash chain only, so the remaining chain still verifies.
 
 ## Deployment patterns
 
