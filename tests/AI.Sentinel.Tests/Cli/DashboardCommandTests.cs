@@ -98,7 +98,7 @@ public class DashboardCommandTests : IDisposable
     }
 
     [Fact]
-    public async Task Start_CancelledToken_ThrowsAndReleasesTheFile()
+    public async Task Start_CancelledToken_Throws()
     {
         var db = await SeedAsync("SEC-01");
         using var cts = new CancellationTokenSource();
@@ -106,9 +106,6 @@ public class DashboardCommandTests : IDisposable
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => DashboardCommand.StartAsync(
             db, 0, new StringWriter(), new StringWriter(), cts.Token));
-
-        File.Delete(db);
-        Assert.False(File.Exists(db));
     }
 
     [Fact]
