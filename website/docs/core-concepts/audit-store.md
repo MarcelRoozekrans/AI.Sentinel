@@ -53,7 +53,7 @@ Verification starts from the oldest entry still present. When the ring buffer ha
 The `AI.Sentinel.Cli` `verify` subcommand (planned) will do this for offline NDJSON exports.
 
 :::note Upgrading from 2.x
-Entries written before 3.0 are not chained, so a store that holds them fails verification at its first old entry. Verify from the upgrade onward with `new AuditQuery(From: upgradedAt, PageSize: int.MaxValue)`, where `upgradedAt` is when the upgraded process started: every old entry was written before that, and every new one after. The first new entry's `PreviousHash` is the last old entry's hash and becomes the anchor.
+Entries written before 3.0 are not chained, so a store that holds them fails verification at its first old entry. Verify from the upgrade onward with `new AuditQuery(From: upgradedAt, PageSize: int.MaxValue)`, where `upgradedAt` is when the upgraded process started. For entries timestamped by AI.Sentinel, every old entry was written before that and every new one after; entries a caller backdated can fall on the wrong side. The first new entry's `PreviousHash` is the last old entry's hash and becomes the anchor.
 
 The SQLite store migrates to schema v4 on first open. Detection entries written before 3.0 had `policy_code` set to `policy_denied` by a column default; the migration clears it, so only `AUTHZ-DENY` entries carry a policy code.
 :::

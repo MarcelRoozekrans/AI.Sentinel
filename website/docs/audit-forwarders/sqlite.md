@@ -85,7 +85,7 @@ opts.RetentionPeriod = TimeSpan.FromDays(90);
 opts.RetentionSweepInterval = TimeSpan.FromHours(1);
 ```
 
-A background timer fires every `RetentionSweepInterval` and deletes entries older than `RetentionPeriod`, oldest first in append order. It stops at the first entry that is still within the period, so an expired entry that was appended after a younger one stays until that younger one expires too. Deleting by timestamp alone would cut the hash chain in the middle. Default sweep interval is 1 hour; default retention period is `null` (no expiry — keep forever).
+A background timer fires every `RetentionSweepInterval` and deletes entries older than `RetentionPeriod`, oldest first in append order. It stops at the first entry that is still within the period, so an expired entry that was appended after a younger one stays until that younger one expires too. Deleting by timestamp alone would cut the hash chain in the middle. For the same reason, an entry whose `Timestamp` lies in the future, because a caller set it or the clock stepped back, holds up time-based deletion until that time has passed; `MaxDatabaseSizeBytes` still applies meanwhile. Default sweep interval is 1 hour; default retention period is `null` (no expiry — keep forever).
 
 The sweep is best-effort. It runs while the process is alive; if the process restarts, the timer resets. Old entries persist across restarts until the next sweep tick fires.
 
