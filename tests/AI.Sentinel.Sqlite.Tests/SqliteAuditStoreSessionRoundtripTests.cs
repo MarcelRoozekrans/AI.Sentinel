@@ -79,6 +79,22 @@ public sealed class SqliteAuditStoreSessionRoundtripTests : IDisposable
         Assert.All(results, r => Assert.Equal(sessionA, r.SessionId));
     }
 
+    [Fact]
+    public async Task QueryWithSourceFilter_ReturnsOnlyEntriesFromThatSourceIgnoringCase()
+    {
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+
+        await store.AppendAsync(NewEntry("e-mcp", null) with { Source = "mcp" }, CancellationToken.None);
+        await store.AppendAsync(NewEntry("e-copilot", null) with { Source = "copilot" }, CancellationToken.None);
+        await store.AppendAsync(NewEntry("e-none", null), CancellationToken.None);
+
+        var results = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(Source: "MCP"), CancellationToken.None))
+            results.Add(e);
+
+        Assert.Equal("e-mcp", Assert.Single(results).Id);
+    }
+
     private static AuditEntry NewEntry(string id, string? sessionId) =>
         new(
             Id:           id,

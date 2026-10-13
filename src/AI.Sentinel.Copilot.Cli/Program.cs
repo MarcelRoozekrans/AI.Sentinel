@@ -8,6 +8,8 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Configuration;
 using AI.Sentinel.Approvals.EntraPim;
 using AI.Sentinel.Approvals.Sqlite;
+using AI.Sentinel.Audit;
+using AI.Sentinel.Sqlite.Local;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Copilot;
 
@@ -66,7 +68,10 @@ public static class Program
             await stderr.WriteLineAsync(embeddingError).ConfigureAwait(false);
         }
 
-        var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message));
+        var audit = OpenAudit(out var auditProblems);
+        await using var _audit = audit.ConfigureAwait(false);
+
+        var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), audit);
         await using var _ = provider.ConfigureAwait(false);
 
         var adapter = new CopilotHookAdapter(provider, config);
@@ -80,26 +85,68 @@ public static class Program
             await EmitVerboseAsync(stderr, "sentinel-copilot-hook", args[0], input.SessionId, output).ConfigureAwait(false);
         }
 
-        // This host registers no logging provider, so the library's ILogger warning reaches nobody;
-        // write it to stderr instead. Restricted to the prompt-submit event on the Allow path: the
-        // binary also serves pre/post-tool-use (so every tool call would repeat it), and on Block and
-        // Warn stderr carries the reason the host feeds back to the model — a diagnostic must not
-        // ride along with it, least of all one naming which controls are switched off.
-        if (!config.SuppressSemanticWarning
-            && evt == CopilotHookEvent.UserPromptSubmitted
-            && output.Decision == HookDecision.Allow
+        // On Block and Warn stderr carries the reason fed back to the model, so audit and semantic
+        // diagnostics stay off it. An audit failure never changes the decision.
+        var allowed = output.Decision == HookDecision.Allow;
+        var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || allowed, stderr).ConfigureAwait(false);
+        if (allowed && evt == CopilotHookEvent.UserPromptSubmitted && !config.SuppressSemanticWarning
             && provider.DescribeInertSemanticDetection() is { } semanticWarning)
         {
             await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
         }
 
-        return output.Decision switch
+        var exit = await ExitCodeAsync(stderr, output).ConfigureAwait(false);
+        await CloseAuditAsync(audit, reported, config.Verbose, stderr).ConfigureAwait(false);
+        return exit;
+    }
+
+    /// <summary>Every hook process records to the shared local audit file unless
+    /// <c>SENTINEL_HOOK_AUDIT_SQLITE=off</c>. Opening never throws for an unusable path; settings
+    /// problems are returned in <paramref name="problems"/> and session problems are on the result.</summary>
+    private static LocalAuditSession OpenAudit(out List<string> problems)
+    {
+        problems = [];
+        var settings = LocalAudit.ReadSettings(BuildHookEnvVars(), "SENTINEL_HOOK_", LocalAudit.DefaultDatabasePath(), problems);
+        return LocalAudit.Open(settings, AuditSources.Copilot);
+    }
+
+    /// <summary>Entries are forwarded on background tasks; wait (bounded) so an NDJSON line is on disk
+    /// before the process exits, then report the problems when <paramref name="report"/> allows.</summary>
+    private static async Task<int> FlushAndReportAuditAsync(
+        LocalAuditSession audit, List<string> settingsProblems, bool report, TextWriter stderr)
+    {
+        await audit.FlushAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        if (!report) return int.MaxValue;
+        var seen = audit.Problems.Count;
+        settingsProblems.AddRange(audit.Problems);
+        foreach (var problem in settingsProblems)
+        {
+            await stderr.WriteLineAsync($"[sentinel-copilot-hook] audit: {problem}").ConfigureAwait(false);
+        }
+
+        return seen;
+    }
+
+    /// <summary>Disposes the audit session. With verbose on, reports problems raised while closing it
+    /// that <see cref="FlushAndReportAuditAsync"/> has not already printed.</summary>
+    private static async Task CloseAuditAsync(LocalAuditSession audit, int alreadyReported, bool verbose, TextWriter stderr)
+    {
+        await audit.DisposeAsync().ConfigureAwait(false);
+        if (!verbose) return;
+        var closing = audit.Problems;
+        for (var i = alreadyReported; i < closing.Count; i++)
+        {
+            await stderr.WriteLineAsync($"[sentinel-copilot-hook] audit: {closing[i]}").ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<int> ExitCodeAsync(TextWriter stderr, HookOutput output) =>
+        output.Decision switch
         {
             HookDecision.Block => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 2).ConfigureAwait(false),
             HookDecision.Warn => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 0).ConfigureAwait(false),
             _ => 0,
         };
-    }
 
     private static async Task<(CopilotHookInput? Input, int Exit)> ReadInputAsync(TextReader stdin, TextWriter stderr)
     {
@@ -170,7 +217,8 @@ public static class Program
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         ApprovalConfig? approvalConfig,
         IEmbeddingCache? exampleEmbeddingCache = null,
-        Action<string>? detectorFailureSink = null)
+        Action<string>? detectorFailureSink = null,
+        LocalAuditSession? audit = null)
     {
         var services = new ServiceCollection();
         var backendKind = approvalConfig is null
@@ -203,6 +251,14 @@ public static class Program
             if (approvalConfig is not null)
                 ApprovalBackendSelector.Configure(opts, approvalConfig);
         });
+
+        // Last registration wins for IAuditStore, so these go after AddAISentinel's in-memory default.
+        if (audit is not null)
+        {
+            services.AddSingleton<IAuditStore>(audit.Store);
+            foreach (var forwarder in audit.Forwarders)
+                services.AddSingleton<IAuditForwarder>(forwarder);
+        }
 
         return services.BuildServiceProvider();
     }

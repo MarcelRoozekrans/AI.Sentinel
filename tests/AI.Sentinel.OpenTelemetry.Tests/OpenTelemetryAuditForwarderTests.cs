@@ -154,6 +154,35 @@ public sealed class OpenTelemetryAuditForwarderTests
     }
 
     [Fact]
+    public async Task SendAsync_MapsSourceAndSessionId()
+    {
+        var records = new List<LogRecord>();
+        using var loggerFactory = LoggerFactory.Create(b => b
+            .SetMinimumLevel(LogLevel.Trace)
+            .AddOpenTelemetry(o =>
+            {
+                o.IncludeScopes = true;
+                o.AddInMemoryExporter(records);
+            }));
+
+        var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
+        var entry = Make("e1") with { Source = AuditSources.Copilot, SessionId = "s1" };
+        await f.SendAsync(new[] { entry }, TestContext.Current.CancellationToken);
+        loggerFactory.Dispose();
+
+        Assert.Single(records);
+        var scopeAttrs = new Dictionary<string, object?>(StringComparer.Ordinal);
+        records[0].ForEachScope<object?>(
+            (scope, _) =>
+            {
+                foreach (var kv in scope) scopeAttrs[kv.Key] = kv.Value;
+            },
+            null);
+        Assert.Equal("copilot", scopeAttrs["audit.source"]);
+        Assert.Equal("s1", scopeAttrs["audit.session_id"]);
+    }
+
+    [Fact]
     public async Task SendAsync_OutOfRangeSeverity_DoesNotCrash_MapsToDebug()
     {
         var records = new List<LogRecord>();

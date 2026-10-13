@@ -11,4 +11,5 @@ public sealed record AuditEntry(
     string DetectorId,
     string Summary,
     string? PolicyCode = null,
-    string? SessionId = null);
+    string? SessionId = null,
+    string? Source = null);

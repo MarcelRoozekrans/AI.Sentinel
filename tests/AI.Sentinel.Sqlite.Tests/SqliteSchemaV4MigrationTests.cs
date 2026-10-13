@@ -82,7 +82,7 @@ public sealed class SqliteSchemaV4MigrationTests : IDisposable
     {
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
-            Assert.Equal(4, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
+            Assert.Equal(5, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
         }
 
         Assert.Equal(0L, await ScalarAsync("""SELECT "notnull" FROM pragma_table_info('audit_entries') WHERE name = 'policy_code';"""));
@@ -111,13 +111,29 @@ public sealed class SqliteSchemaV4MigrationTests : IDisposable
 
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
-            Assert.Equal(4, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
+            Assert.Equal(5, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
         }
 
         Assert.IsType<DBNull>(await ScalarAsync("SELECT policy_code FROM audit_entries WHERE id = 'detection-1';"));
         Assert.Equal("tenant_inactive", await ScalarAsync("SELECT policy_code FROM audit_entries WHERE id = 'denial-1';"));
         Assert.Equal("s1", await ScalarAsync("SELECT session_id FROM audit_entries WHERE id = 'detection-1';"));
         Assert.Equal(2L, await ScalarAsync("SELECT COUNT(*) FROM pragma_index_list('audit_entries') WHERE name IN ('idx_audit_sequence', 'idx_audit_session');"));
+    }
+
+    [Fact]
+    public async Task V3Db_MigratesAllTheWayToV5()
+    {
+        // The v3→v4 rebuild uses the frozen v4 column list, so the v4→v5 ALTER that follows in
+        // the same init pass adds source instead of failing on a duplicate column.
+        await SeedV3DatabaseAsync();
+
+        await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
+        {
+            Assert.Equal(5, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
+        }
+
+        Assert.Equal(0L, await ScalarAsync("""SELECT "notnull" FROM pragma_table_info('audit_entries') WHERE name = 'source';"""));
+        Assert.Equal(2L, await ScalarAsync("SELECT COUNT(*) FROM audit_entries WHERE source IS NULL;"));
     }
 
     [Fact]

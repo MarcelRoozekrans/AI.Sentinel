@@ -149,18 +149,24 @@ public sealed class SentinelPipeline(
     /// Rate-limit check fires first; on exceeded quota the method returns <see cref="SentinelError.RateLimitExceeded"/>.
     /// Otherwise runs a single detection pass and returns <see langword="null"/> on clean,
     /// <see cref="SentinelError.ThreatDetected"/> on detection.
+    /// When <paramref name="sessionId"/> is supplied the audit entries carry it; otherwise a fresh id is minted per call.
     /// </remarks>
+    /// <param name="messages">The messages to scan.</param>
+    /// <param name="chatOptions">Options used for the rate-limit check; <see langword="null"/> for none.</param>
+    /// <param name="sessionId">The session recorded on the audit entries, as the <see cref="SessionId"/> domain type;
+    /// <see langword="null"/> mints a fresh id for this call.</param>
+    /// <param name="ct">Cancellation token.</param>
     public async ValueTask<SentinelError?> ScanMessagesAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions = null,
+        SessionId? sessionId = null,
         CancellationToken ct = default)
     {
         var rateError = CheckRateLimit(chatOptions);
         if (rateError is not null) return rateError;
 
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
-        var sessionId = SessionId.New();
-        return await ScanAsync(messageList, sessionId,
+        return await ScanAsync(messageList, sessionId ?? SessionId.New(),
             options.DefaultSenderId, options.DefaultReceiverId, ct, SystemPromptOf(messageList)).ConfigureAwait(false);
     }
 

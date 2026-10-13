@@ -5,6 +5,7 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.Domain;
 using AI.Sentinel.Mcp.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Client;
@@ -45,7 +46,9 @@ public static class McpProxy
     /// <param name="embeddingGenerator">Optional embedding generator for embedding-aware detectors.</param>
     /// <param name="guard">Optional authorization guard. When supplied, runs before detection on <c>tools/call</c>.</param>
     /// <param name="callerResolver">Optional resolver mapping the inbound request to an <see cref="ISecurityContext"/>. Defaults to <see cref="EnvironmentSecurityContext.FromEnvironment"/>.</param>
-    public static async Task RunAsync(
+    /// <param name="auditStore">Optional store for audit entries; defaults to an in-memory ring buffer. The caller owns and disposes it.</param>
+    /// <param name="forwarders">Optional forwarders that mirror every audit entry. The caller owns them.</param>
+    public static Task RunAsync(
         ITransport hostTransport,
         IClientTransport targetTransport,
         HookConfig config,
@@ -57,7 +60,43 @@ public static class McpProxy
         IToolCallGuard? guard = null,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver = null,
         IApprovalStore? approvalStore = null,
-        TimeSpan? approvalWait = null)
+        TimeSpan? approvalWait = null,
+        IAuditStore? auditStore = null,
+        IReadOnlyList<IAuditForwarder>? forwarders = null)
+        => RunWithSessionAsync(
+            hostTransport: hostTransport,
+            targetTransport: targetTransport,
+            config: config,
+            preset: preset,
+            maxScanBytes: maxScanBytes,
+            stderr: stderr,
+            ct: ct,
+            embeddingGenerator: embeddingGenerator,
+            guard: guard,
+            callerResolver: callerResolver,
+            approvalStore: approvalStore,
+            approvalWait: approvalWait,
+            auditStore: auditStore,
+            forwarders: forwarders,
+            sessionId: null);
+
+    /// <summary>Same as <see cref="RunAsync"/> but lets tests fix the per-run session id.</summary>
+    internal static async Task RunWithSessionAsync(
+        ITransport hostTransport,
+        IClientTransport targetTransport,
+        HookConfig config,
+        McpDetectorPreset preset,
+        int maxScanBytes,
+        TextWriter stderr,
+        CancellationToken ct,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
+        IToolCallGuard? guard = null,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver = null,
+        IApprovalStore? approvalStore = null,
+        TimeSpan? approvalWait = null,
+        IAuditStore? auditStore = null,
+        IReadOnlyList<IAuditForwarder>? forwarders = null,
+        SessionId? sessionId = null)
     {
         ArgumentNullException.ThrowIfNull(hostTransport);
         ArgumentNullException.ThrowIfNull(targetTransport);
@@ -84,8 +123,8 @@ public static class McpProxy
 
             var pipeline = McpPipelineFactory.Create(
                 config, preset, embeddingGenerator ?? embeddings?.Generator,
-                out var auditStore, out var inertSemanticWarning, embeddings?.ExampleCache,
-                ReportDetectorFailure);
+                out var pipelineStore, out var inertSemanticWarning, embeddings?.ExampleCache,
+                ReportDetectorFailure, auditStore, forwarders);
 
             // No logging provider here either — surface it on stderr so an inert SEC-01 isn't mistaken
             // for a clean scan. Routed through StderrLogger because this stream is structured
@@ -100,7 +139,8 @@ public static class McpProxy
                 })).ConfigureAwait(false);
             }
 
-            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver, approvalStore, approvalWait);
+            // One session per proxy process: every scan and authorization entry of this run shares it.
+            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, pipelineStore, forwarders, callerResolver, approvalStore, approvalWait, sessionId ?? SessionId.New());
 
             var server = McpServer.Create(
                 hostTransport,
@@ -188,9 +228,11 @@ public static class McpProxy
         TextWriter stderr,
         IToolCallGuard? guard,
         IAuditStore? auditStore,
+        IReadOnlyList<IAuditForwarder>? forwarders,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
-        TimeSpan? approvalWait)
+        TimeSpan? approvalWait,
+        SessionId sessionId)
     {
         var targetCaps = targetClient.ServerCapabilities;
         var capabilities = new ServerCapabilities();
@@ -199,19 +241,19 @@ public static class McpProxy
 
         if (targetCaps.Tools is not null)
         {
-            WireTools(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver,
-                approvalStore, approvalWait, capabilities, handlers, requestFilters);
+            WireTools(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, forwarders, callerResolver,
+                approvalStore, approvalWait, sessionId, capabilities, handlers, requestFilters);
         }
 
         if (targetCaps.Prompts is not null)
         {
-            WirePrompts(targetClient, pipeline, maxScanBytes, stderr,
+            WirePrompts(targetClient, pipeline, maxScanBytes, stderr, sessionId,
                 capabilities, handlers, requestFilters);
         }
 
         if (targetCaps.Resources is not null)
         {
-            WireResources(targetClient, pipeline, targetCaps.Resources,
+            WireResources(targetClient, pipeline, targetCaps.Resources, sessionId,
                 capabilities, handlers, requestFilters);
         }
 
@@ -231,9 +273,11 @@ public static class McpProxy
         TextWriter stderr,
         IToolCallGuard? guard,
         IAuditStore? auditStore,
+        IReadOnlyList<IAuditForwarder>? forwarders,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
+        SessionId sessionId,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -251,7 +295,7 @@ public static class McpProxy
         };
         requestFilters.CallToolFilters.Add(
             ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver,
-                approvalStore, approvalWait));
+                approvalStore, approvalWait, forwarders, sessionId));
     }
 
     private static void WirePrompts(
@@ -259,6 +303,7 @@ public static class McpProxy
         SentinelPipeline pipeline,
         int maxScanBytes,
         TextWriter stderr,
+        SessionId sessionId,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -275,13 +320,14 @@ public static class McpProxy
             return new ListPromptsResult { Prompts = prompts.Select(p => p.ProtocolPrompt).ToList() };
         };
         requestFilters.GetPromptFilters.Add(
-            PromptGetInterceptor.Create(pipeline, maxScanBytes, stderr));
+            PromptGetInterceptor.Create(pipeline, maxScanBytes, stderr, sessionId));
     }
 
     private static void WireResources(
         McpClient targetClient,
         SentinelPipeline pipeline,
         ResourcesCapability targetResources,
+        SessionId sessionId,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -298,7 +344,7 @@ public static class McpProxy
         handlers.ReadResourceHandler = (req, c) =>
             targetClient.ReadResourceAsync(req.Params!, c);
         requestFilters.ReadResourceFilters.Add(
-            ResourceReadInterceptor.Create(pipeline));
+            ResourceReadInterceptor.Create(pipeline, sessionId));
     }
 
     private static Dictionary<string, object?> ToObjectDictionary(

@@ -5,11 +5,16 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Configuration;
 using AI.Sentinel.Approvals.EntraPim;
 using AI.Sentinel.Approvals.Sqlite;
+using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp;
+using AI.Sentinel.Mcp.Logging;
+using AI.Sentinel.Sqlite.Local;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace AI.Sentinel.Mcp.Cli;
@@ -17,8 +22,15 @@ namespace AI.Sentinel.Mcp.Cli;
 internal static class ProxyCommand
 {
     /// <summary>Parses <c>proxy --target &lt;cmd&gt; [&lt;target-args&gt;...]</c> and runs the proxy.</summary>
-    public static async Task<int> RunAsync(
+    public static Task<int> RunAsync(
         string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr, CancellationToken ct)
+        => RunAsync(args, stdin, stdout, stderr, ct, transportFactory: null);
+
+    /// <param name="transportFactory">Test seam: supplies the host and target transports instead of
+    /// the process stdio and the <c>--target</c> command.</param>
+    internal static async Task<int> RunAsync(
+        string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr, CancellationToken ct,
+        Func<(ITransport Host, IClientTransport Target)>? transportFactory)
     {
         // args[0] is "proxy" (already matched by Program)
         if (args.Length < 3 || !string.Equals(args[1], "--target", StringComparison.Ordinal))
@@ -45,29 +57,71 @@ internal static class ProxyCommand
         // shutdown so SQLite WAL/SHM are flushed cleanly.
         var (provider, guard, approvalStore, approvalWait, configError) = await BuildAuthorizationStackAsync(stderr).ConfigureAwait(false);
         if (configError) return 1;
+
+        // Every proxy process records to the shared local audit file unless SENTINEL_MCP_AUDIT_SQLITE=off.
+        // Opening never throws; problems are reported on stderr, which is not model-facing here.
+        var settingsProblems = new List<string>();
+        var settings = LocalAudit.ReadSettings(envVars, "SENTINEL_MCP_", LocalAudit.DefaultDatabasePath(), settingsProblems);
+        // Later problems are reported the moment they are recorded, so a killed proxy still reports them.
+        var audit = LocalAudit.Open(settings, AuditSources.Mcp, problem => ReportProblem(problem, stderr));
         try
         {
+            await ReportProblemsAsync(settingsProblems, stderr).ConfigureAwait(false);
             return await RunProxyAsync(
                 targetCommand, targetArgs, config, preset, maxScanBytes,
-                stderr, ct, guard, approvalStore, approvalWait).ConfigureAwait(false);
+                stderr, ct, guard, approvalStore, approvalWait, audit, transportFactory).ConfigureAwait(false);
         }
         finally
         {
-            if (provider is not null) await provider.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                await CloseAuditAsync(audit, stderr).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (provider is not null) await provider.DisposeAsync().ConfigureAwait(false);
+            }
         }
     }
+
+    /// <summary>Entries are forwarded on background tasks; wait (bounded) so an NDJSON line is on disk
+    /// before the process exits, then dispose the session. Problems were already reported as they happened,
+    /// including any raised while disposing, which also go out through the callback.</summary>
+    private static async Task CloseAuditAsync(LocalAuditSession audit, TextWriter stderr)
+    {
+        await audit.FlushAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        await audit.DisposeAsync().ConfigureAwait(false);
+    }
+
+    private static async Task ReportProblemsAsync(IReadOnlyList<string> problems, TextWriter stderr)
+    {
+        foreach (var problem in problems)
+        {
+            await stderr.WriteLineAsync(FormatProblem(problem)).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Synchronous because the problem callback is; stderr writes are short.</summary>
+    private static void ReportProblem(string problem, TextWriter stderr) =>
+        stderr.WriteLine(FormatProblem(problem));
+
+    private static string FormatProblem(string problem) =>
+        StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["event"] = "audit_unavailable",
+            ["detail"] = problem,
+        });
 
     private static async Task<int> RunProxyAsync(
         string targetCommand, string[] targetArgs, HookConfig config, McpDetectorPreset preset,
         int maxScanBytes, TextWriter stderr, CancellationToken ct,
-        IToolCallGuard? guard, IApprovalStore? approvalStore, TimeSpan? approvalWait)
+        IToolCallGuard? guard, IApprovalStore? approvalStore, TimeSpan? approvalWait,
+        LocalAuditSession audit, Func<(ITransport Host, IClientTransport Target)>? transportFactory)
     {
-        var targetTransport = McpProxy.CreateClientTransport(targetCommand, targetArgs);
-
-        // StdioServerTransport(string serverName, ILoggerFactory?) uses Console.In/Out internally.
-        var hostTransport = new StdioServerTransport(
-            serverName: "sentinel-mcp",
-            loggerFactory: NullLoggerFactory.Instance);
+        var (hostTransport, targetTransport) = transportFactory?.Invoke() ?? (
+            // StdioServerTransport(string serverName, ILoggerFactory?) uses Console.In/Out internally.
+            new StdioServerTransport(serverName: "sentinel-mcp", loggerFactory: NullLoggerFactory.Instance),
+            McpProxy.CreateClientTransport(targetCommand, targetArgs));
 
         try
         {
@@ -81,7 +135,9 @@ internal static class ProxyCommand
                 ct:              ct,
                 guard:           guard,
                 approvalStore:   approvalStore,
-                approvalWait:    approvalWait).ConfigureAwait(false);
+                approvalWait:    approvalWait,
+                auditStore:      audit.Store,
+                forwarders:      audit.Forwarders).ConfigureAwait(false);
             return 0;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

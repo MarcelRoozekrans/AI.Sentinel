@@ -54,10 +54,10 @@ public class SentinelPipelineBenchmarks
     [Benchmark(Description = "ScanMessagesAsync / clean (prompt-only, hook path)")]
     public ValueTask<SentinelError?> PromptOnly_Clean() =>
         _pipeline.ScanMessagesAsync(
-            MessageFactory.CleanShort, chatOptions: null, CancellationToken.None);
+            MessageFactory.CleanShort, chatOptions: null, ct: CancellationToken.None);
 
     [Benchmark(Description = "ScanMessagesAsync / malicious (prompt-only, hook path)")]
     public ValueTask<SentinelError?> PromptOnly_Malicious() =>
         _pipeline.ScanMessagesAsync(
-            MessageFactory.Malicious, chatOptions: null, CancellationToken.None);
+            MessageFactory.Malicious, chatOptions: null, ct: CancellationToken.None);
 }

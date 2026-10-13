@@ -122,21 +122,24 @@ main {
 table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
 th { text-align: left; color: var(--muted); padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--surface); }
 td { padding: 0.35rem 0.5rem; border-bottom: 1px solid #162032; white-space: nowrap; }
-td:nth-child(4) { white-space: normal; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
+#feed-body td:nth-child(5) { white-space: normal; max-width: 300px; overflow: hidden; text-overflow: ellipsis; }
 
 .hash { font-family: 'Courier New', monospace; color: var(--muted); font-size: 0.7rem; }
 
-td.session { white-space: nowrap; }
-.session-link {
+td.session, td.source { white-space: nowrap; }
+.session-link,
+.source-link {
   color: var(--text);
   text-decoration: none;
   font-family: 'Courier New', monospace;
   font-size: 0.7rem;
   border-bottom: 1px dotted var(--muted);
 }
-.session-link:hover { color: #7dd3fc; border-bottom-color: #7dd3fc; }
+.session-link:hover,
+.source-link:hover { color: #7dd3fc; border-bottom-color: #7dd3fc; }
 
-.session-pill {
+.session-pill,
+.source-pill {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -148,11 +151,13 @@ td.session { white-space: nowrap; }
   font-size: 0.75rem;
   color: var(--text);
 }
-.session-pill code {
+.session-pill code,
+.source-pill code {
   font-family: 'Courier New', monospace;
   color: #7dd3fc;
 }
-.session-pill button.session-pill-clear {
+.session-pill button.session-pill-clear,
+.source-pill button.source-pill-clear {
   background: transparent;
   border: none;
   color: var(--muted);
@@ -160,7 +165,8 @@ td.session { white-space: nowrap; }
   font-size: 0.85rem;
   padding: 0;
 }
-.session-pill button.session-pill-clear:hover { color: var(--isolate); }
+.session-pill button.session-pill-clear:hover,
+.source-pill button.source-pill-clear:hover { color: var(--isolate); }
 
 .badge {
   display: inline-block;
@@ -309,8 +315,8 @@ tr.audit-row-authz td:first-child {
 @media (max-width: 900px) {
   main { grid-template-columns: 160px 1fr; }
   .gauge { width: 130px; }
-  table th:nth-child(6),
-  table td:nth-child(6) { display: none; }
+  #feed-table th:nth-child(7),
+  #feed-table td:nth-child(7) { display: none; }
 }
 
 /* Phone: collapse main grid to single column. Each panel stacks full-width. */

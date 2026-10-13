@@ -5,7 +5,7 @@ title: SQLite
 
 # SQLite audit store
 
-`AI.Sentinel.Sqlite` ships `SqliteAuditStore` — a persistent `IAuditStore` backed by a single-file SQLite database. Hash-chain integrity preserved across process restarts. Time-based retention sweep. WAL journal mode for concurrent readers.
+`AI.Sentinel.Sqlite` ships `SqliteAuditStore` — a persistent `IAuditStore` backed by a single-file SQLite database. Hash-chain integrity preserved across process restarts. Time-based retention sweep. WAL journal mode for concurrent readers. Several processes can write to one file.
 
 This is a **store**, not a forwarder. It replaces the default in-memory `RingBufferAuditStore`. Last-registration-wins for `IAuditStore`.
 
@@ -25,33 +25,58 @@ services.AddSentinelSqliteStore(opts =>
 });
 ```
 
-The database file is created at startup if it doesn't exist. Schema is auto-migrated. WAL journal mode is enabled for concurrent reader safety while a single writer (this process) holds the write lock.
+The database file is created at startup if it doesn't exist. Schema is auto-migrated. WAL journal mode is enabled so readers never block. Several processes may write to the same file at once: each append takes the database write lock, re-reads the chain head inside it and chains onto whatever the other processes wrote, so the hash chain stays intact. This is how `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` share one file. It is a feature for processes on one machine, not for a network share.
+
+## Options for short-lived writers
+
+A process that opens the file, writes a few entries and exits, such as a CLI hook, needs different defaults from a long-running app:
+
+| Option | Default | Purpose |
+|---|---|---|
+| `BusyTimeout` | 30 seconds | How long a write waits for another process's write lock before failing with a `SqliteException`. Rounded up to whole seconds. The CLIs use 2 seconds so a busy file never stalls an agent |
+| `EnforceSizeCapOnOpen` | `false` | Apply `MaxDatabaseSizeBytes` once while opening, instead of waiting for the sweep timer, which a short-lived process never reaches |
+| `VacuumAfterTrim` | `true` | End a size trim with `VACUUM` and a WAL truncate so the file shrinks. Set `false` for short-lived writers: `VACUUM` holds the cross-process write lock for a long time. Freed pages are reused, so the file stops growing at about the cap instead of shrinking |
+
+```csharp
+opts.BusyTimeout = TimeSpan.FromSeconds(2);
+opts.MaxDatabaseSizeBytes = 100L * 1024 * 1024;
+opts.EnforceSizeCapOnOpen = true;
+opts.VacuumAfterTrim = false;
+```
 
 ## Schema
 
 ```sql
 CREATE TABLE IF NOT EXISTS audit_entries (
-    id              TEXT PRIMARY KEY,
-    timestamp       INTEGER NOT NULL,    -- Unix milliseconds
-    hash            TEXT NOT NULL,
-    previous_hash   TEXT,
-    severity        INTEGER NOT NULL,    -- enum value
-    detector_id     TEXT NOT NULL,
-    summary         TEXT NOT NULL
+    id            TEXT PRIMARY KEY,
+    timestamp     INTEGER NOT NULL,    -- UTC ticks (DateTimeOffset.UtcTicks)
+    severity      INTEGER NOT NULL,    -- enum value
+    detector_id   TEXT NOT NULL,
+    hash          TEXT NOT NULL,
+    previous_hash TEXT,
+    summary       TEXT NOT NULL,
+    sequence      INTEGER NOT NULL,    -- append order, the order the hash chain follows
+    policy_code   TEXT,                -- AUTHZ-DENY entries only
+    session_id    TEXT,
+    source        TEXT                 -- claude-code, copilot, mcp; NULL for in-process apps
 );
 
-CREATE INDEX idx_timestamp ON audit_entries(timestamp);
-CREATE INDEX idx_severity_timestamp ON audit_entries(severity, timestamp);
-CREATE INDEX idx_detector_timestamp ON audit_entries(detector_id, timestamp);
+CREATE INDEX idx_audit_timestamp ON audit_entries (timestamp);
+CREATE INDEX idx_audit_detector  ON audit_entries (detector_id);
+CREATE INDEX idx_audit_severity  ON audit_entries (severity);
+CREATE INDEX idx_audit_sequence  ON audit_entries (sequence);
+CREATE INDEX idx_audit_session   ON audit_entries (session_id);
 ```
 
-Indexes optimize the common `AuditQuery` filter combinations (time range, min severity, detector ID).
+A second table, `audit_chain_head`, holds one row with the hash of the last appended entry, so the chain continues even after retention deletes every entry.
+
+Indexes optimize the common `AuditQuery` filter combinations (time range, min severity, detector ID, session). The schema is version 5; older files are migrated when opened, and two processes opening an old file at the same time migrate it once. `AuditQuery.Source` filters on the `source` column.
 
 ## Performance
 
 - Append: ~100–500 µs on local SSD (single-row INSERT in WAL mode)
 - Query: streams via `IAsyncEnumerable<AuditEntry>` — millions of rows iterable without loading them
-- Concurrent readers safe (WAL); writer is single-threaded behind a `SemaphoreSlim`
+- Concurrent readers safe (WAL); writes are serialized in-process behind a `SemaphoreSlim` and across processes by the SQLite write lock
 
 The pipeline cost of using SQLite over RingBuffer is the difference between &lt;5 µs (memory) and ~100 µs (disk). For most chat workloads this is invisible — the LLM round-trip dominates by 4+ orders of magnitude.
 
@@ -72,7 +97,7 @@ if (!result.IsIntact)
 
 Retention deletes the oldest rows, so after a sweep the chain verifies from the oldest remaining entry and `result.AnchorHash` holds the hash of the last deleted one. See [Hash chain verification](../core-concepts/audit-store#hash-chain-verification) for what the anchor tells you, and for verifying a database that still holds entries from before 3.0.
 
-A built-in CLI verifier (`AI.Sentinel.Cli verify`) is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md).
+`sentinel dashboard --db <path>` from the `AI.Sentinel.Cli` tool runs the same check when it starts and prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. A standalone `verify` command is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md).
 
 ## Retention
 
@@ -97,7 +122,7 @@ Long retention periods are fine — SQLite handles billions of rows without perf
 opts.MaxDatabaseSizeBytes = 512L * 1024 * 1024; // 512 MB
 ```
 
-On the same sweep timer, the store deletes the oldest entries in batches of 10% (at least 100) and runs `VACUUM` until the file is under the cap. Both strategies remove entries from the head of the hash chain only, so the remaining chain still verifies.
+The size is measured as used bytes, meaning pages in use times page size. On the same sweep timer, the store deletes the oldest entries in batches of 10% of the rows (at least 100) until usage is under the cap. Each sweep, and the trim on open, stops after at most 8 batches, so a file far over the cap may take more than one sweep to come under it. With `VacuumAfterTrim` true, the default, each batch is followed by `VACUUM` and a WAL truncate so the file shrinks; with it false, freed pages are reused and the file stops growing at about the cap. With `EnforceSizeCapOnOpen` set, the cap is also enforced once when the store opens. See [Options for short-lived writers](#options-for-short-lived-writers). Both strategies remove entries from the head of the hash chain only, so the remaining chain still verifies.
 
 ## Deployment patterns
 
@@ -131,7 +156,7 @@ services.AddSentinelOpenTelemetryForwarder();
 
 ### Multi-instance with shared central DB
 
-Not supported in v1. SQLite isn't designed for multi-writer access across machines. For multi-instance shared storage, use a forwarder to push entries into a central system (Postgres-backed audit store is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) for that scenario).
+Not supported in v1. Several processes on one machine can share a file, but SQLite isn't designed for multi-writer access across machines or over a network file system. For multi-instance shared storage, use a forwarder to push entries into a central system (Postgres-backed audit store is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) for that scenario).
 
 ## Backups
 

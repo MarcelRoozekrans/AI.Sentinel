@@ -49,6 +49,9 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, I
             if (!string.IsNullOrEmpty(query.SessionId)
                 && !string.Equals(entry.SessionId, query.SessionId, StringComparison.Ordinal))
                 continue;
+            if (!string.IsNullOrEmpty(query.Source)
+                && !string.Equals(entry.Source, query.Source, StringComparison.OrdinalIgnoreCase))
+                continue;
             yield return entry;
             yielded++;
         }
