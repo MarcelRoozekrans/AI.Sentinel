@@ -48,12 +48,14 @@ if (!result.IsIntact)
 
 `VerifyAsync` walks the entries oldest first and stops at the first one that fails. After an edit that is the edited entry; after a deletion it is the entry that follows the gap.
 
-Verification starts from the oldest entry still present. When the ring buffer has evicted entries, or SQLite retention has deleted them, that entry's `PreviousHash` is returned as `result.AnchorHash`. A `null` anchor means the chain is complete from its first entry. Deleting entries from the *head* of the chain looks the same as retention, so record the anchor in a report and compare it with the next one to detect that.
+Verification starts from the oldest entry still present. When the ring buffer has evicted entries, or SQLite retention has deleted them, that entry's `PreviousHash` is returned as `result.AnchorHash`. A `null` anchor means the chain is complete from its first entry. SQLite keeps the chain head in its own table, so the chain continues, and the anchor stays non-null, even after retention has deleted every entry. Deleting entries from the *head* of the chain looks the same as retention, so record the anchor in a report and compare it with the next one to detect that.
 
 The `AI.Sentinel.Cli` `verify` subcommand (planned) will do this for offline NDJSON exports.
 
 :::note Upgrading from 2.x
-Entries written before 3.0 are not chained, so a store that holds them fails verification at its first old entry. Verify from the upgrade onward with `new AuditQuery(From: upgradedAt, PageSize: int.MaxValue)`: the first new entry's `PreviousHash` is the last old entry's hash and becomes the anchor.
+Entries written before 3.0 are not chained, so a store that holds them fails verification at its first old entry. Verify from the upgrade onward with `new AuditQuery(From: upgradedAt, PageSize: int.MaxValue)`, where `upgradedAt` is when the upgraded process started: every old entry was written before that, and every new one after. The first new entry's `PreviousHash` is the last old entry's hash and becomes the anchor.
+
+The SQLite store migrates to schema v4 on first open. Detection entries written before 3.0 had `policy_code` set to `policy_denied` by a column default; the migration clears it, so only `AUTHZ-DENY` entries carry a policy code.
 :::
 
 ## Built-in implementations
