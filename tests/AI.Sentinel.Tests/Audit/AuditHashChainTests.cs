@@ -60,13 +60,13 @@ public class AuditHashChainTests
             AuditHashChain.ComputeHash(Unlinked("e1") with { PreviousHash = "ab" }), StringComparer.Ordinal);
     }
 
-    public static TheoryData<string> TamperedFields => new() { "Id", "Timestamp", "Severity", "DetectorId", "Summary", "PolicyCode", "SessionId" };
+    public static TheoryData<string> TamperedFields => new() { "Id", "Timestamp", "Severity", "DetectorId", "Summary", "PolicyCode", "SessionId", "Source" };
 
     [Theory]
     [MemberData(nameof(TamperedFields))]
     public void ComputeHash_CoversEveryRecordedField(string field)
     {
-        var original = AuditHashChain.Link(Unlinked("e1", sessionId: "s1") with { PolicyCode = "policy_denied" }, null);
+        var original = AuditHashChain.Link(Unlinked("e1", sessionId: "s1") with { PolicyCode = "policy_denied", Source = AuditSources.ClaudeCode }, null);
         var tampered = field switch
         {
             "Id" => original with { Id = "e2" },
@@ -76,6 +76,7 @@ public class AuditHashChainTests
             "Summary" => original with { Summary = "edited" },
             "PolicyCode" => original with { PolicyCode = null },
             "SessionId" => original with { SessionId = "s2" },
+            "Source" => original with { Source = "mcp" },
             _ => throw new ArgumentOutOfRangeException(nameof(field)),
         };
 
@@ -98,6 +99,14 @@ public class AuditHashChainTests
         Assert.NotEqual(
             AuditHashChain.ComputeHash(Unlinked("e1") with { SessionId = null }),
             AuditHashChain.ComputeHash(Unlinked("e1") with { SessionId = "" }), StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void ComputeHash_DistinguishesNullFromEmptySource()
+    {
+        Assert.NotEqual(
+            AuditHashChain.ComputeHash(Unlinked("e1") with { Source = null }),
+            AuditHashChain.ComputeHash(Unlinked("e1") with { Source = "" }), StringComparer.Ordinal);
     }
 
     [Fact]

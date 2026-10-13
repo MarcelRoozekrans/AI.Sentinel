@@ -30,7 +30,7 @@ public static class AuditHashChain
     /// <summary>
     /// Computes the hash <paramref name="entry"/> should carry: lowercase hex SHA-256 over its
     /// <see cref="AuditEntry.PreviousHash"/>, Id, Timestamp, Severity, DetectorId, Summary,
-    /// PolicyCode and SessionId. <see cref="AuditEntry.Hash"/> itself is not an input.
+    /// PolicyCode, SessionId and Source. <see cref="AuditEntry.Hash"/> itself is not an input.
     /// </summary>
     /// <remarks>Each string is length-prefixed and <see langword="null"/> is encoded apart from the
     /// empty string, so no two different entries share an encoding.</remarks>
@@ -46,6 +46,7 @@ public static class AuditHashChain
         AppendString(sha, entry.Summary);
         AppendString(sha, entry.PolicyCode);
         AppendString(sha, entry.SessionId);
+        AppendString(sha, entry.Source);
         return Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant();
     }
 
