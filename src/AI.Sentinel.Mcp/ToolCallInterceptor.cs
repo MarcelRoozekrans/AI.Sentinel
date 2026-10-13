@@ -44,11 +44,12 @@ internal static class ToolCallInterceptor
         Func<CallToolRequestParams, ISecurityContext>? callerResolver = null,
         IApprovalStore? approvalStore = null,
         TimeSpan? approvalWait = null,
-        IReadOnlyList<IAuditForwarder>? forwarders = null)
+        IReadOnlyList<IAuditForwarder>? forwarders = null,
+        SessionId? sessionId = null)
     {
         var forwarderSnapshot = AuditForwarding.Snapshot(forwarders);
         return next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, guard, audit, forwarderSnapshot,
-            callerResolver, approvalStore, approvalWait, next, ctx, ct);
+            callerResolver, approvalStore, approvalWait, sessionId, next, ctx, ct);
     }
 
     private static async ValueTask<CallToolResult> InvokeAsync(
@@ -61,6 +62,7 @@ internal static class ToolCallInterceptor
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
+        SessionId? sessionId,
         McpRequestHandler<CallToolRequestParams, CallToolResult> next,
         RequestContext<CallToolRequestParams> ctx,
         CancellationToken ct)
@@ -70,17 +72,17 @@ internal static class ToolCallInterceptor
 
         if (guard is not null)
         {
-            await AuthorizeAsync(guard, audit, forwarders, callerResolver, approvalStore, approvalWait, req, stderr, ct).ConfigureAwait(false);
+            await AuthorizeAsync(guard, audit, forwarders, callerResolver, approvalStore, approvalWait, sessionId, req, stderr, ct).ConfigureAwait(false);
         }
 
         var requestMessages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes);
-        var preError = await ScanSafelyAsync(pipeline, requestMessages, stderr, phase: "request", ct).ConfigureAwait(false);
+        var preError = await ScanSafelyAsync(pipeline, requestMessages, stderr, phase: "request", sessionId, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(preError, req.Name, stderr, phase: "request").ConfigureAwait(false);
 
         var result = await next(ctx, ct).ConfigureAwait(false);
 
         var responseMessages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes);
-        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", ct).ConfigureAwait(false);
+        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", sessionId, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(postError, req.Name, stderr, phase: "response").ConfigureAwait(false);
 
         await stderr.WriteLineAsync(
@@ -96,6 +98,7 @@ internal static class ToolCallInterceptor
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
+        SessionId? sessionId,
         CallToolRequestParams req,
         TextWriter stderr,
         CancellationToken ct)
@@ -107,7 +110,7 @@ internal static class ToolCallInterceptor
 
         if (decision is AuthorizationDecision.RequireApprovalDecision r)
         {
-            await HandleRequireApprovalAsync(guard, audit, forwarders, approvalStore, approvalWait, caller, args, req, r, stderr, ct).ConfigureAwait(false);
+            await HandleRequireApprovalAsync(guard, audit, forwarders, approvalStore, approvalWait, caller, args, sessionId, req, r, stderr, ct).ConfigureAwait(false);
             return;
         }
 
@@ -122,7 +125,7 @@ internal static class ToolCallInterceptor
             var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
                 sender:     new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
                 receiver:   new AgentId(req.Name),
-                session:    SessionId.New(),
+                session:    sessionId ?? SessionId.New(),
                 callerId:   caller.Id,
                 roles:      caller.Roles,
                 toolName:   req.Name,
@@ -156,6 +159,7 @@ internal static class ToolCallInterceptor
         TimeSpan? approvalWait,
         ISecurityContext caller,
         JsonElement args,
+        SessionId? sessionId,
         CallToolRequestParams req,
         AuthorizationDecision.RequireApprovalDecision r,
         TextWriter stderr,
@@ -166,7 +170,7 @@ internal static class ToolCallInterceptor
             var approvalEntry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
                 sender:     new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
                 receiver:   new AgentId(req.Name),
-                session:    SessionId.New(),
+                session:    sessionId ?? SessionId.New(),
                 callerId:   caller.Id,
                 roles:      caller.Roles,
                 toolName:   req.Name,
@@ -217,11 +221,12 @@ internal static class ToolCallInterceptor
         Microsoft.Extensions.AI.ChatMessage[] messages,
         TextWriter stderr,
         string phase,
+        SessionId? sessionId,
         CancellationToken ct)
     {
         try
         {
-            return await pipeline.ScanMessagesAsync(messages, ct: ct).ConfigureAwait(false);
+            return await pipeline.ScanMessagesAsync(messages, ct: ct, sessionId: sessionId).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

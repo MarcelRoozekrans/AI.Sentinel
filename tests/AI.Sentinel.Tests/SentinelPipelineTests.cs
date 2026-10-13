@@ -6,6 +6,7 @@ using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Tests.Detectors.Security;
+using AI.Sentinel.Tests.Helpers;
 using Xunit;
 
 namespace AI.Sentinel.Tests;
@@ -159,6 +160,41 @@ public class SentinelPipelineTests
         var error = await sentinel.ScanMessagesAsync(
             [new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
         Assert.IsType<SentinelError.ThreatDetected>(error);
+    }
+
+    private static (SentinelPipeline Pipeline, RingBufferAuditStore Store) BuildWithStore()
+    {
+        var opts = new SentinelOptions();
+        var pipeline = new DetectionPipeline([new AlwaysCriticalDetector()], configurations: null, escalationClient: null);
+        var audit = new RingBufferAuditStore(100);
+        return (new SentinelPipeline(new TestChatClient("hello"), pipeline, audit, new InterventionEngine(opts, null), opts, null), audit);
+    }
+
+    [Fact]
+    public async Task ScanMessagesAsync_WithSessionId_RecordsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (sentinel, store) = BuildWithStore();
+
+        await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, ct, new SessionId("agent-7"));
+
+        var entries = await RecordingAuditForwarder.ReadAllAsync(store);
+        Assert.NotEmpty(entries);
+        Assert.All(entries, e => Assert.Equal("agent-7", e.SessionId));
+    }
+
+    [Fact]
+    public async Task ScanMessagesAsync_WithoutSessionId_MintsOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (sentinel, store) = BuildWithStore();
+
+        await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, ct);
+        await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, ct);
+
+        var ids = (await RecordingAuditForwarder.ReadAllAsync(store)).Select(e => e.SessionId).Distinct(StringComparer.Ordinal).ToList();
+        Assert.Equal(2, ids.Count);
+        Assert.All(ids, id => Assert.False(string.IsNullOrEmpty(id)));
     }
 
     [Fact]

@@ -120,7 +120,7 @@ public sealed class HookAdapter
         }
 
         var messages = BuildMessages(evt, input);
-        return await HookPipelineRunner.RunAsync(_provider, _config, messages, ct).ConfigureAwait(false);
+        return await HookPipelineRunner.RunAsync(_provider, _config, messages, ct, input.SessionId).ConfigureAwait(false);
     }
 
     private static IReadOnlyList<ChatMessage> BuildMessages(HookEvent evt, HookInput input) => evt switch

@@ -1,3 +1,4 @@
+using AI.Sentinel.Domain;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
@@ -104,7 +105,8 @@ public static class McpProxy
                 })).ConfigureAwait(false);
             }
 
-            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, pipelineStore, forwarders, callerResolver, approvalStore, approvalWait);
+            // One session per proxy process: every scan and authorization entry of this run shares it.
+            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, pipelineStore, forwarders, callerResolver, approvalStore, approvalWait, SessionId.New());
 
             var server = McpServer.Create(
                 hostTransport,
@@ -195,7 +197,8 @@ public static class McpProxy
         IReadOnlyList<IAuditForwarder>? forwarders,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
-        TimeSpan? approvalWait)
+        TimeSpan? approvalWait,
+        SessionId sessionId)
     {
         var targetCaps = targetClient.ServerCapabilities;
         var capabilities = new ServerCapabilities();
@@ -205,18 +208,18 @@ public static class McpProxy
         if (targetCaps.Tools is not null)
         {
             WireTools(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, forwarders, callerResolver,
-                approvalStore, approvalWait, capabilities, handlers, requestFilters);
+                approvalStore, approvalWait, sessionId, capabilities, handlers, requestFilters);
         }
 
         if (targetCaps.Prompts is not null)
         {
-            WirePrompts(targetClient, pipeline, maxScanBytes, stderr,
+            WirePrompts(targetClient, pipeline, maxScanBytes, stderr, sessionId,
                 capabilities, handlers, requestFilters);
         }
 
         if (targetCaps.Resources is not null)
         {
-            WireResources(targetClient, pipeline, targetCaps.Resources,
+            WireResources(targetClient, pipeline, targetCaps.Resources, sessionId,
                 capabilities, handlers, requestFilters);
         }
 
@@ -240,6 +243,7 @@ public static class McpProxy
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
+        SessionId sessionId,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -257,7 +261,7 @@ public static class McpProxy
         };
         requestFilters.CallToolFilters.Add(
             ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver,
-                approvalStore, approvalWait, forwarders));
+                approvalStore, approvalWait, forwarders, sessionId));
     }
 
     private static void WirePrompts(
@@ -265,6 +269,7 @@ public static class McpProxy
         SentinelPipeline pipeline,
         int maxScanBytes,
         TextWriter stderr,
+        SessionId sessionId,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -281,13 +286,14 @@ public static class McpProxy
             return new ListPromptsResult { Prompts = prompts.Select(p => p.ProtocolPrompt).ToList() };
         };
         requestFilters.GetPromptFilters.Add(
-            PromptGetInterceptor.Create(pipeline, maxScanBytes, stderr));
+            PromptGetInterceptor.Create(pipeline, maxScanBytes, stderr, sessionId));
     }
 
     private static void WireResources(
         McpClient targetClient,
         SentinelPipeline pipeline,
         ResourcesCapability targetResources,
+        SessionId sessionId,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -304,7 +310,7 @@ public static class McpProxy
         handlers.ReadResourceHandler = (req, c) =>
             targetClient.ReadResourceAsync(req.Params!, c);
         requestFilters.ReadResourceFilters.Add(
-            ResourceReadInterceptor.Create(pipeline));
+            ResourceReadInterceptor.Create(pipeline, sessionId));
     }
 
     private static Dictionary<string, object?> ToObjectDictionary(

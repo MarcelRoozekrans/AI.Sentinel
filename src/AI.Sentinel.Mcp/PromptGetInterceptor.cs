@@ -1,3 +1,4 @@
+using AI.Sentinel.Domain;
 using AI.Sentinel.ClaudeCode;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
@@ -23,18 +24,20 @@ internal static class PromptGetInterceptor
     public static McpRequestFilter<GetPromptRequestParams, GetPromptResult> Create(
         SentinelPipeline pipeline,
         int maxScanBytes,
-        TextWriter stderr)
+        TextWriter stderr,
+        SessionId? sessionId = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(stderr);
 
-        return next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, next, ctx, ct);
+        return next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, sessionId, next, ctx, ct);
     }
 
     private static async ValueTask<GetPromptResult> InvokeAsync(
         SentinelPipeline pipeline,
         int maxScanBytes,
         TextWriter stderr,
+        SessionId? sessionId,
         McpRequestHandler<GetPromptRequestParams, GetPromptResult> next,
         RequestContext<GetPromptRequestParams> ctx,
         CancellationToken ct)
@@ -54,7 +57,7 @@ internal static class PromptGetInterceptor
             return result;
         }
 
-        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, ct).ConfigureAwait(false);
+        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, sessionId, ct).ConfigureAwait(false);
         if (postError is SentinelError.ThreatDetected threat)
         {
             await stderr.WriteLineAsync(
@@ -75,11 +78,12 @@ internal static class PromptGetInterceptor
         SentinelPipeline pipeline,
         Microsoft.Extensions.AI.ChatMessage[] messages,
         TextWriter stderr,
+        SessionId? sessionId,
         CancellationToken ct)
     {
         try
         {
-            return await pipeline.ScanMessagesAsync(messages, ct: ct).ConfigureAwait(false);
+            return await pipeline.ScanMessagesAsync(messages, ct: ct, sessionId: sessionId).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

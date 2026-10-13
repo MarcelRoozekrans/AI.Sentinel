@@ -20,7 +20,8 @@ public static class HookPipelineRunner
         IServiceProvider provider,
         HookConfig config,
         IReadOnlyList<ChatMessage> messages,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? sessionId = null)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(config);
@@ -29,7 +30,8 @@ public static class HookPipelineRunner
         // Build a pipeline bound to an unused inner client — ScanMessagesAsync
         // never invokes it, so the client shape is irrelevant.
         var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
-        var error = await pipeline.ScanMessagesAsync(messages, null, ct).ConfigureAwait(false);
+        var error = await pipeline.ScanMessagesAsync(
+            messages, null, ct, string.IsNullOrWhiteSpace(sessionId) ? null : new AI.Sentinel.Domain.SessionId(sessionId)).ConfigureAwait(false);
 
         if (error is SentinelError.ThreatDetected t)
         {

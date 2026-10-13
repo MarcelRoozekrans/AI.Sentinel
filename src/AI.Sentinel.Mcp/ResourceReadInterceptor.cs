@@ -1,3 +1,4 @@
+using AI.Sentinel.Domain;
 using System.Globalization;
 using System.Text;
 using AI.Sentinel.ClaudeCode;
@@ -39,20 +40,22 @@ internal static class ResourceReadInterceptor
     private const int DefaultMaxScanBytes = 65_536;
 
     public static McpRequestFilter<ReadResourceRequestParams, ReadResourceResult> Create(
-        SentinelPipeline pipeline)
+        SentinelPipeline pipeline,
+        SessionId? sessionId = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
 
         var allowedMimes = ParseMimeAllowlist();
         var maxBytes = ParseMaxBytes();
 
-        return next => (ctx, ct) => InvokeAsync(pipeline, allowedMimes, maxBytes, next, ctx, ct);
+        return next => (ctx, ct) => InvokeAsync(pipeline, allowedMimes, maxBytes, sessionId, next, ctx, ct);
     }
 
     private static async ValueTask<ReadResourceResult> InvokeAsync(
         SentinelPipeline pipeline,
         HashSet<string> allowedMimes,
         int maxBytes,
+        SessionId? sessionId,
         McpRequestHandler<ReadResourceRequestParams, ReadResourceResult> next,
         RequestContext<ReadResourceRequestParams> ctx,
         CancellationToken ct)
@@ -95,7 +98,7 @@ internal static class ResourceReadInterceptor
                 continue;
             }
 
-            var scanError = await ScanSafelyAsync(pipeline, textContent.Text, req.Uri, ct).ConfigureAwait(false);
+            var scanError = await ScanSafelyAsync(pipeline, textContent.Text, req.Uri, sessionId, ct).ConfigureAwait(false);
             if (scanError is SentinelError.ThreatDetected threat)
             {
                 LogBlock(req.Uri, threat);
@@ -110,12 +113,12 @@ internal static class ResourceReadInterceptor
     }
 
     private static async ValueTask<SentinelError?> ScanSafelyAsync(
-        SentinelPipeline pipeline, string text, string uri, CancellationToken ct)
+        SentinelPipeline pipeline, string text, string uri, SessionId? sessionId, CancellationToken ct)
     {
         try
         {
             return await pipeline.ScanMessagesAsync(
-                [MessageBuilder.BuildResourceRead(text)], ct: ct).ConfigureAwait(false);
+                [MessageBuilder.BuildResourceRead(text)], ct: ct, sessionId: sessionId).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
