@@ -265,6 +265,117 @@ public sealed class SqliteAuditStoreTests : IDisposable
         Assert.NotNull(chain.AnchorHash);
     }
 
+    private static AuditEntry[] MakeChain(int count)
+    {
+        var entries = new AuditEntry[count];
+        string? prevHash = null;
+        for (int i = 0; i < count; i++)
+        {
+            var hash = $"h{i:x8}";
+            entries[i] = new AuditEntry(
+                $"id-{i}", DateTimeOffset.UtcNow.AddSeconds(i), hash, prevHash,
+                Severity.Low, "SEC-99", new string('x', 128));
+            prevHash = hash;
+        }
+        return entries;
+    }
+
+    private async Task<long> FillAsync(AuditEntry[] entries)
+    {
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+        foreach (var e in entries)
+        {
+            await store.AppendAsync(e, CancellationToken.None);
+        }
+        return UsedBytes();
+    }
+
+    private long UsedBytes()
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = _dbPath, Pooling = false }.ToString());
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT (SELECT * FROM pragma_page_count) - (SELECT * FROM pragma_freelist_count), (SELECT * FROM pragma_page_size);";
+        using var r = cmd.ExecuteReader();
+        r.Read();
+        return r.GetInt64(0) * r.GetInt64(1);
+    }
+
+    [Fact]
+    public async Task EnforceSizeCapOnOpen_TrimsAnOverCapFileWithoutVacuum()
+    {
+        var entries = MakeChain(500);
+        var used = await FillAsync(entries);
+        var cap = (long)(used * 0.6);
+
+        await using var capped = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            MaxDatabaseSizeBytes = cap,
+            EnforceSizeCapOnOpen = true,
+            VacuumAfterTrim = false,
+        });
+
+        var after = UsedBytes();
+        Assert.True(after <= cap, $"used bytes should be at or under the cap; after={after} cap={cap}");
+        var remaining = new List<AuditEntry>();
+        await foreach (var e in capped.QueryAsync(new AuditQuery(PageSize: 10_000), CancellationToken.None))
+        {
+            remaining.Add(e);
+        }
+        Assert.NotEmpty(remaining);
+        Assert.True(remaining.Count < entries.Length);
+        Assert.Equal(entries[^1].Id, remaining[^1].Id);
+        Assert.True((await VerifyAsync(capped)).IsIntact);
+    }
+
+    [Fact]
+    public async Task EnforceSizeCapOnOpen_DoesNothingUnderCap()
+    {
+        var entries = MakeChain(50);
+        var used = await FillAsync(entries);
+
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            MaxDatabaseSizeBytes = used * 2,
+            EnforceSizeCapOnOpen = true,
+            VacuumAfterTrim = false,
+        });
+
+        var count = 0;
+        await foreach (var _ in store.QueryAsync(new AuditQuery(PageSize: 1000), CancellationToken.None))
+        {
+            count++;
+        }
+        Assert.Equal(entries.Length, count);
+    }
+
+    [Fact]
+    public async Task BusyTimeout_GivesUpQuickly()
+    {
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions
+        {
+            DatabasePath = _dbPath,
+            BusyTimeout = TimeSpan.FromSeconds(1),
+        });
+
+        using var holder = new Microsoft.Data.Sqlite.SqliteConnection(
+            new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = _dbPath, Pooling = false }.ToString());
+        holder.Open();
+        using (var begin = holder.CreateCommand())
+        {
+            begin.CommandText = "BEGIN IMMEDIATE;";
+            begin.ExecuteNonQuery();
+        }
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAsync<Microsoft.Data.Sqlite.SqliteException>(async () =>
+            await store.AppendAsync(Make("blocked"), CancellationToken.None));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), $"append waited {sw.Elapsed}");
+    }
+
     [Fact]
     public async Task MaxDatabaseSizeBytes_NotConfigured_DoesNotTrim()
     {

@@ -41,6 +41,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             DataSource = options.DatabasePath,
             Pooling = false,
             Mode = SqliteOpenMode.ReadWriteCreate,
+            // DefaultTimeout is both the busy wait and the command timeout. Round up so a
+            // sub-second value never becomes 0, which would mean no wait at all.
+            DefaultTimeout = (int)Math.Max(1, Math.Ceiling(options.BusyTimeout.TotalSeconds)),
         };
         _connection = new SqliteConnection(csb.ToString());
         try
@@ -59,6 +62,11 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             throw;
         }
 
+        if (options.EnforceSizeCapOnOpen && options.MaxDatabaseSizeBytes is { } openCap && openCap > 0)
+        {
+            TrimOnOpen(openCap);
+        }
+
         var hasTimeRetention = options.RetentionPeriod is { } r && r > TimeSpan.Zero;
         var hasSizeCap = options.MaxDatabaseSizeBytes is { } b && b > 0;
         if (hasTimeRetention || hasSizeCap)
@@ -68,6 +76,25 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
                 this,
                 options.RetentionSweepInterval,
                 options.RetentionSweepInterval);
+        }
+    }
+
+    // Short-lived writers never reach the timer, so trim at construction. A failure, for example
+    // a busy lock, must not leave the store unusable; the next open retries.
+    private void TrimOnOpen(long maxBytes)
+    {
+        _writeLock.Wait();
+        try
+        {
+            EnforceSizeCap(maxBytes);
+        }
+        catch (SqliteException)
+        {
+            // Same policy as the background sweep: swallow and retry later.
+        }
+        finally
+        {
+            _writeLock.Release();
         }
     }
 
@@ -256,9 +283,22 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
     }
 
+    /// <summary>Bytes in use: pages minus freelist pages, times page size. Unlike the file
+    /// length this drops as soon as rows are deleted, with no <c>VACUUM</c> needed.</summary>
+    private long UsedBytes()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT ((SELECT * FROM pragma_page_count) - (SELECT * FROM pragma_freelist_count))
+                   * (SELECT * FROM pragma_page_size);
+            """;
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
     /// <summary>
-    /// Deletes oldest entries in 10%-batches (minimum 100) until the on-disk file size
-    /// is under <paramref name="maxBytes"/>. Runs <c>VACUUM</c> after each batch so the
+    /// Deletes oldest entries in 10%-batches (minimum 100) until the used size
+    /// is under <paramref name="maxBytes"/>. Unless <see cref="SqliteAuditStoreOptions.VacuumAfterTrim"/>
+    /// is false, runs <c>VACUUM</c> after each batch so the
     /// file actually shrinks (SQLite holds onto freed pages until VACUUM reclaims them).
     /// Caller must hold <see cref="_writeLock"/>.
     /// </summary>
@@ -269,10 +309,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         const int maxIterations = 8;
         for (int i = 0; i < maxIterations; i++)
         {
-            long currentSize;
-            try { currentSize = new FileInfo(_options.DatabasePath).Length; }
-            catch (IOException) { return; }
-            if (currentSize <= maxBytes) return;
+            if (UsedBytes() <= maxBytes) return;
 
             long totalRows;
             using (var countCmd = _connection.CreateCommand())
@@ -297,6 +334,8 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
                 del.Parameters.Add(p);
                 if (del.ExecuteNonQuery() == 0) return; // safety: nothing deleted, avoid infinite loop
             }
+
+            if (!_options.VacuumAfterTrim) continue;
 
             // VACUUM reclaims freed pages and shrinks the main DB. Schema uses WAL mode,
             // so we must also force a TRUNCATE checkpoint — otherwise the main file
