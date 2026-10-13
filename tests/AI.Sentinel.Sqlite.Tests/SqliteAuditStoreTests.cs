@@ -199,7 +199,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-        Assert.Equal(4, version);
+        Assert.Equal(5, version);
     }
 
     [Fact]
@@ -401,5 +401,46 @@ public sealed class SqliteAuditStoreTests : IDisposable
 
         Assert.Equal(first.Hash, second.PreviousHash);
         Assert.True((await VerifyAsync(store)).IsIntact);
+    }
+    [Fact]
+    public async Task Source_RoundTrips()
+    {
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+
+        var stored = await store.AppendAsync(Make("e1") with { Source = "mcp" }, CancellationToken.None);
+
+        var read = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(), CancellationToken.None))
+            read.Add(e);
+        Assert.Equal("mcp", stored.Source);
+        Assert.Equal(stored, Assert.Single(read));
+    }
+
+    [Fact]
+    public async Task TwoStoresOnOneFile_FormOneIntactChain()
+    {
+        // Two stores on one file stand in for two processes: each has its own connection and
+        // its own in-memory state, so only the database can keep the chain consistent.
+        await using var first = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+        await using var second = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+
+        var tasks = new List<Task>(200);
+        for (var i = 0; i < 100; i++)
+        {
+            var id = i.ToString(CultureInfo.InvariantCulture);
+            tasks.Add(Task.Run(() => first.AppendAsync(Make("a" + id), CancellationToken.None).AsTask(), TestContext.Current.CancellationToken));
+            tasks.Add(Task.Run(() => second.AppendAsync(Make("b" + id), CancellationToken.None).AsTask(), TestContext.Current.CancellationToken));
+        }
+        await Task.WhenAll(tasks);
+
+        var chain = await VerifyAsync(first);
+        Assert.True(chain.IsIntact, $"chain broken at {chain.FirstBrokenEntryId}");
+        Assert.Equal(200, chain.EntriesChecked);
+
+        await using var raw = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath};Pooling=False");
+        await raw.OpenAsync(TestContext.Current.CancellationToken);
+        using var cmd = raw.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(DISTINCT sequence) FROM audit_entries;";
+        Assert.Equal(200L, await cmd.ExecuteScalarAsync(TestContext.Current.CancellationToken));
     }
 }

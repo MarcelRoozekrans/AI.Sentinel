@@ -63,7 +63,7 @@ public sealed class SqliteSchemaMigrationTests : IDisposable
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
             var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-            Assert.Equal(4, version);
+            Assert.Equal(5, version);
         }
 
         // Step 3: open a fresh raw connection and verify the legacy row was backfilled.
@@ -82,6 +82,6 @@ public sealed class SqliteSchemaMigrationTests : IDisposable
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-        Assert.Equal(4, version);
+        Assert.Equal(5, version);
     }
 }

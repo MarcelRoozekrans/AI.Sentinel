@@ -10,7 +10,8 @@ namespace AI.Sentinel.Sqlite;
 /// Persistent <see cref="IAuditStore"/> backed by a single-file SQLite database.
 /// Survives process restarts, links every appended entry into the <see cref="AuditHashChain"/>
 /// and continues that chain across restarts, and supports optional time-based retention via a
-/// background sweep timer.
+/// background sweep timer. Several processes may write to one file at once: each append reads
+/// the chain head and the next sequence inside its own write transaction.
 /// </summary>
 public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
 {
@@ -18,8 +19,6 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     private readonly SqliteConnection _connection;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly Timer? _retentionTimer;
-    private long _sequence;
-    private string? _lastHash;
     private bool _disposed;
 
     public SqliteAuditStore(SqliteAuditStoreOptions options)
@@ -51,8 +50,6 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             // Schema bootstrap is synchronous in ctor — failure here surfaces immediately
             // rather than on first append.
             SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
-            _sequence = LoadHighestSequence();
-            _lastHash = LoadLastHash();
         }
         catch
         {
@@ -82,17 +79,33 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            entry = AuditHashChain.Link(entry, _lastHash);
-            var seq = ++_sequence;
-            // The entry and the chain head commit together, so a failed insert never moves the head.
+            // BEGIN IMMEDIATE takes the write lock before the chain head and sequence are read, so
+            // another process cannot append between that read and this insert. The entry and the
+            // chain head commit together, so a failed insert never moves the head.
             using var tx = _connection.BeginTransaction();
+            long seq;
+            string? lastHash;
+            using (var head = _connection.CreateCommand())
+            {
+                head.Transaction = tx;
+                head.CommandText = """
+                    SELECT (SELECT hash FROM audit_chain_head WHERE id = 1),
+                           (SELECT COALESCE(MAX(sequence), 0) + 1 FROM audit_entries);
+                    """;
+                using var reader = await head.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                await reader.ReadAsync(ct).ConfigureAwait(false);
+                lastHash = reader.IsDBNull(0) ? null : reader.GetString(0);
+                seq = reader.GetInt64(1);
+            }
+
+            entry = AuditHashChain.Link(entry, lastHash);
             using var cmd = _connection.CreateCommand();
             cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO audit_entries
-                    (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id)
+                    (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id, source)
                 VALUES
-                    ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session);
+                    ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session, $source);
                 INSERT INTO audit_chain_head (id, hash) VALUES (1, $hash)
                     ON CONFLICT (id) DO UPDATE SET hash = excluded.hash;
                 """;
@@ -108,9 +121,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             // session_id is nullable: detectors that don't carry a session pass null and we
             // round-trip that as DBNull for dashboard queries to filter on IS NULL.
             cmd.Parameters.AddWithValue("$session", (object?)entry.SessionId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$source", (object?)entry.Source ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             await tx.CommitAsync(ct).ConfigureAwait(false);
-            _lastHash = entry.Hash;
             return entry;
         }
         finally
@@ -146,7 +159,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     {
         var cmd = _connection.CreateCommand();
         var sql = new System.Text.StringBuilder(
-            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code, session_id FROM audit_entries WHERE 1=1");
+            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code, session_id, source FROM audit_entries WHERE 1=1");
 
         if (query.MinSeverity.HasValue)
         {
@@ -192,24 +205,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         var summary = reader.GetString(6);
         var policyCode = reader.IsDBNull(7) ? null : reader.GetString(7);
         var sessionId = reader.IsDBNull(8) ? null : reader.GetString(8);
+        var source = reader.IsDBNull(9) ? null : reader.GetString(9);
         var ts = new DateTimeOffset(tsTicks, TimeSpan.Zero);
-        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary, policyCode, sessionId);
-    }
-
-    private long LoadHighestSequence()
-    {
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT COALESCE(MAX(sequence), 0) FROM audit_entries;";
-        var raw = cmd.ExecuteScalar();
-        return raw is null or DBNull ? 0L : Convert.ToInt64(raw, CultureInfo.InvariantCulture);
-    }
-
-    private string? LoadLastHash()
-    {
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT hash FROM audit_chain_head WHERE id = 1;";
-        var raw = cmd.ExecuteScalar();
-        return raw is null or DBNull ? null : (string)raw;
+        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary, policyCode, sessionId, source);
     }
 
     private void SweepRetention()
