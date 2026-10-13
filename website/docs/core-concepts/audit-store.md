@@ -12,12 +12,12 @@ title: Audit store
 ```csharp
 public interface IAuditStore
 {
-    ValueTask AppendAsync(AuditEntry entry, CancellationToken ct);
+    ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct);
     IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct);
 }
 ```
 
-Append-only writes; query is a streaming async-enumerable cursor.
+Append-only writes; query is a streaming async-enumerable cursor. `AppendAsync` returns the entry **as stored**, with `Hash` and `PreviousHash` filled in by the store. Forward that returned entry, not the one you passed in.
 
 ## `AuditEntry`
 
@@ -25,34 +25,36 @@ Append-only writes; query is a streaming async-enumerable cursor.
 public sealed record AuditEntry(
     string Id,                  // unique entry ID (Guid)
     DateTimeOffset Timestamp,
-    string Hash,                // SHA-256 of (PreviousHash + Id + Timestamp + DetectorId + Severity + Summary)
-    string? PreviousHash,       // null for the first entry, otherwise the previous entry's Hash
+    string Hash,                // set by the store: SHA-256 over PreviousHash and every field below
+    string? PreviousHash,       // set by the store: null for the first entry, otherwise the previous entry's Hash
     Severity Severity,
     string DetectorId,
-    string Summary);
+    string Summary,
+    string? PolicyCode = null,  // AUTHZ-DENY entries only
+    string? SessionId = null);
 ```
 
-Each entry includes the SHA-256 hash of the previous entry, forming a chain. **Tampering with any historical entry invalidates every subsequent hash** — making forensic verification straightforward.
+The store links every entry it appends into a SHA-256 hash chain ([`AuditHashChain`](#hash-chain-verification)). An entry's `Hash` covers its own fields and the previous entry's hash, so **editing, inserting or deleting any entry breaks the link to the entry after it**. Callers pass `Hash: string.Empty, PreviousHash: null`; whatever they pass is replaced.
 
 ## Hash chain verification
 
 ```csharp
-async ValueTask<bool> VerifyChainAsync(IAuditStore store, CancellationToken ct)
-{
-    string? prev = null;
-    await foreach (var entry in store.QueryAsync(new AuditQuery(), ct))
-    {
-        if (entry.PreviousHash != prev) return false;
-        var expected = ComputeHash(prev, entry.Id, entry.Timestamp,
-                                   entry.DetectorId, entry.Severity, entry.Summary);
-        if (entry.Hash != expected) return false;
-        prev = entry.Hash;
-    }
-    return true;
-}
+var result = await AuditHashChain.VerifyAsync(
+    store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), ct), ct);
+
+if (!result.IsIntact)
+    Console.WriteLine($"Chain broken at entry {result.FirstBrokenEntryId} after {result.EntriesChecked} good entries");
 ```
 
-The `AI.Sentinel.Cli` `verify` subcommand (planned) does this for offline NDJSON exports. For SQLite, the `RunRetentionForTestingAsync` test hook exercises chain verification across retention sweeps.
+`VerifyAsync` walks the entries oldest first and stops at the first one that fails. After an edit that is the edited entry; after a deletion it is the entry that follows the gap.
+
+Verification starts from the oldest entry still present. When the ring buffer has evicted entries, or SQLite retention has deleted them, that entry's `PreviousHash` is returned as `result.AnchorHash`. A `null` anchor means the chain is complete from its first entry. Deleting entries from the *head* of the chain looks the same as retention, so record the anchor in a report and compare it with the next one to detect that.
+
+The `AI.Sentinel.Cli` `verify` subcommand (planned) will do this for offline NDJSON exports.
+
+:::note Upgrading from 2.x
+Entries written before 3.0 are not chained, so a store that holds them fails verification at its first old entry. Verify from the upgrade onward with `new AuditQuery(From: upgradedAt, PageSize: int.MaxValue)`: the first new entry's `PreviousHash` is the last old entry's hash and becomes the anchor.
+:::
 
 ## Built-in implementations
 
@@ -75,11 +77,11 @@ Persistent single-file SQLite database. Hash-chain integrity preserved across pr
 
 ```csharp
 // dotnet add package AI.Sentinel.Sqlite
-services.AddSentinelSqliteAuditStore(new SqliteAuditStoreOptions
+services.AddSentinelSqliteStore(opts =>
 {
-    DatabasePath = "/var/lib/ai-sentinel/audit.db",
-    RetentionPeriod = TimeSpan.FromDays(90),
-    RetentionSweepInterval = TimeSpan.FromHours(1),
+    opts.DatabasePath = "/var/lib/ai-sentinel/audit.db";
+    opts.RetentionPeriod = TimeSpan.FromDays(90);
+    opts.RetentionSweepInterval = TimeSpan.FromHours(1);
 });
 ```
 
@@ -95,7 +97,7 @@ See [SQLite audit store](../audit-forwarders/sqlite) for retention tuning, multi
 |---|---|
 | **Bounded buffer** (drop oldest) | `RingBufferAuditStore.AuditCapacity` |
 | **Time-based sweep** (delete older than N days) | `SqliteAuditStoreOptions.RetentionPeriod` |
-| **Size-based cap** | Not yet — [backlog item](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md) for `MaxDatabaseSizeBytes` on SQLite |
+| **Size-based cap** (delete oldest until under N bytes) | `SqliteAuditStoreOptions.MaxDatabaseSizeBytes` |
 | **External SIEM retention** | Forward via [audit forwarders](../audit-forwarders/overview); your SIEM owns retention |
 
 ## Query API
@@ -107,7 +109,9 @@ public sealed record AuditQuery(
     Severity? MinSeverity = null,
     DateTimeOffset? From = null,
     DateTimeOffset? To = null,
-    int PageSize = 1000);
+    int PageSize = 200,
+    bool Reverse = false,       // newest first
+    string? SessionId = null);
 ```
 
 ```csharp
@@ -131,7 +135,7 @@ This decoupling matters for forensic investigation: even if you set everything t
 
 ## Forwarders fan out
 
-After `IAuditStore.AppendAsync` writes, every registered `IAuditForwarder` fires off the same entry to its destination — Azure Sentinel, OpenTelemetry, NDJSON file, etc. Forwarders are async fire-and-forget — a forwarder failure doesn't fail the audit append. See [Audit forwarders](../audit-forwarders/overview) for the destination options.
+After `IAuditStore.AppendAsync` writes, every registered `IAuditForwarder` receives the entry as stored, chain hashes included, and sends it to its destination — Azure Sentinel, OpenTelemetry, NDJSON file, etc. Forwarders are async fire-and-forget — a forwarder failure doesn't fail the audit append. See [Audit forwarders](../audit-forwarders/overview) for the destination options.
 
 ## Custom audit stores
 
@@ -140,8 +144,24 @@ After `IAuditStore.AppendAsync` writes, every registered `IAuditForwarder` fires
 ```csharp
 public sealed class MyCustomAuditStore : IAuditStore
 {
-    public ValueTask AppendAsync(AuditEntry entry, CancellationToken ct) { /* ... */ }
-    public IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct) { /* ... */ }
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+    private string? _lastHash;   // load the newest stored Hash at startup so the chain continues
+
+    public async ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
+    {
+        await _writeLock.WaitAsync(ct);
+        try
+        {
+            // Link under the write lock, so concurrent appends cannot fork the chain.
+            var linked = AuditHashChain.Link(entry, _lastHash);
+            /* persist linked */
+            _lastHash = linked.Hash;
+            return linked;
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct) { /* oldest first unless query.Reverse */ }
 }
 
 services.AddSingleton<IAuditStore, MyCustomAuditStore>();  // before AddAISentinel

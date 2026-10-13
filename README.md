@@ -283,7 +283,7 @@ AI.Sentinel provides runtime building blocks for several technical obligations o
 | Article | Requirement | What AI.Sentinel provides | Active by default |
 |---|---|---|---|
 | Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors |
-| Art. 12 | Record-keeping (automatic logging) | Every detection is written to `IAuditStore`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`; forwarders mirror it to NDJSON, Azure Sentinel or OpenTelemetry. Entries are **not hash-chained yet**, so the log is not tamper-evident ([#342](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/342)) | ⚠️ partial: in-memory ring buffer only, capped at `opts.AuditCapacity` entries and lost on restart |
+| Art. 12 | Record-keeping (automatic logging) | Every detection and authorization denial is written to `IAuditStore` and linked into a SHA-256 hash chain, so an edited, inserted or deleted entry is detectable with `AuditHashChain.VerifyAsync`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`; forwarders mirror it, chain hashes included, to NDJSON, Azure Sentinel or OpenTelemetry | ⚠️ partial: hash-chained, but in an in-memory ring buffer capped at `opts.AuditCapacity` entries and lost on restart |
 | Art. 14 | Human oversight | [Tool-call authorization](#tool-call-authorization) and the [approval workflow](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview): `RequireApproval` holds a tool call until a person approves it in the dashboard or in Entra PIM (`AI.Sentinel.Approvals.Sqlite`, `AI.Sentinel.Approvals.EntraPim`). The dashboard shows detections live | ❌ none: every tool call is allowed until policies or approvals are configured |
 | Art. 15 | Accuracy, robustness and cybersecurity | The [56 detectors](#detectors-56), [OWASP LLM Top 10 coverage](#owasp-llm-top-10-2025-coverage) and [prompt hardening](#prompt-hardening-owasp-llm01--preventive) | ⚠️ partial: 15 rule-based detectors; the 39 semantic ones need an `EmbeddingGenerator` and `SystemPrefix` is opt-in |
 | Art. 50 | Transparency obligations | Not covered yet ([#336](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/336)) | — |
@@ -375,7 +375,7 @@ services.AddSentinelSqliteStore(opts =>
 });
 ```
 
-Single-file SQLite DB. WAL mode enabled (concurrent reads while writer active). Hash chain survives restarts. Last-registration-wins for `IAuditStore`.
+Single-file SQLite DB. WAL mode enabled (concurrent reads while writer active). The hash chain continues across restarts; verify it with `AuditHashChain.VerifyAsync`. Last-registration-wins for `IAuditStore`.
 
 ### Forwarding to external systems
 
