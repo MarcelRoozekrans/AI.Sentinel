@@ -402,6 +402,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
         Assert.Equal(first.Hash, second.PreviousHash);
         Assert.True((await VerifyAsync(store)).IsIntact);
     }
+
     [Fact]
     public async Task Source_RoundTrips()
     {

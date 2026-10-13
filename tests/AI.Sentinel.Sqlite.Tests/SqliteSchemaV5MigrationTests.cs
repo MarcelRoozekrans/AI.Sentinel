@@ -105,26 +105,34 @@ public sealed class SqliteSchemaV5MigrationTests : IDisposable
         await using var holder = new SqliteConnection(ConnectionString);
         await holder.OpenAsync(TestContext.Current.CancellationToken);
         var hold = holder.BeginTransaction();
-
-        var opens = new[]
-        {
+        Task<SqliteAuditStore>[] opens =
+        [
             Task.Run(() => new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }), TestContext.Current.CancellationToken),
             Task.Run(() => new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }), TestContext.Current.CancellationToken),
-        };
-        // Give both constructors time to read the version and block on the lock.
-        await Task.Delay(TimeSpan.FromMilliseconds(500), TestContext.Current.CancellationToken);
-        Assert.All(opens, t => Assert.False(t.IsCompleted));
-        hold.Rollback();
-        hold.Dispose();
-
-        var stores = await Task.WhenAll(opens);
-        foreach (var store in stores)
+        ];
+        try
         {
-            await using (store)
+            // Give both constructors time to read the version and block on the lock.
+            await Task.Delay(TimeSpan.FromMilliseconds(500), TestContext.Current.CancellationToken);
+            Assert.All(opens, t => Assert.False(t.IsCompleted));
+            hold.Rollback();
+
+            foreach (var store in await Task.WhenAll(opens))
             {
                 Assert.Equal(5, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
             }
+            Assert.Equal(1L, await ScalarAsync("SELECT COUNT(*) FROM pragma_table_info('audit_entries') WHERE name = 'source';"));
         }
-        Assert.Equal(1L, await ScalarAsync("SELECT COUNT(*) FROM pragma_table_info('audit_entries') WHERE name = 'source';"));
+        finally
+        {
+            // Release the lock even when an assertion fails, so the constructors finish instead of
+            // blocking on the busy timeout, then close every store that opened.
+            hold.Dispose();
+            foreach (var open in opens)
+            {
+                try { await (await open).DisposeAsync(); }
+                catch (SqliteException) { /* the failure already surfaced through Task.WhenAll */ }
+            }
+        }
     }
 }

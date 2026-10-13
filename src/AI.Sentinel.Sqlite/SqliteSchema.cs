@@ -179,8 +179,10 @@ internal static class SqliteSchema
 
     private static async Task MigrateV4ToV5Async(SqliteConnection conn, SqliteTransaction tx, CancellationToken ct)
     {
-        // v4→v5: add the nullable source column. Existing rows read NULL, which is what they were
-        // hashed with, so the chain still verifies.
+        // v4→v5: add the nullable source column. Rows written before v5 were hashed without
+        // Source, so they do not verify against the v5 hash. v4 existed only in unreleased builds.
+        // To verify across the upgrade, verify from the first v5 entry: its PreviousHash anchors
+        // on the last v4 row.
         using var migrate = conn.CreateCommand();
         migrate.Transaction = tx;
         migrate.CommandText = "ALTER TABLE audit_entries ADD COLUMN source TEXT;";
