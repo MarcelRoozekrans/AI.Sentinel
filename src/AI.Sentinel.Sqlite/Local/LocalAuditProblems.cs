@@ -44,7 +44,9 @@ internal sealed class LocalAuditProblems(Action<string>? onProblem = null)
         {
             onProblem(problem);
         }
-        catch (Exception ex) when (ex is IOException or ObjectDisposedException)
+#pragma warning disable CA1031 // A failing report callback must never reach the append path and change a decision.
+        catch (Exception ex)
+#pragma warning restore CA1031
         {
             Debug.WriteLine($"Audit problem report failed: {ex.Message}");
         }

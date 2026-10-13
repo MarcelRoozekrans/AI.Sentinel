@@ -420,6 +420,18 @@ public sealed class LocalAuditTests : IDisposable
         Assert.Single(session.Problems);
     }
 
+    [Fact]
+    public async Task Session_ACallbackThatThrowsDoesNotMakeAppendThrow()
+    {
+        var problems = new LocalAuditProblems(_ => throw new InvalidOperationException("callback failed"));
+        await using var session = new LocalAuditSession(new ThrowingAuditStore(), AuditSources.Mcp, [], problems);
+
+        await session.Store.AppendAsync(Make("a"), TestContext.Current.CancellationToken);
+
+        var problem = Assert.Single(session.Problems);
+        Assert.Contains("disk full", problem, StringComparison.Ordinal);
+    }
+
     private sealed class ThrowingAuditStore : IAuditStore
     {
         public ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct) =>

@@ -86,7 +86,7 @@ internal static class ProxyCommand
 
     /// <summary>Entries are forwarded on background tasks; wait (bounded) so an NDJSON line is on disk
     /// before the process exits, then dispose the session. Problems were already reported as they happened,
-    /// except any raised while disposing, which are reported here.</summary>
+    /// including any raised while disposing, which also go out through the callback.</summary>
     private static async Task CloseAuditAsync(LocalAuditSession audit, TextWriter stderr)
     {
         await audit.FlushAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
