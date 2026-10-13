@@ -61,23 +61,24 @@ internal static class DashboardHandlers
         var filter  = (string?)ctx.Request.Query["filter"];
         var q       = (string?)ctx.Request.Query["q"];
         var session = (string?)ctx.Request.Query["session"];
+        var source  = (string?)ctx.Request.Query["source"];
 
         var entries = new List<AuditEntry>();
         await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
-        var filtered = FilterAuditEntries(entries, filter, q, session).ToList();
+        var filtered = FilterAuditEntries(entries, filter, q, session, source).ToList();
 
         var sb = new StringBuilder();
         var ordered = filtered.OrderByDescending(x => x.Timestamp).Take(50).ToList();
         if (ordered.Count == 0)
         {
-            var emptyMessage = (filter, q, session) switch
+            var emptyMessage = (filter, q, session, source) switch
             {
-                (null or "", null or "", null or "") => "No events yet — agents are quiet.",
+                (null or "", null or "", null or "", null or "") => "No events yet — agents are quiet.",
                 _                                      => "No events match this filter.",
             };
-            sb.Append("<tr class=\"feed-empty\"><td colspan=\"6\">")
+            sb.Append("<tr class=\"feed-empty\"><td colspan=\"7\">")
               .Append(emptyMessage)
               .AppendLine("</td></tr>");
             await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
@@ -107,8 +108,9 @@ internal static class DashboardHandlers
             sb.Append(" audit-row-authz");
         sb.AppendLine("\">")
           .Append("  <td>").Append(ts).AppendLine("</td>")
-          .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>")
-          .Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
+          .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>");
+        AppendSourceCell(sb, e.Source);
+        sb.Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
           .Append("  <td title=\"").Append(HtmlEncode(e.Summary)).Append("\">");
         if (isAuthz)
         {
@@ -138,6 +140,26 @@ internal static class DashboardHandlers
           .AppendLine("</tr>");
     }
 
+    /// <summary>Renders the Source cell: a clickable filter link, or an em dash for in-process
+    /// entries that carry no source.</summary>
+    private static void AppendSourceCell(StringBuilder sb, string? source)
+    {
+        sb.Append("  <td class=\"source\">");
+        if (!string.IsNullOrEmpty(source))
+        {
+            sb.Append("<a href=\"#\" class=\"source-link\" data-source=\"")
+              .Append(HtmlEncode(source))
+              .Append("\" title=\"Filter by source\">")
+              .Append(HtmlEncode(source))
+              .Append("</a>");
+        }
+        else
+        {
+            sb.Append("\u2014");
+        }
+        sb.AppendLine("</td>");
+    }
+
     /// <summary>Maps a category name from a chip filter (e.g. "security", "hallucination") to the
     /// matching DetectorId prefix. Unknown / empty / null category returns true (no filtering).</summary>
     internal static bool IsInCategory(string detectorId, string? category) => category switch
@@ -151,11 +173,11 @@ internal static class DashboardHandlers
 
     /// <summary>Single-source-of-truth filter pipeline used by /api/feed and /api/export.ndjson.
     /// /api/trend deliberately does NOT use this — it always renders the global trend (design D4).
-    /// All three filters AND together: chips ∧ session ∧ search.</summary>
+    /// All four filters AND together: chips ∧ session ∧ source ∧ search.</summary>
     /// <remarks>Returns a lazy IEnumerable; callers that enumerate more than once should
     /// materialise via .ToList() to avoid re-evaluating predicates.</remarks>
     internal static IEnumerable<AuditEntry> FilterAuditEntries(
-        IEnumerable<AuditEntry> entries, string? category, string? q, string? session)
+        IEnumerable<AuditEntry> entries, string? category, string? q, string? session, string? source = null)
     {
         // Order is deliberate: cheap+selective filters (category, session) first,
         // expensive Contains() last so it runs on the smallest residual set.
@@ -163,6 +185,8 @@ internal static class DashboardHandlers
             entries = entries.Where(e => IsInCategory(e.DetectorId, category));
         if (!string.IsNullOrEmpty(session))
             entries = entries.Where(e => string.Equals(e.SessionId, session, StringComparison.Ordinal));
+        if (!string.IsNullOrEmpty(source))
+            entries = entries.Where(e => string.Equals(e.Source, source, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrEmpty(q))
             entries = entries.Where(e => e.Summary.Contains(q, StringComparison.OrdinalIgnoreCase));
         return entries;
@@ -257,7 +281,7 @@ internal static class DashboardHandlers
     private const int ExportPageCap = 10_000;
 
     /// <summary>Streams the current filtered audit log as NDJSON for download. Honours
-    /// chips ∧ session ∧ search filters from the live feed.</summary>
+    /// chips ∧ session ∧ source ∧ search filters from the live feed.</summary>
     /// <remarks>
     /// Capped at <see cref="ExportPageCap"/> entries per request. When the cap is hit, the
     /// response includes <c>X-Sentinel-Truncated: true</c> so consumers can detect partial
@@ -270,6 +294,7 @@ internal static class DashboardHandlers
         var filter  = (string?)ctx.Request.Query["filter"];
         var q       = (string?)ctx.Request.Query["q"];
         var session = (string?)ctx.Request.Query["session"];
+        var source  = (string?)ctx.Request.Query["source"];
 
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
         var entries = new List<AuditEntry>();
@@ -285,7 +310,7 @@ internal static class DashboardHandlers
         // Session is now pushed down to the store; FilterAuditEntries only handles
         // the in-memory chip+q filters. Truncation (entries.Count >= ExportPageCap)
         // thus reflects "the store hit its cap for this session+severity selection."
-        var filtered = FilterAuditEntries(entries, filter, q, session: null)
+        var filtered = FilterAuditEntries(entries, filter, q, session: null, source)
             .OrderBy(e => e.Timestamp)
             .ToArray();
 

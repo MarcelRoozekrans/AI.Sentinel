@@ -61,10 +61,11 @@
         <p class="loading">Loading trend&#8230;</p>
       </div>
       <div id="session-pill-container"></div>
+      <div id="source-pill-container"></div>
       <div class="table-wrap">
         <table>
           <thead>
-            <tr><th>Time</th><th>Detector</th><th>Severity</th><th>Reason</th><th>Session</th><th>Hash</th></tr>
+            <tr><th>Time</th><th>Detector</th><th>Source</th><th>Severity</th><th>Reason</th><th>Session</th><th>Hash</th></tr>
           </thead>
           <tbody id="feed-body"
             hx-get="api/feed"
@@ -128,6 +129,8 @@
       if (q) params.set('q', q);
       const session = document.body.dataset.session || '';
       if (session) params.set('session', session);
+      const source = document.body.dataset.source || '';
+      if (source) params.set('source', source);
       const qs = params.toString();
       return qs ? ('api/feed?' + qs) : 'api/feed';
     }
@@ -148,6 +151,9 @@
 
       const session = document.body.dataset.session || '';
       if (session) params.set('session', session); else params.delete('session');
+
+      const source = document.body.dataset.source || '';
+      if (source) params.set('source', source); else params.delete('source');
 
       window.history.replaceState(null, '', url.toString());
     }
@@ -232,6 +238,41 @@
       renderSessionPill(session);
     });
 
+    // Delegate source-link clicks the same way: set body.dataset.source, re-render feed.
+    feedBody.addEventListener('click', function (e) {
+      const link = e.target.closest('.source-link');
+      if (!link) return;
+      e.preventDefault();
+      const source = link.getAttribute('data-source');
+      document.body.dataset.source = source;
+      refreshFeed();
+      renderSourcePill(source);
+    });
+
+    // Render the source-filter pill above the feed. Empty/null source clears it.
+    function renderSourcePill(source) {
+      const container = document.getElementById('source-pill-container');
+      container.innerHTML = '';
+      if (!source) return;
+      const pill = document.createElement('div');
+      pill.className = 'source-pill';
+      pill.appendChild(document.createTextNode('Filtering source: '));
+      const code = document.createElement('code');
+      code.textContent = source;
+      pill.appendChild(code);
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.className = 'source-pill-clear';
+      clear.textContent = '✕ clear';
+      clear.addEventListener('click', function () {
+        delete document.body.dataset.source;
+        container.innerHTML = '';
+        refreshFeed();
+      });
+      pill.appendChild(clear);
+      container.appendChild(pill);
+    }
+
     // Render the session-filter pill above the feed. Empty/null sessionId clears it.
     function renderSessionPill(sessionId) {
       const container = document.getElementById('session-pill-container');
@@ -266,6 +307,11 @@
         document.body.dataset.session = session;
         renderSessionPill(session);
       }
+      const source = params.get('source');
+      if (source) {
+        document.body.dataset.source = source;
+        renderSourcePill(source);
+      }
       const q = params.get('q');
       if (q && searchInput) { searchInput.value = q; }
       const filter = params.get('filter');
@@ -273,11 +319,11 @@
         const chip = document.querySelector('#feed-chips .feed-chip[data-filter="' + filter + '"]');
         if (chip) activate(chip);  // already calls refreshFeed
       }
-      // If session or q was set without a filter, no activate() was called — fire one explicit
+      // If session, source or q was set without a filter, no activate() was called — fire one explicit
       // refreshFeed so the very first request honours the URL state. Without this the literal
       // hx-get="api/feed" triggers an unfiltered load and the user sees a 'pill says filtering /
       // table shows everything' inconsistency until the first chip click.
-      else if (session || q) {
+      else if (session || source || q) {
         refreshFeed();
       }
     })();
