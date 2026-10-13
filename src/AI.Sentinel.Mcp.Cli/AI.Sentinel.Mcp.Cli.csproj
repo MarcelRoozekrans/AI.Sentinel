@@ -27,6 +27,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AI.Sentinel.Mcp\AI.Sentinel.Mcp.csproj" />
+    <ProjectReference Include="..\AI.Sentinel.Sqlite\AI.Sentinel.Sqlite.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Approvals.Sqlite\AI.Sentinel.Approvals.Sqlite.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Approvals.EntraPim\AI.Sentinel.Approvals.EntraPim.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />

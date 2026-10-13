@@ -43,9 +43,13 @@ internal static class ToolCallInterceptor
         IAuditStore? audit = null,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver = null,
         IApprovalStore? approvalStore = null,
-        TimeSpan? approvalWait = null) =>
-        next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, guard, audit, callerResolver,
-            approvalStore, approvalWait, next, ctx, ct);
+        TimeSpan? approvalWait = null,
+        IReadOnlyList<IAuditForwarder>? forwarders = null)
+    {
+        var forwarderSnapshot = AuditForwarding.Snapshot(forwarders);
+        return next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, guard, audit, forwarderSnapshot,
+            callerResolver, approvalStore, approvalWait, next, ctx, ct);
+    }
 
     private static async ValueTask<CallToolResult> InvokeAsync(
         SentinelPipeline pipeline,
@@ -53,6 +57,7 @@ internal static class ToolCallInterceptor
         TextWriter stderr,
         IToolCallGuard? guard,
         IAuditStore? audit,
+        IAuditForwarder[] forwarders,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
@@ -65,7 +70,7 @@ internal static class ToolCallInterceptor
 
         if (guard is not null)
         {
-            await AuthorizeAsync(guard, audit, callerResolver, approvalStore, approvalWait, req, stderr, ct).ConfigureAwait(false);
+            await AuthorizeAsync(guard, audit, forwarders, callerResolver, approvalStore, approvalWait, req, stderr, ct).ConfigureAwait(false);
         }
 
         var requestMessages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes);
@@ -87,6 +92,7 @@ internal static class ToolCallInterceptor
     private static async ValueTask AuthorizeAsync(
         IToolCallGuard guard,
         IAuditStore? audit,
+        IAuditForwarder[] forwarders,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
@@ -101,7 +107,7 @@ internal static class ToolCallInterceptor
 
         if (decision is AuthorizationDecision.RequireApprovalDecision r)
         {
-            await HandleRequireApprovalAsync(guard, audit, approvalStore, approvalWait, caller, args, req, r, stderr, ct).ConfigureAwait(false);
+            await HandleRequireApprovalAsync(guard, audit, forwarders, approvalStore, approvalWait, caller, args, req, r, stderr, ct).ConfigureAwait(false);
             return;
         }
 
@@ -123,7 +129,7 @@ internal static class ToolCallInterceptor
                 policyName: policyName,
                 reason:     reason,
                 policyCode: policyCode);
-            await audit.AppendAsync(entry, ct).ConfigureAwait(false);
+            await audit.AppendAndForwardAsync(entry, forwarders, ct).ConfigureAwait(false);
         }
 
         await stderr.WriteLineAsync(
@@ -145,6 +151,7 @@ internal static class ToolCallInterceptor
     private static async ValueTask HandleRequireApprovalAsync(
         IToolCallGuard guard,
         IAuditStore? audit,
+        IAuditForwarder[] forwarders,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
         ISecurityContext caller,
@@ -166,7 +173,7 @@ internal static class ToolCallInterceptor
                 policyName: r.PolicyName,
                 reason:     $"approval required (requestId={r.RequestId})",
                 policyCode: SentinelDenyCodes.ApprovalRequired);
-            await audit.AppendAsync(approvalEntry, ct).ConfigureAwait(false);
+            await audit.AppendAndForwardAsync(approvalEntry, forwarders, ct).ConfigureAwait(false);
         }
 
         if (approvalStore is not null && approvalWait is { } wait && wait > TimeSpan.Zero)

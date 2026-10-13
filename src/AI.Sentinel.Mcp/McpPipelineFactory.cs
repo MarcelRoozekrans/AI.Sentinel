@@ -42,7 +42,9 @@ internal static class McpPipelineFactory
         out IAuditStore auditStore,
         out string? inertSemanticWarning,
         IEmbeddingCache? exampleEmbeddingCache = null,
-        Action<string>? detectorFailureSink = null)
+        Action<string>? detectorFailureSink = null,
+        IAuditStore? suppliedStore = null,
+        IReadOnlyList<IAuditForwarder>? forwarders = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -65,16 +67,18 @@ internal static class McpPipelineFactory
 
         inertSemanticWarning = ServiceCollectionExtensions.DescribeInertSemanticDetection(options, detectors);
 
-        var ringBuffer = new RingBufferAuditStore(capacity: 1024);
-        auditStore = ringBuffer;
+        // A supplied store (the CLI's shared local audit file) replaces the in-memory ring buffer.
+        var store = suppliedStore ?? new RingBufferAuditStore(capacity: 1024);
+        auditStore = store;
 
         return new SentinelPipeline(
             innerClient:        UnusedChatClient.Instance,
             pipeline:           new DetectionPipeline(detectors, configurations: null, escalationClient: null,
                                     logger: null, onDetectorFailure: detectorFailureSink),
-            auditStore:         ringBuffer,
+            auditStore:         store,
             interventionEngine: new InterventionEngine(options, mediator: null),
-            options:            options);
+            options:            options,
+            forwarders:         forwarders);
     }
 
     internal static SentinelAction MapDecision(HookDecision decision) => decision switch

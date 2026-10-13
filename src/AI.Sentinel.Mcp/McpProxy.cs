@@ -45,6 +45,8 @@ public static class McpProxy
     /// <param name="embeddingGenerator">Optional embedding generator for embedding-aware detectors.</param>
     /// <param name="guard">Optional authorization guard. When supplied, runs before detection on <c>tools/call</c>.</param>
     /// <param name="callerResolver">Optional resolver mapping the inbound request to an <see cref="ISecurityContext"/>. Defaults to <see cref="EnvironmentSecurityContext.FromEnvironment"/>.</param>
+    /// <param name="auditStore">Optional store for audit entries; defaults to an in-memory ring buffer. The caller owns and disposes it.</param>
+    /// <param name="forwarders">Optional forwarders that mirror every audit entry. The caller owns them.</param>
     public static async Task RunAsync(
         ITransport hostTransport,
         IClientTransport targetTransport,
@@ -57,7 +59,9 @@ public static class McpProxy
         IToolCallGuard? guard = null,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver = null,
         IApprovalStore? approvalStore = null,
-        TimeSpan? approvalWait = null)
+        TimeSpan? approvalWait = null,
+        IAuditStore? auditStore = null,
+        IReadOnlyList<IAuditForwarder>? forwarders = null)
     {
         ArgumentNullException.ThrowIfNull(hostTransport);
         ArgumentNullException.ThrowIfNull(targetTransport);
@@ -84,8 +88,8 @@ public static class McpProxy
 
             var pipeline = McpPipelineFactory.Create(
                 config, preset, embeddingGenerator ?? embeddings?.Generator,
-                out var auditStore, out var inertSemanticWarning, embeddings?.ExampleCache,
-                ReportDetectorFailure);
+                out var pipelineStore, out var inertSemanticWarning, embeddings?.ExampleCache,
+                ReportDetectorFailure, auditStore, forwarders);
 
             // No logging provider here either — surface it on stderr so an inert SEC-01 isn't mistaken
             // for a clean scan. Routed through StderrLogger because this stream is structured
@@ -100,7 +104,7 @@ public static class McpProxy
                 })).ConfigureAwait(false);
             }
 
-            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver, approvalStore, approvalWait);
+            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, pipelineStore, forwarders, callerResolver, approvalStore, approvalWait);
 
             var server = McpServer.Create(
                 hostTransport,
@@ -188,6 +192,7 @@ public static class McpProxy
         TextWriter stderr,
         IToolCallGuard? guard,
         IAuditStore? auditStore,
+        IReadOnlyList<IAuditForwarder>? forwarders,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait)
@@ -199,7 +204,7 @@ public static class McpProxy
 
         if (targetCaps.Tools is not null)
         {
-            WireTools(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver,
+            WireTools(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, forwarders, callerResolver,
                 approvalStore, approvalWait, capabilities, handlers, requestFilters);
         }
 
@@ -231,6 +236,7 @@ public static class McpProxy
         TextWriter stderr,
         IToolCallGuard? guard,
         IAuditStore? auditStore,
+        IReadOnlyList<IAuditForwarder>? forwarders,
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
@@ -251,7 +257,7 @@ public static class McpProxy
         };
         requestFilters.CallToolFilters.Add(
             ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver,
-                approvalStore, approvalWait));
+                approvalStore, approvalWait, forwarders));
     }
 
     private static void WirePrompts(

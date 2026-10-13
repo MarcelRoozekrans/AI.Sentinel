@@ -1,4 +1,5 @@
 using Xunit;
+using AI.Sentinel.Tests.Helpers;
 using AI.Sentinel.Approvals.EntraPim;
 using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Mcp.Cli;
@@ -6,7 +7,7 @@ using AI.Sentinel.Mcp.Cli;
 namespace AI.Sentinel.Tests.Mcp;
 
 [Collection("NonParallel")]
-public class McpCliTests
+public class McpCliTests : McpAuditOffFixtureBase
 {
     [Fact]
     public async Task NoArgs_ExitsOneWithUsage()
