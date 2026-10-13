@@ -203,10 +203,10 @@ public class AuthorizationTests
             }
         }
 
-        public ValueTask AppendAsync(AuditEntry entry, CancellationToken ct)
+        public ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
         {
             lock (_entries) { _entries.Add(entry); }
-            return ValueTask.CompletedTask;
+            return ValueTask.FromResult(entry);
         }
 
         public async IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, [EnumeratorCancellation] CancellationToken ct)

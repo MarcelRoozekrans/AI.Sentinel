@@ -9,8 +9,9 @@ namespace AI.Sentinel.Sqlite;
 
 /// <summary>
 /// Persistent <see cref="IAuditStore"/> backed by a single-file SQLite database.
-/// Survives process restarts, maintains the hash chain across restarts, and supports
-/// optional time-based retention via a background sweep timer.
+/// Survives process restarts, links every appended entry into the <see cref="AuditHashChain"/>
+/// and continues that chain across restarts, and supports optional time-based retention via a
+/// background sweep timer.
 /// </summary>
 public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
 {
@@ -19,6 +20,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly Timer? _retentionTimer;
     private long _sequence;
+    private string? _lastHash;
     private bool _disposed;
 
     public SqliteAuditStore(SqliteAuditStoreOptions options)
@@ -49,6 +51,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         // rather than on first append.
         SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
         _sequence = LoadHighestSequence();
+        _lastHash = LoadLastHash();
 
         var hasTimeRetention = options.RetentionPeriod is { } r && r > TimeSpan.Zero;
         var hasSizeCap = options.MaxDatabaseSizeBytes is { } b && b > 0;
@@ -62,14 +65,19 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
     }
 
-    public async ValueTask AppendAsync(AuditEntry entry, CancellationToken ct)
+    public async ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        // Non-AUTHZ entries pass null; the column is NOT NULL with default 'policy_denied'.
+        // Hash the value that is persisted, so the entry read back verifies against its hash.
+        entry = entry with { PolicyCode = entry.PolicyCode ?? SentinelDenyCodes.PolicyDenied };
+
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            entry = AuditHashChain.Link(entry, _lastHash);
             var seq = ++_sequence;
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = """
@@ -86,13 +94,13 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("$prev", (object?)entry.PreviousHash ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$summary", entry.Summary);
             cmd.Parameters.AddWithValue("$seq", seq);
-            // Non-AUTHZ entries pass null; the column is NOT NULL with default 'policy_denied'
-            // so we coalesce here to keep the wire shape stable across detector kinds.
-            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? SentinelDenyCodes.PolicyDenied);
+            cmd.Parameters.AddWithValue("$code", entry.PolicyCode);
             // session_id is nullable: detectors that don't carry a session pass null and we
             // round-trip that as DBNull for dashboard queries to filter on IS NULL.
             cmd.Parameters.AddWithValue("$session", (object?)entry.SessionId ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            _lastHash = entry.Hash;
+            return entry;
         }
         finally
         {
@@ -183,6 +191,14 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         cmd.CommandText = "SELECT COALESCE(MAX(sequence), 0) FROM audit_entries;";
         var raw = cmd.ExecuteScalar();
         return raw is null or DBNull ? 0L : Convert.ToInt64(raw, CultureInfo.InvariantCulture);
+    }
+
+    private string? LoadLastHash()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT hash FROM audit_entries ORDER BY sequence DESC LIMIT 1;";
+        var raw = cmd.ExecuteScalar();
+        return raw is null or DBNull ? null : (string)raw;
     }
 
     private void SweepRetention()
@@ -282,22 +298,6 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     }
 
     // ---- Test helpers (exposed via InternalsVisibleTo) ------------------------------------------
-
-    internal async Task<string?> GetLastHashForTestingAsync(CancellationToken ct)
-    {
-        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = "SELECT hash FROM audit_entries ORDER BY sequence DESC LIMIT 1;";
-            var raw = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-            return raw is null or DBNull ? null : (string)raw;
-        }
-        finally
-        {
-            _writeLock.Release();
-        }
-    }
 
     /// <summary>Runs a single retention sweep synchronously. Test hook so the timer-driven sweep
     /// can be exercised deterministically without sleeping on the timer interval.</summary>
