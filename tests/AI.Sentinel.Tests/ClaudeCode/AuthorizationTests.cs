@@ -35,6 +35,29 @@ public class AuthorizationTests
     }
 
     [Fact]
+    public async Task PreToolUse_DenyByPolicy_ForwardsTheStoredAuditEntry()
+    {
+        var opts = new SentinelOptions();
+        opts.RequireToolPolicy("Bash", "admin-only");
+        var guard = new DefaultToolCallGuard(opts.GetAuthorizationBindings(),
+            new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal) { ["admin-only"] = new AdminOnlyPolicy() },
+            opts.DefaultToolPolicy, approvalStore: null, logger: null);
+        var forwarder = new RecordingAuditForwarder();
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        services.AddSingleton<IAuditForwarder>(forwarder);
+        var provider = services.BuildServiceProvider();
+        var adapter = HookAdapter.CreateForTests(provider, new HookConfig { CallerContextProvider = _ => new TestSecurityContext("bob") }, guard);
+
+        await adapter.HandleAsync(HookEvent.PreToolUse, new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null), TestContext.Current.CancellationToken);
+
+        var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
+            e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+        await forwarder.WaitForAsync(1);
+        Assert.Equal(denied, Assert.Single(forwarder.Entries));
+    }
+
+    [Fact]
     public async Task PreToolUse_DenyByPolicy_ReturnsBlock()
     {
         var opts = new SentinelOptions();

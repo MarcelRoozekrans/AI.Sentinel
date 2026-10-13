@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Authorization.Policies;
 using AI.Sentinel.ClaudeCode;
@@ -31,6 +32,29 @@ public class AuthorizationTests
         });
         var provider = services.BuildServiceProvider();
         return CopilotHookAdapter.CreateForTests(provider, config, guard);
+    }
+
+    [Fact]
+    public async Task PreToolUse_DenyByPolicy_ForwardsTheStoredAuditEntry()
+    {
+        var opts = new SentinelOptions();
+        opts.RequireToolPolicy("Bash", "admin-only");
+        var guard = new DefaultToolCallGuard(opts.GetAuthorizationBindings(),
+            new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal) { ["admin-only"] = new AdminOnlyPolicy() },
+            opts.DefaultToolPolicy, approvalStore: null, logger: null);
+        var forwarder = new RecordingAuditForwarder();
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        services.AddSingleton<IAuditForwarder>(forwarder);
+        var provider = services.BuildServiceProvider();
+        var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig { CallerContextProvider = _ => new TestSecurityContext("bob") }, guard);
+
+        await adapter.HandleAsync(CopilotHookEvent.PreToolUse, new CopilotHookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null), TestContext.Current.CancellationToken);
+
+        var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
+            e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+        await forwarder.WaitForAsync(1);
+        Assert.Equal(denied, Assert.Single(forwarder.Entries));
     }
 
     [Fact]

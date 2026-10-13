@@ -24,6 +24,7 @@ public sealed class HookAdapter
     private readonly HookConfig _config;
     private readonly IToolCallGuard? _guard;
     private readonly IAuditStore? _audit;
+    private readonly IAuditForwarder[] _forwarders;
 
     /// <summary>
     /// Builds an adapter that resolves <see cref="IToolCallGuard"/> and <see cref="IAuditStore"/>
@@ -43,6 +44,7 @@ public sealed class HookAdapter
         _config = config ?? new HookConfig();
         _guard = guard;
         _audit = audit;
+        _forwarders = AuditForwarding.Snapshot(provider.GetServices<IAuditForwarder>());
     }
 
     /// <summary>
@@ -86,7 +88,7 @@ public sealed class HookAdapter
                             policyName: r.PolicyName,
                             reason: $"approval required (requestId={r.RequestId})",
                             policyCode: SentinelDenyCodes.ApprovalRequired);
-                        await _audit.AppendAsync(approvalEntry, ct).ConfigureAwait(false);
+                        await _audit.AppendAndForwardAsync(approvalEntry, _forwarders, ct).ConfigureAwait(false);
                     }
 
                     return new HookOutput(HookDecision.Block, ApprovalReceipt.Format(input.ToolName, r));
@@ -109,7 +111,7 @@ public sealed class HookAdapter
                         policyName: policyName,
                         reason: denyReason,
                         policyCode: denyCode);
-                    await _audit.AppendAsync(entry, ct).ConfigureAwait(false);
+                    await _audit.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
                 }
 
                 var reason = $"Authorization denied [{denyCode}] by policy '{policyName}': {denyReason}";
