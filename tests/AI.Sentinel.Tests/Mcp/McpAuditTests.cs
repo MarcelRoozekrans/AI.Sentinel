@@ -21,6 +21,8 @@ namespace AI.Sentinel.Tests.Mcp;
 [Collection("NonParallel")]
 public class McpAuditTests : McpAuditOffFixtureBase
 {
+    private const string NdjsonVar = "SENTINEL_MCP_AUDIT_NDJSON";
+
     private static HookConfig Config() => new(
         OnCritical: HookDecision.Block,
         OnHigh:     HookDecision.Block,
@@ -71,11 +73,33 @@ public class McpAuditTests : McpAuditOffFixtureBase
     }
 
     [Fact]
+    public async Task ToolCallRequireApproval_IsForwardedWithApprovalRequiredCode()
+    {
+        var store = new RingBufferAuditStore(capacity: 16);
+        var forwarder = new RecordingAuditForwarder();
+        var pipeline = McpPipelineFactory.Create(Config(), McpDetectorPreset.Security);
+        var filter = ToolCallInterceptor.Create(
+            pipeline, maxScanBytes: 64 * 1024, stderr: TextWriter.Null,
+            guard: new ApprovalGuard(), audit: store, forwarders: [forwarder]);
+        var handler = filter((_, _) => new ValueTask<CallToolResult>(new CallToolResult()));
+
+        await Assert.ThrowsAsync<McpProtocolException>(
+            async () => await handler(BuildContext(new CallToolRequestParams { Name = "Bash" }), CancellationToken.None));
+
+        await forwarder.WaitForAsync(1);
+        var forwarded = Assert.Single(forwarder.Entries);
+        Assert.Equal("AUTHZ-DENY", forwarded.DetectorId);
+        Assert.Equal("approval_required", forwarded.PolicyCode);
+    }
+
+    [Fact]
     public async Task ProxyCommand_ReadsMcpAuditVars()
     {
         var dir = HookAuditTestSupport.NewTempDir();
         var db = Path.Combine(dir, "mcp-audit.db");
+        var ndjson = Path.Combine(dir, "mcp-audit.ndjson");
         Environment.SetEnvironmentVariable(SqliteVar, db);
+        Environment.SetEnvironmentVariable(NdjsonVar, ndjson);
         try
         {
             var stderr = new StringWriter();
@@ -86,11 +110,16 @@ public class McpAuditTests : McpAuditOffFixtureBase
             Assert.NotEmpty(entries);
             Assert.All(entries, e => Assert.Equal("mcp", e.Source));
             Assert.True(intact);
+            // NDJSON is written by a forwarder on a background task; only the shutdown flush makes
+            // its line count match the synchronous SQLite appends.
+            Assert.Equal(entries.Count, (await File.ReadAllLinesAsync(ndjson, TestContext.Current.CancellationToken))
+                .Count(l => l.Length > 0));
             Assert.DoesNotContain("audit_unavailable", stderr.ToString(), StringComparison.Ordinal);
         }
         finally
         {
             Environment.SetEnvironmentVariable(SqliteVar, "off");
+            Environment.SetEnvironmentVariable(NdjsonVar, null);
             HookAuditTestSupport.DeleteDir(dir);
         }
     }
@@ -147,6 +176,13 @@ public class McpAuditTests : McpAuditOffFixtureBase
             typeof(RequestContext<CallToolRequestParams>));
         ctx.Params = parameters;
         return ctx;
+    }
+
+    private sealed class ApprovalGuard : IToolCallGuard
+    {
+        public ValueTask<AuthorizationDecision> AuthorizeAsync(
+            ISecurityContext caller, string toolName, JsonElement args, CancellationToken ct = default) =>
+            new(AuthorizationDecision.RequireApproval("approval:Bash", "req-1", "https://approve.example/req-1", DateTimeOffset.UtcNow, TimeSpan.Zero));
     }
 
     private sealed class DenyGuard : IToolCallGuard

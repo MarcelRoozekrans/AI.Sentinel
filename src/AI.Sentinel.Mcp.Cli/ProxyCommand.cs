@@ -11,10 +11,10 @@ using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp;
 using AI.Sentinel.Mcp.Logging;
 using AI.Sentinel.Sqlite.Local;
-using ModelContextProtocol.Client;
-using ModelContextProtocol.Protocol;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
 namespace AI.Sentinel.Mcp.Cli;
@@ -63,17 +63,23 @@ internal static class ProxyCommand
         var settingsProblems = new List<string>();
         var settings = LocalAudit.ReadSettings(envVars, "SENTINEL_MCP_", LocalAudit.DefaultDatabasePath(), settingsProblems);
         var audit = LocalAudit.Open(settings, AuditSources.Mcp);
-        await ReportProblemsAsync(settingsProblems, stderr).ConfigureAwait(false);
         try
         {
+            await ReportProblemsAsync(settingsProblems, stderr).ConfigureAwait(false);
             return await RunProxyAsync(
                 targetCommand, targetArgs, config, preset, maxScanBytes,
                 stderr, ct, guard, approvalStore, approvalWait, audit, transportFactory).ConfigureAwait(false);
         }
         finally
         {
-            await CloseAuditAsync(audit, stderr).ConfigureAwait(false);
-            if (provider is not null) await provider.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                await CloseAuditAsync(audit, stderr).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (provider is not null) await provider.DisposeAsync().ConfigureAwait(false);
+            }
         }
     }
 
