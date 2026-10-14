@@ -176,4 +176,98 @@ public sealed class SqliteApprovalStoreTests : IDisposable
         var denied = Assert.IsType<ApprovalState.Denied>(observed);
         Assert.Equal("no", denied.Reason);
     }
+
+    [Fact]
+    public async Task StoresOnOneFile_RacingEnsureRequest_CreateOneRequest()
+    {
+        // Each store has its own connection and lock, standing in for one hook process. Only the
+        // database can stop them from inserting a request each for the same caller and policy.
+        var stores = Enumerable.Range(0, 8).Select(_ => NewStore()).ToArray();
+        try
+        {
+            for (var round = 0; round < 20; round++)
+            {
+                var policy = string.Create(CultureInfo.InvariantCulture, $"p{round}");
+                var states = await EnsureFromAllAtOnceAsync(stores, policy);
+
+                Assert.Single(PendingRequestIds(states));
+                Assert.Equal(1L, await CountRowsAsync(policy));
+            }
+        }
+        finally
+        {
+            foreach (var store in stores)
+            {
+                await store.DisposeAsync();
+            }
+        }
+    }
+
+    [Fact]
+    public async Task StoresOnOneFile_RacingApproveAndDeny_AllObserveTheOneDecision()
+    {
+        await using var first = NewStore();
+        await using var second = NewStore();
+
+        for (var round = 0; round < 20; round++)
+        {
+            var policy = string.Create(CultureInfo.InvariantCulture, $"p{round}");
+            var pending = (ApprovalState.Pending)await first.EnsureRequestAsync(MakeCaller(), MakeSpec(policy), MakeCtx(), TestContext.Current.CancellationToken);
+
+            using var start = new Barrier(2);
+            await Task.WhenAll(
+                Task.Run(
+                    () =>
+                    {
+                        start.SignalAndWait(TestContext.Current.CancellationToken);
+                        return first.ApproveAsync(pending.RequestId, "approver", note: null, CancellationToken.None).AsTask();
+                    },
+                    TestContext.Current.CancellationToken),
+                Task.Run(
+                    () =>
+                    {
+                        start.SignalAndWait(TestContext.Current.CancellationToken);
+                        return second.DenyAsync(pending.RequestId, "approver", "no", CancellationToken.None).AsTask();
+                    },
+                    TestContext.Current.CancellationToken));
+
+            // The first decision wins; the other finds the request no longer pending. Both
+            // stores must then report that one decision, not a fresh request.
+            var seenByFirst = await first.WaitForDecisionAsync(pending.RequestId, TimeSpan.Zero, TestContext.Current.CancellationToken);
+            var seenBySecond = await second.WaitForDecisionAsync(pending.RequestId, TimeSpan.Zero, TestContext.Current.CancellationToken);
+            Assert.True(seenByFirst is ApprovalState.Active or ApprovalState.Denied, $"unexpected {seenByFirst}");
+            Assert.Equal(seenByFirst.GetType(), seenBySecond.GetType());
+
+            var observed = await second.EnsureRequestAsync(MakeCaller(), MakeSpec(policy), MakeCtx(), TestContext.Current.CancellationToken);
+            Assert.Equal(seenByFirst.GetType(), observed.GetType());
+
+            // Observing a denial deletes the request so the next call starts fresh; a grant stays.
+            Assert.Equal(observed is ApprovalState.Active ? 1L : 0L, await CountRowsAsync(policy));
+        }
+    }
+
+    private static async Task<ApprovalState[]> EnsureFromAllAtOnceAsync(SqliteApprovalStore[] stores, string policy)
+    {
+        using var start = new Barrier(stores.Length);
+        return await Task.WhenAll(stores.Select(store => Task.Run(
+            () =>
+            {
+                start.SignalAndWait(TestContext.Current.CancellationToken);
+                return store.EnsureRequestAsync(MakeCaller(), MakeSpec(policy), MakeCtx(), CancellationToken.None).AsTask();
+            },
+            TestContext.Current.CancellationToken)));
+    }
+
+    private static HashSet<string> PendingRequestIds(ApprovalState[] states) =>
+        states.Select(s => Assert.IsType<ApprovalState.Pending>(s).RequestId).ToHashSet(StringComparer.Ordinal);
+
+    private async Task<long> CountRowsAsync(string policy)
+    {
+        await using var raw = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath};Pooling=False");
+        await raw.OpenAsync(TestContext.Current.CancellationToken);
+        using var cmd = raw.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM approval_requests WHERE policy_name = $policy;";
+        cmd.Parameters.AddWithValue("$policy", policy);
+        return (long)(await cmd.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
+    }
 }
