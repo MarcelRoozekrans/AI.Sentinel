@@ -8,10 +8,9 @@ internal static class SqliteApprovalSchema
 
     internal static async Task InitializeAsync(SqliteConnection conn, CancellationToken ct)
     {
-        // WAL + NORMAL synchronous: same balance the audit store uses. Concurrent
-        // writers are serialised through a SemaphoreSlim in the store; WAL gives
-        // readers (the dashboard 'list pending' query) a snapshot that doesn't
-        // block writes.
+        // WAL + NORMAL synchronous: same balance the audit store uses. Writer processes
+        // take turns on the database write lock; WAL gives readers (the dashboard
+        // 'list pending' query) a snapshot that doesn't block writes.
         using (var pragma = conn.CreateCommand())
         {
             pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;";
@@ -26,6 +25,8 @@ internal static class SqliteApprovalSchema
             current = raw is null ? 0L : (long)raw;
         }
 
+        // Two processes can open a fresh file at once and both see version 0. Every
+        // statement below is idempotent, so the one that runs second changes nothing.
         if (current < 1)
         {
             // Timestamps stored as INTEGER UtcTicks; reconstructed via

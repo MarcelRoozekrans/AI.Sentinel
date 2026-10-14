@@ -2,11 +2,11 @@ namespace AI.Sentinel.Approvals.Sqlite;
 
 /// <summary>Options for <see cref="SqliteApprovalStore"/>.</summary>
 /// <remarks>
-/// Single writer process. The store uses an in-process <c>SemaphoreSlim</c> to serialise
-/// writes; it does NOT use SQLite <c>BEGIN IMMEDIATE</c> transactions, so two processes
-/// opening the same database file concurrently can race on the read-then-write paths.
-/// Multi-process scenarios require external coordination (e.g., file lock) or a different
-/// backend.
+/// Several processes on one host can share the database file, such as hook processes that run
+/// side by side and a dashboard that resolves their requests. Creating or reusing a request runs
+/// under <c>BEGIN IMMEDIATE</c>, and approve and deny each change only a pending row, so the file
+/// holds one request per caller and policy and the first decision wins. Do not put the file on a
+/// network share.
 /// </remarks>
 public sealed class SqliteApprovalStoreOptions
 {
