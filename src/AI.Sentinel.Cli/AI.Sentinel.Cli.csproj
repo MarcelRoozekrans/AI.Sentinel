@@ -29,7 +29,7 @@
     <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
     <ProjectReference Include="..\AI.Sentinel.AspNetCore\AI.Sentinel.AspNetCore.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Sqlite\AI.Sentinel.Sqlite.csproj" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.12" />
-    <PackageReference Include="System.CommandLine" Version="2.0.12" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.13" />
+    <PackageReference Include="System.CommandLine" Version="2.0.13" />
   </ItemGroup>
 </Project>
