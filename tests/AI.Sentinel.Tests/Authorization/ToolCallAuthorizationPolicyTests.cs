@@ -30,10 +30,10 @@ public class ToolCallAuthorizationPolicyTests
     public async Task ToolCallContext_PolicyAppliesNormally()
     {
         var policy = new DenyBashPolicy();
-        var inner  = new TestSecurityContext("user");
-        var args   = JsonDocument.Parse("{}").RootElement;
-        var bash   = new TestToolCallSecurityContext(inner, "Bash", args);
-        var read   = new TestToolCallSecurityContext(inner, "Read", args);
+        var inner = new TestSecurityContext("user");
+        var args = JsonDocument.Parse("{}").RootElement;
+        var bash = new TestToolCallSecurityContext(inner, "Bash", args);
+        var read = new TestToolCallSecurityContext(inner, "Read", args);
         Assert.True((await policy.EvaluateAsync(bash, TestContext.Current.CancellationToken)).IsFailure);
         Assert.True((await policy.EvaluateAsync(read, TestContext.Current.CancellationToken)).IsSuccess);
     }

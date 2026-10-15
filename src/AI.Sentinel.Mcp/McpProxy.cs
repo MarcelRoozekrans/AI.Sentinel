@@ -183,14 +183,14 @@ public static class McpProxy
         ArgumentNullException.ThrowIfNull(transport);
 
         var disposeTask = transport.DisposeAsync().AsTask();
-        var graceTask   = Task.Delay(grace);
-        var winner      = await Task.WhenAny(disposeTask, graceTask).ConfigureAwait(false);
+        var graceTask = Task.Delay(grace);
+        var winner = await Task.WhenAny(disposeTask, graceTask).ConfigureAwait(false);
         if (winner != disposeTask)
         {
             StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["event"]   = "transport_dispose",
-                ["action"]  = "grace_expired",
+                ["event"] = "transport_dispose",
+                ["action"] = "grace_expired",
                 ["grace_s"] = grace.TotalSeconds.ToString("0", CultureInfo.InvariantCulture),
             });
         }
@@ -259,10 +259,10 @@ public static class McpProxy
 
         return new McpServerOptions
         {
-            ServerInfo   = new Implementation { Name = "sentinel-mcp", Version = "0.1.0" },
+            ServerInfo = new Implementation { Name = "sentinel-mcp", Version = "0.1.0" },
             Capabilities = capabilities,
-            Handlers     = handlers,
-            Filters      = new McpServerFilters { Request = requestFilters },
+            Handlers = handlers,
+            Filters = new McpServerFilters { Request = requestFilters },
         };
     }
 
@@ -335,7 +335,7 @@ public static class McpProxy
         capabilities.Resources = new ResourcesCapability
         {
             ListChanged = targetResources.ListChanged,
-            Subscribe   = targetResources.Subscribe,
+            Subscribe = targetResources.Subscribe,
         };
         handlers.ListResourcesHandler = (req, c) =>
             targetClient.ListResourcesAsync(req.Params, c);
@@ -383,34 +383,34 @@ public static class McpProxy
             var headers = ParseHttpHeaders(Environment.GetEnvironmentVariable("SENTINEL_MCP_HTTP_HEADERS"), out var skipped);
             var initLog = new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["event"]     = "transport_init",
+                ["event"] = "transport_init",
                 ["transport"] = "http",
-                ["endpoint"]  = target,
-                ["headers"]   = headers.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["endpoint"] = target,
+                ["headers"] = headers.Count.ToString(System.Globalization.CultureInfo.InvariantCulture),
             };
             if (skipped > 0)
                 initLog["headers_skipped"] = skipped.ToString(System.Globalization.CultureInfo.InvariantCulture);
             StderrLogger.Log(initLog);
             return new HttpClientTransport(new HttpClientTransportOptions
             {
-                Endpoint          = new Uri(target),
+                Endpoint = new Uri(target),
                 AdditionalHeaders = headers,
-                Name              = target,
+                Name = target,
             });
         }
 
         StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]     = "transport_init",
+            ["event"] = "transport_init",
             ["transport"] = "stdio",
-            ["command"]   = target,
+            ["command"] = target,
         });
         return new StdioClientTransport(
             new StdioClientTransportOptions
             {
-                Command   = target,
+                Command = target,
                 Arguments = arguments ?? Array.Empty<string>(),
-                Name      = target,
+                Name = target,
             },
             loggerFactory: null);
     }
@@ -441,7 +441,7 @@ public static class McpProxy
                 skipped++;
                 continue;
             }
-            var key   = pair[..idx].Trim();
+            var key = pair[..idx].Trim();
             var value = pair[(idx + 1)..].Trim();
             if (key.Length == 0)
             {

@@ -61,10 +61,10 @@ internal static class DashboardHandlers
     {
         ctx.Response.ContentType = "text/html";
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
-        var filter  = (string?)ctx.Request.Query["filter"];
-        var q       = (string?)ctx.Request.Query["q"];
+        var filter = (string?)ctx.Request.Query["filter"];
+        var q = (string?)ctx.Request.Query["q"];
         var session = (string?)ctx.Request.Query["session"];
-        var source  = (string?)ctx.Request.Query["source"];
+        var source = (string?)ctx.Request.Query["source"];
 
         var entries = new List<AuditEntry>();
         await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50, Reverse: true, SessionId: session, Source: source), ctx.RequestAborted).ConfigureAwait(false))
@@ -79,7 +79,7 @@ internal static class DashboardHandlers
             var emptyMessage = (filter, q, session, source) switch
             {
                 (null or "", null or "", null or "", null or "") => "No events yet — agents are quiet.",
-                _                                      => "No events match this filter.",
+                _ => "No events match this filter.",
             };
             sb.Append("<tr class=\"feed-empty\"><td colspan=\"7\">")
               .Append(emptyMessage)
@@ -174,11 +174,11 @@ internal static class DashboardHandlers
     /// matching DetectorId prefix. Unknown / empty / null category returns true (no filtering).</summary>
     internal static bool IsInCategory(string detectorId, string? category) => category switch
     {
-        "security"      => detectorId.StartsWith("SEC-",   StringComparison.Ordinal),
-        "hallucination" => detectorId.StartsWith("HAL-",   StringComparison.Ordinal),
-        "operational"   => detectorId.StartsWith("OPS-",   StringComparison.Ordinal),
+        "security" => detectorId.StartsWith("SEC-", StringComparison.Ordinal),
+        "hallucination" => detectorId.StartsWith("HAL-", StringComparison.Ordinal),
+        "operational" => detectorId.StartsWith("OPS-", StringComparison.Ordinal),
         "authorization" or "authz" => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),  // 'authz' = legacy alias
-        _               => true,
+        _ => true,
     };
 
     /// <summary>True when <paramref name="e"/> belongs under the chip <paramref name="category"/>. The Redacted chip
@@ -228,7 +228,7 @@ internal static class DashboardHandlers
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
 
         const int BucketSeconds = 30;
-        const int BucketCount   = 30;  // 30 × 30s = 15 minutes
+        const int BucketCount = 30;  // 30 × 30s = 15 minutes
         var bucketMs = BucketSeconds * 1000L;
         var now = DateTimeOffset.UtcNow;
         var windowStart = now.AddSeconds(-BucketSeconds * BucketCount);
@@ -265,10 +265,10 @@ internal static class DashboardHandlers
         string stroke = maxSevOverall switch
         {
             >= 4 => "#ef4444",  // critical → red
-            3    => "#f97316",  // high → orange
-            2    => "#eab308",  // medium → amber
-            1    => "#22c55e",  // low → green
-            _    => "#475569",  // none / no data → muted
+            3 => "#f97316",  // high → orange
+            2 => "#eab308",  // medium → amber
+            1 => "#22c55e",  // low → green
+            _ => "#475569",  // none / no data → muted
         };
 
         sb.Append("<svg viewBox=\"0 0 ").Append(Width).Append(' ').Append(Height)
@@ -316,10 +316,10 @@ internal static class DashboardHandlers
     /// </remarks>
     public static async Task ExportNdjsonAsync(HttpContext ctx)
     {
-        var filter  = (string?)ctx.Request.Query["filter"];
-        var q       = (string?)ctx.Request.Query["q"];
+        var filter = (string?)ctx.Request.Query["filter"];
+        var q = (string?)ctx.Request.Query["q"];
         var session = (string?)ctx.Request.Query["session"];
-        var source  = (string?)ctx.Request.Query["source"];
+        var source = (string?)ctx.Request.Query["source"];
 
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
         var entries = new List<AuditEntry>();
@@ -401,10 +401,10 @@ internal static class DashboardHandlers
             result.Add(new ThreatRiskScore(entries[i].Severity switch
             {
                 Severity.Critical => 100,
-                Severity.High     => 70,
-                Severity.Medium   => 40,
-                Severity.Low      => 15,
-                _                 => 0
+                Severity.High => 70,
+                Severity.Medium => 40,
+                Severity.Low => 15,
+                _ => 0
             }));
         }
         return result;

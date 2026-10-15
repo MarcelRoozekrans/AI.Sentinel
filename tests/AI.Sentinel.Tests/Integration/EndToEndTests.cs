@@ -10,7 +10,8 @@ namespace AI.Sentinel.Tests.Integration;
 
 public class EndToEndTests
 {
-    [Fact] public async Task PromptInjection_IsQuarantined_EndToEnd()
+    [Fact]
+    public async Task PromptInjection_IsQuarantined_EndToEnd()
     {
         var services = new ServiceCollection();
         AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services, opts =>
@@ -32,7 +33,8 @@ public class EndToEndTests
                 }, default, TestContext.Current.CancellationToken));
     }
 
-    [Fact] public async Task CleanMessage_PassesThrough_EndToEnd()
+    [Fact]
+    public async Task CleanMessage_PassesThrough_EndToEnd()
     {
         var services = new ServiceCollection();
         AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services);
@@ -47,7 +49,8 @@ public class EndToEndTests
         Assert.Contains("42", result.Text ?? "", StringComparison.Ordinal);
     }
 
-    [Fact] public async Task AuditStore_ReceivesEntries_AfterThreat()
+    [Fact]
+    public async Task AuditStore_ReceivesEntries_AfterThreat()
     {
         var services = new ServiceCollection();
         AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services, opts =>
@@ -76,7 +79,8 @@ public class EndToEndTests
         Assert.NotEmpty(entries);
     }
 
-    [Fact] public async Task ResponseScan_CredentialExposure_IsQuarantined_EndToEnd()
+    [Fact]
+    public async Task ResponseScan_CredentialExposure_IsQuarantined_EndToEnd()
     {
         var services = new ServiceCollection();
         AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services,

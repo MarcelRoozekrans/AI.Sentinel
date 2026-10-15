@@ -37,9 +37,9 @@ public abstract record SentinelError
     private static ThreatRiskScore SeverityToScore(Severity severity) => new(severity switch
     {
         Severity.Critical => 100,
-        Severity.High     => 70,
-        Severity.Medium   => 40,
-        Severity.Low      => 15,
-        _                 => 0
+        Severity.High => 70,
+        Severity.Medium => 40,
+        Severity.Low => 15,
+        _ => 0
     });
 }

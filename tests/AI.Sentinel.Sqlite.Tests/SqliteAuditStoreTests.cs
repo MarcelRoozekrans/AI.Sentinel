@@ -130,8 +130,8 @@ public sealed class SqliteAuditStoreTests : IDisposable
     public async Task Query_FiltersByMinSeverity()
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
-        await store.AppendAsync(Make("e1", severity: Severity.High,     detectorId: "SEC-01"), CancellationToken.None);
-        await store.AppendAsync(Make("e2", severity: Severity.Low,      detectorId: "SEC-01"), CancellationToken.None);
+        await store.AppendAsync(Make("e1", severity: Severity.High, detectorId: "SEC-01"), CancellationToken.None);
+        await store.AppendAsync(Make("e2", severity: Severity.Low, detectorId: "SEC-01"), CancellationToken.None);
         await store.AppendAsync(Make("e3", severity: Severity.Critical, detectorId: "SEC-02"), CancellationToken.None);
 
         var results = new List<AuditEntry>();

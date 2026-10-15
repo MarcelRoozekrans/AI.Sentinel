@@ -40,22 +40,22 @@ public abstract class SemanticDetectorBase : IDetector
     public abstract DetectorCategory Category { get; }
 
     /// <summary>Representative phrases that indicate a high-severity threat.</summary>
-    protected abstract string[] HighExamples   { get; }
+    protected abstract string[] HighExamples { get; }
     /// <summary>Representative phrases that indicate a medium-severity threat.</summary>
     protected abstract string[] MediumExamples { get; }
     /// <summary>Representative phrases that indicate a low-severity threat.</summary>
-    protected abstract string[] LowExamples    { get; }
+    protected abstract string[] LowExamples { get; }
 
     /// <summary>Severity returned when the High bucket threshold is exceeded. Defaults to <see cref="Severity.High"/>.</summary>
-    protected virtual Severity HighSeverity   => Severity.High;
+    protected virtual Severity HighSeverity => Severity.High;
     /// <summary>Severity returned when the Medium bucket threshold is exceeded. Defaults to <see cref="Severity.Medium"/>.</summary>
     protected virtual Severity MediumSeverity => Severity.Medium;
     /// <summary>Severity returned when the Low bucket threshold is exceeded. Defaults to <see cref="Severity.Low"/>.</summary>
-    protected virtual Severity LowSeverity    => Severity.Low;
+    protected virtual Severity LowSeverity => Severity.Low;
 
-    protected virtual float HighThreshold   => 0.90f;
+    protected virtual float HighThreshold => 0.90f;
     protected virtual float MediumThreshold => 0.82f;
-    protected virtual float LowThreshold    => 0.75f;
+    protected virtual float LowThreshold => 0.75f;
 
     /// <summary>High-precision pattern checked before any embedding call. A match returns
     /// <see cref="FastPathSeverity"/> immediately.</summary>
@@ -175,9 +175,9 @@ public abstract class SemanticDetectorBase : IDetector
         try
         {
             if (_initialized) return;
-            _highVectors   = await EmbedExamplesAsync(HighExamples, ct).ConfigureAwait(false);
+            _highVectors = await EmbedExamplesAsync(HighExamples, ct).ConfigureAwait(false);
             _mediumVectors = await EmbedExamplesAsync(MediumExamples, ct).ConfigureAwait(false);
-            _lowVectors    = await EmbedExamplesAsync(LowExamples, ct).ConfigureAwait(false);
+            _lowVectors = await EmbedExamplesAsync(LowExamples, ct).ConfigureAwait(false);
             _initialized = true;
         }
         finally { _initLock.Release(); }
@@ -262,8 +262,8 @@ public abstract class SemanticDetectorBase : IDetector
         for (var i = 0; i < a.Length; i++)
         {
             dot += a[i] * b[i];
-            na  += a[i] * a[i];
-            nb  += b[i] * b[i];
+            na += a[i] * a[i];
+            nb += b[i] * b[i];
         }
         var denom = MathF.Sqrt(na) * MathF.Sqrt(nb);
         return denom > 0f ? dot / denom : 0f;

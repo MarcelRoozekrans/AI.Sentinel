@@ -26,8 +26,8 @@ public class SentinelPipelineBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        var options            = SentinelOptionsFactory.AllPassThrough();
-        _auditStore            = new RingBufferAuditStore();
+        var options = SentinelOptionsFactory.AllPassThrough();
+        _auditStore = new RingBufferAuditStore();
         var interventionEngine = new InterventionEngine(options, mediator: null);
 
         _pipeline = new SentinelPipeline(

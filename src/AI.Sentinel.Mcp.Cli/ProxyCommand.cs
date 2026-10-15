@@ -126,18 +126,18 @@ internal static class ProxyCommand
         try
         {
             await McpProxy.RunAsync(
-                hostTransport:   hostTransport,
+                hostTransport: hostTransport,
                 targetTransport: targetTransport,
-                config:          config,
-                preset:          preset,
-                maxScanBytes:    maxScanBytes,
-                stderr:          stderr,
-                ct:              ct,
-                guard:           guard,
-                approvalStore:   approvalStore,
-                approvalWait:    approvalWait,
-                auditStore:      audit.Store,
-                forwarders:      audit.Forwarders).ConfigureAwait(false);
+                config: config,
+                preset: preset,
+                maxScanBytes: maxScanBytes,
+                stderr: stderr,
+                ct: ct,
+                guard: guard,
+                approvalStore: approvalStore,
+                approvalWait: approvalWait,
+                auditStore: audit.Store,
+                forwarders: audit.Forwarders).ConfigureAwait(false);
             return 0;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -177,9 +177,9 @@ internal static class ProxyCommand
         return envBaseline with
         {
             OnCritical = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_CRITICAL", envBaseline.OnCritical),
-            OnHigh     = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_HIGH",     envBaseline.OnHigh),
-            OnMedium   = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_MEDIUM",   envBaseline.OnMedium),
-            OnLow      = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_LOW",      envBaseline.OnLow),
+            OnHigh = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_HIGH", envBaseline.OnHigh),
+            OnMedium = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_MEDIUM", envBaseline.OnMedium),
+            OnLow = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_LOW", envBaseline.OnLow),
         };
     }
 
@@ -246,8 +246,8 @@ internal static class ProxyCommand
             case ApprovalBackendKind.EntraPim:
                 services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig.TenantId!);
                 break;
-            // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
-            // carry an ApprovalSpec.
+                // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
+                // carry an ApprovalSpec.
         }
 
         services.AddAISentinel(opts => ApprovalBackendSelector.Configure(opts, approvalConfig));

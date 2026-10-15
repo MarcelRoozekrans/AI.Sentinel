@@ -18,21 +18,24 @@ public class InterventionEngineTests
                 DetectionResult.WithSeverity(new DetectorId("SEC-01"), Severity.Critical, "injection")
             });
 
-    [Fact] public void CleanResult_DoesNotThrow()
+    [Fact]
+    public void CleanResult_DoesNotThrow()
     {
         var opts = new SentinelOptions();
         var engine = new InterventionEngine(opts, mediator: null);
         engine.Apply(CleanResult());
     }
 
-    [Fact] public void CriticalResult_WithQuarantineAction_Throws()
+    [Fact]
+    public void CriticalResult_WithQuarantineAction_Throws()
     {
         var opts = new SentinelOptions { OnCritical = SentinelAction.Quarantine };
         var engine = new InterventionEngine(opts, mediator: null);
         Assert.Throws<SentinelException>(() => engine.Apply(CriticalResult()));
     }
 
-    [Fact] public void CriticalResult_WithLogAction_DoesNotThrow()
+    [Fact]
+    public void CriticalResult_WithLogAction_DoesNotThrow()
     {
         var opts = new SentinelOptions { OnCritical = SentinelAction.Log };
         var engine = new InterventionEngine(opts, mediator: null);

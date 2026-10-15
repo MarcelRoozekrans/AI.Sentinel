@@ -26,7 +26,7 @@ internal static class MessageFactory
         var msgs = new List<ChatMessage>(20);
         for (int i = 0; i < 10; i++)
         {
-            msgs.Add(new ChatMessage(ChatRole.User,      $"Turn {i}: what is {i} + {i}?"));
+            msgs.Add(new ChatMessage(ChatRole.User, $"Turn {i}: what is {i} + {i}?"));
             msgs.Add(new ChatMessage(ChatRole.Assistant, $"Turn {i}: {i + i}."));
         }
         return msgs.AsReadOnly();

@@ -10,9 +10,9 @@ using ChatApp.Server.Hubs;
 var builder = WebApplication.CreateBuilder(args);
 
 // ── OpenRouter config ────────────────────────────────────────────────────────
-var apiKey  = builder.Configuration["OpenRouter:ApiKey"]
+var apiKey = builder.Configuration["OpenRouter:ApiKey"]
               ?? throw new InvalidOperationException("OpenRouter:ApiKey is required.");
-var model   = builder.Configuration["OpenRouter:Model"]
+var model = builder.Configuration["OpenRouter:Model"]
               ?? "nvidia/llama-3.3-nemotron-super-49b-v1";
 var baseUrl = builder.Configuration["OpenRouter:BaseUrl"]
               ?? "https://openrouter.ai/api/v1";
@@ -24,9 +24,9 @@ static SentinelAction ParseAction(string? value, SentinelAction fallback) =>
 builder.Services.AddAISentinel(opts =>
 {
     opts.OnCritical = ParseAction(builder.Configuration["AISentinel:OnCritical"], SentinelAction.Quarantine);
-    opts.OnHigh     = ParseAction(builder.Configuration["AISentinel:OnHigh"],     SentinelAction.Alert);
-    opts.OnMedium   = ParseAction(builder.Configuration["AISentinel:OnMedium"],   SentinelAction.Log);
-    opts.OnLow      = ParseAction(builder.Configuration["AISentinel:OnLow"],      SentinelAction.Log);
+    opts.OnHigh = ParseAction(builder.Configuration["AISentinel:OnHigh"], SentinelAction.Alert);
+    opts.OnMedium = ParseAction(builder.Configuration["AISentinel:OnMedium"], SentinelAction.Log);
+    opts.OnLow = ParseAction(builder.Configuration["AISentinel:OnLow"], SentinelAction.Log);
     // To enable semantic (language-agnostic) detection, set an embedding provider:
     // opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(new OpenAIClient(...), "text-embedding-3-small");
 });
@@ -97,13 +97,13 @@ internal static class DashboardDemoSeed
         foreach (var s in seeds)
         {
             await store.AppendAsync(new AuditEntry(
-                Id:           Guid.NewGuid().ToString("N"),
-                Timestamp:    now.AddSeconds(-s.SecondsAgo),
-                Hash:         string.Empty,
+                Id: Guid.NewGuid().ToString("N"),
+                Timestamp: now.AddSeconds(-s.SecondsAgo),
+                Hash: string.Empty,
                 PreviousHash: null,
-                Severity:     s.Sev,
-                DetectorId:   s.Detector,
-                Summary:      s.Summary), ct).ConfigureAwait(false);
+                Severity: s.Sev,
+                DetectorId: s.Detector,
+                Summary: s.Summary), ct).ConfigureAwait(false);
         }
     }
 }

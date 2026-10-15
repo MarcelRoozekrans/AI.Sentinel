@@ -38,7 +38,7 @@ public static class SeverityFlagParser
             StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["event"] = "cli_severity_parse",
-                ["flag"]  = flagName,
+                ["flag"] = flagName,
                 ["value"] = raw,
                 ["error"] = "invalid_value",
             });

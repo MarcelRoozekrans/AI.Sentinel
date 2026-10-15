@@ -9,7 +9,7 @@ namespace AI.Sentinel.Detectors.Security;
 public sealed partial class PromptInjectionDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("SEC-01");
-    public override DetectorId Id       => _id;
+    public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
     /// <summary>Only phrasings with no innocent reading. Deliberately excludes the loose patterns the
@@ -29,9 +29,9 @@ public sealed partial class PromptInjectionDetector(SentinelOptions options) : S
     protected override Regex? FastPathPattern => InjectionPattern();
     protected override Severity FastPathSeverity => Severity.Critical;
 
-    protected override Severity HighSeverity   => Severity.Critical;
+    protected override Severity HighSeverity => Severity.Critical;
     protected override Severity MediumSeverity => Severity.High;
-    protected override Severity LowSeverity    => Severity.Medium;
+    protected override Severity LowSeverity => Severity.Medium;
 
     protected override string[] HighExamples =>
     [

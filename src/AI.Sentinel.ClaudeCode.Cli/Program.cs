@@ -232,8 +232,8 @@ public static class Program
             case ApprovalBackendKind.EntraPim:
                 services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig!.TenantId!);
                 break;
-            // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
-            // carry an ApprovalSpec.
+                // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
+                // carry an ApprovalSpec.
         }
 
         services.AddAISentinel(opts =>

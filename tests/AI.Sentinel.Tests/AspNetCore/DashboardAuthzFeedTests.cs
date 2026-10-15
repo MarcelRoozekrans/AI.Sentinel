@@ -161,14 +161,14 @@ public class DashboardAuthzFeedTests
 
         var html = await client.GetStringAsync("/sentinel/", TestContext.Current.CancellationToken);
 
-        Assert.Contains("data-filter=\"security\"",        html, StringComparison.Ordinal);
-        Assert.Contains("data-filter=\"hallucination\"",   html, StringComparison.Ordinal);
-        Assert.Contains("data-filter=\"operational\"",     html, StringComparison.Ordinal);
-        Assert.Contains("data-filter=\"authorization\"",   html, StringComparison.Ordinal);
-        Assert.Contains("id=\"feed-search\"",              html, StringComparison.Ordinal);
-        Assert.Contains("id=\"session-pill-container\"",   html, StringComparison.Ordinal);
-        Assert.Contains("id=\"trend-chart-container\"",    html, StringComparison.Ordinal);
-        Assert.Contains("id=\"export-link\"",              html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"security\"", html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"hallucination\"", html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"operational\"", html, StringComparison.Ordinal);
+        Assert.Contains("data-filter=\"authorization\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"feed-search\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"session-pill-container\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"trend-chart-container\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"export-link\"", html, StringComparison.Ordinal);
     }
 
     private static async Task<IHost> BuildHostAsync()
@@ -189,12 +189,12 @@ public class DashboardAuthzFeedTests
 
     private static AuditEntry NewEntry(string detectorId, string summary, string? policyCode = null) =>
         new(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         "deadbeef00000000",
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "deadbeef00000000",
             PreviousHash: null,
-            Severity:     Severity.High,
-            DetectorId:   detectorId,
-            Summary:      summary,
-            PolicyCode:   policyCode);
+            Severity: Severity.High,
+            DetectorId: detectorId,
+            Summary: summary,
+            PolicyCode: policyCode);
 }

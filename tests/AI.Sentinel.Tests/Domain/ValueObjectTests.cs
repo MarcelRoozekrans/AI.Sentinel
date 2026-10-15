@@ -5,25 +5,32 @@ namespace AI.Sentinel.Tests.Domain;
 
 public class ValueObjectTests
 {
-    [Fact] public void AgentId_Equality() =>
+    [Fact]
+    public void AgentId_Equality() =>
         Assert.Equal(new AgentId("bot-a"), new AgentId("bot-a"));
 
-    [Fact] public void AgentId_Inequality() =>
+    [Fact]
+    public void AgentId_Inequality() =>
         Assert.NotEqual(new AgentId("bot-a"), new AgentId("bot-b"));
 
-    [Fact] public void ThreatRiskScore_Clamps_To_100() =>
+    [Fact]
+    public void ThreatRiskScore_Clamps_To_100() =>
         Assert.Equal(100, new ThreatRiskScore(150).Value);
 
-    [Fact] public void ThreatRiskScore_Clamps_To_0() =>
+    [Fact]
+    public void ThreatRiskScore_Clamps_To_0() =>
         Assert.Equal(0, new ThreatRiskScore(-10).Value);
 
-    [Fact] public void ThreatRiskScore_Stage_Critical() =>
+    [Fact]
+    public void ThreatRiskScore_Stage_Critical() =>
         Assert.Equal(ThreatStage.Isolate, new ThreatRiskScore(90).Stage);
 
-    [Fact] public void ThreatRiskScore_Stage_Safe() =>
+    [Fact]
+    public void ThreatRiskScore_Stage_Safe() =>
         Assert.Equal(ThreatStage.Safe, new ThreatRiskScore(10).Stage);
 
-    [Fact] public void ThreatRiskScore_Aggregate_WeightedFormula()
+    [Fact]
+    public void ThreatRiskScore_Aggregate_WeightedFormula()
     {
         var scores = new[] { new ThreatRiskScore(100), new ThreatRiskScore(50) };
         var result = ThreatRiskScore.Aggregate(scores);
@@ -31,20 +38,23 @@ public class ValueObjectTests
         Assert.Equal(90, result.Value);
     }
 
-    [Fact] public void ThreatRiskScore_Stage_Boundaries()
+    [Fact]
+    public void ThreatRiskScore_Stage_Boundaries()
     {
-        Assert.Equal(ThreatStage.Safe,    new ThreatRiskScore(24).Stage);
-        Assert.Equal(ThreatStage.Watch,   new ThreatRiskScore(25).Stage);
-        Assert.Equal(ThreatStage.Alert,   new ThreatRiskScore(50).Stage);
+        Assert.Equal(ThreatStage.Safe, new ThreatRiskScore(24).Stage);
+        Assert.Equal(ThreatStage.Watch, new ThreatRiskScore(25).Stage);
+        Assert.Equal(ThreatStage.Alert, new ThreatRiskScore(50).Stage);
         Assert.Equal(ThreatStage.Isolate, new ThreatRiskScore(75).Stage);
     }
 
-    [Fact] public void ThreatRiskScore_Equality()
+    [Fact]
+    public void ThreatRiskScore_Equality()
     {
         Assert.Equal(new ThreatRiskScore(50), new ThreatRiskScore(50));
         Assert.NotEqual(new ThreatRiskScore(50), new ThreatRiskScore(60));
     }
 
-    [Fact] public void AgentId_EmptyString_Throws() =>
+    [Fact]
+    public void AgentId_EmptyString_Throws() =>
         Assert.Throws<ArgumentException>(() => new AgentId(""));
 }

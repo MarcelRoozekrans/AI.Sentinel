@@ -12,10 +12,10 @@ public class McpPipelineFactoryTests
 {
     private static HookConfig BuildConfig() => new(
         OnCritical: HookDecision.Block,
-        OnHigh:     HookDecision.Block,
-        OnMedium:   HookDecision.Block,
-        OnLow:      HookDecision.Block,
-        Verbose:    false);
+        OnHigh: HookDecision.Block,
+        OnMedium: HookDecision.Block,
+        OnLow: HookDecision.Block,
+        Verbose: false);
 
     [Fact]
     public void Create_SecurityPreset_ProducesPipeline()
@@ -92,7 +92,7 @@ public class McpPipelineFactoryTests
 
     [Theory]
     [InlineData(HookDecision.Block, SentinelAction.Quarantine)]
-    [InlineData(HookDecision.Warn,  SentinelAction.Alert)]
+    [InlineData(HookDecision.Warn, SentinelAction.Alert)]
     [InlineData(HookDecision.Allow, SentinelAction.PassThrough)]
     public void MapDecision_ProducesExpectedSentinelAction(
         HookDecision decision,

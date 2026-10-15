@@ -16,9 +16,9 @@ internal static class SentinelActionRanking
 
     private static int Rank(SentinelAction a) => a switch
     {
-        SentinelAction.Log        => 1,
-        SentinelAction.Alert      => 2,
+        SentinelAction.Log => 1,
+        SentinelAction.Alert => 2,
         SentinelAction.Quarantine => 3,
-        _                         => 0
+        _ => 0
     };
 }

@@ -16,8 +16,8 @@ public class StderrLoggerTests
         Environment.SetEnvironmentVariable("SENTINEL_MCP_LOG_JSON", null);
         var line = StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]  = "tools_call",
-            ["tool"]   = "Bash",
+            ["event"] = "tools_call",
+            ["tool"] = "Bash",
             ["action"] = "scanned",
         });
         Assert.Equal("event=tools_call tool=Bash action=scanned", line);
@@ -32,7 +32,7 @@ public class StderrLoggerTests
             var line = StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["event"] = "tools_call",
-                ["tool"]  = "Bash",
+                ["tool"] = "Bash",
             });
             Assert.StartsWith("{", line, StringComparison.Ordinal);
             Assert.Contains("\"event\":\"tools_call\"", line, StringComparison.Ordinal);
@@ -95,7 +95,7 @@ public class StderrLoggerTests
             StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
             {
                 ["event"] = "tools_call",
-                ["tool"]  = "Bash",
+                ["tool"] = "Bash",
             });
         }
         finally

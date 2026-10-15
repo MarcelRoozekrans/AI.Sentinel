@@ -130,17 +130,17 @@ public sealed class CopilotHookAdapter
     private static IReadOnlyList<ChatMessage> BuildMessages(
         CopilotHookEvent evt,
         CopilotHookInput input) => evt switch
-    {
-        CopilotHookEvent.UserPromptSubmitted => [new ChatMessage(ChatRole.User, input.Prompt ?? "")],
-        CopilotHookEvent.PreToolUse => [new ChatMessage(ChatRole.User,
+        {
+            CopilotHookEvent.UserPromptSubmitted => [new ChatMessage(ChatRole.User, input.Prompt ?? "")],
+            CopilotHookEvent.PreToolUse => [new ChatMessage(ChatRole.User,
             $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}")],
-        CopilotHookEvent.PostToolUse =>
-        [
-            new ChatMessage(ChatRole.User,
+            CopilotHookEvent.PostToolUse =>
+            [
+                new ChatMessage(ChatRole.User,
                 $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}"),
             new ChatMessage(ChatRole.Assistant,
                 input.ToolResponse?.GetRawText() ?? ""),
         ],
-        _ => throw new ArgumentOutOfRangeException(nameof(evt)),
-    };
+            _ => throw new ArgumentOutOfRangeException(nameof(evt)),
+        };
 }

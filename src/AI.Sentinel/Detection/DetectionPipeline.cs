@@ -56,12 +56,12 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
         Redactors = redactors.ToArray();
 
-        _detectors        = enabled.ToArray();
-        _configurations   = enabledConfigs.ToArray();
+        _detectors = enabled.ToArray();
+        _configurations = enabledConfigs.ToArray();
         _escalationClient = escalationClient;
-        _logger           = logger;
+        _logger = logger;
         _onDetectorFailure = onDetectorFailure;
-        _redactByDefault  = redactByDefault;
+        _redactByDefault = redactByDefault;
     }
 
     /// <inheritdoc />
@@ -70,10 +70,10 @@ public sealed class DetectionPipeline : IDetectionPipeline
     private static int SeverityScore(Severity s) => s switch
     {
         Severity.Critical => 100,
-        Severity.High     => 70,
-        Severity.Medium   => 40,
-        Severity.Low      => 15,
-        _                 => 0
+        Severity.High => 70,
+        Severity.Medium => 40,
+        Severity.Low => 15,
+        _ => 0
     };
 
     public async ValueTask<PipelineResult> RunAsync(SentinelContext ctx, CancellationToken ct)
@@ -210,7 +210,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
     private static PipelineResult BuildResult(DetectionResult[] results)
     {
         var nonClean = new List<DetectionResult>();
-        var scores   = new ThreatRiskScore[results.Length];
+        var scores = new ThreatRiskScore[results.Length];
         for (int i = 0; i < results.Length; i++)
         {
             if (!results[i].IsClean) nonClean.Add(results[i]);
