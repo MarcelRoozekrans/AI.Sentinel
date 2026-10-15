@@ -324,16 +324,19 @@ builder.Services.AddChatClient(pipeline =>
 ```
 
 Tool calls the *model* asks for are authorized before the tool runs, in either order of
-`UseToolCallAuthorization()` and `UseFunctionInvocation()`. The order only changes how a denial
-surfaces:
+`UseToolCallAuthorization()` and `UseFunctionInvocation()`, and for tools in `ChatOptions.Tools` and in
+`FunctionInvokingChatClient.AdditionalTools` alike. A denied call never runs, is audited once as
+`AUTHZ-DENY`, and throws `ToolCallAuthorizationException` to your caller. The order only changes where the
+check happens:
 
-- **Authorization inside function invocation (recommended, as above):** a denied call throws
-  `ToolCallAuthorizationException` to your caller and the tool never runs.
-- **Authorization outside function invocation:** the guard runs immediately before each tool
-  invocation. `FunctionInvokingChatClient` catches the denial and reports it to the model as a
-  failed function result (a generic error, not the deny reason), so no exception reaches your
-  caller. The tool still never runs and the denial is still audited as `AUTHZ-DENY`. When streaming,
-  the denied call is caught earlier, as it is streamed, and the exception does reach your caller.
+- **Authorization inside function invocation (recommended, as above):** the calls in the model's response
+  are checked before `FunctionInvokingChatClient` sees them.
+- **Authorization outside function invocation:** the guard is hooked into `FunctionInvokingChatClient`'s
+  function invocation, so it runs immediately before each tool. (When streaming, the call is checked as it
+  is streamed, one step earlier.)
+
+A call that already has a result in the messages you send (for example history you append from an earlier
+turn) is treated as history and is not checked or audited again. Calls without a result are checked.
 
 | Surface | Caller resolution default | Deny semantics |
 |---|---|---|

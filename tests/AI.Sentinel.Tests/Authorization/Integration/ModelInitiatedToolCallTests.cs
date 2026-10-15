@@ -28,7 +28,7 @@ public class ModelInitiatedToolCallTests
     }
 
     // ChatClientBuilder: the FIRST Use is the OUTERMOST client.
-    private static Harness Build(bool authorizationOutside, ISecurityContext caller)
+    private static Harness Build(bool authorizationOutside, ISecurityContext caller, bool toolsViaAdditionalTools = false, bool modelCallsTool = true)
     {
         var opts = new SentinelOptions().RequireToolPolicy("DeleteUser", "admin-only");
         var audit = new RingBufferAuditStore();
@@ -45,11 +45,18 @@ public class ModelInitiatedToolCallTests
         var ran = new int[1];
         var tool = AIFunctionFactory.Create((string id) => { ran[0]++; return "deleted " + id; }, "DeleteUser");
 
-        var builder = new ChatClientBuilder(new ScriptedModel());
+        var builder = new ChatClientBuilder(new ScriptedModel(modelCallsTool));
+        Action<FunctionInvokingChatClient> configure = f =>
+        {
+            if (toolsViaAdditionalTools)
+            {
+                f.AdditionalTools = [tool];
+            }
+        };
         var client = (authorizationOutside
-            ? builder.UseToolCallAuthorization().UseFunctionInvocation()
-            : builder.UseFunctionInvocation().UseToolCallAuthorization()).Build(sp);
-        return new Harness(ran, client, audit, new ChatOptions { Tools = [tool] });
+            ? builder.UseToolCallAuthorization().UseFunctionInvocation(null, configure)
+            : builder.UseFunctionInvocation(null, configure).UseToolCallAuthorization()).Build(sp);
+        return new Harness(ran, client, audit, toolsViaAdditionalTools ? new ChatOptions() : new ChatOptions { Tools = [tool] });
     }
 
     private static Task<ChatResponse> AskAsync(Harness h)
@@ -63,29 +70,14 @@ public class ModelInitiatedToolCallTests
         }
     }
 
-    // FunctionInvokingChatClient catches an exception thrown by a function and reports it to the model
-    // as a failed function result, so a denial does not reach the caller when authorization wraps it.
     [Fact]
-    public async Task AuthorizationOutsideFunctionInvocation_DeniedCall_ToolNeverRunsAndModelGetsFailedResult()
+    public async Task AuthorizationOutsideFunctionInvocation_DeniedCall_ToolNeverRunsAndDenialReachesCaller()
     {
         var h = Build(authorizationOutside: true, new TestSecurityContext("bob"));
 
-        var response = await AskAsync(h);
+        await Assert.ThrowsAsync<ToolCallAuthorizationException>(() => AskAsync(h));
 
         Assert.Equal(0, h.Ran);
-        FunctionResultContent? failed = null;
-        foreach (var msg in response.Messages)
-        {
-            foreach (var content in msg.Contents)
-            {
-                if (content is FunctionResultContent r)
-                {
-                    failed = r;
-                }
-            }
-        }
-        Assert.NotNull(failed);
-        Assert.IsType<ToolCallAuthorizationException>(failed.Exception);
     }
 
     [Fact]
@@ -115,14 +107,7 @@ public class ModelInitiatedToolCallTests
     {
         var h = Build(authorizationOutside, new TestSecurityContext("bob"));
 
-        // Outside FunctionInvokingChatClient the denial is reported to the model instead of thrown.
-        try
-        {
-            await AskAsync(h);
-        }
-        catch (ToolCallAuthorizationException) when (!authorizationOutside)
-        {
-        }
+        await Assert.ThrowsAsync<ToolCallAuthorizationException>(() => AskAsync(h));
 
         var entry = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(h.Audit));
         Assert.Equal("AUTHZ-DENY", entry.DetectorId);
@@ -139,6 +124,62 @@ public class ModelInitiatedToolCallTests
         Assert.Equal(1, h.Ran);
         Assert.Equal("done", response.Text);
         Assert.Empty(await RecordingAuditForwarder.ReadAllAsync(h.Audit));
+    }
+
+    [Theory]
+    [MemberData(nameof(Orders))]
+    public async Task DeniedModelCall_ToolFromAdditionalTools_NeverRunsAndIsAuditedOnce(bool authorizationOutside)
+    {
+        var h = Build(authorizationOutside, new TestSecurityContext("bob"), toolsViaAdditionalTools: true);
+
+        await Assert.ThrowsAsync<ToolCallAuthorizationException>(() => AskAsync(h));
+
+        Assert.Equal(0, h.Ran);
+        Assert.Equal("AUTHZ-DENY", Assert.Single(await RecordingAuditForwarder.ReadAllAsync(h.Audit)).DetectorId);
+    }
+
+    [Theory]
+    [MemberData(nameof(Orders))]
+    public async Task AllowedModelCall_ToolFromAdditionalTools_RunsOnce(bool authorizationOutside)
+    {
+        var h = Build(authorizationOutside, new TestSecurityContext("alice", "admin"), toolsViaAdditionalTools: true);
+
+        await AskAsync(h);
+
+        Assert.Equal(1, h.Ran);
+    }
+
+    // A denied call that a caller kept in history (call plus its failed result) is history on the next
+    // turn: it must not throw again or be audited a second time.
+    [Theory]
+    [MemberData(nameof(Orders))]
+    public async Task AnsweredCallInHistory_IsNotAuthorizedAgain(bool authorizationOutside)
+    {
+        var h = Build(authorizationOutside, new TestSecurityContext("bob"), modelCallsTool: false);
+        var history = new List<ChatMessage>
+        {
+            new(ChatRole.User, "delete 42"),
+            new(ChatRole.Assistant, [new FunctionCallContent("c1", "DeleteUser", new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "42" })]),
+            new(ChatRole.Tool, [new FunctionResultContent("c1", "Error: Function failed.")]),
+            new(ChatRole.User, "thanks"),
+        };
+
+        var response = await h.Client.GetResponseAsync(history, new ChatOptions(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, h.Ran);
+        Assert.NotNull(response);
+        Assert.Empty(await RecordingAuditForwarder.ReadAllAsync(h.Audit));
+    }
+
+    [Theory]
+    [MemberData(nameof(Orders))]
+    public async Task DeniedModelCall_Streaming_WritesOneAuthzDenyEntry(bool authorizationOutside)
+    {
+        var h = Build(authorizationOutside, new TestSecurityContext("bob"));
+
+        await Assert.ThrowsAsync<ToolCallAuthorizationException>(() => DrainAsync(h));
+
+        Assert.Equal("AUTHZ-DENY", Assert.Single(await RecordingAuditForwarder.ReadAllAsync(h.Audit)).DetectorId);
     }
 
     [Fact]
@@ -175,13 +216,13 @@ public class ModelInitiatedToolCallTests
         Assert.Null(ToolInvocationInterception.WrapTools(null, (inner, args, ct) => inner.InvokeAsync(args, ct)));
     }
 
-    private sealed class ScriptedModel : IChatClient
+    private sealed class ScriptedModel(bool callsTool) : IChatClient
     {
         private int _calls;
 
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
         {
-            var reply = Interlocked.Increment(ref _calls) == 1
+            var reply = callsTool && Interlocked.Increment(ref _calls) == 1
                 ? new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c1", "DeleteUser", new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "42" })])
                 : new ChatMessage(ChatRole.Assistant, "done");
             return Task.FromResult(new ChatResponse(reply));
