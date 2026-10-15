@@ -28,6 +28,16 @@ public sealed class SentinelContext(
     /// </remarks>
     public string? SystemPrompt { get; } = systemPrompt;
 
+    private static readonly IReadOnlySet<string> NoPlaceholders = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The redaction placeholders, such as <c>[API_KEY_1]</c>, that the current call minted when it redacted
+    /// the request. A redacting detector does not flag them as a value: they are what a redacted request
+    /// looks like. Empty by default, so a surface that never redacts exempts nothing, and text that merely
+    /// looks like a placeholder is judged like any other text.
+    /// </summary>
+    public IReadOnlySet<string> RedactionPlaceholders { get; init; } = NoPlaceholders;
+
     private string? _textContent;
 
     /// <summary>

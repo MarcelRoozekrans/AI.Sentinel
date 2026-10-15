@@ -27,14 +27,14 @@ public class RedactionPipelineTests
 
     public static TheoryData<string> AuthorizationOrders => new() { "S>A>F", "A>S>F", "S>F>A", "F>S>A", "F>A>S", "A>F>S" };
 
-    private static ChatClientBuilder Compose(ChatClientBuilder b, string order)
+    private static ChatClientBuilder Compose(ChatClientBuilder b, string order, Action<FunctionInvokingChatClient>? invoking = null)
     {
         foreach (var part in order.Split('>'))
         {
             b = part switch
             {
                 "S" => b.UseAISentinel(),
-                "F" => b.UseFunctionInvocation(),
+                "F" => b.UseFunctionInvocation(null, invoking),
                 "A" => b.UseToolCallAuthorization(),
                 _ => throw new ArgumentOutOfRangeException(nameof(order)),
             };
@@ -55,7 +55,8 @@ public class RedactionPipelineTests
         RecordingModel model,
         Action<SentinelOptions>? configure = null,
         IToolCallGuard? guard = null,
-        Action<IServiceCollection>? services = null)
+        Action<IServiceCollection>? services = null,
+        Action<FunctionInvokingChatClient>? invoking = null)
     {
         var audit = new RingBufferAuditStore();
         var published = new List<object>();
@@ -69,7 +70,7 @@ public class RedactionPipelineTests
         }
         services?.Invoke(sc);
         var sp = sc.BuildServiceProvider();
-        var client = Compose(new ChatClientBuilder(model), order).Build(sp);
+        var client = Compose(new ChatClientBuilder(model), order, invoking).Build(sp);
         return new Harness(client, model, audit, published);
     }
 
@@ -314,10 +315,7 @@ public class RedactionPipelineTests
     [MemberData(nameof(Orders))]
     public async Task ToolCall_ApiKeyPlaceholder_NeverRestoredIntoToolArguments_ButRestoredInReply(string order)
     {
-        // Inside function invocation every round trip is redacted afresh, and the secret placeholder kept in the
-        // tool call's history is a literal there, so the key's number may move: the model replies with the
-        // token the latest request gave the key.
-        var h = Build(order, RecordingModel.CallsTool("Lookup", "key", "[API_KEY_1]", m => "Your key is " + TokenIn(m[0].Text, "API_KEY")));
+        var h = Build(order, RecordingModel.CallsTool("Lookup", "key", "[API_KEY_1]", "Your key is [API_KEY_1]"));
         var seen = new List<string>();
         var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string key) => { seen.Add(key); return "ok"; }, "Lookup")] };
 
@@ -325,17 +323,157 @@ public class RedactionPipelineTests
 
         Assert.Equal(["[API_KEY_1]"], seen);
         Assert.DoesNotContain(ApiKey, h.Model.AllSeen, StringComparison.Ordinal);
-        Assert.Equal($"Your key is {ApiKey}", response.Text);
-        foreach (var msg in response.Messages)
+        var call = Assert.Single(CallsIn(response.Messages));
+        if (string.Equals(order, "S>F", StringComparison.Ordinal))
         {
-            foreach (var c in msg.Contents)
+            // One session spans the request: the reply is restored, and the call is answered in the returned
+            // history, so it is history and holds the real key.
+            Assert.Equal($"Your key is {ApiKey}", response.Text);
+            Assert.Equal(ApiKey, call.Arguments!["key"]?.ToString());
+        }
+        else
+        {
+            // Accepted residue, by ruling: inside function invocation the call left Sentinel unanswered, so it
+            // kept the placeholder, which the next round trip's fresh session treats as a literal. The key gets
+            // [API_KEY_2] there and the model's [API_KEY_1] stays as it is. Nothing leaks.
+            Assert.Contains("api_key=[API_KEY_2]", h.Model.AllSeen, StringComparison.Ordinal);
+            Assert.Equal("Your key is [API_KEY_1]", response.Text);
+            Assert.Equal("[API_KEY_1]", call.Arguments!["key"]?.ToString());
+        }
+    }
+
+    [Fact]
+    public async Task UnansweredSecretCall_InReturnedMessages_KeepsPlaceholder_PiiArgumentRestored()
+    {
+        var h = Build("S", new RecordingModel(_ => new ChatMessage(ChatRole.Assistant, [
+            new TextContent("Calling with [API_KEY_1] for [EMAIL_1]"),
+            new FunctionCallContent("c1", "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1]", ["to"] = "[EMAIL_1]" }),
+        ])));
+
+        var response = await AskAsync(h, $"api_key={ApiKey} for {Email}");
+
+        Assert.Equal($"Calling with {ApiKey} for {Email}", response.Text);
+        var call = Assert.Single(CallsIn(response.Messages));
+        Assert.Equal("[API_KEY_1]", call.Arguments!["key"]?.ToString());
+        Assert.Equal(Email, call.Arguments["to"]?.ToString());
+    }
+
+    [Theory]
+    [MemberData(nameof(Orders))]
+    public async Task ReturnedHistory_HoldsRealToolResults_SoASecondTurnCanUseThem(string order)
+    {
+        var h = Build(order, new RecordingModel(messages =>
+        {
+            var pay = false;
+            var accountAnswered = false;
+            foreach (var m in messages)
             {
-                if (c is FunctionCallContent call)
+                pay |= m.Role == ChatRole.User && string.Equals(m.Text, "pay it", StringComparison.Ordinal);
+                foreach (var c in m.Contents)
                 {
-                    Assert.Equal("[API_KEY_1]", call.Arguments!["key"]?.ToString());
+                    if (c is FunctionResultContent { CallId: "c2" })
+                    {
+                        return new ChatMessage(ChatRole.Assistant, "paid");
+                    }
+                    accountAnswered |= c is FunctionResultContent { CallId: "c1" };
                 }
             }
-        }
+            if (pay)
+            {
+                return new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c2", "Pay", new Dictionary<string, object?>(StringComparer.Ordinal) { ["iban"] = "[IBAN_1]" })]);
+            }
+            return accountAnswered
+                ? new ChatMessage(ChatRole.Assistant, "Found the account.")
+                : new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c1", "Account", new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "42" })]);
+        }));
+        var paid = new List<string>();
+        var options = new ChatOptions
+        {
+            Tools =
+            [
+                AIFunctionFactory.Create((string id) => $"IBAN {Iban}", "Account"),
+                AIFunctionFactory.Create((string iban) => { paid.Add(iban); return "ok"; }, "Pay"),
+            ],
+        };
+
+        var history = new List<ChatMessage> { new(ChatRole.User, "look up account 42") };
+        var first = await AskAsync(h, history, options);
+        Assert.Contains($"IBAN {Iban}", ResultsIn(first.Messages), StringComparison.Ordinal);
+
+        history.AddRange(first.Messages);
+        history.Add(new ChatMessage(ChatRole.User, "pay it"));
+        await AskAsync(h, history, options);
+
+        Assert.Equal([Iban], paid);
+        Assert.DoesNotContain(Iban, h.Model.AllSeen, StringComparison.Ordinal);
+    }
+
+    // --- Tool exceptions ---
+
+    [Theory]
+    [MemberData(nameof(Orders))]
+    public async Task ToolThrows_DetailedErrors_ModelNeverSeesTheValue(string order)
+    {
+        var h = Build(order, RecordingModel.CallsTool("SendMail", "to", "[EMAIL_1]", "sorry"), invoking: f => f.IncludeDetailedErrors = true);
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create(new Func<string, string>(to => throw new InvalidOperationException("No contact found for " + to)), "SendMail")] };
+
+        var response = await AskAsync(h, $"Mail {Email}", options);
+
+        Assert.Equal("sorry", response.Text);
+        Assert.Equal(2, h.Model.Calls);
+        Assert.DoesNotContain(Email, h.Model.AllSeen, StringComparison.Ordinal);
+        Assert.Contains("No contact found for [EMAIL_1]", h.Model.AllSeen, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ToolThrows_TooManyErrors_CallerSeesNoValueInAnyMessage()
+    {
+        var h = Build("S>F", RecordingModel.CallsTool("SendMail", "to", "[EMAIL_1]", "sorry"),
+            invoking: f => { f.IncludeDetailedErrors = true; f.MaximumConsecutiveErrorsPerRequest = 0; });
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create(new Func<string, string>(to => throw new InvalidOperationException("No contact found for " + to)), "SendMail")] };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => AskAsync(h, $"Mail {Email}", options));
+
+        Assert.DoesNotContain(Email, ex.Message, StringComparison.Ordinal);
+        var redacted = Assert.IsType<AI.Sentinel.Redaction.RedactedToolInvocationException>(ex.InnerException);
+        Assert.Equal("No contact found for [EMAIL_1]", redacted.Message);
+        // The application keeps the tool's own exception.
+        Assert.Equal($"No contact found for {Email}", redacted.InnerException!.Message);
+        Assert.DoesNotContain(Email, h.Model.AllSeen, StringComparison.Ordinal);
+    }
+
+    // --- Stacked Sentinel clients ---
+
+    [Fact]
+    public async Task StackedSentinels_ToolGetsRealValue_ModelNeverSeesIt()
+    {
+        var h = Build("S>S>F", RecordingModel.CallsTool("SendMail", "to", "[EMAIL_1]", "Mailed [EMAIL_1]"));
+        var seen = new List<string>();
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string to) => { seen.Add(to); return "sent to " + to; }, "SendMail")] };
+
+        var response = await AskAsync(h, $"Mail {Email} please", options);
+
+        Assert.Equal([Email], seen);
+        Assert.DoesNotContain(Email, h.Model.AllSeen, StringComparison.Ordinal);
+        Assert.Contains("sent to [EMAIL_1]", h.Model.AllSeen, StringComparison.Ordinal);
+        Assert.Equal($"Mailed {Email}", response.Text);
+    }
+
+    // --- Placeholder-shaped values ---
+
+    [Fact]
+    public async Task PlaceholderShapedSecret_IsRedacted_AndTheMintedTokenIsNotReflagged()
+    {
+        var h = Build("S", RecordingModel.Echo());
+
+        var response = await AskAsync(h, "password=[ADMIN_99] please.");
+
+        Assert.DoesNotContain("ADMIN_99", h.Model.AllSeen, StringComparison.Ordinal);
+        Assert.Contains("[PASSWORD_1]", h.Model.AllSeen, StringComparison.Ordinal);
+        Assert.Equal("Echo: password=[ADMIN_99] please.", response.Text);
+        var entries = await RecordingAuditForwarder.ReadAllAsync(h.Audit);
+        var cred = Assert.Single(entries, e => string.Equals(e.DetectorId, "SEC-02", StringComparison.Ordinal));
+        Assert.Equal("REDACTED", cred.PolicyCode);
     }
 
     [Theory]
@@ -350,6 +488,8 @@ public class RedactionPipelineTests
         Assert.DoesNotContain(Iban, h.Model.AllSeen, StringComparison.Ordinal);
         Assert.Contains("IBAN [IBAN_1]", h.Model.AllSeen, StringComparison.Ordinal);
         Assert.Equal($"Account is {Iban}", response.Text);
+        // The caller owns the value: the tool result in the returned history holds it.
+        Assert.Contains($"IBAN {Iban}", ResultsIn(response.Messages), StringComparison.Ordinal);
         var entry = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(h.Audit), e => string.Equals(e.DetectorId, "SEC-23", StringComparison.Ordinal));
         Assert.Equal("Redacted 1 IBAN", entry.Summary);
     }
@@ -537,6 +677,44 @@ public class RedactionPipelineTests
         Assert.Equal(1, h.Model.Calls);
     }
 
+    [Fact]
+    public async Task ToolArgumentsCannotBeRestored_FailsClosed_ToolNeverRuns_NoValueInMessage()
+    {
+        // Restoring the nested keys makes two of them identical, so the arguments cannot be restored.
+        var payload = new Dictionary<string, object?>(StringComparer.Ordinal) { ["[EMAIL_1]"] = "a", [Email] = "b" };
+        var h = Build("S>F", RecordingModel.CallsTool("Send", "payload", payload, "done"));
+        var ran = 0;
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create((Dictionary<string, object?> payload) => { ran++; return "ok"; }, "Send")] };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => AskAsync(h, $"Mail {Email}", options));
+
+        Assert.Equal(0, ran);
+        Assert.Equal(1, h.Model.Calls);
+        Assert.DoesNotContain(Email, ex.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InnerCallCancelled_RedactionIsStillAudited()
+    {
+        using var cts = new CancellationTokenSource();
+        var model = new RecordingModel(_ =>
+        {
+            cts.Cancel();
+            throw new OperationCanceledException(cts.Token);
+        });
+        var audit = new RingBufferAuditStore();
+        var options = new SentinelOptions();
+        var pipeline = new DetectionPipeline([new PiiLeakageDetector()], configurations: null, escalationClient: null);
+        var sentinel = new SentinelPipeline(model, pipeline, audit, new InterventionEngine(options, mediator: null), options);
+
+        var result = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, $"Mail {Email}")], null, cts.Token);
+
+        Assert.True(result.IsFailure);
+        var entry = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(audit));
+        Assert.Equal("REDACTED", entry.PolicyCode);
+        Assert.Equal("Redacted 1 EMAIL", entry.Summary);
+    }
+
     // --- Helpers ---
 
     // Below Sentinel, a denial reaches the caller wrapped by Sentinel's inner-client failure, as it always has.
@@ -550,8 +728,37 @@ public class RedactionPipelineTests
         }
     }
 
-    private static string TokenIn(string text, string type)
-        => new Regex(@"\[" + type + @"_\d+\]", RegexOptions.None, TimeSpan.FromSeconds(1)).Match(text).Value;
+    private static List<FunctionCallContent> CallsIn(IList<ChatMessage> messages)
+    {
+        var calls = new List<FunctionCallContent>();
+        foreach (var m in messages)
+        {
+            foreach (var c in m.Contents)
+            {
+                if (c is FunctionCallContent call)
+                {
+                    calls.Add(call);
+                }
+            }
+        }
+        return calls;
+    }
+
+    private static string ResultsIn(IList<ChatMessage> messages)
+    {
+        var sb = new StringBuilder();
+        foreach (var m in messages)
+        {
+            foreach (var c in m.Contents)
+            {
+                if (c is FunctionResultContent r)
+                {
+                    sb.Append(r.Result is JsonElement e ? e.ToString() : r.Result?.ToString()).Append('\n');
+                }
+            }
+        }
+        return sb.ToString();
+    }
 
     private static List<AuditEntry> Concat(IReadOnlyList<AuditEntry> a, IReadOnlyList<AuditEntry> b)
     {

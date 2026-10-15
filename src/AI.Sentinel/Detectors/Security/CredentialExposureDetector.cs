@@ -85,16 +85,17 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         var text = ctx.TextContent;
-        // The reason carries only the entity type; no part of the matched secret. A value that is a
-        // redaction placeholder is not a secret.
-        if (RedactionSpanCollector.HasMatch(PasswordPattern(), text)) return Hit("PASSWORD");
-        if (RedactionSpanCollector.HasMatch(ApiKeyPattern(), text)) return Hit("API_KEY");
-        if (RedactionSpanCollector.HasMatch(SecretKeyPattern(), text)) return Hit("SECRET_KEY");
-        if (RedactionSpanCollector.HasMatch(BearerPattern(), text)) return Hit("BEARER_TOKEN");
-        if (RedactionSpanCollector.HasMatch(AwsSecretPattern(), text)) return Hit("AWS_SECRET");
-        if (RedactionSpanCollector.HasMatch(PrivateKeyPattern(), text)) return Hit("PRIVATE_KEY");
-        if (RedactionSpanCollector.HasMatch(GithubTokenPattern(), text)) return Hit("GITHUB_TOKEN");
-        if (RedactionSpanCollector.HasMatch(BareApiKeyPattern(), text)) return Hit("API_KEY");
+        var placeholders = ctx.RedactionPlaceholders;
+        // The reason carries only the entity type; no part of the matched secret. A placeholder this call
+        // minted is not a secret.
+        if (RedactionSpanCollector.HasMatch(PasswordPattern(), text, placeholders)) return Hit("PASSWORD");
+        if (RedactionSpanCollector.HasMatch(ApiKeyPattern(), text, placeholders)) return Hit("API_KEY");
+        if (RedactionSpanCollector.HasMatch(SecretKeyPattern(), text, placeholders)) return Hit("SECRET_KEY");
+        if (RedactionSpanCollector.HasMatch(BearerPattern(), text, placeholders)) return Hit("BEARER_TOKEN");
+        if (RedactionSpanCollector.HasMatch(AwsSecretPattern(), text, placeholders)) return Hit("AWS_SECRET");
+        if (RedactionSpanCollector.HasMatch(PrivateKeyPattern(), text, placeholders)) return Hit("PRIVATE_KEY");
+        if (RedactionSpanCollector.HasMatch(GithubTokenPattern(), text, placeholders)) return Hit("GITHUB_TOKEN");
+        if (RedactionSpanCollector.HasMatch(BareApiKeyPattern(), text, placeholders)) return Hit("API_KEY");
         return ValueTask.FromResult(_clean);
     }
 

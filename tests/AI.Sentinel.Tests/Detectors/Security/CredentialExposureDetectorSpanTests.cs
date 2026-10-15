@@ -219,18 +219,37 @@ public class CredentialExposureDetectorSpanTests
         Assert.True(sw.ElapsedMilliseconds < 1000, $"took {sw.ElapsedMilliseconds} ms");
     }
 
-    // A redacted request must not trip the detector that redacted it: the placeholder is not a secret.
+    // A redacted request must not trip the detector that redacted it: a placeholder the current call minted
+    // is not a secret.
     [Theory]
-    [InlineData("api_key=[API_KEY_1]")]
-    [InlineData("password: [PASSWORD_12]")]
-    [InlineData("password=\"[PASSWORD_1]\"")]
-    [InlineData("Authorization: Bearer [BEARER_TOKEN_1]")]
-    [InlineData("AWS_SECRET_ACCESS_KEY=[AWS_SECRET_3]")]
-    public async Task PlaceholderValue_IsNotASecret(string text)
+    [InlineData("api_key=[API_KEY_1]", "[API_KEY_1]")]
+    [InlineData("password: [PASSWORD_12]", "[PASSWORD_12]")]
+    [InlineData("password=\"[PASSWORD_1]\"", "[PASSWORD_1]")]
+    [InlineData("Authorization: Bearer [BEARER_TOKEN_1]", "[BEARER_TOKEN_1]")]
+    [InlineData("AWS_SECRET_ACCESS_KEY=[AWS_SECRET_3]", "[AWS_SECRET_3]")]
+    [InlineData("api_key=[[API_KEY_2]]", "[API_KEY_2]")]
+    public async Task MintedPlaceholder_IsNotFlagged(string text, string minted)
+    {
+        var ctx = new SentinelContext(new AgentId("a"), new AgentId("b"), SessionId.New(),
+            new List<ChatMessage> { new(ChatRole.User, text) }, new List<AuditEntry>())
+        {
+            RedactionPlaceholders = new HashSet<string>(StringComparer.Ordinal) { minted },
+        };
+        Assert.Equal(Severity.None, (await new CredentialExposureDetector().AnalyzeAsync(ctx, CancellationToken.None)).Severity);
+    }
+
+    // Only the call's own placeholders are exempt: a real secret that looks like one is still a secret, on
+    // every surface, including those that never redact and so mint nothing.
+    [Theory]
+    [InlineData("password=[ADMIN_99]", "ADMIN_99")]
+    [InlineData("password=\"[WINTER_2024]\"", "[WINTER_2024]")]
+    [InlineData("api_key=[API_KEY_1]", "API_KEY_1")]
+    public async Task PlaceholderShapedValue_NotMinted_IsDetectedAndRedacted(string text, string value)
     {
         var detector = new CredentialExposureDetector();
-        Assert.Empty(detector.FindSpans(text));
-        Assert.Equal(Severity.None, (await detector.AnalyzeAsync(Ctx(text), CancellationToken.None)).Severity);
+        Assert.Equal(Severity.Critical, (await detector.AnalyzeAsync(Ctx(text), CancellationToken.None)).Severity);
+        var span = Assert.Single(detector.FindSpans(text));
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
     }
 
     [Theory]

@@ -14,30 +14,48 @@ using ZeroAlloc.Results;
 namespace AI.Sentinel;
 
 /// <summary>Wraps an <see cref="IChatClient"/> with threat detection, intervention, and auditing for both prompt and response messages.</summary>
-/// <param name="innerClient">The underlying <see cref="IChatClient"/> the pipeline forwards sanitized requests to.</param>
-/// <param name="pipeline">Detection pipeline that scans prompt and response messages.</param>
-/// <param name="auditStore">Synchronous audit store that receives every audit entry on the hot path.</param>
-/// <param name="interventionEngine">Intervention engine that applies the configured action when threats are detected.</param>
-/// <param name="options">Sentinel configuration (rate limits, thresholds, hardening prefix, etc.).</param>
-/// <param name="alertSink">Optional alert sink invoked fire-and-forget when an action escalates to <c>Quarantine</c> or <c>Alert</c>.</param>
-/// <param name="forwarders">Optional audit forwarders that mirror every audit entry to external systems fire-and-forget. Default empty.</param>
-public sealed class SentinelPipeline(
-    IChatClient innerClient,
-    IDetectionPipeline pipeline,
-    IAuditStore auditStore,
-    InterventionEngine interventionEngine,
-    SentinelOptions options,
-    IAlertSink? alertSink = null,
-    IEnumerable<IAuditForwarder>? forwarders = null)
+public sealed class SentinelPipeline
 {
     private static readonly ActivitySource _activitySource = new("ai.sentinel");
     private readonly ConcurrentDictionary<string, RateLimiterEntry> _rateLimiters = new(StringComparer.Ordinal);
-    private readonly IAuditForwarder[] _forwarders = AuditForwarding.Snapshot(forwarders);
+    private readonly IChatClient innerClient;
+    private readonly IDetectionPipeline pipeline;
+    private readonly IAuditStore auditStore;
+    private readonly InterventionEngine interventionEngine;
+    private readonly SentinelOptions options;
+    private readonly IAlertSink? alertSink;
+    private readonly IAuditForwarder[] _forwarders;
     private int _rateLimiterWriteCount;
 
-    // Tool calls the model makes run inside a FunctionInvokingChatClient below this pipeline, if there is one;
-    // its hook restores their arguments and redacts their results for the current call.
-    private readonly bool _toolHookInstalled = InstallToolHook(innerClient);
+    /// <summary>Creates the pipeline.</summary>
+    /// <param name="innerClient">The underlying <see cref="IChatClient"/> the pipeline forwards sanitized requests to.</param>
+    /// <param name="pipeline">Detection pipeline that scans prompt and response messages.</param>
+    /// <param name="auditStore">Synchronous audit store that receives every audit entry on the hot path.</param>
+    /// <param name="interventionEngine">Intervention engine that applies the configured action when threats are detected.</param>
+    /// <param name="options">Sentinel configuration (rate limits, thresholds, hardening prefix, etc.).</param>
+    /// <param name="alertSink">Optional alert sink invoked fire-and-forget when an action escalates to <c>Quarantine</c> or <c>Alert</c>.</param>
+    /// <param name="forwarders">Optional audit forwarders that mirror every audit entry to external systems fire-and-forget. Default empty.</param>
+    public SentinelPipeline(
+        IChatClient innerClient,
+        IDetectionPipeline pipeline,
+        IAuditStore auditStore,
+        InterventionEngine interventionEngine,
+        SentinelOptions options,
+        IAlertSink? alertSink = null,
+        IEnumerable<IAuditForwarder>? forwarders = null)
+    {
+        this.innerClient = innerClient;
+        this.pipeline = pipeline;
+        this.auditStore = auditStore;
+        this.interventionEngine = interventionEngine;
+        this.options = options;
+        this.alertSink = alertSink;
+        _forwarders = AuditForwarding.Snapshot(forwarders);
+
+        // Tool calls the model makes run inside a FunctionInvokingChatClient below this pipeline, if there is
+        // one; its hook restores their arguments and redacts their results for the current call.
+        RedactionScope.InstallToolHook(innerClient);
+    }
 
     // EmbeddingGenerator not set — all SemanticDetectorBase subclasses return Clean.
     // Set SentinelOptions.EmbeddingGenerator to enable language-agnostic detection.
@@ -92,12 +110,13 @@ public sealed class SentinelPipeline(
         var systemPrompt = SystemPromptOf(messageList);
 
         var promptError = await ScanAsync(messageList, sessionId,
-            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt).ConfigureAwait(false);
+            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, session?.MintedTokens).ConfigureAwait(false);
         if (promptError is not null)
             return Result<ChatResponse, SentinelError>.Failure(promptError);
 
         // Set inside this async method: it flows into the inner clients and never back out to the caller.
-        var scope = session is null ? null : new RedactionScope(session, options.RestoreRedactedValues);
+        // An enclosing Sentinel's scope becomes the parent, so a tool below both resolves both layers.
+        var scope = session is null ? null : new RedactionScope(session, options.RestoreRedactedValues, RedactionScope.Current);
         if (scope is not null)
             RedactionScope.Current = scope;
 
@@ -110,7 +129,8 @@ public sealed class SentinelPipeline(
         }
         catch (Exception ex)
         {
-            await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
+            // The request was sent, so its redactions are compliance evidence even when the call was cancelled.
+            await AppendRedactionsAsync(session, sessionId, CancellationToken.None).ConfigureAwait(false);
             return Result<ChatResponse, SentinelError>.Failure(
                 new SentinelError.PipelineFailure("Inner client failed.", ex));
         }
@@ -133,7 +153,7 @@ public sealed class SentinelPipeline(
         IReadOnlyList<ChatMessage> responseMessages =
             response.Messages as IReadOnlyList<ChatMessage> ?? response.Messages.ToList();
         var responseError = await ScanAsync(responseMessages, sessionId,
-            options.DefaultReceiverId, options.DefaultSenderId, ct, systemPrompt).ConfigureAwait(false);
+            options.DefaultReceiverId, options.DefaultSenderId, ct, systemPrompt, scope?.Session.MintedTokens).ConfigureAwait(false);
         if (responseError is not null)
             return Result<ChatResponse, SentinelError>.Failure(responseError);
 
@@ -150,12 +170,6 @@ public sealed class SentinelPipeline(
         }
 
         return Result<ChatResponse, SentinelError>.Success(response);
-    }
-
-    private static bool InstallToolHook(IChatClient inner)
-    {
-        RedactionScope.InstallToolHook(inner);
-        return true;
     }
 
     // The exception is not chained: messages and properties of regex, serializer and detector exceptions can
@@ -284,9 +298,12 @@ public sealed class SentinelPipeline(
         AgentId sender,
         AgentId receiver,
         CancellationToken ct,
-        string? systemPrompt = null)
+        string? systemPrompt = null,
+        IReadOnlySet<string>? placeholders = null)
     {
-        var ctx = new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt);
+        var ctx = placeholders is null
+            ? new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt)
+            : new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt) { RedactionPlaceholders = placeholders };
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
         await AppendAuditAsync(pipelineResult, sessionId, ct).ConfigureAwait(false);

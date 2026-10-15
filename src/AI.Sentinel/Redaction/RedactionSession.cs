@@ -44,6 +44,12 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         get { lock (_gate) { return _valueByToken.Count > 0; } }
     }
 
+    /// <summary>Every placeholder this session minted so far. Placeholders only, never values.</summary>
+    public IReadOnlySet<string> MintedTokens
+    {
+        get { lock (_gate) { return new HashSet<string>(_valueByToken.Keys, StringComparer.Ordinal); } }
+    }
+
     /// <summary>Detector id to entity type to number of redacted occurrences. Counts only, never values.</summary>
     public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> CountsByDetector
     {
@@ -99,6 +105,14 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
     private string ApplyLocked(string text, List<Found> found)
     {
+        // A span over a placeholder this session minted is its own output, for example the value part of
+        // `api_key=[API_KEY_1]` after an escape or in a later pass: replacing it again would nest placeholders.
+        found.RemoveAll(f => RedactionSpanCollector.PlaceholderAt(text, f.Start, f.Length) is { } token && _valueByToken.ContainsKey(token));
+        if (found.Count == 0)
+        {
+            return text;
+        }
+
         found.Sort(static (a, b) =>
         {
             var byStart = a.Start.CompareTo(b.Start);
@@ -217,12 +231,35 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         });
     }
 
+    /// <summary>
+    /// Restores a response for the caller, who owns the values: text, reasoning and tool results get every
+    /// value back. A tool call answered by a result in the same list is history and gets every value back
+    /// too. A call without a result may still be invoked, by a function-invoking client above Sentinel, so it
+    /// follows the tool rule and keeps the placeholders of values that must never reach a tool argument.
+    /// </summary>
+    /// <remarks>
+    /// With Sentinel inside function invocation, such a kept placeholder is a literal in the next round trip,
+    /// which is redacted by a fresh session, so the value it stood for may get a different number there. The
+    /// mapping is deliberately not kept across round trips; nothing leaks, the model just sees two names.
+    /// </remarks>
     public IList<ChatMessage> Restore(IList<ChatMessage> messages)
     {
+        var answered = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var message in messages)
+        {
+            foreach (var content in message.Contents)
+            {
+                if (content is FunctionResultContent fr && fr.CallId is not null)
+                {
+                    answered.Add(fr.CallId);
+                }
+            }
+        }
+
         var result = new List<ChatMessage>(messages.Count);
         foreach (var message in messages)
         {
-            result.Add(MapMessage(message, Restore, redact: false));
+            result.Add(MapMessage(message, Restore, redact: false, answered));
         }
         return result;
     }
@@ -340,33 +377,37 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         return new string(chars);
     }
 
-    private ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redact)
+    private ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redact, HashSet<string>? answered = null)
     {
         var copy = message.Clone();
         var contents = new List<AIContent>(message.Contents.Count);
         foreach (var content in message.Contents)
         {
-            contents.Add(MapContent(content, map, redact));
+            contents.Add(MapContent(content, map, redact, answered));
         }
         copy.Contents = contents;
         return copy;
     }
 
-    private AIContent MapContent(AIContent content, Func<string, string> map, bool redact)
+    // answered: call ids that have a result in the list being restored; null when redacting, or for content
+    // nested in a value, which follows the tool rule.
+    private AIContent MapContent(AIContent content, Func<string, string> map, bool redact, HashSet<string>? answered = null)
     {
         switch (content)
         {
             case TextContent text:
                 return CopyMetadata(text, new TextContent(text.Text is null ? null : map(text.Text)));
             case FunctionCallContent call:
-                // Arguments of a call are what a tool would receive, so restoring them follows the tool rule.
-                return CopyMetadata(call, MapCall(call, redact ? map : RestoreToolArgument, redact));
-            case FunctionResultContent fr when redact:
+                // Arguments of a call that may still be invoked are what a tool would receive, so restoring
+                // them follows the tool rule; an answered call is history and is restored like text.
+                var restoreAll = redact || (answered is not null && answered.Contains(call.CallId));
+                return CopyMetadata(call, MapCall(call, restoreAll ? map : RestoreToolArgument, redact));
+            case FunctionResultContent fr:
                 return CopyMetadata(fr, new FunctionResultContent(fr.CallId, MapValue(fr.Result, map, redact))
                 {
                     Exception = fr.Exception,
                 });
-            case TextReasoningContent reasoning when redact:
+            case TextReasoningContent reasoning:
                 return CopyMetadata(reasoning, new TextReasoningContent(reasoning.Text is null ? null : map(reasoning.Text))
                 {
                     ProtectedData = reasoning.ProtectedData,

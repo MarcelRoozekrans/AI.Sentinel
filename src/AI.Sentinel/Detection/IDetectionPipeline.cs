@@ -14,6 +14,7 @@ public interface IDetectionPipeline
 
     /// <summary>The enabled redacting detectors whose effective action is <see cref="SentinelAction.Redact"/>:
     /// their own <see cref="DetectorConfiguration.Action"/> when set, otherwise Redact when
-    /// <see cref="SentinelOptions.RedactByDefault"/> is on. Empty when nothing redacts.</summary>
-    IReadOnlyList<IRedactingDetector> Redactors { get; }
+    /// <see cref="SentinelOptions.RedactByDefault"/> is on. Empty when nothing redacts, which is the default
+    /// for a custom implementation: it simply does not redact.</summary>
+    IReadOnlyList<IRedactingDetector> Redactors => [];
 }
