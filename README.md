@@ -485,7 +485,8 @@ builder.Services.AddAISentinel(opts =>
     // Optional: per-session token-bucket circuit breaker.
     // MaxCallsPerSecond = steady-state refill rate; BurstSize = initial token count.
     // Pass "sentinel.session_id" in ChatOptions.AdditionalProperties for per-user buckets.
-    // Without a session key, all calls share a global bucket.
+    // Without that key, all calls share a global bucket. The same key, or else
+    // ChatOptions.ConversationId, also groups a conversation's audit entries into one session.
     opts.MaxCallsPerSecond = 5;   // allow 5 calls/sec per session (steady state)
     opts.BurstSize = 20;          // up-front burst before throttling kicks in
 
