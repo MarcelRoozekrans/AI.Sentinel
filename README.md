@@ -335,6 +335,9 @@ check happens:
   function invocation, so it runs immediately before each tool. (When streaming, the call is checked as it
   is streamed, one step earlier.)
 
+Setting `FunctionInvoker` on the pipeline's `FunctionInvokingChatClient` after `Build()` replaces the
+authorization hook, so set it before the pipeline is built or chain your own invoker around it.
+
 A call that already has a result in the messages you send (for example history you append from an earlier
 turn) is treated as history and is not checked or audited again. Calls without a result are checked.
 

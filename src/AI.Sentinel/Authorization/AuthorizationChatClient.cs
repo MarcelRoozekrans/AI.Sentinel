@@ -5,6 +5,7 @@ using System.Text.Json;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Domain;
+using AI.Sentinel.Tools;
 using Microsoft.Extensions.AI;
 using ZeroAlloc.Authorization;
 
@@ -18,8 +19,8 @@ namespace AI.Sentinel.Authorization;
 /// available) appends an <c>AUTHZ-DENY</c> audit entry first.
 /// <para>
 /// Tool calls the MODEL makes are authorized too, in whichever order this client sits relative to
-/// <c>FunctionInvokingChatClient</c>. Outside it, the tools in the options are wrapped so the guard
-/// runs immediately before each invocation. Inside it, the calls in the model's response are checked
+/// <c>FunctionInvokingChatClient</c>. Outside it, the guard is chained into that client's function
+/// invoker, so it runs immediately before each invocation of any tool. Inside it, the calls in the model's response are checked
 /// before they are returned, so the function-invoking client never sees a denied call.
 /// </para>
 /// </summary>
@@ -32,11 +33,14 @@ internal sealed class AuthorizationChatClient : IChatClient
     private readonly IApprovalStore? approvalStore;
     private readonly IAuditForwarder[] _forwarders;
 
-    // Outcome of every call the invocation hook decided, by call id, until a response reports it: null
-    // when allowed, the denial otherwise. FunctionInvokingChatClient swallows a throwing function and
-    // reports it to the model as a failed result, so the response check uses this to tell "we decided
-    // this call" from "a result is merely present", and to surface a denial to the caller.
-    private readonly ConcurrentDictionary<string, ToolCallAuthorizationException?> _hookOutcomes = new(StringComparer.Ordinal);
+    // Outcome of every call the invocation hook decided in the CURRENT non-streaming request, by call id:
+    // null when allowed, the denial otherwise. FunctionInvokingChatClient swallows a throwing function and
+    // reports it to the model as a failed result, so the response check uses this to tell "we decided this
+    // call" from "a result is merely present", and to surface a denial to the caller. The dictionary is
+    // created per request and reached through an AsyncLocal (the hook runs inside the request's execution
+    // context), so nothing is shared between requests or outlives one. Model call ids repeat across
+    // conversations, so a store shared on this client would mix up callers.
+    private readonly AsyncLocal<ConcurrentDictionary<string, ToolCallAuthorizationException?>?> _requestOutcomes = new();
 
     public AuthorizationChatClient(
         IChatClient inner,
@@ -57,20 +61,14 @@ internal sealed class AuthorizationChatClient : IChatClient
 
     // When a FunctionInvokingChatClient sits below this client (the "outside" order), hook the point
     // where it invokes a function. That one point covers ChatOptions.Tools and AdditionalTools alike,
-    // and needs no per-request change to the caller's options. Set once, here, on the pipeline's own
-    // instance, and chained after any invoker already set. With no such client below (the "inside"
-    // order) there is nothing to hook: calls are checked in the model response instead.
+    // and needs no per-request change to the caller's options. Chained once, here, on the pipeline's own
+    // instance. With no such client below (the "inside" order) there is nothing to hook: calls are
+    // checked in the model response instead.
     private void InstallInvocationHook()
-    {
-        if (inner.GetService(typeof(FunctionInvokingChatClient)) is not FunctionInvokingChatClient invoking)
-        {
-            return;
-        }
-
-        var previous = invoking.FunctionInvoker;
-        invoking.FunctionInvoker = async (context, ct) =>
+        => ToolInvocationInterception.TryChainInvoker(inner, async (context, next, ct) =>
         {
             var caller = callerProvider() ?? AnonymousSecurityContext.Instance;
+            var outcomes = _requestOutcomes.Value;   // null while streaming: nothing is recorded
             try
             {
                 await AuthorizeFunctionCallAsync(
@@ -78,16 +76,21 @@ internal sealed class AuthorizationChatClient : IChatClient
             }
             catch (ToolCallAuthorizationException denial)
             {
-                _hookOutcomes[context.CallContent.CallId] = denial;
+                if (outcomes is not null)
+                {
+                    outcomes[context.CallContent.CallId] = denial;
+                }
+
                 throw;
             }
 
-            _hookOutcomes[context.CallContent.CallId] = null;
-            return previous is null
-                ? await context.Function.InvokeAsync(context.Arguments, ct).ConfigureAwait(false)
-                : await previous(context, ct).ConfigureAwait(false);
-        };
-    }
+            if (outcomes is not null)
+            {
+                outcomes[context.CallContent.CallId] = null;
+            }
+
+            return await next(context, ct).ConfigureAwait(false);
+        });
 
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -95,8 +98,10 @@ internal sealed class AuthorizationChatClient : IChatClient
         CancellationToken cancellationToken = default)
     {
         await AuthorizeFunctionCallsAsync(messages, cancellationToken).ConfigureAwait(false);
+        var outcomes = new ConcurrentDictionary<string, ToolCallAuthorizationException?>(StringComparer.Ordinal);
+        _requestOutcomes.Value = outcomes;
         var response = await inner.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
-        await AuthorizePendingCallsAsync(response.Messages, cancellationToken).ConfigureAwait(false);
+        await AuthorizePendingCallsAsync(response.Messages, outcomes, cancellationToken).ConfigureAwait(false);
         return response;
     }
 
@@ -161,7 +166,8 @@ internal sealed class AuthorizationChatClient : IChatClient
     // Calls in a model response. A call with a result alongside it is not re-evaluated, but only because
     // the invocation hook decided that very call id (a result alone proves nothing): an allowed call is
     // skipped, a denied one is rethrown to the caller without a second audit entry.
-    private async ValueTask AuthorizePendingCallsAsync(IList<ChatMessage> responseMessages, CancellationToken ct)
+    private async ValueTask AuthorizePendingCallsAsync(
+        IList<ChatMessage> responseMessages, ConcurrentDictionary<string, ToolCallAuthorizationException?> outcomes, CancellationToken ct)
     {
         var answered = CollectAnsweredCallIds(responseMessages);
 
@@ -175,7 +181,7 @@ internal sealed class AuthorizationChatClient : IChatClient
                     continue;
                 }
 
-                if (answered.Contains(fnCall.CallId) && _hookOutcomes.TryRemove(fnCall.CallId, out var denial))
+                if (answered.Contains(fnCall.CallId) && outcomes.TryGetValue(fnCall.CallId, out var denial))
                 {
                     if (denial is not null)
                     {

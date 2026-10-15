@@ -14,8 +14,8 @@ public static class AuthorizationChatClientBuilderExtensions
     /// <see cref="FunctionCallContent"/> in the outgoing messages. Deny decisions throw
     /// <see cref="ToolCallAuthorizationException"/> and (when an <see cref="IAuditStore"/> is
     /// registered) emit an <c>AUTHZ-DENY</c> audit entry. Calls the model makes are authorized before
-    /// the tool runs whether this sits inside or outside <c>UseFunctionInvocation()</c>; place it
-    /// inside to have the denial throw to the caller.
+    /// the tool runs whether this sits inside or outside <c>UseFunctionInvocation()</c>, and a denial
+    /// throws <see cref="ToolCallAuthorizationException"/> in both orders.
     /// </summary>
     /// <param name="builder">The chat client builder to extend.</param>
     /// <returns>The same <see cref="ChatClientBuilder"/> instance, to support fluent chaining.</returns>

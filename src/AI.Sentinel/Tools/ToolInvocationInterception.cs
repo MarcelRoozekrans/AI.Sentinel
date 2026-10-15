@@ -3,50 +3,42 @@ using Microsoft.Extensions.AI;
 namespace AI.Sentinel.Tools;
 
 /// <summary>
-/// Hooks the point where <c>FunctionInvokingChatClient</c> runs a model-requested tool, which no
+/// Hooks the point where <c>FunctionInvokingChatClient</c> runs a tool the model asked for, which no
 /// message-level check can see: the call arrives in a model response and executes before the next
-/// request is built.
+/// request is built. The hook covers <c>ChatOptions.Tools</c> and <c>AdditionalTools</c> alike.
 /// </summary>
 internal static class ToolInvocationInterception
 {
-    /// <summary>
-    /// Runs on every invocation of a tool the model asked for. <paramref name="inner"/> is the real
-    /// function; the interceptor decides whether, and with which arguments, to call it.
-    /// </summary>
-    internal delegate ValueTask<object?> ToolInterceptor(AIFunction inner, AIFunctionArguments args, CancellationToken ct);
+    /// <summary>Invokes the rest of the chain: the next interceptor, or the function itself.</summary>
+    public delegate ValueTask<object?> ToolInvoker(FunctionInvocationContext context, CancellationToken ct);
 
     /// <summary>
-    /// Returns a clone of <paramref name="options"/> in which every <see cref="AIFunction"/> in
-    /// <see cref="ChatOptions.Tools"/> is wrapped so that <paramref name="interceptor"/> runs on
-    /// each invocation. Other <see cref="AITool"/>s are kept as they are, and a function already
-    /// wrapped for the same interceptor is not wrapped again. The caller's options are not mutated.
+    /// Runs around one tool invocation. It can read and replace <see cref="FunctionInvocationContext.Arguments"/>
+    /// before calling <paramref name="next"/>, and read and replace the value <paramref name="next"/> returns.
+    /// Throwing stops the tool from running.
     /// </summary>
-    public static ChatOptions? WrapTools(ChatOptions? options, ToolInterceptor interceptor)
+    public delegate ValueTask<object?> ToolInterceptor(FunctionInvocationContext context, ToolInvoker next, CancellationToken ct);
+
+    /// <summary>
+    /// Chains <paramref name="interceptor"/> onto the <see cref="FunctionInvokingChatClient"/> found below
+    /// <paramref name="inner"/>, around any <see cref="FunctionInvokingChatClient.FunctionInvoker"/> already
+    /// set (which is never overwritten). Interceptors chained later run first. Returns false, and does
+    /// nothing, when there is no such client below <paramref name="inner"/>.
+    /// </summary>
+    public static bool TryChainInvoker(IChatClient inner, ToolInterceptor interceptor)
     {
+        ArgumentNullException.ThrowIfNull(inner);
         ArgumentNullException.ThrowIfNull(interceptor);
-        if (options?.Tools is not { Count: > 0 } tools)
+        if (inner.GetService(typeof(FunctionInvokingChatClient)) is not FunctionInvokingChatClient invoking)
         {
-            return options;
+            return false;
         }
 
-        var wrapped = new List<AITool>(tools.Count);
-        foreach (var tool in tools)
-        {
-            wrapped.Add(tool is AIFunction fn && !(fn is InterceptingAIFunction mine && mine.Interceptor.Equals(interceptor))
-                ? new InterceptingAIFunction(fn, interceptor)
-                : tool);
-        }
-
-        var clone = options.Clone();
-        clone.Tools = wrapped;
-        return clone;
-    }
-
-    private sealed class InterceptingAIFunction(AIFunction inner, ToolInterceptor interceptor) : DelegatingAIFunction(inner)
-    {
-        public ToolInterceptor Interceptor => interceptor;
-
-        protected override ValueTask<object?> InvokeCoreAsync(AIFunctionArguments arguments, CancellationToken cancellationToken)
-            => interceptor(InnerFunction, arguments, cancellationToken);
+        var previous = invoking.FunctionInvoker;
+        ToolInvoker next = previous is null
+            ? (context, ct) => context.Function.InvokeAsync(context.Arguments, ct)
+            : (context, ct) => previous(context, ct);
+        invoking.FunctionInvoker = (context, ct) => interceptor(context, next, ct);
+        return true;
     }
 }
