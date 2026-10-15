@@ -357,18 +357,37 @@ public class RedactionSessionTests
     }
 
     [Fact]
-    public void RestoreArguments_RestoresInPlace_KeepingComparerContextAndServices()
+    public void RestoreArguments_ReturnsCopy_InputAndBackingDictionaryUnchanged()
     {
         var session = Pii();
         session.Redact("jan@acme.nl");
         var services = new ServiceCollectionStub();
         var context = new Dictionary<object, object?> { ["k"] = "v" };
-        var args = new AIFunctionArguments(StringComparer.OrdinalIgnoreCase) { ["To"] = "[EMAIL_1]", Services = services, Context = context };
+        var nested = new Dictionary<string, object?>(StringComparer.Ordinal) { ["x"] = "[EMAIL_1]" };
+        var backing = new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]", ["n"] = nested };
+        var args = new AIFunctionArguments(backing, StringComparer.Ordinal) { Services = services, Context = context };
+
         var restored = session.Restore(args);
-        Assert.Same(args, restored);
-        Assert.Equal("jan@acme.nl", restored["TO"]);
+
+        Assert.NotSame(args, restored);
+        Assert.Equal("jan@acme.nl", restored["to"]);
+        Assert.Equal("jan@acme.nl", ((Dictionary<string, object?>)restored["n"]!)["x"]);
+        Assert.Equal("[EMAIL_1]", args["to"]);
+        Assert.Equal("[EMAIL_1]", backing["to"]);
+        Assert.Equal("[EMAIL_1]", nested["x"]);
         Assert.Same(services, restored.Services);
         Assert.Same(context, restored.Context);
+    }
+
+    [Fact]
+    public void RestoreArguments_CaseInsensitiveSource_KeepsCaseInsensitivity()
+    {
+        var session = Pii();
+        session.Redact("jan@acme.nl");
+        var args = new AIFunctionArguments(StringComparer.OrdinalIgnoreCase) { ["To"] = "[EMAIL_1]" };
+        var restored = session.Restore(args);
+        Assert.Equal("jan@acme.nl", restored["TO"]);
+        Assert.Equal("[EMAIL_1]", args["to"]);
     }
 
     [Fact]

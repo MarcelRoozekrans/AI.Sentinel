@@ -215,16 +215,47 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     }
 
     /// <summary>
-    /// Restores the argument values in place through the public indexer and returns the same instance,
-    /// so the comparer, Context, Services and any subclass are kept. The input is mutated.
+    /// Returns a new <see cref="AIFunctionArguments"/> with the real values restored. The input and any
+    /// dictionary or list nested in it are never mutated, because the input can be backed by the arguments
+    /// of a function call kept in the chat history, which must keep the placeholders.
+    /// Context and Services are copied. The comparer is not publicly readable, so case-insensitivity is
+    /// inferred from the public lookup behaviour and otherwise ordinal is used.
     /// </summary>
     public AIFunctionArguments Restore(AIFunctionArguments args)
     {
-        foreach (var key in new List<string>(args.Keys))
+        var restored = new AIFunctionArguments(ComparerOf(args))
         {
-            args[key] = MapValue(args[key], Restore, redact: false);
+            Context = args.Context,
+            Services = args.Services,
+        };
+        foreach (var (key, value) in args)
+        {
+            restored[key] = MapValue(value, Restore, redact: false);
         }
-        return args;
+        return restored;
+    }
+
+    private static StringComparer ComparerOf(AIFunctionArguments args)
+    {
+        foreach (var key in args.Keys)
+        {
+            var flipped = FlipCase(key);
+            if (!string.Equals(flipped, key, StringComparison.Ordinal))
+            {
+                return args.ContainsKey(flipped) ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+            }
+        }
+        return StringComparer.Ordinal;
+    }
+
+    private static string FlipCase(string key)
+    {
+        var chars = key.ToCharArray();
+        for (var i = 0; i < chars.Length; i++)
+        {
+            chars[i] = char.IsUpper(chars[i]) ? char.ToLowerInvariant(chars[i]) : char.ToUpperInvariant(chars[i]);
+        }
+        return new string(chars);
     }
 
     private string TokenFor(string type, string value)
