@@ -63,7 +63,7 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     // --- Medium ---
 
     [GeneratedRegex(
-        @"\b[\w.+-]+@(?:[\w-]+\.)+\w{2,}\b",
+        @"\b[\w.+-]{1,64}@(?:[A-Za-z][\w-]{0,62}\.){1,8}[A-Za-z]{2,}\b",
         RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex BareEmailPattern();
@@ -127,11 +127,14 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
         Collect(BareEmailPattern(), "EMAIL", text, spans);
         Collect(PhonePattern(), "PHONE", text, spans);
         Collect(DobPattern(), "DATE_OF_BIRTH", text, spans);
-        return DropContained(spans);
+        var kept = DropContained(spans);
+        kept.Sort(static (a, b) => a.Start != b.Start ? a.Start.CompareTo(b.Start) : b.Length.CompareTo(a.Length));
+        return kept;
     }
 
     // A card number also looks like a phone number; keep only the outermost span.
-    private static List<RedactionSpan> DropContained(List<RedactionSpan> spans)
+    // For equal ranges the earlier list entry wins, so callers pass spans in severity order.
+    internal static List<RedactionSpan> DropContained(List<RedactionSpan> spans)
     {
         var result = new List<RedactionSpan>(spans.Count);
         for (var i = 0; i < spans.Count; i++)

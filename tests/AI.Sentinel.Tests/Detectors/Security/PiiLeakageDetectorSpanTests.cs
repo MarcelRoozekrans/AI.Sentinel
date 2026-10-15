@@ -66,4 +66,66 @@ public class PiiLeakageDetectorSpanTests
         Assert.Equal(Severity.Medium, r.Severity);
         Assert.Equal("Email address detected", r.Reason);
     }
+
+    [Fact]
+    public void FindSpans_TwoEmails_ReturnsBothSortedByStart()
+    {
+        const string text = "a@b.com and c.d@e.org";
+        var spans = new PiiLeakageDetector().FindSpans(text);
+        Assert.Equal(
+            new[] { new RedactionSpan(0, 7, "EMAIL"), new RedactionSpan(12, 9, "EMAIL") },
+            spans);
+    }
+
+    [Theory]
+    [InlineData("lodash@4.17.21")]
+    [InlineData("image@2x.png")]
+    [InlineData("user@host")]
+    public void FindSpans_NotAnEmail_ReturnsEmpty(string text)
+        => Assert.Empty(new PiiLeakageDetector().FindSpans(text));
+
+    [Theory]
+    [InlineData("a-")]
+    [InlineData("a.")]
+    [InlineData("a+")]
+    public void FindSpans_LongInputWithoutAt_IsFastAndEmpty(string unit)
+    {
+        var text = string.Concat(Enumerable.Repeat(unit, 50_000));
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var spans = new PiiLeakageDetector().FindSpans(text);
+        sw.Stop();
+        Assert.Empty(spans);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2), $"took {sw.Elapsed}");
+    }
+
+    [Theory]
+    [InlineData("bsn: 123456789", "123456789", "BSN")]
+    [InlineData("Passport: ab123456", "ab123456", "PASSPORT")]
+    [InlineData("DOB: 01.02.1990", "01.02.1990", "DATE_OF_BIRTH")]
+    [InlineData("TAX ID 12345 67890", "12345 67890", "TAX_ID")]
+    public void FindSpans_KeywordCaseAndSeparatorVariants_SpanCoversValueOnly(string text, string value, string entity)
+    {
+        var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span);
+    }
+
+    [Fact]
+    public void FindSpans_EmailNextToName_SpansOnlyTheEmail()
+    {
+        const string text = "Contact John Smith at john.smith@example.com";
+        var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
+        Assert.Equal(new RedactionSpan(22, 22, "EMAIL"), span);
+    }
+
+    [Fact]
+    public void DropContained_EqualRanges_KeepsTheEarlierHigherSeverityType()
+    {
+        var kept = PiiLeakageDetector.DropContained(new List<RedactionSpan>
+        {
+            new(0, 10, "SSN"),
+            new(0, 10, "PHONE"),
+            new(2, 3, "EMAIL"),
+        });
+        Assert.Equal(new[] { new RedactionSpan(0, 10, "SSN") }, kept);
+    }
 }
