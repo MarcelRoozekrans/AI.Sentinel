@@ -240,11 +240,13 @@ public class ModelInitiatedToolCallTests
 
         Assert.Equal(1, ran[0]);
 
-        // Same call id c1, but DeleteUser is not registered, so the invocation hook never decides it and
-        // only the response check can. A stale "allowed" left by the stream would let it through.
+        // Same call id c1, but only Safe is registered: FunctionInvokingChatClient answers c1 with a
+        // "function not found" result without the invocation hook deciding it, so only the response check
+        // can. A stale "allowed" for c1 left by the stream would let that answered call through.
         caller = new TestSecurityContext("bob");
+        var safeOnly = new ChatOptions { Tools = [AIFunctionFactory.Create(() => "ok", "Safe")] };
         await Assert.ThrowsAsync<ToolCallAuthorizationException>(() =>
-            client.GetResponseAsync([new ChatMessage(ChatRole.User, "delete 42")], new ChatOptions(), ct));
+            client.GetResponseAsync([new ChatMessage(ChatRole.User, "delete 42")], safeOnly, ct));
         Assert.Equal(1, ran[0]);
         Assert.Single(await RecordingAuditForwarder.ReadAllAsync(audit));
     }
@@ -376,6 +378,70 @@ public class ModelInitiatedToolCallTests
 
         Assert.Equal(1, ran);
         Assert.Equal(1, counting.Calls);
+    }
+
+    private static DefaultToolCallGuard AdminOnlyGuard(SentinelOptions opts) => new(
+        opts.GetAuthorizationBindings(),
+        new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal) { ["admin-only"] = new AdminOnlyPolicy() },
+        opts.DefaultToolPolicy, approvalStore: null, logger: null);
+
+    // One FunctionInvokingChatClient shared by two authorization clients, as when a prebuilt pipeline is
+    // wrapped per scope with a scoped caller. Each request must be authorized as ITS client's caller and
+    // audited through ITS client's forwarders, whichever client installed the invocation hook first.
+    [Fact]
+    public async Task TwoClientsOverOneFunctionInvokingClient_EachRequestIsAuthorizedAsItsOwnCaller()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var opts = new SentinelOptions().RequireToolPolicy("DeleteUser", "admin-only");
+        var audit = new RingBufferAuditStore();
+        var guard = AdminOnlyGuard(opts);
+        var shared = new FunctionInvokingChatClient(new ScriptedModel(callsTool: true));
+        var aliceForwarder = new RecordingAuditForwarder();
+        var bobForwarder = new RecordingAuditForwarder();
+        var aliceClient = new AuthorizationChatClient(shared, guard, () => new TestSecurityContext("alice", "admin"), audit, forwarders: [aliceForwarder]);
+        var bobClient = new AuthorizationChatClient(shared, guard, () => new TestSecurityContext("bob"), audit, forwarders: [bobForwarder]);
+        var ran = 0;
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string id) => { ran++; return "deleted " + id; }, "DeleteUser")] };
+
+        await Assert.ThrowsAsync<ToolCallAuthorizationException>(() =>
+            bobClient.GetResponseAsync([new ChatMessage(ChatRole.User, "delete 42")], options, ct));
+
+        Assert.Equal(0, ran);
+        var entry = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(audit));
+        Assert.Contains("Caller 'bob'", entry.Summary, StringComparison.Ordinal);
+        await bobForwarder.WaitForAsync(1);
+        Assert.Single(bobForwarder.Entries);
+        Assert.Empty(aliceForwarder.Entries);
+
+        var response = await aliceClient.GetResponseAsync([new ChatMessage(ChatRole.User, "delete 42")], options, ct);
+
+        Assert.Equal(1, ran);
+        Assert.Equal("done", response.Text);
+        Assert.Single(await RecordingAuditForwarder.ReadAllAsync(audit));
+    }
+
+    // Two clients with different guards over one FunctionInvokingChatClient: a request is decided by the
+    // guard of the client it went through only, not by every guard that ever hooked the shared client.
+    [Fact]
+    public async Task TwoClientsWithDifferentGuardsOverOneFunctionInvokingClient_DoNotStack()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var opts = new SentinelOptions().RequireToolPolicy("DeleteUser", "admin-only");
+        var audit = new RingBufferAuditStore();
+        var firstGuard = new CountingGuard(AdminOnlyGuard(opts));
+        var secondGuard = new CountingGuard(AdminOnlyGuard(opts));
+        var shared = new FunctionInvokingChatClient(new PromptModel());
+        ISecurityContext Caller() => new TestSecurityContext("alice", "admin");
+        _ = new AuthorizationChatClient(shared, firstGuard, Caller, audit);
+        var second = new AuthorizationChatClient(shared, secondGuard, Caller, audit);
+        var ran = 0;
+        var tool = AIFunctionFactory.Create(() => { ran++; return "x"; }, "Safe");
+
+        await second.GetResponseAsync([new ChatMessage(ChatRole.User, "nested")], new ChatOptions { Tools = [tool] }, ct);
+
+        Assert.Equal(1, ran);
+        Assert.Equal(0, firstGuard.Calls);
+        Assert.Equal(1, secondGuard.Calls);
     }
 
     private sealed class CountingGuard(IToolCallGuard inner) : IToolCallGuard

@@ -336,7 +336,10 @@ check happens:
   is streamed, one step earlier.)
 
 Setting `FunctionInvoker` on the pipeline's `FunctionInvokingChatClient` after `Build()` replaces the
-authorization hook, so set it before the pipeline is built or chain your own invoker around it.
+authorization hook, so set it before the pipeline is built or chain your own invoker around it. One
+`FunctionInvokingChatClient` may sit below several authorization clients, for example a prebuilt pipeline
+wrapped per request scope: it is hooked once, and each request is authorized as the caller of the
+authorization client it went through.
 
 A call that already has a result in the messages you send (for example history you append from an earlier
 turn) is treated as history and is not checked or audited again. Calls without a result are checked.
