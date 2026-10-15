@@ -12,6 +12,8 @@
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
+    <!-- The CLIs publish with native AOT; this runs the trim and AOT analyzers on every build, not only at publish. -->
+    <IsAotCompatible>true</IsAotCompatible>
   </PropertyGroup>
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />

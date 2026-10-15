@@ -720,8 +720,10 @@ internal sealed class RedactionSession
     /// </summary>
     private static ToolApprovalRequestContent CopyApprovalRequest(ToolApprovalRequestContent request, FunctionCallContent call)
     {
-        var json = JsonSerializer.SerializeToElement<AIContent>(request, AIJsonUtilities.DefaultOptions);
-        if (json.Deserialize<AIContent>(AIJsonUtilities.DefaultOptions) is not ToolApprovalRequestContent { ToolCall: FunctionCallContent copiedCall } copy)
+        // The type info comes from MEAI's own source-generated contract, so the copy works under trimming and AOT.
+        var contentInfo = AIJsonUtilities.DefaultOptions.GetTypeInfo(typeof(AIContent));
+        var json = JsonSerializer.SerializeToElement(request, contentInfo);
+        if (json.Deserialize(contentInfo) is not ToolApprovalRequestContent { ToolCall: FunctionCallContent copiedCall } copy)
         {
             throw new InvalidOperationException("A tool approval request could not be copied for redaction.");
         }
@@ -771,7 +773,7 @@ internal sealed class RedactionSession
             case JsonElement e:
                 return MapJson(e, map);
             case JsonNode node:
-                var nodeElement = MapJson(JsonSerializer.SerializeToElement(node, AIJsonUtilities.DefaultOptions), map);
+                var nodeElement = MapJson(JsonElementOf(node), map);
                 return redact ? nodeElement : JsonNode.Parse(nodeElement.GetRawText());
             case AIContent content:
                 return MapContent(content, map, redact);
@@ -832,12 +834,20 @@ internal sealed class RedactionSession
             || value is decimal or DateTime or DateTimeOffset or TimeSpan or Guid;
     }
 
+    private static JsonElement JsonElementOf(JsonNode node)
+    {
+        using var document = JsonDocument.Parse(node.ToJsonString());
+        return document.RootElement.Clone();
+    }
+
     private static JsonElement ToJson(object value)
     {
         JsonElement? serialized = null;
         try
         {
-            serialized = JsonSerializer.SerializeToElement(value, value.GetType(), AIJsonUtilities.DefaultOptions);
+            // GetTypeInfo resolves through the options' resolver: reflection where it is enabled, and under native
+            // AOT a type no source-generated context covers throws here, which fails the call closed below.
+            serialized = JsonSerializer.SerializeToElement(value, AIJsonUtilities.DefaultOptions.GetTypeInfo(value.GetType()));
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {
