@@ -26,7 +26,8 @@ public class SecurityDetectorTests
         Assert.True(r.Severity >= Severity.High);
     }
 
-    [Fact] public async Task PromptInjection_CleanText_NotDetected()
+    [Fact]
+    public async Task PromptInjection_CleanText_NotDetected()
     {
         var d = new PromptInjectionDetector(TestOptions.WithFakeEmbeddings());
         var r = await d.AnalyzeAsync(Ctx("What is the weather today?"), TestContext.Current.CancellationToken);

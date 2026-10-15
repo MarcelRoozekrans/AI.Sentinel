@@ -23,12 +23,12 @@ public class E2EBenchmarks
         var pipeline = DetectorSet switch
         {
             "security" => PipelineFactory.SecurityOnly(),
-            "all"      => PipelineFactory.All(),
-            _          => PipelineFactory.Empty(),
+            "all" => PipelineFactory.All(),
+            _ => PipelineFactory.Empty(),
         };
 
-        var options            = SentinelOptionsFactory.AllPassThrough();
-        _auditStore            = new RingBufferAuditStore();
+        var options = SentinelOptionsFactory.AllPassThrough();
+        _auditStore = new RingBufferAuditStore();
         var interventionEngine = new InterventionEngine(options, mediator: null);
 
         _sentinel = new SentinelChatClient(

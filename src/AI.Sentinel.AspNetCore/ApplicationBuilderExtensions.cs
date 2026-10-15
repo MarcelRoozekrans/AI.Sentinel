@@ -21,16 +21,16 @@ public static class ApplicationBuilderExtensions
         string pathPrefix = "/ai-sentinel")
     {
         var group = endpoints.MapGroup(pathPrefix);
-        group.MapGet ("/",                              DashboardHandlers.IndexAsync);
-        group.MapGet ("/api/stats",                     DashboardHandlers.StatsAsync);
-        group.MapGet ("/api/feed",                      DashboardHandlers.LiveFeedAsync);
-        group.MapGet ("/api/trend",                     DashboardHandlers.TrendAsync);
-        group.MapGet ("/api/export.ndjson",             DashboardHandlers.ExportNdjsonAsync);
-        group.MapGet ("/api/trs",                       DashboardHandlers.TrsStreamAsync);
-        group.MapGet ("/api/approvals",                 DashboardHandlers.ListApprovalsAsync);
-        group.MapPost("/api/approvals/{id}/approve",    DashboardHandlers.ApproveAsync);
-        group.MapPost("/api/approvals/{id}/deny",       DashboardHandlers.DenyAsync);
-        group.MapGet ("/static/{file}",                 DashboardHandlers.StaticFileAsync);
+        group.MapGet("/", DashboardHandlers.IndexAsync);
+        group.MapGet("/api/stats", DashboardHandlers.StatsAsync);
+        group.MapGet("/api/feed", DashboardHandlers.LiveFeedAsync);
+        group.MapGet("/api/trend", DashboardHandlers.TrendAsync);
+        group.MapGet("/api/export.ndjson", DashboardHandlers.ExportNdjsonAsync);
+        group.MapGet("/api/trs", DashboardHandlers.TrsStreamAsync);
+        group.MapGet("/api/approvals", DashboardHandlers.ListApprovalsAsync);
+        group.MapPost("/api/approvals/{id}/approve", DashboardHandlers.ApproveAsync);
+        group.MapPost("/api/approvals/{id}/deny", DashboardHandlers.DenyAsync);
+        group.MapGet("/static/{file}", DashboardHandlers.StaticFileAsync);
         return group;
     }
 
@@ -60,16 +60,16 @@ public static class ApplicationBuilderExtensions
             branch.UseRouting();
             branch.UseEndpoints(endpoints =>
             {
-                endpoints.MapGet ("/",                              DashboardHandlers.IndexAsync);
-                endpoints.MapGet ("/api/stats",                     DashboardHandlers.StatsAsync);
-                endpoints.MapGet ("/api/feed",                      DashboardHandlers.LiveFeedAsync);
-                endpoints.MapGet ("/api/trend",                     DashboardHandlers.TrendAsync);
-                endpoints.MapGet ("/api/export.ndjson",             DashboardHandlers.ExportNdjsonAsync);
-                endpoints.MapGet ("/api/trs",                       DashboardHandlers.TrsStreamAsync);
-                endpoints.MapGet ("/api/approvals",                 DashboardHandlers.ListApprovalsAsync);
-                endpoints.MapPost("/api/approvals/{id}/approve",    DashboardHandlers.ApproveAsync);
-                endpoints.MapPost("/api/approvals/{id}/deny",       DashboardHandlers.DenyAsync);
-                endpoints.MapGet ("/static/{file}",                 DashboardHandlers.StaticFileAsync);
+                endpoints.MapGet("/", DashboardHandlers.IndexAsync);
+                endpoints.MapGet("/api/stats", DashboardHandlers.StatsAsync);
+                endpoints.MapGet("/api/feed", DashboardHandlers.LiveFeedAsync);
+                endpoints.MapGet("/api/trend", DashboardHandlers.TrendAsync);
+                endpoints.MapGet("/api/export.ndjson", DashboardHandlers.ExportNdjsonAsync);
+                endpoints.MapGet("/api/trs", DashboardHandlers.TrsStreamAsync);
+                endpoints.MapGet("/api/approvals", DashboardHandlers.ListApprovalsAsync);
+                endpoints.MapPost("/api/approvals/{id}/approve", DashboardHandlers.ApproveAsync);
+                endpoints.MapPost("/api/approvals/{id}/deny", DashboardHandlers.DenyAsync);
+                endpoints.MapGet("/static/{file}", DashboardHandlers.StaticFileAsync);
             });
         });
         return app;

@@ -59,9 +59,9 @@ public sealed class SentinelOptions
     public int AuditCapacity { get; set; } = 10_000;
 
     public SentinelAction OnCritical { get; set; } = SentinelAction.Quarantine;
-    public SentinelAction OnHigh     { get; set; } = SentinelAction.Alert;
-    public SentinelAction OnMedium   { get; set; } = SentinelAction.Log;
-    public SentinelAction OnLow      { get; set; } = SentinelAction.Log;
+    public SentinelAction OnHigh { get; set; } = SentinelAction.Alert;
+    public SentinelAction OnMedium { get; set; } = SentinelAction.Log;
+    public SentinelAction OnLow { get; set; } = SentinelAction.Log;
 
     /// <summary>When true (default), detectors that can locate their match (<see cref="IRedactingDetector"/>)
     /// redact it before the prompt reaches the model instead of acting on the severity.</summary>
@@ -70,7 +70,7 @@ public sealed class SentinelOptions
     /// <summary>When true (default), redacted values are restored in the model's response.</summary>
     public bool RestoreRedactedValues { get; set; } = true;
 
-    public AgentId DefaultSenderId   { get; set; } = new("unknown-sender");
+    public AgentId DefaultSenderId { get; set; } = new("unknown-sender");
     public AgentId DefaultReceiverId { get; set; } = new("unknown-receiver");
 
     /// <summary>Optional webhook URL to which alert payloads are POSTed when a threat is detected or the pipeline fails.</summary>
@@ -175,9 +175,9 @@ public sealed class SentinelOptions
     public SentinelAction ActionFor(Detection.Severity severity) => severity switch
     {
         Detection.Severity.Critical => OnCritical,
-        Detection.Severity.High     => OnHigh,
-        Detection.Severity.Medium   => OnMedium,
-        Detection.Severity.Low      => OnLow,
-        _                           => SentinelAction.PassThrough
+        Detection.Severity.High => OnHigh,
+        Detection.Severity.Medium => OnMedium,
+        Detection.Severity.Low => OnLow,
+        _ => SentinelAction.PassThrough
     };
 }

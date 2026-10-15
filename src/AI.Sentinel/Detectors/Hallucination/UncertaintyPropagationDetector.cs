@@ -8,7 +8,7 @@ namespace AI.Sentinel.Detectors.Hallucination;
 public sealed class UncertaintyPropagationDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("HAL-09");
-    public override DetectorId Id       => _id;
+    public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
     // MediumSeverity/LowSeverity keep base defaults (Medium/Low)

@@ -174,13 +174,13 @@ public class DashboardSourceTests
 
     private static AuditEntry NewEntry(string detectorId, string summary, string? source, string? sessionId = null) =>
         new(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         "deadbeef00000000",
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "deadbeef00000000",
             PreviousHash: null,
-            Severity:     Severity.High,
-            DetectorId:   detectorId,
-            Summary:      summary,
-            SessionId:    sessionId,
-            Source:       source);
+            Severity: Severity.High,
+            DetectorId: detectorId,
+            Summary: summary,
+            SessionId: sessionId,
+            Source: source);
 }

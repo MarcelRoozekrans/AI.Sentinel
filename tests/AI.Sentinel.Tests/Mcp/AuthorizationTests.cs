@@ -213,10 +213,10 @@ public class AuthorizationTests
 
     private static HookConfig DefaultHookConfig() => new(
         OnCritical: HookDecision.Block,
-        OnHigh:     HookDecision.Block,
-        OnMedium:   HookDecision.Block,
-        OnLow:      HookDecision.Block,
-        Verbose:    false);
+        OnHigh: HookDecision.Block,
+        OnMedium: HookDecision.Block,
+        OnLow: HookDecision.Block,
+        Verbose: false);
 
     // RequestContext<T> requires a non-null McpServer, but the interceptor only reads ctx.Params.
     // Use RuntimeHelpers.GetUninitializedObject to bypass the validating constructor.

@@ -20,6 +20,10 @@ jobs:
             8.0.x
             10.0.x
 
+      # Whitespace and charset follow .editorconfig; folder mode needs no restore or build.
+      - name: Check formatting
+        run: dotnet format whitespace . --folder --verify-no-changes
+
       - name: Restore
         run: dotnet restore AI.Sentinel.slnx
 

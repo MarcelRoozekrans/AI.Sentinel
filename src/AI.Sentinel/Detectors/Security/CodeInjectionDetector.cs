@@ -8,7 +8,7 @@ namespace AI.Sentinel.Detectors.Security;
 public sealed class CodeInjectionDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("SEC-25");
-    public override DetectorId Id       => _id;
+    public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
     protected override string[] HighExamples =>

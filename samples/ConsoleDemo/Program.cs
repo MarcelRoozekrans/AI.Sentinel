@@ -18,17 +18,17 @@ var config = new ConfigurationBuilder()
     .AddEnvironmentVariables()
     .Build();
 
-var apiKey  = config["OpenRouter:ApiKey"]  ?? throw new InvalidOperationException("OpenRouter:ApiKey is required.");
-var model   = config["OpenRouter:Model"]   ?? "nvidia/llama-3.3-nemotron-super-49b-v1";
+var apiKey = config["OpenRouter:ApiKey"] ?? throw new InvalidOperationException("OpenRouter:ApiKey is required.");
+var model = config["OpenRouter:Model"] ?? "nvidia/llama-3.3-nemotron-super-49b-v1";
 var baseUrl = config["OpenRouter:BaseUrl"] ?? "https://openrouter.ai/api/v1";
 
 static SentinelAction ParseAction(string? value, SentinelAction fallback) =>
     Enum.TryParse<SentinelAction>(value, ignoreCase: true, out var a) ? a : fallback;
 
 var onCritical = ParseAction(config["AISentinel:OnCritical"], SentinelAction.Quarantine);
-var onHigh     = ParseAction(config["AISentinel:OnHigh"],     SentinelAction.Alert);
-var onMedium   = ParseAction(config["AISentinel:OnMedium"],   SentinelAction.Log);
-var onLow      = ParseAction(config["AISentinel:OnLow"],      SentinelAction.Log);
+var onHigh = ParseAction(config["AISentinel:OnHigh"], SentinelAction.Alert);
+var onMedium = ParseAction(config["AISentinel:OnMedium"], SentinelAction.Log);
+var onLow = ParseAction(config["AISentinel:OnLow"], SentinelAction.Log);
 
 // Build DI container
 var services = new ServiceCollection();
@@ -36,9 +36,9 @@ services.AddLogging();
 services.AddAISentinel(opts =>
 {
     opts.OnCritical = onCritical;
-    opts.OnHigh     = onHigh;
-    opts.OnMedium   = onMedium;
-    opts.OnLow      = onLow;
+    opts.OnHigh = onHigh;
+    opts.OnMedium = onMedium;
+    opts.OnLow = onLow;
     // To enable semantic (language-agnostic) detection, set an embedding provider:
     // opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(new OpenAIClient(...), "text-embedding-3-small");
 
@@ -63,7 +63,7 @@ services.AddChatClient(svp =>
     .UseAISentinel()
     .Build(svp));
 
-var sp     = services.BuildServiceProvider();
+var sp = services.BuildServiceProvider();
 var client = sp.GetRequiredService<IChatClient>();
 
 Console.WriteLine("AI.Sentinel Console Demo");

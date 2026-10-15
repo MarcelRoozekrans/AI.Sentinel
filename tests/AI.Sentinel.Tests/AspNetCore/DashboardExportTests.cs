@@ -60,11 +60,11 @@ public class DashboardExportTests
 
     private static AuditEntry NewEntry(string detectorId, string summary) =>
         new(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         "deadbeef00000000",
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "deadbeef00000000",
             PreviousHash: null,
-            Severity:     Severity.High,
-            DetectorId:   detectorId,
-            Summary:      summary);
+            Severity: Severity.High,
+            DetectorId: detectorId,
+            Summary: summary);
 }

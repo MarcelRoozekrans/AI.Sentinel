@@ -26,15 +26,15 @@ public static class AuditEntryRedactionExtensions
         ArgumentNullException.ThrowIfNull(sessionId);
 
         return new AuditEntry(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         string.Empty,
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: string.Empty,
             PreviousHash: null,
-            Severity:     Severity.None,
-            DetectorId:   detectorId,
-            Summary:      Summarize(counts),
-            PolicyCode:   RedactedPolicyCode,
-            SessionId:    sessionId);
+            Severity: Severity.None,
+            DetectorId: detectorId,
+            Summary: Summarize(counts),
+            PolicyCode: RedactedPolicyCode,
+            SessionId: sessionId);
     }
 
     /// <summary><c>Redacted 1 EMAIL, 1 IBAN</c>: counts per type, types in ordinal order.</summary>

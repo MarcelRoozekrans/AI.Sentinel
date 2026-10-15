@@ -7,7 +7,7 @@ namespace AI.Sentinel.Detectors.Operational;
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed class BlankResponseDetector : IDetector
 {
-    private static readonly DetectorId _id    = new("OPS-01");
+    private static readonly DetectorId _id = new("OPS-01");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
 
     public DetectorId Id => _id;

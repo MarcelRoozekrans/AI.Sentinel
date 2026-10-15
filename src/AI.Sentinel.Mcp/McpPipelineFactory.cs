@@ -50,10 +50,10 @@ internal static class McpPipelineFactory
 
         var options = new SentinelOptions
         {
-            OnCritical         = MapDecision(config.OnCritical),
-            OnHigh             = MapDecision(config.OnHigh),
-            OnMedium           = MapDecision(config.OnMedium),
-            OnLow              = MapDecision(config.OnLow),
+            OnCritical = MapDecision(config.OnCritical),
+            OnHigh = MapDecision(config.OnHigh),
+            OnMedium = MapDecision(config.OnMedium),
+            OnLow = MapDecision(config.OnLow),
             EmbeddingGenerator = embeddingGenerator,
             ExampleEmbeddingCache = exampleEmbeddingCache,
             OnDetectorFailure = detectorFailureSink,
@@ -62,7 +62,7 @@ internal static class McpPipelineFactory
         var detectors = preset switch
         {
             McpDetectorPreset.All => BuildAllDetectors(options),
-            _                     => BuildSecurityDetectors(options),
+            _ => BuildSecurityDetectors(options),
         };
 
         inertSemanticWarning = ServiceCollectionExtensions.DescribeInertSemanticDetection(options, detectors);
@@ -82,20 +82,20 @@ internal static class McpPipelineFactory
         Action<string>? detectorFailureSink = null,
         IReadOnlyList<IAuditForwarder>? forwarders = null)
         => new(
-            innerClient:        UnusedChatClient.Instance,
-            pipeline:           new DetectionPipeline(detectors, configurations: null, escalationClient: null,
+            innerClient: UnusedChatClient.Instance,
+            pipeline: new DetectionPipeline(detectors, configurations: null, escalationClient: null,
                                     logger: null, onDetectorFailure: detectorFailureSink,
                                     redactByDefault: options.RedactByDefault),
-            auditStore:         store,
+            auditStore: store,
             interventionEngine: new InterventionEngine(options, mediator: null),
-            options:            options,
-            forwarders:         forwarders);
+            options: options,
+            forwarders: forwarders);
 
     internal static SentinelAction MapDecision(HookDecision decision) => decision switch
     {
         HookDecision.Block => SentinelAction.Quarantine,
-        HookDecision.Warn  => SentinelAction.Alert,
-        _                  => SentinelAction.PassThrough,
+        HookDecision.Warn => SentinelAction.Alert,
+        _ => SentinelAction.PassThrough,
     };
 
     // 13 semantic security detectors — mirrors

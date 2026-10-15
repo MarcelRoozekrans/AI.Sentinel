@@ -34,10 +34,10 @@ public sealed record HookConfig(
         ArgumentNullException.ThrowIfNull(env);
         return new HookConfig(
             OnCritical: ParseDecision(env, "SENTINEL_HOOK_ON_CRITICAL", HookDecision.Block),
-            OnHigh:     ParseDecision(env, "SENTINEL_HOOK_ON_HIGH",     HookDecision.Block),
-            OnMedium:   ParseDecision(env, "SENTINEL_HOOK_ON_MEDIUM",   HookDecision.Warn),
-            OnLow:      ParseDecision(env, "SENTINEL_HOOK_ON_LOW",      HookDecision.Allow),
-            Verbose:    ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"),
+            OnHigh: ParseDecision(env, "SENTINEL_HOOK_ON_HIGH", HookDecision.Block),
+            OnMedium: ParseDecision(env, "SENTINEL_HOOK_ON_MEDIUM", HookDecision.Warn),
+            OnLow: ParseDecision(env, "SENTINEL_HOOK_ON_LOW", HookDecision.Allow),
+            Verbose: ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"),
             SuppressSemanticWarning: ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"));
     }
 

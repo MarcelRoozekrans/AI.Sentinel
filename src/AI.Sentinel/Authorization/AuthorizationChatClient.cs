@@ -324,7 +324,7 @@ internal sealed class AuthorizationChatClient : IChatClient
                 var reason = settled switch
                 {
                     ApprovalState.Denied d => $"Approval denied: {d.Reason}",
-                    _                      => $"Approval timed out after {r.WaitTimeout.TotalSeconds:F0}s (request {r.RequestId})",
+                    _ => $"Approval timed out after {r.WaitTimeout.TotalSeconds:F0}s (request {r.RequestId})",
                 };
                 decision = AuthorizationDecision.Deny(r.PolicyName, reason);
             }

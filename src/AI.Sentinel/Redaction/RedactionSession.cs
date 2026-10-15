@@ -824,7 +824,7 @@ internal sealed class RedactionSession
         {
             result.Add(MapValue(item, map, redact));
         }
-        return list is object[] ? result.ToArray() : result;
+        return list is object[]? result.ToArray() : result;
     }
 
     private static bool IsPrimitive(object value)

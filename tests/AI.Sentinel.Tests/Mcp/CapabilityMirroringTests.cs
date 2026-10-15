@@ -15,10 +15,10 @@ public class CapabilityMirroringTests
 {
     private static HookConfig DefaultConfig() => new(
         OnCritical: HookDecision.Block,
-        OnHigh:     HookDecision.Block,
-        OnMedium:   HookDecision.Block,
-        OnLow:      HookDecision.Block,
-        Verbose:    false);
+        OnHigh: HookDecision.Block,
+        OnMedium: HookDecision.Block,
+        OnLow: HookDecision.Block,
+        Verbose: false);
 
     [Fact]
     public async Task PromptsOnlyTarget_AdvertisesPromptsOnly()
@@ -39,8 +39,8 @@ public class CapabilityMirroringTests
     {
         await using var h = await StartHarnessAsync(new ServerCapabilities
         {
-            Tools     = new ToolsCapability(),
-            Prompts   = new PromptsCapability(),
+            Tools = new ToolsCapability(),
+            Prompts = new PromptsCapability(),
             Resources = new ResourcesCapability(),
         });
 

@@ -8,12 +8,12 @@ namespace AI.Sentinel.Detectors.Security;
 public sealed class IndirectInjectionDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("SEC-09");
-    public override DetectorId Id       => _id;
+    public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
-    protected override Severity HighSeverity   => Severity.Critical;
+    protected override Severity HighSeverity => Severity.Critical;
     protected override Severity MediumSeverity => Severity.High;
-    protected override Severity LowSeverity    => Severity.Medium;
+    protected override Severity LowSeverity => Severity.Medium;
 
     protected override string[] HighExamples =>
     [

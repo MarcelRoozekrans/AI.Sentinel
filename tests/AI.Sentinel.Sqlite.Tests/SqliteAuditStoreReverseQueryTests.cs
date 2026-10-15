@@ -35,15 +35,15 @@ public sealed class SqliteAuditStoreReverseQueryTests : IDisposable
         for (int i = 0; i < 12; i++)
         {
             var entry = new AuditEntry(
-                Id:           $"e{i:D2}",
-                Timestamp:    baseTime.AddMinutes(i),
-                Hash:         "h",
+                Id: $"e{i:D2}",
+                Timestamp: baseTime.AddMinutes(i),
+                Hash: "h",
                 PreviousHash: null,
-                Severity:     Severity.Medium,
-                DetectorId:   "SEC-01",
-                Summary:      $"entry {i}",
-                PolicyCode:   null,
-                SessionId:    null);
+                Severity: Severity.Medium,
+                DetectorId: "SEC-01",
+                Summary: $"entry {i}",
+                PolicyCode: null,
+                SessionId: null);
             await store.AppendAsync(entry, CancellationToken.None);
         }
 

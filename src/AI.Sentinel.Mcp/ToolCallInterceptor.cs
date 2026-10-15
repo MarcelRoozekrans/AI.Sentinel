@@ -123,14 +123,14 @@ internal static class ToolCallInterceptor
         if (audit is not null)
         {
             var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
-                sender:     new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
-                receiver:   new AgentId(req.Name),
-                session:    sessionId ?? SessionId.New(),
-                callerId:   caller.Id,
-                roles:      caller.Roles,
-                toolName:   req.Name,
+                sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
+                receiver: new AgentId(req.Name),
+                session: sessionId ?? SessionId.New(),
+                callerId: caller.Id,
+                roles: caller.Roles,
+                toolName: req.Name,
                 policyName: policyName,
-                reason:     reason,
+                reason: reason,
                 policyCode: policyCode);
             await audit.AppendAndForwardAsync(entry, forwarders, ct).ConfigureAwait(false);
         }
@@ -168,14 +168,14 @@ internal static class ToolCallInterceptor
         if (audit is not null)
         {
             var approvalEntry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
-                sender:     new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
-                receiver:   new AgentId(req.Name),
-                session:    sessionId ?? SessionId.New(),
-                callerId:   caller.Id,
-                roles:      caller.Roles,
-                toolName:   req.Name,
+                sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
+                receiver: new AgentId(req.Name),
+                session: sessionId ?? SessionId.New(),
+                callerId: caller.Id,
+                roles: caller.Roles,
+                toolName: req.Name,
                 policyName: r.PolicyName,
-                reason:     $"approval required (requestId={r.RequestId})",
+                reason: $"approval required (requestId={r.RequestId})",
                 policyCode: SentinelDenyCodes.ApprovalRequired);
             await audit.AppendAndForwardAsync(approvalEntry, forwarders, ct).ConfigureAwait(false);
         }

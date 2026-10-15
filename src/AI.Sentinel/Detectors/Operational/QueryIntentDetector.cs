@@ -8,7 +8,7 @@ namespace AI.Sentinel.Detectors.Operational;
 public sealed class QueryIntentDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("OPS-07");
-    public override DetectorId Id       => _id;
+    public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Operational;
 
     protected override string[] HighExamples => [];

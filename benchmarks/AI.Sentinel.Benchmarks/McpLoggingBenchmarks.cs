@@ -26,8 +26,8 @@ public class McpLoggingBenchmarks
     {
         _smallDict = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]  = "tools_call",
-            ["tool"]   = "Bash",
+            ["event"] = "tools_call",
+            ["tool"] = "Bash",
             ["action"] = "scanned",
         };
 

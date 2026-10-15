@@ -8,7 +8,7 @@ namespace AI.Sentinel.Detectors.Hallucination;
 public sealed class StaleKnowledgeDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("HAL-06");
-    public override DetectorId Id       => _id;
+    public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
     protected override string[] HighExamples => [];

@@ -11,15 +11,15 @@ namespace AI.Sentinel.Tests.AspNetCore;
 public class DashboardFilterHelperTests
 {
     [Theory]
-    [InlineData("SEC-01",       "security",      true)]
-    [InlineData("SEC-21",       "security",      true)]
-    [InlineData("HAL-08",       "security",      false)]
-    [InlineData("HAL-08",       "hallucination", true)]
-    [InlineData("OPS-12",       "operational",   true)]
-    [InlineData("AUTHZ-DENY",   "authorization", true)]
-    [InlineData("SEC-01",       "authorization", false)]
-    [InlineData("AUTHZ-DENY",   "authz",         true)]   // legacy alias
-    [InlineData("HAL-08",       "authz",         false)]  // legacy alias still selective
+    [InlineData("SEC-01", "security", true)]
+    [InlineData("SEC-21", "security", true)]
+    [InlineData("HAL-08", "security", false)]
+    [InlineData("HAL-08", "hallucination", true)]
+    [InlineData("OPS-12", "operational", true)]
+    [InlineData("AUTHZ-DENY", "authorization", true)]
+    [InlineData("SEC-01", "authorization", false)]
+    [InlineData("AUTHZ-DENY", "authz", true)]   // legacy alias
+    [InlineData("HAL-08", "authz", false)]  // legacy alias still selective
     public void IsInCategory_PrefixMatch_KnownCategories(string detectorId, string category, bool expected)
     {
         Assert.Equal(expected, DashboardHandlers.IsInCategory(detectorId, category));
@@ -37,15 +37,15 @@ public class DashboardFilterHelperTests
 
     private static AuditEntry NewEntry(string detectorId, string summary, string sessionId = "sess-1") =>
         new(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         "h",
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "h",
             PreviousHash: null,
-            Severity:     Severity.Medium,
-            DetectorId:   detectorId,
-            Summary:      summary,
-            PolicyCode:   null,
-            SessionId:    sessionId);
+            Severity: Severity.Medium,
+            DetectorId: detectorId,
+            Summary: summary,
+            PolicyCode: null,
+            SessionId: sessionId);
 
     [Fact]
     public void FilterAuditEntries_NoFilters_ReturnsAll()
@@ -111,15 +111,15 @@ public class DashboardFilterHelperTests
         };
         // Build a third entry with explicit null session — NewEntry's default is "sess-1"
         var nullSessionEntry = new AuditEntry(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         "h",
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "h",
             PreviousHash: null,
-            Severity:     Severity.Medium,
-            DetectorId:   "SEC-01",
-            Summary:      "x",
-            PolicyCode:   null,
-            SessionId:    null);
+            Severity: Severity.Medium,
+            DetectorId: "SEC-01",
+            Summary: "x",
+            PolicyCode: null,
+            SessionId: null);
         var combined = entries.Concat(new[] { nullSessionEntry }).ToList();
         var result = DashboardHandlers.FilterAuditEntries(combined, category: null, q: null, session: "sess-A", source: null).ToList();
         Assert.Equal(2, result.Count);

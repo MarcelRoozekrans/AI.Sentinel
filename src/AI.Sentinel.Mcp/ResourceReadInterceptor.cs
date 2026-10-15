@@ -124,11 +124,11 @@ internal static class ResourceReadInterceptor
         {
             StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["event"]    = "resources_read",
-                ["action"]   = "fail_open",
-                ["uri"]      = uri,
-                ["error"]    = ex.GetType().Name,
-                ["message"]  = ex.Message,
+                ["event"] = "resources_read",
+                ["action"] = "fail_open",
+                ["uri"] = uri,
+                ["error"] = ex.GetType().Name,
+                ["message"] = ex.Message,
             });
             return null;
         }
@@ -138,9 +138,9 @@ internal static class ResourceReadInterceptor
     {
         var fields = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]  = "resources_read",
+            ["event"] = "resources_read",
             ["action"] = "allow",
-            ["uri"]    = uri,
+            ["uri"] = uri,
         };
         if (!string.IsNullOrEmpty(reason)) fields["reason"] = reason;
         StderrLogger.Log(fields);
@@ -149,30 +149,30 @@ internal static class ResourceReadInterceptor
     private static void LogSkipped(string uri, string reason, string mime) =>
         StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]  = "resources_read",
+            ["event"] = "resources_read",
             ["action"] = "skipped",
             ["reason"] = reason,
-            ["uri"]    = uri,
-            ["mime"]   = mime,
+            ["uri"] = uri,
+            ["mime"] = mime,
         });
 
     private static void LogOversize(string uri, int bytes, int maxBytes) =>
         StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]    = "resources_read",
-            ["action"]   = "skipped",
-            ["reason"]   = "oversize",
-            ["uri"]      = uri,
-            ["bytes"]    = bytes.ToString(CultureInfo.InvariantCulture),
-            ["max"]      = maxBytes.ToString(CultureInfo.InvariantCulture),
+            ["event"] = "resources_read",
+            ["action"] = "skipped",
+            ["reason"] = "oversize",
+            ["uri"] = uri,
+            ["bytes"] = bytes.ToString(CultureInfo.InvariantCulture),
+            ["max"] = maxBytes.ToString(CultureInfo.InvariantCulture),
         });
 
     private static void LogBlock(string uri, SentinelError.ThreatDetected threat) =>
         StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]    = "resources_read",
-            ["action"]   = "block",
-            ["uri"]      = uri,
+            ["event"] = "resources_read",
+            ["action"] = "block",
+            ["uri"] = uri,
             ["detector"] = threat.Result.DetectorId.Value,
             ["severity"] = threat.Result.Severity.ToString(),
         });

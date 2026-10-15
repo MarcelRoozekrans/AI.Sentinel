@@ -9,9 +9,9 @@ internal static class SentinelOptionsFactory
     public static SentinelOptions AllPassThrough() => new()
     {
         OnCritical = SentinelAction.PassThrough,
-        OnHigh     = SentinelAction.PassThrough,
-        OnMedium   = SentinelAction.PassThrough,
-        OnLow      = SentinelAction.PassThrough,
+        OnHigh = SentinelAction.PassThrough,
+        OnMedium = SentinelAction.PassThrough,
+        OnLow = SentinelAction.PassThrough,
     };
 
     /// <summary>Default production-like settings (Critical=Quarantine, High=Alert, rest=Log).</summary>
@@ -21,18 +21,18 @@ internal static class SentinelOptionsFactory
     public static SentinelOptions AllQuarantine() => new()
     {
         OnCritical = SentinelAction.Quarantine,
-        OnHigh     = SentinelAction.Quarantine,
-        OnMedium   = SentinelAction.Quarantine,
-        OnLow      = SentinelAction.Quarantine,
+        OnHigh = SentinelAction.Quarantine,
+        OnMedium = SentinelAction.Quarantine,
+        OnLow = SentinelAction.Quarantine,
     };
 
     /// <summary>Semantic detection enabled with zero-latency in-process embeddings (measures detection overhead, not API latency).</summary>
     public static SentinelOptions WithSemanticDetection() => new()
     {
         OnCritical = SentinelAction.PassThrough,
-        OnHigh     = SentinelAction.PassThrough,
-        OnMedium   = SentinelAction.PassThrough,
-        OnLow      = SentinelAction.PassThrough,
+        OnHigh = SentinelAction.PassThrough,
+        OnMedium = SentinelAction.PassThrough,
+        OnLow = SentinelAction.PassThrough,
         EmbeddingGenerator = new BenchmarkEmbeddingGenerator(latencyMs: 0),
     };
 
@@ -40,9 +40,9 @@ internal static class SentinelOptionsFactory
     public static SentinelOptions WithSemanticDetectionSimulated() => new()
     {
         OnCritical = SentinelAction.PassThrough,
-        OnHigh     = SentinelAction.PassThrough,
-        OnMedium   = SentinelAction.PassThrough,
-        OnLow      = SentinelAction.PassThrough,
+        OnHigh = SentinelAction.PassThrough,
+        OnMedium = SentinelAction.PassThrough,
+        OnLow = SentinelAction.PassThrough,
         EmbeddingGenerator = new BenchmarkEmbeddingGenerator(latencyMs: 10),
     };
 }

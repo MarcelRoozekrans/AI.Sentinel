@@ -61,14 +61,14 @@ public static class AuditEntryAuthorizationExtensions
             reason);
 
         return new AuditEntry(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         string.Empty,
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: string.Empty,
             PreviousHash: null,
-            Severity:     Severity.High,
-            DetectorId:   AuthorizationDenyDetectorId,
-            Summary:      summary,
-            PolicyCode:   policyCode,
-            SessionId:    session.Value);
+            Severity: Severity.High,
+            DetectorId: AuthorizationDenyDetectorId,
+            Summary: summary,
+            PolicyCode: policyCode,
+            SessionId: session.Value);
     }
 }

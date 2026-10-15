@@ -192,8 +192,8 @@ public class DefaultToolCallGuardTests
             bindings: [("Bash", "test-no-system-paths")],
             policies: [new NoSystemPaths()]);
         var caller = AnonymousSecurityContext.Instance;
-        var bad   = JsonDocument.Parse("""{"path":"/etc/passwd"}""").RootElement;
-        var good  = JsonDocument.Parse("""{"path":"/tmp/foo"}""").RootElement;
+        var bad = JsonDocument.Parse("""{"path":"/etc/passwd"}""").RootElement;
+        var good = JsonDocument.Parse("""{"path":"/tmp/foo"}""").RootElement;
         Assert.False((await guard.AuthorizeAsync(caller, "Bash", bad, TestContext.Current.CancellationToken)).Allowed);
         Assert.True((await guard.AuthorizeAsync(caller, "Bash", good, TestContext.Current.CancellationToken)).Allowed);
     }

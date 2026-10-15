@@ -6,7 +6,8 @@ namespace AI.Sentinel.Tests.Audit;
 
 public class RingBufferAuditStoreTests
 {
-    [Fact] public async Task Append_And_Query_Returns_Entry()
+    [Fact]
+    public async Task Append_And_Query_Returns_Entry()
     {
         var store = new RingBufferAuditStore(capacity: 100);
         var entry = new AuditEntry(Guid.NewGuid().ToString(), DateTimeOffset.UtcNow,
@@ -21,7 +22,8 @@ public class RingBufferAuditStoreTests
         Assert.Equal(entry.Id, results[0].Id);
     }
 
-    [Fact] public async Task RingBuffer_Wraps_At_Capacity()
+    [Fact]
+    public async Task RingBuffer_Wraps_At_Capacity()
     {
         var store = new RingBufferAuditStore(capacity: 3);
         for (int i = 0; i < 5; i++)
@@ -35,12 +37,13 @@ public class RingBufferAuditStoreTests
         Assert.Equal(3, results.Count);
     }
 
-    [Fact] public async Task Query_MinSeverity_FiltersLower()
+    [Fact]
+    public async Task Query_MinSeverity_FiltersLower()
     {
         var store = new RingBufferAuditStore(capacity: 100);
-        await store.AppendAsync(new AuditEntry("1", DateTimeOffset.UtcNow, "h1", null, Severity.Low,  "OPS-01", "low"),      CancellationToken.None);
-        await store.AppendAsync(new AuditEntry("2", DateTimeOffset.UtcNow, "h2", null, Severity.High, "SEC-01", "high"),     CancellationToken.None);
-        await store.AppendAsync(new AuditEntry("3", DateTimeOffset.UtcNow, "h3", null, Severity.None, "OPS-02", "none"),     CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("1", DateTimeOffset.UtcNow, "h1", null, Severity.Low, "OPS-01", "low"), CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("2", DateTimeOffset.UtcNow, "h2", null, Severity.High, "SEC-01", "high"), CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("3", DateTimeOffset.UtcNow, "h3", null, Severity.None, "OPS-02", "none"), CancellationToken.None);
         await store.AppendAsync(new AuditEntry("4", DateTimeOffset.UtcNow, "h4", null, Severity.Critical, "SEC-02", "crit"), CancellationToken.None);
 
         var results = new List<AuditEntry>();
@@ -51,12 +54,13 @@ public class RingBufferAuditStoreTests
         Assert.All(results, e => Assert.True(e.Severity >= Severity.High));
     }
 
-    [Fact] public async Task Query_DateRange_FiltersOutsideWindow()
+    [Fact]
+    public async Task Query_DateRange_FiltersOutsideWindow()
     {
         var store = new RingBufferAuditStore(capacity: 100);
         var now = DateTimeOffset.UtcNow;
-        await store.AppendAsync(new AuditEntry("1", now.AddHours(-2), "h1", null, Severity.High, "SEC-01", "old"),    CancellationToken.None);
-        await store.AppendAsync(new AuditEntry("2", now,              "h2", null, Severity.High, "SEC-01", "now"),    CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("1", now.AddHours(-2), "h1", null, Severity.High, "SEC-01", "old"), CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("2", now, "h2", null, Severity.High, "SEC-01", "now"), CancellationToken.None);
         await store.AppendAsync(new AuditEntry("3", now.AddHours(+2), "h3", null, Severity.High, "SEC-01", "future"), CancellationToken.None);
 
         var results = new List<AuditEntry>();
@@ -79,7 +83,8 @@ public class RingBufferAuditStoreTests
         return results;
     }
 
-    [Fact] public async Task Append_ReturnsTheEntryLinkedToThePreviousOne()
+    [Fact]
+    public async Task Append_ReturnsTheEntryLinkedToThePreviousOne()
     {
         var store = new RingBufferAuditStore(capacity: 100);
 
@@ -91,7 +96,8 @@ public class RingBufferAuditStoreTests
         Assert.Equal(AuditHashChain.ComputeHash(second), second.Hash);
     }
 
-    [Fact] public async Task Append_ReplacesHashValuesSuppliedByTheCaller()
+    [Fact]
+    public async Task Append_ReplacesHashValuesSuppliedByTheCaller()
     {
         var store = new RingBufferAuditStore(capacity: 100);
         var forged = Unlinked("e1") with { Hash = "forged", PreviousHash = "forged-previous" };
@@ -102,7 +108,8 @@ public class RingBufferAuditStoreTests
         Assert.Equal(AuditHashChain.ComputeHash(stored), stored.Hash);
     }
 
-    [Fact] public async Task Query_ReturnsTheEntriesAsStored()
+    [Fact]
+    public async Task Query_ReturnsTheEntriesAsStored()
     {
         var store = new RingBufferAuditStore(capacity: 100);
         var stored = await store.AppendAsync(Unlinked("e1"), CancellationToken.None);
@@ -112,7 +119,8 @@ public class RingBufferAuditStoreTests
         Assert.Equal(stored, Assert.Single(all));
     }
 
-    [Fact] public async Task ConcurrentAppends_FormOneIntactChain()
+    [Fact]
+    public async Task ConcurrentAppends_FormOneIntactChain()
     {
         var store = new RingBufferAuditStore(capacity: 1_000);
 
@@ -125,7 +133,8 @@ public class RingBufferAuditStoreTests
         Assert.Null(result.AnchorHash);
     }
 
-    [Fact] public async Task Eviction_LeavesAnIntactChainAnchoredOnTheEvictedEntry()
+    [Fact]
+    public async Task Eviction_LeavesAnIntactChainAnchoredOnTheEvictedEntry()
     {
         var store = new RingBufferAuditStore(capacity: 3);
         var appended = new List<AuditEntry>();
@@ -139,7 +148,8 @@ public class RingBufferAuditStoreTests
         Assert.Equal(appended[1].Hash, result.AnchorHash);
     }
 
-    [Fact] public async Task Query_Source_FiltersIgnoringCase()
+    [Fact]
+    public async Task Query_Source_FiltersIgnoringCase()
     {
         var store = new RingBufferAuditStore(capacity: 100);
         await store.AppendAsync(new AuditEntry("1", DateTimeOffset.UtcNow, "h1", null, Severity.Low, "OPS-01", "a", Source: "mcp"), CancellationToken.None);

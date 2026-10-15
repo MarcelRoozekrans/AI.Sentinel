@@ -8,11 +8,11 @@ namespace AI.Sentinel.Benchmarks;
 [BenchmarkCategory("Cache")]
 public class EmbeddingCacheBenchmarks
 {
-    private InMemoryLruEmbeddingCache _cache     = null!;
-    private InMemoryLruEmbeddingCache _fullCache  = null!;
-    private Embedding<float>          _embedding  = null!;
+    private InMemoryLruEmbeddingCache _cache = null!;
+    private InMemoryLruEmbeddingCache _fullCache = null!;
+    private Embedding<float> _embedding = null!;
 
-    private const string HitKey  = "the quick brown fox";
+    private const string HitKey = "the quick brown fox";
     private const string MissKey = "this key is not in the cache";
 
     [GlobalSetup]
