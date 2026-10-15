@@ -71,15 +71,25 @@ internal static class McpPipelineFactory
         var store = suppliedStore ?? new RingBufferAuditStore(capacity: 1024);
         auditStore = store;
 
-        return new SentinelPipeline(
+        return Assemble(options, detectors, store, detectorFailureSink, forwarders);
+    }
+
+    /// <summary>Wires the detectors, store and options into a pipeline. Split out so a test can supply its own detectors.</summary>
+    internal static SentinelPipeline Assemble(
+        SentinelOptions options,
+        IEnumerable<IDetector> detectors,
+        IAuditStore store,
+        Action<string>? detectorFailureSink = null,
+        IReadOnlyList<IAuditForwarder>? forwarders = null)
+        => new(
             innerClient:        UnusedChatClient.Instance,
             pipeline:           new DetectionPipeline(detectors, configurations: null, escalationClient: null,
-                                    logger: null, onDetectorFailure: detectorFailureSink),
+                                    logger: null, onDetectorFailure: detectorFailureSink,
+                                    redactByDefault: options.RedactByDefault),
             auditStore:         store,
             interventionEngine: new InterventionEngine(options, mediator: null),
             options:            options,
             forwarders:         forwarders);
-    }
 
     internal static SentinelAction MapDecision(HookDecision decision) => decision switch
     {

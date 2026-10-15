@@ -117,6 +117,90 @@ public class EffectiveActionTests
         Assert.DoesNotContain("not redacted", entries.Single(e => string.Equals(e.DetectorId, "X-02", StringComparison.Ordinal)).Summary, StringComparison.Ordinal);
     }
 
+    private sealed class EscalatingRedactingDetector : IRedactingDetector, ILlmEscalatingDetector
+    {
+        private readonly DetectorId _id = new("ESC-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Operational;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Medium, "stub"));
+        public IReadOnlyList<RedactionSpan> FindSpans(string text) => [];
+    }
+
+    private sealed class CriticalVerdictClient : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)
+            => Task.FromResult(new ChatResponse([new ChatMessage(ChatRole.Assistant, "{\"severity\":\"Critical\",\"reason\":\"x\"}")]));
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken ct = default)
+            => throw new NotSupportedException();
+        public object? GetService(Type serviceType, object? key = null) => null;
+        public void Dispose() { }
+    }
+
+    private sealed class RecordingAlertSink : AI.Sentinel.Alerts.IAlertSink
+    {
+        public SentinelError? LastError { get; private set; }
+        public ValueTask SendAsync(SentinelError error, CancellationToken ct)
+        {
+            LastError = error;
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task ActionOverride_SurvivesLlmEscalation()
+    {
+        var pipeline = new DetectionPipeline([new EscalatingRedactingDetector()], configurations: null,
+            escalationClient: new CriticalVerdictClient());
+        var ctx = new SentinelContext(new AgentId("a"), new AgentId("b"), SessionId.New(),
+            [new ChatMessage(ChatRole.User, "hello")], []);
+        var r = await pipeline.RunAsync(ctx, TestContext.Current.CancellationToken);
+        var d = Assert.Single(r.Detections);
+        Assert.Equal(Severity.Critical, d.Severity);   // escalation really rebuilt the result
+        Assert.Equal(SentinelAction.Redact, d.ActionOverride);
+    }
+
+    [Fact]
+    public async Task Alert_CarriesTheDetectionThatDroveTheResolvedAction()
+    {
+        // Critical detection is lowered to Log; the Low one is raised to Alert and must be the alert's subject.
+        var opts = new SentinelOptions();
+        var pipeline = new DetectionPipeline(
+            [new FixedDetector("LOUD-01", Severity.Critical, SentinelAction.Log),
+             new FixedDetector("ALERT-01", Severity.Low, SentinelAction.Alert)],
+            configurations: null, escalationClient: null);
+        var sink = new RecordingAlertSink();
+        var sp = new SentinelPipeline(new NoopChatClient(), pipeline, new RingBufferAuditStore(10),
+            new InterventionEngine(opts, null), opts, sink);
+
+        _ = await sp.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hello")],
+            ct: TestContext.Current.CancellationToken);
+
+        var err = Assert.IsType<SentinelError.ThreatDetected>(sink.LastError);
+        Assert.Equal("ALERT-01", err.Result.DetectorId.Value);
+        Assert.Equal(SentinelAction.Alert, err.Action);
+    }
+
+    [Fact]
+    public async Task McpPipeline_MarksRedactFallbackInAudit()
+    {
+        var detectors = new IDetector[] { new FakeRedactingDetector(Severity.High) };
+        var store = new RingBufferAuditStore(10);
+        var sp = AI.Sentinel.Mcp.McpPipelineFactory.Assemble(new SentinelOptions(), detectors, store);
+        _ = await sp.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hello")],
+            ct: TestContext.Current.CancellationToken);
+        var entry = Assert.Single(await ToListAsync(store));
+        Assert.EndsWith("; not redacted", entry.Summary, StringComparison.Ordinal);
+    }
+
+    private static async Task<List<AuditEntry>> ToListAsync(IAuditStore store)
+    {
+        var list = new List<AuditEntry>();
+        await foreach (var e in store.QueryAsync(new AuditQuery(), TestContext.Current.CancellationToken))
+            list.Add(e);
+        return list;
+    }
+
     private static async Task<DetectionResult> RunOne(IDetector detector, bool redactByDefault, SentinelOptions? opts = null)
     {
         var pipeline = new DetectionPipeline(

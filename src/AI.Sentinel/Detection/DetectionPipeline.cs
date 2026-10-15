@@ -20,7 +20,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         IChatClient? escalationClient,
         ILogger<DetectionPipeline>? logger = null,
         Action<string>? onDetectorFailure = null,
-        bool redactByDefault = false)
+        bool redactByDefault = true)
     {
         var enabled = new List<IDetector>();
         var enabledConfigs = new List<DetectorConfiguration?>();
@@ -102,7 +102,6 @@ public sealed class DetectionPipeline : IDetectionPipeline
         // Apply per-detector severity clamp (Floor/Cap) before LLM escalation,
         // so that Cap correctly suppresses escalation and Floor doesn't trigger it.
         ApplySeverityClamp(results);
-        ApplyActionOverrides(results);
 
         // LLM escalation (unchanged logic)
         if (_escalationClient is not null)
@@ -120,6 +119,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
             }
             results = escalated.ToArray();
         }
+
+        // After escalation: EscalateAsync rebuilds the result, which would drop an override set earlier.
+        ApplyActionOverrides(results);
 
         return BuildResult(results);
     }

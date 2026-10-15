@@ -217,8 +217,7 @@ public sealed class SentinelPipeline(
 
         if ((action == SentinelAction.Quarantine || action == SentinelAction.Alert) && alertSink is not null)
         {
-            var top = pipelineResult.Detections.MaxBy(d => d.Severity)
-                ?? DetectionResult.Clean(new DetectorId("unknown"));
+            var top = Representative(pipelineResult, action);
             // Fire-and-forget: alert failures must never propagate to the caller.
             // Implementations of IAlertSink are expected to swallow their own exceptions.
             _ = alertSink.SendAsync(new SentinelError.ThreatDetected(top, action, sessionId), CancellationToken.None).AsTask();
@@ -232,13 +231,26 @@ public sealed class SentinelPipeline(
         {
             // Quarantine: convert throw to Result instead of re-throwing.
             // Use the PipelineResult carried by the exception — it has the real detections.
-            var top = ex.PipelineResult.Detections.MaxBy(d => d.Severity)
-                ?? pipelineResult.Detections.MaxBy(d => d.Severity)
-                ?? DetectionResult.Clean(new DetectorId("unknown"));
+            var top = ex.PipelineResult.Detections.Count > 0
+                ? Representative(ex.PipelineResult, action)
+                : Representative(pipelineResult, action);
             return new SentinelError.ThreatDetected(top, action, sessionId);
         }
 
         return null;
+    }
+
+    /// <summary>The detection that drove <paramref name="action"/>: highest severity among those whose
+    /// effective action equals it, so an alert never carries a detection whose own action was weaker.</summary>
+    private DetectionResult Representative(PipelineResult result, SentinelAction action)
+    {
+        DetectionResult? best = null;
+        foreach (var d in result.Detections)
+        {
+            if (options.EffectiveAction(d) != action) continue;
+            if (best is null || d.Severity > best.Severity) best = d;
+        }
+        return best ?? DetectionResult.Clean(new DetectorId("unknown"));
     }
 
     /// <summary>
