@@ -318,10 +318,31 @@ services.AddAISentinel(opts =>
 
 builder.Services.AddChatClient(pipeline =>
     pipeline.UseAISentinel()
-            .UseToolCallAuthorization()
             .UseFunctionInvocation()
+            .UseToolCallAuthorization()
             .Use(new OpenAIChatClient(...)));
 ```
+
+Tool calls the *model* asks for are authorized before the tool runs, in either order of
+`UseToolCallAuthorization()` and `UseFunctionInvocation()`, and for tools in `ChatOptions.Tools` and in
+`FunctionInvokingChatClient.AdditionalTools` alike. A denied call never runs, is audited once as
+`AUTHZ-DENY`, and throws `ToolCallAuthorizationException` to your caller. The order only changes where the
+check happens:
+
+- **Authorization inside function invocation (recommended, as above):** the calls in the model's response
+  are checked before `FunctionInvokingChatClient` sees them.
+- **Authorization outside function invocation:** the guard is hooked into `FunctionInvokingChatClient`'s
+  function invocation, so it runs immediately before each tool. (When streaming, the call is checked as it
+  is streamed, one step earlier.)
+
+Setting `FunctionInvoker` on the pipeline's `FunctionInvokingChatClient` after `Build()` replaces the
+authorization hook, so set it before the pipeline is built or chain your own invoker around it. One
+`FunctionInvokingChatClient` may sit below several authorization clients, for example a prebuilt pipeline
+wrapped per request scope: it is hooked once, and each request is authorized as the caller of the
+authorization client it went through.
+
+A call that already has a result in the messages you send (for example history you append from an earlier
+turn) is treated as history and is not checked or audited again. Calls without a result are checked.
 
 | Surface | Caller resolution default | Deny semantics |
 |---|---|---|
