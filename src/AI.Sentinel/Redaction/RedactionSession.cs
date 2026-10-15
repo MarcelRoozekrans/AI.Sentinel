@@ -1,7 +1,10 @@
 using System.Buffers;
+using System.Collections;
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using Microsoft.Extensions.AI;
@@ -15,6 +18,12 @@ namespace AI.Sentinel.Redaction;
 /// </summary>
 internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector> redactors)
 {
+    // Reserved numbers above this cap are ignored so a hostile literal cannot push counters towards overflow.
+    private const int MaxReservedNumber = 1_000_000;
+
+    private static readonly FieldInfo? _argumentsField =
+        typeof(AIFunctionArguments).GetField("_arguments", BindingFlags.Instance | BindingFlags.NonPublic);
+
 #if NET9_0_OR_GREATER
     private readonly System.Threading.Lock _gate = new();
 #else
@@ -25,7 +34,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     private readonly Dictionary<string, int> _nextByType = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, int>> _counts = new(StringComparer.Ordinal);
 
-    [GeneratedRegex(@"\[(?<type>[A-Z_]+)_(?<n>\d+)\]", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"\[(?<type>[A-Z0-9_]+)_(?<n>\d+)\]", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1000)]
     private static partial Regex PlaceholderPattern();
 
     /// <summary>Never prints the mapping.</summary>
@@ -72,7 +81,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
                     throw new InvalidOperationException(
                         $"Detector {id} reported a span outside the scanned text; refusing to redact with unreliable offsets.");
                 }
-                found.Add(new Found(span.Start, span.Length, span.EntityType, id));
+                found.Add(new Found(span.Start, span.Length, NormalizeType(span.EntityType), id));
             }
         }
 
@@ -128,15 +137,34 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
     public IReadOnlyList<ChatMessage> Redact(IReadOnlyList<ChatMessage> messages)
     {
+        // Reserve every placeholder-shaped literal in the whole request before minting any token.
+        foreach (var message in messages)
+        {
+            MapMessage(message, Reserve, redact: true);
+        }
+
         var result = new List<ChatMessage>(messages.Count);
         foreach (var message in messages)
         {
-            result.Add(MapMessage(message, Redact, redactResults: true));
+            result.Add(MapMessage(message, Redact, redact: true));
         }
         return result;
     }
 
-    public object? RedactResult(object? result) => MapValue(result, Redact);
+    public object? RedactResult(object? result)
+    {
+        MapValue(result, Reserve, redact: true);
+        return MapValue(result, Redact, redact: true);
+    }
+
+    private string Reserve(string text)
+    {
+        lock (_gate)
+        {
+            ReserveExistingPlaceholders(text);
+        }
+        return text;
+    }
 
     public string Restore(string text)
     {
@@ -160,21 +188,21 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         var result = new List<ChatMessage>(messages.Count);
         foreach (var message in messages)
         {
-            result.Add(MapMessage(message, Restore, redactResults: false));
+            result.Add(MapMessage(message, Restore, redact: false));
         }
         return result;
     }
 
     public AIFunctionArguments Restore(AIFunctionArguments args)
     {
-        var restored = new AIFunctionArguments(StringComparer.Ordinal)
+        var restored = new AIFunctionArguments(ComparerOf(args))
         {
             Context = args.Context,
             Services = args.Services,
         };
         foreach (var (key, value) in args)
         {
-            restored[key] = MapValue(value, Restore);
+            restored[key] = MapValue(value, Restore, redact: false);
         }
         return restored;
     }
@@ -188,8 +216,12 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
         _nextByType.TryGetValue(type, out var n);
         n = Math.Max(n, 1);
+        if (n == int.MaxValue)
+        {
+            throw new InvalidOperationException($"Placeholder counter for entity type {type} is exhausted.");
+        }
         _nextByType[type] = n + 1;
-        var token = $"[{type.ToUpperInvariant()}_{n.ToString(CultureInfo.InvariantCulture)}]";
+        var token = $"[{type}_{n.ToString(CultureInfo.InvariantCulture)}]";
         _tokenByValue[(type, value)] = token;
         _valueByToken[token] = value;
         return token;
@@ -215,7 +247,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
         foreach (Match m in PlaceholderPattern().Matches(text))
         {
-            if (!int.TryParse(m.Groups["n"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var n) || n == int.MaxValue)
+            if (!int.TryParse(m.Groups["n"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var n) || n > MaxReservedNumber)
             {
                 continue;
             }
@@ -228,50 +260,86 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         }
     }
 
-    private static ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redactResults)
+    private static string NormalizeType(string? entityType)
+    {
+        if (string.IsNullOrEmpty(entityType))
+        {
+            return "UNKNOWN";
+        }
+
+        var chars = entityType.ToUpperInvariant().ToCharArray();
+        for (var i = 0; i < chars.Length; i++)
+        {
+            var c = chars[i];
+            if (!(c is >= 'A' and <= 'Z' or >= '0' and <= '9' or '_'))
+            {
+                chars[i] = '_';
+            }
+        }
+        return new string(chars);
+    }
+
+    private static IEqualityComparer<string> ComparerOf(AIFunctionArguments args) =>
+        (_argumentsField?.GetValue(args) as Dictionary<string, object?>)?.Comparer ?? StringComparer.Ordinal;
+
+    private ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redact)
     {
         var copy = message.Clone();
         var contents = new List<AIContent>(message.Contents.Count);
         foreach (var content in message.Contents)
         {
-            contents.Add(MapContent(content, map, redactResults));
+            contents.Add(MapContent(content, map, redact));
         }
         copy.Contents = contents;
         return copy;
     }
 
-    private static AIContent MapContent(AIContent content, Func<string, string> map, bool redactResults)
+    private AIContent MapContent(AIContent content, Func<string, string> map, bool redact)
     {
         switch (content)
         {
             case TextContent text:
                 return CopyMetadata(text, new TextContent(text.Text is null ? null : map(text.Text)));
             case FunctionCallContent call:
-                IDictionary<string, object?>? args = null;
-                if (call.Arguments is not null)
-                {
-                    var mapped = new Dictionary<string, object?>(call.Arguments.Count, StringComparer.Ordinal);
-                    foreach (var (key, value) in call.Arguments)
-                    {
-                        mapped[key] = MapValue(value, map);
-                    }
-                    args = mapped;
-                }
-                var callCopy = new FunctionCallContent(call.CallId, call.Name, args)
-                {
-                    Exception = call.Exception,
-                    InformationalOnly = call.InformationalOnly,
-                };
-                return CopyMetadata(call, callCopy);
-            case FunctionResultContent fr when redactResults:
-                var resultCopy = new FunctionResultContent(fr.CallId, MapValue(fr.Result, map))
+                return CopyMetadata(call, MapCall(call, map, redact));
+            case FunctionResultContent fr when redact:
+                return CopyMetadata(fr, new FunctionResultContent(fr.CallId, MapValue(fr.Result, map, redact))
                 {
                     Exception = fr.Exception,
-                };
-                return CopyMetadata(fr, resultCopy);
+                });
+            case TextReasoningContent reasoning when redact:
+                return CopyMetadata(reasoning, new TextReasoningContent(reasoning.Text is null ? null : map(reasoning.Text))
+                {
+                    ProtectedData = reasoning.ProtectedData,
+                });
+            case DataContent data when redact && IsText(data) && !data.Data.IsEmpty:
+                var mapped = Encoding.UTF8.GetBytes(map(Encoding.UTF8.GetString(data.Data.Span)));
+                return CopyMetadata(data, new DataContent(mapped, data.MediaType) { Name = data.Name });
             default:
                 return content;
         }
+    }
+
+    private static bool IsText(DataContent data) =>
+        data.MediaType.StartsWith("text/", StringComparison.OrdinalIgnoreCase);
+
+    private FunctionCallContent MapCall(FunctionCallContent call, Func<string, string> map, bool redact)
+    {
+        IDictionary<string, object?>? args = null;
+        if (call.Arguments is not null)
+        {
+            var mapped = new Dictionary<string, object?>(call.Arguments.Count, StringComparer.Ordinal);
+            foreach (var (key, value) in call.Arguments)
+            {
+                mapped[key] = MapValue(value, map, redact);
+            }
+            args = mapped;
+        }
+        return new FunctionCallContent(call.CallId, call.Name, args)
+        {
+            Exception = call.Exception,
+            InformationalOnly = call.InformationalOnly,
+        };
     }
 
     private static T CopyMetadata<T>(AIContent source, T target) where T : AIContent
@@ -282,12 +350,89 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         return target;
     }
 
-    private static object? MapValue(object? value, Func<string, string> map) => value switch
+    private object? MapValue(object? value, Func<string, string> map, bool redact)
     {
-        string s => map(s),
-        JsonElement e => MapJson(e, map),
-        _ => value,
-    };
+        switch (value)
+        {
+            case null:
+                return null;
+            case string s:
+                return map(s);
+            case JsonElement e:
+                return MapJson(e, map);
+            case JsonNode node:
+                var nodeElement = MapJson(JsonSerializer.SerializeToElement(node, AIJsonUtilities.DefaultOptions), map);
+                return redact ? nodeElement : JsonNode.Parse(nodeElement.GetRawText());
+            case AIContent content:
+                return MapContent(content, map, redact);
+            case IDictionary<string, object?> dict:
+                return MapDictionary(dict, map, redact);
+            case IEnumerable<AIContent> contents:
+                return MapContents(contents, map, redact);
+            case IList list when redact || value is object[] or List<object?>:
+                return MapList(list, map, redact);
+            default:
+                return redact && !IsPrimitive(value) ? MapJson(ToJson(value), map) : value;
+        }
+    }
+
+    private Dictionary<string, object?> MapDictionary(IDictionary<string, object?> dict, Func<string, string> map, bool redact)
+    {
+        var result = new Dictionary<string, object?>(dict.Count, StringComparer.Ordinal);
+        foreach (var (key, item) in dict)
+        {
+            if (!result.TryAdd(map(key), MapValue(item, map, redact)))
+            {
+                throw new InvalidOperationException("Redaction made two argument names identical.");
+            }
+        }
+        return result;
+    }
+
+    private List<AIContent> MapContents(IEnumerable<AIContent> contents, Func<string, string> map, bool redact)
+    {
+        var result = new List<AIContent>();
+        foreach (var content in contents)
+        {
+            result.Add(MapContent(content, map, redact));
+        }
+        return result;
+    }
+
+    private object MapList(IList list, Func<string, string> map, bool redact)
+    {
+        var result = new List<object?>(list.Count);
+        foreach (var item in list)
+        {
+            result.Add(MapValue(item, map, redact));
+        }
+        return list is object[] ? result.ToArray() : result;
+    }
+
+    private static bool IsPrimitive(object value)
+    {
+        var type = value.GetType();
+        return type.IsPrimitive || type.IsEnum
+            || value is decimal or DateTime or DateTimeOffset or TimeSpan or Guid;
+    }
+
+    private static JsonElement ToJson(object value)
+    {
+        JsonElement? serialized = null;
+        try
+        {
+            serialized = JsonSerializer.SerializeToElement(value, value.GetType(), AIJsonUtilities.DefaultOptions);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or JsonException or InvalidOperationException)
+        {
+            // Deliberately not chained: serializer messages can echo paths and parts of the value.
+            serialized = null;
+        }
+
+        return serialized
+            ?? throw new InvalidOperationException(
+                $"A value of type {value.GetType().FullName} could not be serialized for redaction.");
+    }
 
     private static JsonElement MapJson(JsonElement element, Func<string, string> map)
     {
@@ -316,7 +461,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
                 writer.WriteStartObject();
                 foreach (var property in element.EnumerateObject())
                 {
-                    writer.WritePropertyName(property.Name);
+                    writer.WritePropertyName(map(property.Name));
                     WriteMapped(writer, property.Value, map);
                 }
                 writer.WriteEndObject();
