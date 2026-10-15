@@ -221,14 +221,14 @@ public class CredentialExposureDetectorSpanTests
     }
 
     // A redacted request must not trip the detector that redacted it: a placeholder the current call minted
-    // is not a secret.
+    // is not a secret. Placeholders have the form [TYPE_n_tag].
     [Theory]
-    [InlineData("api_key=[API_KEY_1]", "[API_KEY_1]")]
-    [InlineData("password: [PASSWORD_12]", "[PASSWORD_12]")]
-    [InlineData("password=\"[PASSWORD_1]\"", "[PASSWORD_1]")]
-    [InlineData("Authorization: Bearer [BEARER_TOKEN_1]", "[BEARER_TOKEN_1]")]
-    [InlineData("AWS_SECRET_ACCESS_KEY=[AWS_SECRET_3]", "[AWS_SECRET_3]")]
-    [InlineData("api_key=[[API_KEY_2]]", "[API_KEY_2]")]
+    [InlineData("api_key=[API_KEY_1_k3f9x2]", "[API_KEY_1_k3f9x2]")]
+    [InlineData("password: [PASSWORD_12_k3f9x2]", "[PASSWORD_12_k3f9x2]")]
+    [InlineData("password=\"[PASSWORD_1_k3f9x2]\"", "[PASSWORD_1_k3f9x2]")]
+    [InlineData("Authorization: Bearer [BEARER_TOKEN_1_k3f9x2]", "[BEARER_TOKEN_1_k3f9x2]")]
+    [InlineData("AWS_SECRET_ACCESS_KEY=[AWS_SECRET_3_k3f9x2]", "[AWS_SECRET_3_k3f9x2]")]
+    [InlineData("api_key=[[API_KEY_2_k3f9x2]]", "[API_KEY_2_k3f9x2]")]
     public async Task MintedPlaceholder_IsNotFlagged(string text, string minted)
     {
         var ctx = new SentinelContext(new AgentId("a"), new AgentId("b"), SessionId.New(),
@@ -246,9 +246,9 @@ public class CredentialExposureDetectorSpanTests
     public async Task RequestPlaceholder_IsExemptOnlyWhenThisDetectorRedacted(bool detectorRedacted, Severity expected)
     {
         var ctx = new SentinelContext(new AgentId("a"), new AgentId("b"), SessionId.New(),
-            new List<ChatMessage> { new(ChatRole.Assistant, "password=[ADMIN_99]") }, new List<AuditEntry>())
+            new List<ChatMessage> { new(ChatRole.Assistant, "password=[ADMIN_99_k3f9x2]") }, new List<AuditEntry>())
         {
-            RequestPlaceholders = new HashSet<string>(StringComparer.Ordinal) { "[ADMIN_99]" },
+            RequestPlaceholders = new HashSet<string>(StringComparer.Ordinal) { "[ADMIN_99_k3f9x2]" },
             RedactingDetectorIds = detectorRedacted
                 ? new HashSet<string>(StringComparer.Ordinal) { "SEC-02" }
                 : new HashSet<string>(StringComparer.Ordinal) { "SEC-23" },
@@ -262,6 +262,7 @@ public class CredentialExposureDetectorSpanTests
     [InlineData("password=[ADMIN_99]", "ADMIN_99")]
     [InlineData("password=\"[WINTER_2024]\"", "[WINTER_2024]")]
     [InlineData("api_key=[API_KEY_1]", "API_KEY_1")]
+    [InlineData("api_key=[API_KEY_1_k3f9x2]", "API_KEY_1_k3f9x2")]
     public async Task PlaceholderShapedValue_NotMinted_IsDetectedAndRedacted(string text, string value)
     {
         var detector = new CredentialExposureDetector();
@@ -274,6 +275,8 @@ public class CredentialExposureDetectorSpanTests
     [InlineData("api_key=[API_KEY_1]x", "API_KEY_1]x")]
     [InlineData("api_key=[api_key_1]", "api_key_1")]
     [InlineData("password=[PASSWORD]", "PASSWORD")]
+    [InlineData("api_key=[API_KEY_1_K3F9X2]", "API_KEY_1_K3F9X2")]
+    [InlineData("api_key=[API_KEY_1_k3f9x]", "API_KEY_1_k3f9x")]
     public void PlaceholderLookalike_IsStillRedacted(string text, string value)
     {
         var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));

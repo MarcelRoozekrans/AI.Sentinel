@@ -32,14 +32,16 @@ public class RedactionSessionTests
             throw new RegexMatchTimeoutException();
     }
 
-    private static RedactionSession Pii() => new([new PiiLeakageDetector()]);
+    private const string Tag = "abc123";
+
+    private static RedactionSession Pii() => new([new PiiLeakageDetector()], Tag);
 
     [Fact]
     public void SameValueTwice_GetsSamePlaceholder()
     {
         var session = Pii();
-        Assert.Equal("[EMAIL_1] and [EMAIL_1]", session.Redact("jan@acme.nl and jan@acme.nl"));
-        Assert.Equal("again [EMAIL_1]", session.Redact("again jan@acme.nl"));
+        Assert.Equal("[EMAIL_1_abc123] and [EMAIL_1_abc123]", session.Redact("jan@acme.nl and jan@acme.nl"));
+        Assert.Equal("again [EMAIL_1_abc123]", session.Redact("again jan@acme.nl"));
     }
 
     [Fact]
@@ -47,27 +49,49 @@ public class RedactionSessionTests
     {
         var session = Pii();
         var result = session.Redact("a@acme.nl, b@acme.nl and NL91ABNA0417164300");
-        Assert.Equal("[EMAIL_1], [EMAIL_2] and [IBAN_1]", result);
+        Assert.Equal("[EMAIL_1_abc123], [EMAIL_2_abc123] and [IBAN_1_abc123]", result);
         Assert.True(session.HasRedactions);
     }
 
+    // Placeholder-shaped input is never restored: an untagged literal, or one with another call's tag, is text.
+    // Numbering is not affected by it either, since no literal can collide with a token of this call's tag.
     [Fact]
-    public void ExistingPlaceholderInInput_NumberingSkipsPastIt_AndRestoreLeavesItLiteral()
+    public void PlaceholderShapedInput_StaysLiteral_AndNumberingStartsAtOne()
     {
         var session = Pii();
-        var redacted = session.Redact("[EMAIL_1] and jan@acme.nl");
-        Assert.Equal("[EMAIL_1] and [EMAIL_2]", redacted);
-        Assert.Equal("[EMAIL_1] and jan@acme.nl", session.Restore(redacted));
+        var redacted = session.Redact("[EMAIL_1] [EMAIL_1_zzz999] and jan@acme.nl");
+        Assert.Equal("[EMAIL_1] [EMAIL_1_zzz999] and [EMAIL_1_abc123]", redacted);
+        Assert.Equal("[EMAIL_1] [EMAIL_1_zzz999] and jan@acme.nl", session.Restore(redacted));
     }
+
+    [Fact]
+    public void EveryPlaceholder_CarriesTheSessionTag()
+    {
+        var session = new RedactionSession([new PiiLeakageDetector()]);
+        var redacted = session.Redact("jan@acme.nl and b@acme.nl");
+        Assert.Matches(@"^\[EMAIL_1_([a-z][a-z0-9]{5})\] and \[EMAIL_2_\1\]$", redacted);
+        Assert.NotEqual(redacted, new RedactionSession([new PiiLeakageDetector()]).Redact("jan@acme.nl and b@acme.nl"), StringComparer.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("abc12")]
+    [InlineData("1bc123")]
+    [InlineData("ABC123")]
+    [InlineData("abc_23")]
+    public void MalformedTag_IsRejected(string tag)
+    {
+        Assert.Throws<ArgumentException>(() => new RedactionSession([new PiiLeakageDetector()], tag));
+    }
+
 
     [Fact]
     public void OverlappingSpans_LongestWins()
     {
         var first = new FakeRedactor("TST-01", new RedactionSpan(0, 6, "X"), new RedactionSpan(10, 2, "Z"));
         var second = new FakeRedactor("TST-02", new RedactionSpan(3, 6, "Y"));
-        var session = new RedactionSession([first, second]);
+        var session = new RedactionSession([first, second], Tag);
         // X [0,6) and Y [3,9) partially overlap: one union span typed X (tie, started first).
-        Assert.Equal("[X_1]j[Z_1]", session.Redact("abcdefghijkl"));
+        Assert.Equal("[X_1_abc123]j[Z_1_abc123]", session.Redact("abcdefghijkl"));
     }
 
     [Fact]
@@ -75,8 +99,8 @@ public class RedactionSessionTests
     {
         var a = new FakeRedactor("TST-01", new RedactionSpan(0, 4, "SHORT"));
         var b = new FakeRedactor("TST-02", new RedactionSpan(2, 8, "LONG"), new RedactionSpan(3, 2, "INNER"));
-        var session = new RedactionSession([a, b]);
-        Assert.Equal("[LONG_1]!", session.Redact("0123456789!"));
+        var session = new RedactionSession([a, b], Tag);
+        Assert.Equal("[LONG_1_abc123]!", session.Redact("0123456789!"));
         var counts = session.CountsByDetector;
         Assert.Single(counts);
         Assert.Equal(1, counts["TST-02"]["LONG"]);
@@ -85,22 +109,27 @@ public class RedactionSessionTests
     [Fact]
     public void DetectorException_Propagates()
     {
-        var session = new RedactionSession([new ThrowingRedactor()]);
+        var session = new RedactionSession([new ThrowingRedactor()], Tag);
         Assert.Throws<RegexMatchTimeoutException>(() => session.Redact("anything"));
     }
 
     [Theory]
-    [InlineData("[email_1]")]
-    [InlineData("[EMAIL_1")]
-    [InlineData("EMAIL_1")]
-    [InlineData("[EMAIL_01]")]
-    [InlineData("[EMAIL_2]")]
-    public void MangledPlaceholder_NotRestored(string mangled)
+    [InlineData("[email_1_abc123]")]
+    [InlineData("[EMAIL_1_abc123")]
+    [InlineData("EMAIL_1_abc123")]
+    [InlineData("[EMAIL_01_abc123]")]
+    [InlineData("[EMAIL_2_abc123]")]
+    [InlineData("[EMAIL_1_ABC123]")]
+    [InlineData("[EMAIL_1_abc12]")]
+    [InlineData("[EMAIL_1_xyz789]")]
+    [InlineData("[EMAIL_1]")]
+    public void MangledOrForeignPlaceholder_NotRestored(string mangled)
     {
         var session = Pii();
-        Assert.Equal("[EMAIL_1]", session.Redact("jan@acme.nl"));
+        Assert.Equal("[EMAIL_1_abc123]", session.Redact("jan@acme.nl"));
         Assert.Equal(mangled, session.Restore(mangled));
     }
+
 
     [Fact]
     public void ValueSplitAcrossParts_EachPartHandledAlone_NoThrow()
@@ -124,8 +153,8 @@ public class RedactionSessionTests
         var call = new FunctionCallContent("c1", "send", new Dictionary<string, object?>(StringComparer.Ordinal) { ["body"] = json, ["plain"] = "jan@acme.nl" });
         var result = session.Redact([new ChatMessage(ChatRole.Assistant, [call])]);
         var args = ((FunctionCallContent)result[0].Contents[0]).Arguments!;
-        Assert.Equal("[EMAIL_1]", args["plain"]);
-        Assert.Equal("""{"to":"[EMAIL_1]","cc":["[EMAIL_2]",3],"n":{"k":"x [EMAIL_1]"},"flag":true}""",
+        Assert.Equal("[EMAIL_1_abc123]", args["plain"]);
+        Assert.Equal("""{"to":"[EMAIL_1_abc123]","cc":["[EMAIL_2_abc123]",3],"n":{"k":"x [EMAIL_1_abc123]"},"flag":true}""",
             ((JsonElement)args["body"]!).GetRawText());
     }
 
@@ -136,8 +165,8 @@ public class RedactionSessionTests
         var element = JsonDocument.Parse("\"reach jan@acme.nl\"").RootElement;
         var result = session.Redact([new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", element)])]);
         var redacted = (JsonElement)((FunctionResultContent)result[0].Contents[0]).Result!;
-        Assert.Equal("reach [EMAIL_1]", redacted.GetString());
-        Assert.Equal("reach [EMAIL_1]", session.RedactResult("reach jan@acme.nl"));
+        Assert.Equal("reach [EMAIL_1_abc123]", redacted.GetString());
+        Assert.Equal("reach [EMAIL_1_abc123]", session.RedactResult("reach jan@acme.nl"));
         Assert.Equal(42, session.RedactResult(42));
         Assert.Null(session.RedactResult(null));
     }
@@ -147,14 +176,14 @@ public class RedactionSessionTests
     {
         var session = Pii();
         session.Redact("jan@acme.nl");
-        var call = new FunctionCallContent("c1", "send", new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]", ["n"] = 5 });
-        var restored = session.Restore([new ChatMessage(ChatRole.Assistant, [call, new TextContent("hi [EMAIL_1]")])]);
+        var call = new FunctionCallContent("c1", "send", new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "[EMAIL_1_abc123]", ["n"] = 5 });
+        var restored = session.Restore([new ChatMessage(ChatRole.Assistant, [call, new TextContent("hi [EMAIL_1_abc123]")])]);
         var args = ((FunctionCallContent)restored[0].Contents[0]).Arguments!;
         Assert.Equal("jan@acme.nl", args["to"]);
         Assert.Equal(5, args["n"]);
         Assert.Equal("hi jan@acme.nl", ((TextContent)restored[0].Contents[1]).Text);
 
-        var fnArgs = session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]" }, StringComparer.Ordinal);
+        var fnArgs = session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["to"] = "[EMAIL_1_abc123]" }, StringComparer.Ordinal);
         Assert.Equal("jan@acme.nl", fnArgs["to"]);
     }
 
@@ -169,13 +198,13 @@ public class RedactionSessionTests
         Assert.NotSame(input[0], output[0]);
         Assert.Equal("jan@acme.nl", text.Text);
         Assert.Equal("jan@acme.nl", call.Arguments!["a"]);
-        Assert.Equal("[EMAIL_1]", ((TextContent)output[0].Contents[0]).Text);
+        Assert.Equal("[EMAIL_1_abc123]", ((TextContent)output[0].Contents[0]).Text);
     }
 
     [Fact]
     public void CountsByDetector_ReportsCountsOnly()
     {
-        var session = new RedactionSession([new PiiLeakageDetector(), new CredentialExposureDetector()]);
+        var session = new RedactionSession([new PiiLeakageDetector(), new CredentialExposureDetector()], Tag);
         session.Redact("jan@acme.nl and jan@acme.nl and NL91ABNA0417164300");
         var counts = session.CountsByDetector;
         Assert.Equal(2, counts["SEC-23"]["EMAIL"]);
@@ -224,38 +253,33 @@ public class RedactionSessionTests
     }
 
     [Fact]
-    public void CrossMessage_LiteralInLaterMessage_IsReservedBeforeMinting()
+    public void CrossMessage_LiteralsStayLiteral_InTextAndToolArguments()
     {
         var session = Pii();
+        var call = new FunctionCallContent("c", "f", new Dictionary<string, object?>(StringComparer.Ordinal) { ["a"] = "[EMAIL_1_old001]" });
         var result = session.Redact(
         [
             new ChatMessage(ChatRole.User, "mail jan@acme.nl"),
             new ChatMessage(ChatRole.User, "literal [EMAIL_1]"),
+            new ChatMessage(ChatRole.Assistant, [call]),
         ]);
-        Assert.Equal("mail [EMAIL_2]", result[0].Text);
+        Assert.Equal("mail [EMAIL_1_abc123]", result[0].Text);
         Assert.Equal("literal [EMAIL_1]", result[1].Text);
-        Assert.Equal("literal [EMAIL_1]", session.Restore("literal [EMAIL_1]"));
+        Assert.Equal("[EMAIL_1_old001]", ((FunctionCallContent)result[2].Contents[0]).Arguments!["a"]);
+        Assert.Equal("[EMAIL_1_old001]", session.Restore("[EMAIL_1_old001]"));
         Assert.Equal("mail jan@acme.nl", session.Restore(result[0].Text));
     }
 
-    [Fact]
-    public void CrossMessage_LiteralInLaterToolArgument_IsReserved()
-    {
-        var session = Pii();
-        var call = new FunctionCallContent("c", "f", new Dictionary<string, object?>(StringComparer.Ordinal) { ["a"] = "[EMAIL_1]" });
-        var result = session.Redact([new ChatMessage(ChatRole.User, "jan@acme.nl"), new ChatMessage(ChatRole.Assistant, [call])]);
-        Assert.Equal("[EMAIL_2]", result[0].Text);
-    }
 
     [Fact]
     public void RedactResult_AIContent_IsRedacted()
     {
         var session = Pii();
         var single = (TextContent)session.RedactResult(new TextContent("owner: jan@acme.nl"))!;
-        Assert.Equal("owner: [EMAIL_1]", single.Text);
+        Assert.Equal("owner: [EMAIL_1_abc123]", single.Text);
 
         var list = (IEnumerable<AIContent>)session.RedactResult(new List<AIContent> { new TextContent("a b@acme.nl") })!;
-        Assert.Equal("a [EMAIL_2]", ((TextContent)Assert.Single(list)).Text);
+        Assert.Equal("a [EMAIL_2_abc123]", ((TextContent)Assert.Single(list)).Text);
     }
 
     [Fact]
@@ -263,17 +287,17 @@ public class RedactionSessionTests
     {
         var session = Pii();
         var node = (JsonElement)session.RedactResult(JsonNode.Parse("""{"m":"jan@acme.nl"}"""))!;
-        Assert.Equal("""{"m":"[EMAIL_1]"}""", node.GetRawText());
+        Assert.Equal("""{"m":"[EMAIL_1_abc123]"}""", node.GetRawText());
 
         var poco = (JsonElement)session.RedactResult(new Owner { Name = "x", Emails = ["jan@acme.nl"] })!;
-        Assert.Contains("[EMAIL_1]", poco.GetRawText(), StringComparison.Ordinal);
+        Assert.Contains("[EMAIL_1_abc123]", poco.GetRawText(), StringComparison.Ordinal);
         Assert.DoesNotContain("acme", poco.GetRawText(), StringComparison.Ordinal);
 
         var dict = (JsonElement)session.RedactResult(new Dictionary<string, string>(StringComparer.Ordinal) { ["k"] = "jan@acme.nl" })!;
-        Assert.Equal("""{"k":"[EMAIL_1]"}""", dict.GetRawText());
+        Assert.Equal("""{"k":"[EMAIL_1_abc123]"}""", dict.GetRawText());
 
         var array = (List<object?>)session.RedactResult(new List<string> { "jan@acme.nl", "z" })!;
-        Assert.Equal("[EMAIL_1]", array[0]);
+        Assert.Equal("[EMAIL_1_abc123]", array[0]);
         Assert.Equal("z", array[1]);
     }
 
@@ -291,9 +315,9 @@ public class RedactionSessionTests
     {
         var a = new FakeRedactor("TST-01", new RedactionSpan(0, 4, "Email"), new RedactionSpan(10, 4, "tax-id"));
         var b = new FakeRedactor("TST-02", new RedactionSpan(5, 4, "EMAIL"), new RedactionSpan(15, 4, "x1"));
-        var session = new RedactionSession([a, b]);
+        var session = new RedactionSession([a, b], Tag);
         var redacted = session.Redact("aaaa bbbb cccc dddd");
-        Assert.Equal("[EMAIL_1] [EMAIL_2] [TAX_ID_1] [X1_1]", redacted);
+        Assert.Equal("[EMAIL_1_abc123] [EMAIL_2_abc123] [TAX_ID_1_abc123] [X1_1_abc123]", redacted);
         Assert.Equal("aaaa bbbb cccc dddd", session.Restore(redacted));
     }
 
@@ -305,19 +329,13 @@ public class RedactionSessionTests
         var call = new FunctionCallContent("c", "f", new Dictionary<string, object?>(StringComparer.Ordinal) { ["m"] = json });
         var redacted = session.Redact([new ChatMessage(ChatRole.Assistant, [call])]);
         var element = (JsonElement)((FunctionCallContent)redacted[0].Contents[0]).Arguments!["m"]!;
-        Assert.Equal("""{"[EMAIL_1]":{"x":1}}""", element.GetRawText());
+        Assert.Equal("""{"[EMAIL_1_abc123]":{"x":1}}""", element.GetRawText());
 
         var restored = session.Restore(new List<ChatMessage>(redacted));
         var back = (JsonElement)((FunctionCallContent)restored[0].Contents[0]).Arguments!["m"]!;
         Assert.Equal("""{"jan@acme.nl":{"x":1}}""", back.GetRawText());
     }
 
-    [Fact]
-    public void ReservedNumberNearOverflow_IsIgnored()
-    {
-        var session = Pii();
-        Assert.Equal("[EMAIL_2147483646] [EMAIL_1]", session.Redact("[EMAIL_2147483646] jan@acme.nl"));
-    }
 
     [Fact]
     public void NestedArguments_RedactedAndRestoredKeepingTypes()
@@ -333,18 +351,18 @@ public class RedactionSessionTests
         var redacted = session.Redact([new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c", "f", args)])]);
         var rArgs = ((FunctionCallContent)redacted[0].Contents[0]).Arguments!;
         var rDict = (Dictionary<string, object?>)rArgs["d"]!;
-        Assert.Equal("[EMAIL_1]", Assert.Single(rDict).Value);
-        Assert.Equal("[EMAIL_1]", Assert.Single(rDict).Key);
-        Assert.Equal("""{"k":"[EMAIL_1]"}""", ((JsonElement)rArgs["n"]!).GetRawText());
+        Assert.Equal("[EMAIL_1_abc123]", Assert.Single(rDict).Value);
+        Assert.Equal("[EMAIL_1_abc123]", Assert.Single(rDict).Key);
+        Assert.Equal("""{"k":"[EMAIL_1_abc123]"}""", ((JsonElement)rArgs["n"]!).GetRawText());
 
         // The model echoes the arguments back as CLR containers and JsonNode.
         var echoed = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
-            ["d"] = new Dictionary<string, object?>(StringComparer.Ordinal) { ["[EMAIL_1]"] = "[EMAIL_1]" },
-            ["l"] = new List<object?> { "[EMAIL_1]", 7 },
-            ["a"] = new object?[] { "[EMAIL_1]" },
-            ["n"] = JsonNode.Parse("""{"k":"[EMAIL_1]"}"""),
-            ["p"] = new Owner { Name = "[EMAIL_1]" },
+            ["d"] = new Dictionary<string, object?>(StringComparer.Ordinal) { ["[EMAIL_1_abc123]"] = "[EMAIL_1_abc123]" },
+            ["l"] = new List<object?> { "[EMAIL_1_abc123]", 7 },
+            ["a"] = new object?[] { "[EMAIL_1_abc123]" },
+            ["n"] = JsonNode.Parse("""{"k":"[EMAIL_1_abc123]"}"""),
+            ["p"] = new Owner { Name = "[EMAIL_1_abc123]" },
         };
         var restored = session.Restore([new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c", "f", echoed)])]);
         var back = ((FunctionCallContent)restored[0].Contents[0]).Arguments!;
@@ -353,7 +371,7 @@ public class RedactionSessionTests
         Assert.Equal("jan@acme.nl", Assert.IsType<List<object?>>(back["l"])[0]);
         Assert.Equal("jan@acme.nl", Assert.IsType<object[]>(back["a"])[0]);
         Assert.Equal("jan@acme.nl", Assert.IsType<JsonNode>(back["n"], exactMatch: false)["k"]!.GetValue<string>());
-        Assert.Equal("[EMAIL_1]", Assert.IsType<Owner>(back["p"]).Name);
+        Assert.Equal("[EMAIL_1_abc123]", Assert.IsType<Owner>(back["p"]).Name);
     }
 
     [Fact]
@@ -363,8 +381,8 @@ public class RedactionSessionTests
         session.Redact("jan@acme.nl");
         var services = new ServiceCollectionStub();
         var context = new Dictionary<object, object?> { ["k"] = "v" };
-        var nested = new Dictionary<string, object?>(StringComparer.Ordinal) { ["x"] = "[EMAIL_1]" };
-        var backing = new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]", ["n"] = nested };
+        var nested = new Dictionary<string, object?>(StringComparer.Ordinal) { ["x"] = "[EMAIL_1_abc123]" };
+        var backing = new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "[EMAIL_1_abc123]", ["n"] = nested };
         var args = new AIFunctionArguments(backing, StringComparer.Ordinal) { Services = services, Context = context };
 
         var restored = session.Restore(args, StringComparer.Ordinal);
@@ -372,9 +390,9 @@ public class RedactionSessionTests
         Assert.NotSame(args, restored);
         Assert.Equal("jan@acme.nl", restored["to"]);
         Assert.Equal("jan@acme.nl", ((Dictionary<string, object?>)restored["n"]!)["x"]);
-        Assert.Equal("[EMAIL_1]", args["to"]);
-        Assert.Equal("[EMAIL_1]", backing["to"]);
-        Assert.Equal("[EMAIL_1]", nested["x"]);
+        Assert.Equal("[EMAIL_1_abc123]", args["to"]);
+        Assert.Equal("[EMAIL_1_abc123]", backing["to"]);
+        Assert.Equal("[EMAIL_1_abc123]", nested["x"]);
         Assert.Same(services, restored.Services);
         Assert.Same(context, restored.Context);
     }
@@ -384,7 +402,7 @@ public class RedactionSessionTests
     {
         var session = Pii();
         session.Redact("jan@acme.nl");
-        var args = new AIFunctionArguments(StringComparer.Ordinal) { ["id"] = "[EMAIL_1]", ["ID"] = "other" };
+        var args = new AIFunctionArguments(StringComparer.Ordinal) { ["id"] = "[EMAIL_1_abc123]", ["ID"] = "other" };
         var restored = session.Restore(args, StringComparer.Ordinal);
         Assert.Equal(2, restored.Count);
         Assert.Equal("jan@acme.nl", restored["id"]);
@@ -397,10 +415,10 @@ public class RedactionSessionTests
     {
         var session = Pii();
         session.Redact("jan@acme.nl");
-        var args = new AIFunctionArguments(StringComparer.OrdinalIgnoreCase) { ["To"] = "[EMAIL_1]" };
+        var args = new AIFunctionArguments(StringComparer.OrdinalIgnoreCase) { ["To"] = "[EMAIL_1_abc123]" };
         var restored = session.Restore(args, StringComparer.OrdinalIgnoreCase);
         Assert.Equal("jan@acme.nl", restored["TO"]);
-        Assert.Equal("[EMAIL_1]", args["to"]);
+        Assert.Equal("[EMAIL_1_abc123]", args["to"]);
     }
 
     [Fact]
@@ -408,7 +426,7 @@ public class RedactionSessionTests
     {
         var session = Pii();
         session.Redact("jan@acme.nl");
-        var args = new AIFunctionArguments(StringComparer.Ordinal) { ["id"] = "[EMAIL_1]", ["ID"] = "[EMAIL_1]" };
+        var args = new AIFunctionArguments(StringComparer.Ordinal) { ["id"] = "[EMAIL_1_abc123]", ["ID"] = "[EMAIL_1_abc123]" };
         var ex = Assert.Throws<InvalidOperationException>(() => session.Restore(args, StringComparer.OrdinalIgnoreCase));
         Assert.DoesNotContain("jan@acme.nl", ex.Message, StringComparison.Ordinal);
     }
@@ -439,28 +457,31 @@ public class RedactionSessionTests
             [new FunctionCallContent("c1", "f", insensitive), new FunctionCallContent("c2", "g", ordinal)])]);
 
         var first = ((FunctionCallContent)output[0].Contents[0]).Arguments!;
-        Assert.Equal("[EMAIL_1]", first["TO"]);
-        Assert.Equal("[EMAIL_1]", ((Dictionary<string, object?>)first["N"]!)["inner"]);
+        Assert.Equal("[EMAIL_1_abc123]", first["TO"]);
+        Assert.Equal("[EMAIL_1_abc123]", ((Dictionary<string, object?>)first["N"]!)["inner"]);
 
         var second = ((FunctionCallContent)output[0].Contents[1]).Arguments!;
         Assert.Equal(3, second.Count);
-        Assert.Equal("[EMAIL_1]", second["id"]);
+        Assert.Equal("[EMAIL_1_abc123]", second["id"]);
         Assert.Equal("other", second["ID"]);
         var nested = (Dictionary<string, object?>)second["n"]!;
         Assert.Equal(2, nested.Count);
         Assert.Same(StringComparer.Ordinal, nested.Comparer);
     }
 
+    // A tool in this call can echo a placeholder it was given, such as a secret's. That token is this call's own:
+    // it is not redacted again and restores to its value for the caller, never to a fresh token.
     [Fact]
-    public void LaterCall_LiteralEqualToMintedToken_RestoresToTheLiteral()
+    public void ResultEchoingAMintedToken_KeepsIt_AndItRestoresToItsValue()
     {
         var session = Pii();
-        Assert.Equal("[EMAIL_1]", session.Redact("jan@acme.nl"));
-        var later = (string)session.RedactResult("template [EMAIL_1]")!;
-        Assert.Equal("template [EMAIL_2]", later);
-        Assert.Equal("template [EMAIL_1]", session.Restore(later));
-        Assert.Equal("jan@acme.nl", session.Restore("[EMAIL_1]"));
+        Assert.Equal("[EMAIL_1_abc123]", session.Redact("jan@acme.nl"));
+        var later = (string)session.RedactResult("template [EMAIL_1_abc123]")!;
+        Assert.Equal("template [EMAIL_1_abc123]", later);
+        Assert.Equal("template jan@acme.nl", session.Restore(later));
+        Assert.Equal(1, session.CountsByDetector["SEC-23"]["EMAIL"]);
     }
+
 
     [Fact]
     public void RedactResult_ThrowingGetterWithValue_FailsClosedWithoutValue()
@@ -477,7 +498,7 @@ public class RedactionSessionTests
         var bytes = new byte[] { 1, 2, 3 };
         Assert.Same(bytes, session.RedactResult(bytes));
         var chars = Assert.IsType<char[]>(session.RedactResult("jan@acme.nl".ToCharArray()));
-        Assert.Equal("[EMAIL_1]", new string(chars));
+        Assert.Equal("[EMAIL_1_abc123]", new string(chars));
     }
 
     [Fact]
@@ -486,7 +507,7 @@ public class RedactionSessionTests
         var session = Pii();
         var utf16 = new DataContent(Encoding.Unicode.GetBytes("mail jan@acme.nl"), "text/plain; charset=utf-16");
         var result = session.Redact([new ChatMessage(ChatRole.User, [utf16])]);
-        Assert.Equal("mail [EMAIL_1]", Encoding.Unicode.GetString(((DataContent)result[0].Contents[0]).Data.Span));
+        Assert.Equal("mail [EMAIL_1_abc123]", Encoding.Unicode.GetString(((DataContent)result[0].Contents[0]).Data.Span));
 
         var bogus = new DataContent(Encoding.UTF8.GetBytes("jan@acme.nl"), "text/plain; charset=bogus-xyz");
         var ex = Assert.Throws<InvalidOperationException>(() => session.Redact([new ChatMessage(ChatRole.User, [bogus])]));
@@ -498,7 +519,7 @@ public class RedactionSessionTests
     {
         var session = Pii();
         session.Redact("jan@acme.nl");
-        var json = JsonDocument.Parse("""{"to":["[EMAIL_1]"],"n":1}""").RootElement;
+        var json = JsonDocument.Parse("""{"to":["[EMAIL_1_abc123]"],"n":1}""").RootElement;
         var call = new FunctionCallContent("c", "f", new Dictionary<string, object?>(StringComparer.Ordinal) { ["p"] = json });
         var restored = session.Restore([new ChatMessage(ChatRole.Assistant, [call])]);
         var back = (JsonElement)((FunctionCallContent)restored[0].Contents[0]).Arguments!["p"]!;
@@ -519,15 +540,15 @@ public class RedactionSessionTests
                 new DataContent(bytes, "application/octet-stream"),
             ]),
         ]);
-        Assert.Equal("think [EMAIL_1]", ((TextReasoningContent)result[0].Contents[0]).Text);
-        Assert.Equal("mail [EMAIL_1]", Encoding.UTF8.GetString(((DataContent)result[0].Contents[1]).Data.Span));
+        Assert.Equal("think [EMAIL_1_abc123]", ((TextReasoningContent)result[0].Contents[0]).Text);
+        Assert.Equal("mail [EMAIL_1_abc123]", Encoding.UTF8.GetString(((DataContent)result[0].Contents[1]).Data.Span));
         Assert.Equal(bytes, ((DataContent)result[0].Contents[2]).Data.ToArray());
     }
 
     [Fact]
     public void OutOfRangeSpan_Throws_WithoutValueInMessage()
     {
-        var session = new RedactionSession([new FakeRedactor("TST-01", new RedactionSpan(5, 99, "X"))]);
+        var session = new RedactionSession([new FakeRedactor("TST-01", new RedactionSpan(5, 99, "X"))], Tag);
         var ex = Assert.Throws<InvalidOperationException>(() => session.Redact("secret-value"));
         Assert.DoesNotContain("secret", ex.Message, StringComparison.Ordinal);
         Assert.Contains("TST-01", ex.Message, StringComparison.Ordinal);
@@ -546,42 +567,43 @@ public class RedactionSessionTests
     [Fact]
     public void Secret_RestoredInText_ButNeverIntoToolArguments_PiiIsRestoredIntoBoth()
     {
-        var session = new RedactionSession([new PiiLeakageDetector(), new CredentialExposureDetector()]);
+        var session = new RedactionSession([new PiiLeakageDetector(), new CredentialExposureDetector()], Tag);
         var redacted = session.Redact("jan@acme.nl api_key=abc123def456");
-        Assert.Equal("[EMAIL_1] api_key=[API_KEY_1]", redacted);
+        Assert.Equal("[EMAIL_1_abc123] api_key=[API_KEY_1_abc123]", redacted);
 
         Assert.Equal("jan@acme.nl api_key=abc123def456", session.Restore(redacted));
 
         var args = session.Restore(
-            new AIFunctionArguments(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]", ["key"] = "[API_KEY_1]" }, StringComparer.Ordinal);
+            new AIFunctionArguments(StringComparer.Ordinal) { ["to"] = "[EMAIL_1_abc123]", ["key"] = "[API_KEY_1_abc123]" }, StringComparer.Ordinal);
         Assert.Equal("jan@acme.nl", args["to"]);
-        Assert.Equal("[API_KEY_1]", args["key"]);
+        Assert.Equal("[API_KEY_1_abc123]", args["key"]);
 
         var reply = session.Restore(new List<ChatMessage>
         {
             new(ChatRole.Assistant, [
-                new TextContent("[EMAIL_1] [API_KEY_1]"),
-                new FunctionCallContent("c1", "Send", new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]", ["key"] = "[API_KEY_1]" }),
+                new TextContent("[EMAIL_1_abc123] [API_KEY_1_abc123]"),
+                new FunctionCallContent("c1", "Send", new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "[EMAIL_1_abc123]", ["key"] = "[API_KEY_1_abc123]" }),
             ]),
         });
         Assert.Equal("jan@acme.nl abc123def456", reply[0].Text);
         var call = Assert.IsType<FunctionCallContent>(reply[0].Contents[1]);
         Assert.Equal("jan@acme.nl", call.Arguments!["to"]);
-        Assert.Equal("[API_KEY_1]", call.Arguments["key"]);
+        Assert.Equal("[API_KEY_1_abc123]", call.Arguments["key"]);
     }
 
     [Fact]
     public void MergedSpan_WithASecretDetector_IsNotRestoredIntoToolArguments()
     {
-        var session = new RedactionSession([
+        var session = new RedactionSession(
+        [
             new FakeRedactor("TST-01", new RedactionSpan(0, 6, "PHONE")),
             new SecretRedactor(new RedactionSpan(3, 6, "API_KEY")),
-        ]);
+        ], Tag);
         var redacted = session.Redact("abcdefghij");
-        Assert.Equal("[PHONE_1]j", redacted);
+        Assert.Equal("[PHONE_1_abc123]j", redacted);
 
-        var args = session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = "[PHONE_1]" }, StringComparer.Ordinal);
-        Assert.Equal("[PHONE_1]", args["v"]);
+        var args = session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = "[PHONE_1_abc123]" }, StringComparer.Ordinal);
+        Assert.Equal("[PHONE_1_abc123]", args["v"]);
         Assert.Equal("abcdefghij", session.Restore(redacted));
     }
 
@@ -590,32 +612,23 @@ public class RedactionSessionTests
     {
         var pii = new FakeRedactor("TST-01", new RedactionSpan(0, 5, "X"));
         var secret = new SecretRedactor(new RedactionSpan(0, 5, "X"));
-        var first = new RedactionSession([pii]);
-        Assert.Equal("[X_1]", first.Redact("hello"));
-        Assert.Equal("hello", first.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = "[X_1]" }, StringComparer.Ordinal)["v"]);
+        var first = new RedactionSession([pii], Tag);
+        Assert.Equal("[X_1_abc123]", first.Redact("hello"));
+        Assert.Equal("hello", first.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = "[X_1_abc123]" }, StringComparer.Ordinal)["v"]);
 
-        var both = new RedactionSession([pii, secret]);
-        Assert.Equal("[X_1]", both.Redact("hello"));
-        Assert.Equal("[X_1]", both.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = "[X_1]" }, StringComparer.Ordinal)["v"]);
+        var both = new RedactionSession([pii, secret], Tag);
+        Assert.Equal("[X_1_abc123]", both.Redact("hello"));
+        Assert.Equal("[X_1_abc123]", both.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = "[X_1_abc123]" }, StringComparer.Ordinal)["v"]);
     }
 
-    [Fact]
-    public void EscapedLiteral_IsRestoredIntoToolArguments()
-    {
-        var session = Pii();
-        session.Redact("jan@acme.nl");
-        var escaped = session.Redact("[EMAIL_1]");
-        Assert.Equal("[EMAIL_2]", escaped);
-        Assert.Equal("[EMAIL_1]", session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = escaped }, StringComparer.Ordinal)["v"]);
-    }
 
     [Fact]
     public void Restore_CallIsAnsweredOnlyByAResultThatFollowsIt()
     {
-        var session = new RedactionSession([new CredentialExposureDetector()]);
-        Assert.Equal("api_key=[API_KEY_1]", session.Redact("api_key=abc123def456"));
+        var session = new RedactionSession([new CredentialExposureDetector()], Tag);
+        Assert.Equal("api_key=[API_KEY_1_abc123]", session.Redact("api_key=abc123def456"));
         static FunctionCallContent Call(string id) =>
-            new(id, "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1]" });
+            new(id, "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1_abc123]" });
 
         var restored = session.Restore(new List<ChatMessage>
         {
@@ -627,34 +640,78 @@ public class RedactionSessionTests
         });
 
         Assert.Equal("abc123def456", ((FunctionCallContent)restored[0].Contents[0]).Arguments!["key"]);
-        Assert.Equal("[API_KEY_1]", ((FunctionCallContent)restored[2].Contents[0]).Arguments!["key"]);
-        Assert.Equal("[API_KEY_1]", ((FunctionCallContent)restored[3].Contents[0]).Arguments!["key"]);
+        Assert.Equal("[API_KEY_1_abc123]", ((FunctionCallContent)restored[2].Contents[0]).Arguments!["key"]);
+        Assert.Equal("[API_KEY_1_abc123]", ((FunctionCallContent)restored[3].Contents[0]).Arguments!["key"]);
     }
 
     [Fact]
     public void Restore_ResultBeforeTheCall_DoesNotAnswerIt()
     {
-        var session = new RedactionSession([new CredentialExposureDetector()]);
+        var session = new RedactionSession([new CredentialExposureDetector()], Tag);
         session.Redact("api_key=abc123def456");
 
         var restored = session.Restore(new List<ChatMessage>
         {
             new(ChatRole.Tool, [new FunctionResultContent("c1", "ok")]),
-            new(ChatRole.Assistant, [new FunctionCallContent("c1", "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1]" })]),
+            new(ChatRole.Assistant, [new FunctionCallContent("c1", "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1_abc123]" })]),
         });
 
-        Assert.Equal("[API_KEY_1]", ((FunctionCallContent)restored[1].Contents[0]).Arguments!["key"]);
+        Assert.Equal("[API_KEY_1_abc123]", ((FunctionCallContent)restored[1].Contents[0]).Arguments!["key"]);
     }
 
     [Fact]
-    public void PlaceholdersIn_FindsTokensInTextArgumentsAndResults()
+    public void RedactRequest_CollectsEveryPlaceholderShapedToken_FromTextArgumentsAndResults()
     {
         var session = Pii();
-        var found = session.PlaceholdersIn([
-            new ChatMessage(ChatRole.User, "see [EMAIL_1] and [email_2]"),
-            new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c", "f", new Dictionary<string, object?>(StringComparer.Ordinal) { ["k"] = "[API_KEY_1]" })]),
-            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c", "[IBAN_3]")]),
+        var request = session.RedactRequest(
+        [
+            new ChatMessage(ChatRole.User, "see jan@acme.nl and [email_2_abc123] and [IBAN_3]"),
+            new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c", "f", new Dictionary<string, object?>(StringComparer.Ordinal) { ["k"] = "[API_KEY_1_old001]" })]),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c", "[IBAN_3_old001]")]),
         ]);
-        Assert.Equal(new HashSet<string>(StringComparer.Ordinal) { "[EMAIL_1]", "[API_KEY_1]", "[IBAN_3]" }, found);
+
+        Assert.Equal(
+            new HashSet<string>(StringComparer.Ordinal) { "[EMAIL_1_abc123]", "[API_KEY_1_old001]", "[IBAN_3_old001]" },
+            request.Placeholders);
+    }
+
+
+    // --- Final review fixes ---
+
+    // A tool result that is a lazy sequence is converted once: enumerating it twice would cost twice and, for a
+    // sequence that changes, redact a different serialization than the one that reaches the model.
+    [Fact]
+    public void RedactResult_LazySequence_IsEnumeratedOnce()
+    {
+        var session = Pii();
+        var enumerations = 0;
+        IEnumerable<string> Lazy()
+        {
+            enumerations++;
+            yield return "jan@acme.nl";
+            yield return "x";
+        }
+
+        var result = (JsonElement)session.RedactResult(Lazy())!;
+
+        Assert.Equal(1, enumerations);
+        Assert.Equal("""["[EMAIL_1]","x"]""", Placeholders.Untag(result.GetRawText()));
+    }
+
+    [Fact]
+    public void RedactResult_LazyContents_AreEnumeratedOnce()
+    {
+        var session = Pii();
+        var enumerations = 0;
+        IEnumerable<AIContent> Lazy()
+        {
+            enumerations++;
+            yield return new TextContent("a jan@acme.nl");
+        }
+
+        var result = (IEnumerable<AIContent>)session.RedactResult(Lazy())!;
+
+        Assert.Equal(1, enumerations);
+        Assert.Equal("a [EMAIL_1]", Placeholders.Untag(((TextContent)Assert.Single(result)).Text));
     }
 }

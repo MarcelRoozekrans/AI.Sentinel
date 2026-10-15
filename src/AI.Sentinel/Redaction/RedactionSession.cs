@@ -1,6 +1,5 @@
 using System.Buffers;
 using System.Collections;
-using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -11,14 +10,16 @@ using Microsoft.Extensions.AI;
 namespace AI.Sentinel.Redaction;
 
 /// <summary>
-/// Per-call redaction state: replaces detected values with numbered placeholders such as <c>[EMAIL_1]</c>
-/// and maps them back. Originals are held in memory only and are never exposed through counts,
+/// Per-call redaction state: replaces detected values with numbered placeholders such as <c>[EMAIL_1_k3f9x2]</c>
+/// and maps them back. Every session draws its own random tag, which every placeholder it mints carries, so a
+/// placeholder from another call or another model round trip never resolves here and stays literal text; see
+/// <see cref="PlaceholderFormat"/>. Originals are held in memory only and are never exposed through counts,
 /// exceptions or <see cref="object.ToString"/>. Safe for concurrent use.
 /// </summary>
-internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector> redactors)
+internal sealed class RedactionSession
 {
-    // Reserved numbers above this cap are ignored so a hostile literal cannot push counters towards overflow.
-    private const int MaxReservedNumber = 1_000_000;
+    private readonly IReadOnlyList<IRedactingDetector> _redactors;
+    private readonly string _tag;
 
 #if NET9_0_OR_GREATER
     private readonly System.Threading.Lock _gate = new();
@@ -33,8 +34,24 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     private readonly Dictionary<string, int> _nextByType = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, int>> _counts = new(StringComparer.Ordinal);
 
-    [GeneratedRegex(@"\[(?<type>[A-Z0-9_]+)_(?<n>\d+)\]", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1000)]
-    private static partial Regex PlaceholderPattern();
+    /// <summary>A session with a new random tag.</summary>
+    public RedactionSession(IReadOnlyList<IRedactingDetector> redactors)
+        : this(redactors, PlaceholderFormat.NewTag())
+    {
+    }
+
+    /// <summary>A session with a fixed <paramref name="tag"/>, for tests that compare exact placeholders.</summary>
+    internal RedactionSession(IReadOnlyList<IRedactingDetector> redactors, string tag)
+    {
+        ArgumentNullException.ThrowIfNull(redactors);
+        ArgumentNullException.ThrowIfNull(tag);
+        if (!PlaceholderFormat.IsTag(tag))
+        {
+            throw new ArgumentException("A placeholder tag is a lower-case letter followed by five lower-case letters or digits.", nameof(tag));
+        }
+        _redactors = redactors;
+        _tag = tag;
+    }
 
     /// <summary>Never prints the mapping.</summary>
     public override string ToString() => nameof(RedactionSession);
@@ -42,32 +59,6 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     public bool HasRedactions
     {
         get { lock (_gate) { return _valueByToken.Count > 0; } }
-    }
-
-    /// <summary>
-    /// Every placeholder-shaped token, such as <c>[API_KEY_1]</c>, in the strings of <paramref name="messages"/>:
-    /// text, tool-call arguments and tool results. Meant for a request this session already redacted.
-    /// </summary>
-    public IReadOnlySet<string> PlaceholdersIn(IReadOnlyList<ChatMessage> messages)
-    {
-        var found = new HashSet<string>(StringComparer.Ordinal);
-        string Collect(string text)
-        {
-            if (text.IndexOf('[', StringComparison.Ordinal) >= 0)
-            {
-                foreach (Match m in PlaceholderPattern().Matches(text))
-                {
-                    found.Add(m.Value);
-                }
-            }
-            return text;
-        }
-
-        foreach (var message in messages)
-        {
-            MapMessage(message, Collect, redact: true);
-        }
-        return found;
     }
 
     /// <summary>Every placeholder this session minted so far. Placeholders only, never values.</summary>
@@ -93,9 +84,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         }
     }
 
-    public string Redact(string text) => RedactCore(EscapeLiterals(text));
-
-    private string RedactCore(string text)
+    public string Redact(string text)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -104,7 +93,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
         // Detectors run outside the lock; any exception (including regex timeouts) propagates to the caller.
         var found = new List<Found>();
-        foreach (var redactor in redactors)
+        foreach (var redactor in _redactors)
         {
             var id = redactor.Id.Value;
             foreach (var span in redactor.FindSpans(text))
@@ -118,13 +107,13 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             }
         }
 
+        if (found.Count == 0)
+        {
+            return text;
+        }
+
         lock (_gate)
         {
-            if (found.Count == 0)
-            {
-                return text;
-            }
-
             return ApplyLocked(text, found);
         }
     }
@@ -132,7 +121,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     private string ApplyLocked(string text, List<Found> found)
     {
         // A span over a placeholder this session minted is its own output, for example the value part of
-        // `api_key=[API_KEY_1]` after an escape or in a later pass: replacing it again would nest placeholders.
+        // `api_key=[API_KEY_1_k3f9x2]` echoed by a tool in this call: replacing it again would nest placeholders.
         found.RemoveAll(f => RedactionSpanCollector.PlaceholderAt(text, f.Start, f.Length) is { } token && _valueByToken.ContainsKey(token));
         if (found.Count == 0)
         {
@@ -177,58 +166,51 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         return sb.ToString();
     }
 
-    public IReadOnlyList<ChatMessage> Redact(IReadOnlyList<ChatMessage> messages)
+    /// <summary>A request as the model will see it.</summary>
+    /// <param name="Messages">Redacted copies of the messages.</param>
+    /// <param name="Placeholders">Every placeholder-shaped token in <paramref name="Messages"/>: this session's,
+    /// and literals from other calls.</param>
+    public readonly record struct RedactedRequest(IReadOnlyList<ChatMessage> Messages, IReadOnlySet<string> Placeholders);
+
+    /// <summary>
+    /// Redacts every string of <paramref name="messages"/> that goes to the model in one pass over copies,
+    /// collecting the placeholder-shaped tokens of the result as it goes. The input is not mutated.
+    /// </summary>
+    public RedactedRequest RedactRequest(IReadOnlyList<ChatMessage> messages)
     {
-        // Pass 1 reserves every placeholder-shaped literal in the whole request so no minted token can collide.
-        // Pass 2 swaps literals that equal an already minted token for fresh tokens that restore to the literal.
-        // Pass 3 redacts.
+        ArgumentNullException.ThrowIfNull(messages);
+        var placeholders = new HashSet<string>(StringComparer.Ordinal);
+        string Map(string text)
+        {
+            var redacted = Redact(text);
+            CollectPlaceholders(redacted, placeholders);
+            return redacted;
+        }
+
+        var result = new List<ChatMessage>(messages.Count);
         foreach (var message in messages)
         {
-            MapMessage(message, Reserve, redact: true);
+            result.Add(MapMessage(message, Map, redact: true));
         }
-
-        var escaped = new List<ChatMessage>(messages.Count);
-        foreach (var message in messages)
-        {
-            escaped.Add(MapMessage(message, EscapeLiterals, redact: true));
-        }
-
-        var result = new List<ChatMessage>(escaped.Count);
-        foreach (var message in escaped)
-        {
-            result.Add(MapMessage(message, RedactCore, redact: true));
-        }
-        return result;
+        return new RedactedRequest(result, placeholders);
     }
 
-    public object? RedactResult(object? result)
-    {
-        MapValue(result, Reserve, redact: true);
-        var escaped = MapValue(result, EscapeLiterals, redact: true);
-        return MapValue(escaped, RedactCore, redact: true);
-    }
+    /// <summary>Redacted copies of <paramref name="messages"/>; see <see cref="RedactRequest"/>.</summary>
+    public IReadOnlyList<ChatMessage> Redact(IReadOnlyList<ChatMessage> messages) => RedactRequest(messages).Messages;
 
-    private string Reserve(string text)
-    {
-        lock (_gate)
-        {
-            ReserveExistingPlaceholders(text);
-        }
-        return text;
-    }
+    /// <summary>Redacts a tool result before it goes to the model. Each value is converted and walked once.</summary>
+    public object? RedactResult(object? result) => MapValue(result, Redact, redact: true);
 
-    private string EscapeLiterals(string text)
+    private static void CollectPlaceholders(string text, HashSet<string> into)
     {
-        if (string.IsNullOrEmpty(text) || text.IndexOf('[', StringComparison.Ordinal) < 0)
+        if (text.IndexOf('[', StringComparison.Ordinal) < 0)
         {
-            return text;
+            return;
         }
 
-        lock (_gate)
+        foreach (Match m in PlaceholderFormat.Pattern().Matches(text))
         {
-            ReserveExistingPlaceholders(text);
-            return PlaceholderPattern().Replace(text, m =>
-                _valueByToken.ContainsKey(m.Value) ? TokenFor(m.Groups["type"].Value, m.Value, toolRestorable: true) : m.Value);
+            into.Add(m.Value);
         }
     }
 
@@ -244,11 +226,12 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             return text;
         }
 
-        return PlaceholderPattern().Replace(text, m =>
+        return PlaceholderFormat.Pattern().Replace(text, m =>
         {
             lock (_gate)
             {
-                // Only tokens this session created are restored; anything else stays literal.
+                // Only tokens this session minted are restored. One with another tag, from another call or
+                // round trip, stays literal, and so does anything else.
                 return _valueByToken.TryGetValue(m.Value, out var original)
                     && (!toolArguments || _toolRestorable.Contains(m.Value))
                     ? original
@@ -268,8 +251,9 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     /// </summary>
     /// <remarks>
     /// With Sentinel inside function invocation, such a kept placeholder is a literal in the next round trip,
-    /// which is redacted by a fresh session, so the value it stood for may get a different number there. The
-    /// mapping is deliberately not kept across round trips; nothing leaks, the model just sees two names.
+    /// which is redacted by a fresh session with another tag, so the value it stood for gets another token there
+    /// and the kept one never resolves. The mapping is deliberately not kept across round trips; nothing leaks,
+    /// the model just sees two names.
     /// </remarks>
     public IList<ChatMessage> Restore(IList<ChatMessage> messages)
     {
@@ -291,7 +275,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     /// Restores streamed updates for the caller by the rules of <see cref="Restore(IList{ChatMessage})"/>: text,
     /// reasoning and tool results get every value back, a call answered by a result streamed after it is
     /// history, and any other call keeps the placeholders of values that must never reach a tool argument.
-    /// A placeholder can be split across updates, such as <c>[EMA</c> and <c>IL_1]</c>, so text that ends in
+    /// A placeholder can be split across updates, such as <c>[EMA</c> and <c>IL_1_k3f9x2]</c>, so text that ends in
     /// what may be the start of one is held back and put in front of the next text of the same kind in the
     /// same message. Text still held when its message or the stream ends is no placeholder: it is released,
     /// as it was, into the last text content of that kind seen in that message, so it is never lost or
@@ -460,7 +444,8 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             return session.Restore(joined[..cut]);
         }
 
-        // The start of an unterminated '[' followed only by placeholder characters and shorter than the longest
+        // The start of an unterminated '[' followed only by placeholder characters, letters of either case because
+        // of the tag, and shorter than the longest
         // token this session minted, so it may still become one; otherwise the end of the text.
         private int HoldFrom(string text)
         {
@@ -472,7 +457,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
             for (var i = open + 1; i < text.Length; i++)
             {
-                if (!char.IsAsciiLetterUpper(text[i]) && !char.IsAsciiDigit(text[i]) && text[i] != '_')
+                if (!char.IsAsciiLetter(text[i]) && !char.IsAsciiDigit(text[i]) && text[i] != '_')
                 {
                     return text.Length;
                 }
@@ -532,7 +517,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             throw new InvalidOperationException($"Placeholder counter for entity type {type} is exhausted.");
         }
         _nextByType[type] = n + 1;
-        var token = $"[{type}_{n.ToString(CultureInfo.InvariantCulture)}]";
+        var token = PlaceholderFormat.Format(type, n, _tag);
         _tokenByValue[(type, value)] = token;
         _valueByToken[token] = value;
         if (toolRestorable)
@@ -551,28 +536,6 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         }
         byType.TryGetValue(type, out var count);
         byType[type] = count + 1;
-    }
-
-    private void ReserveExistingPlaceholders(string text)
-    {
-        if (text.IndexOf('[', StringComparison.Ordinal) < 0)
-        {
-            return;
-        }
-
-        foreach (Match m in PlaceholderPattern().Matches(text))
-        {
-            if (!int.TryParse(m.Groups["n"].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var n) || n > MaxReservedNumber)
-            {
-                continue;
-            }
-            var type = m.Groups["type"].Value;
-            _nextByType.TryGetValue(type, out var current);
-            if (n + 1 > current)
-            {
-                _nextByType[type] = n + 1;
-            }
-        }
     }
 
     private static string NormalizeType(string? entityType)

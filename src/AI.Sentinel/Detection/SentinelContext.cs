@@ -31,7 +31,7 @@ public sealed class SentinelContext(
     private static readonly IReadOnlySet<string> NoPlaceholders = new HashSet<string>(StringComparer.Ordinal);
 
     /// <summary>
-    /// The redaction placeholders, such as <c>[API_KEY_1]</c>, that the current call minted when it redacted
+    /// The redaction placeholders, such as <c>[API_KEY_1_k3f9x2]</c>, that the current call minted when it redacted
     /// the request, plus those minted by every enclosing Sentinel call in its parent chain, when this call runs
     /// below another one. A redacting detector does not flag them as a value: they are what a redacted request
     /// looks like. Empty by default, so a surface that never redacts exempts nothing, and text that merely

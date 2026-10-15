@@ -18,9 +18,9 @@ internal static class RedactionSpanCollector
 
     /// <summary>
     /// True when <paramref name="pattern"/> matches <paramref name="text"/> with a value that is not one of
-    /// <paramref name="placeholders"/>: `api_key=[API_KEY_1]` is what a redacted request looks like, and
-    /// flagging it would block the very text redaction produced. Only placeholders the current call minted
-    /// are exempt, so a real secret shaped like one, such as `password=[WINTER_2024]`, still matches.
+    /// <paramref name="placeholders"/>: `api_key=[API_KEY_1_k3f9x2]` is what a redacted request looks like, and
+    /// flagging it would block the very text redaction produced. Only the placeholders in
+    /// <paramref name="placeholders"/> are exempt, so a real secret shaped like one still matches.
     /// </summary>
     internal static bool HasMatch(Regex pattern, string text, IReadOnlySet<string> placeholders)
     {
@@ -42,7 +42,7 @@ internal static class RedactionSpanCollector
     }
 
     /// <summary>
-    /// The placeholder, with its brackets, when the matched value is one of the form <c>[TYPE_n]</c>, either
+    /// The placeholder, with its brackets, when the matched value is one of the form <c>[TYPE_n_tag]</c>, either
     /// including its brackets or sitting directly between them; otherwise null.
     /// </summary>
     internal static string? PlaceholderAt(string text, int index, int length)
@@ -50,41 +50,14 @@ internal static class RedactionSpanCollector
         var value = text.AsSpan(index, length);
         if (value.Length >= 2 && value[0] == '[' && value[^1] == ']')
         {
-            return IsToken(value[1..^1]) ? value.ToString() : null;
+            return PlaceholderFormat.IsInner(value[1..^1]) ? value.ToString() : null;
         }
 
         return index > 0 && text[index - 1] == '['
             && index + length < text.Length && text[index + length] == ']'
-            && IsToken(value)
+            && PlaceholderFormat.IsInner(value)
             ? text.Substring(index - 1, length + 2)
             : null;
-    }
-
-    // TYPE_n: upper-case letters, digits and underscores, then an underscore and digits.
-    private static bool IsToken(ReadOnlySpan<char> s)
-    {
-        var underscore = s.LastIndexOf('_');
-        if (underscore <= 0 || underscore == s.Length - 1)
-        {
-            return false;
-        }
-
-        for (var i = 0; i < underscore; i++)
-        {
-            if (s[i] is not ((>= 'A' and <= 'Z') or (>= '0' and <= '9') or '_'))
-            {
-                return false;
-            }
-        }
-
-        for (var i = underscore + 1; i < s.Length; i++)
-        {
-            if (s[i] is < '0' or > '9')
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     /// <summary>

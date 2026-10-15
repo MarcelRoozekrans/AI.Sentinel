@@ -74,8 +74,9 @@ public sealed class SentinelPipeline
     /// <returns>A successful <see cref="ChatResponse"/> when no threats are found, or a <see cref="SentinelError.ThreatDetected"/> / <see cref="SentinelError.PipelineFailure"/> on failure.</returns>
     /// <remarks>
     /// Values found by a redacting detector whose effective action is <see cref="SentinelAction.Redact"/>
-    /// are replaced by placeholders such as <c>[EMAIL_1]</c> in everything sent to the model: every message,
-    /// tool-call arguments and tool results, including the results of tools the model calls during this call.
+    /// are replaced by placeholders such as <c>[EMAIL_1_k3f9x2]</c> in everything sent to the model: every message,
+    /// tool-call arguments and tool results, including the results of tools the model calls during this call. The
+    /// tag is random per call, so a placeholder from another call never resolves to a value of this one.
     /// The other detectors judge the redacted request. The response is scanned as the model produced it and
     /// then, when <see cref="SentinelOptions.RestoreRedactedValues"/> is set, restored. The mapping lives only
     /// for this call. Any failure to redact fails the call closed: nothing is sent unredacted.
@@ -141,9 +142,10 @@ public sealed class SentinelPipeline
         var parent = RedactionScope.Current;
         var redactors = pipeline.Redactors;
         var session = redactors.Count > 0 ? new RedactionSession(redactors) : null;
-        (messageList, var redactionError) = Redact(session, messageList);
+        var (redacted, redactionError) = Redact(session, messageList);
         if (redactionError is not null)
             return (default, redactionError);
+        messageList = redacted.Messages;
 
         var systemPrompt = SystemPromptOf(messageList);
 
@@ -157,7 +159,7 @@ public sealed class SentinelPipeline
         // Every placeholder-shaped token in the request the model is about to see. For the detectors that redacted
         // it none is a raw value, and the model may legitimately repeat one, including a literal left in history
         // from an earlier round trip. Only those detectors get to exempt them, see SentinelContext.
-        return (new PreparedRequest(messageList, redactors, session, parent, systemPrompt, session?.PlaceholdersIn(messageList)), null);
+        return (new PreparedRequest(messageList, redactors, session, parent, systemPrompt, redacted.Placeholders), null);
     }
 
     /// <summary>
@@ -238,19 +240,23 @@ public sealed class SentinelPipeline
         }
     }
 
-    private static (IReadOnlyList<ChatMessage> Messages, SentinelError? Error) Redact(
+    /// <summary>The request after redaction and the placeholder-shaped tokens it holds.</summary>
+    private readonly record struct RedactedInput(IReadOnlyList<ChatMessage> Messages, IReadOnlySet<string>? Placeholders);
+
+    private static (RedactedInput Input, SentinelError? Error) Redact(
         RedactionSession? session, IReadOnlyList<ChatMessage> messages)
     {
         if (session is null)
-            return (messages, null);
+            return (new RedactedInput(messages, null), null);
 
         try
         {
-            return (session.Redact(messages), null);
+            var redacted = session.RedactRequest(messages);
+            return (new RedactedInput(redacted.Messages, redacted.Placeholders), null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return (messages, RedactionFailed(ex));
+            return (default, RedactionFailed(ex));
         }
     }
 

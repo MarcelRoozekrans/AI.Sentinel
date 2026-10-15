@@ -94,9 +94,9 @@ public class RedactionStreamingTests
         {
             // No update carries part of a placeholder.
             Assert.DoesNotContain("[EMA", u.Text, StringComparison.Ordinal);
-            Assert.DoesNotContain("IL_1]", u.Text, StringComparison.Ordinal);
+            Assert.DoesNotContain("IL_1", u.Text, StringComparison.Ordinal);
         }
-        Assert.Contains("[EMAIL_1]", model.Seen, StringComparison.Ordinal);
+        Assert.Contains("[EMAIL_1]", Placeholders.Untag(model.Seen), StringComparison.Ordinal);
         Assert.DoesNotContain(Email, model.Seen, StringComparison.Ordinal);
     }
 
@@ -128,7 +128,7 @@ public class RedactionStreamingTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal("first [EM", result.Value[0].Text);
-        Assert.Equal("AIL_1] second", result.Value[1].Text);
+        Assert.Equal($"AIL_1_{model.Tag}] second", result.Value[1].Text);
     }
 
     private static async Task<IReadOnlyList<ChatResponseUpdate>> RestoreAsync(params ChatResponseUpdate[] updates)
@@ -162,7 +162,7 @@ public class RedactionStreamingTests
             new ChatResponseUpdate(ChatRole.Assistant, "AIL_1] b"));
 
         Assert.Equal("a [EM", updates[0].Text);
-        Assert.Equal("AIL_1] b", updates[2].Text);
+        Assert.Matches(@"^AIL_1_[a-z][a-z0-9]{5}\] b$", updates[2].Text);
     }
 
     [Fact]
@@ -305,7 +305,7 @@ public class RedactionStreamingTests
 
         var updates = await StreamAsync(h, $"Mail {Email} please");
 
-        Assert.Equal("Echo: Mail [EMAIL_1] please", TextOf(updates));
+        Assert.Equal("Echo: Mail [EMAIL_1] please", Placeholders.Untag(TextOf(updates)));
     }
 
     [Theory]
@@ -335,20 +335,21 @@ public class RedactionStreamingTests
 
         var updates = await StreamAsync(h, $"my api_key={ApiKey}", options);
 
-        Assert.Equal(["[API_KEY_1]"], seen);
+        Assert.Equal("[API_KEY_1]", Placeholders.Untag(Assert.Single(seen)));
         Assert.DoesNotContain(ApiKey, h.Model.AllSeen, StringComparison.Ordinal);
         var call = Assert.Single(CallsOf(updates));
+        // The model names the key by the token of the round trip it replies in, so the reply is restored.
+        Assert.Equal($"Your key is {ApiKey}", TextOf(updates));
         if (string.Equals(order, "S>F", StringComparison.Ordinal))
         {
             // The call is answered by the result streamed after it, so it is history and holds the real key.
-            Assert.Equal($"Your key is {ApiKey}", TextOf(updates));
             Assert.Equal(ApiKey, call.Arguments!["key"]?.ToString());
         }
         else
         {
-            // The ruled inside-order residue, as for the non-streaming path.
-            Assert.Equal("Your key is [API_KEY_1]", TextOf(updates));
-            Assert.Equal("[API_KEY_1]", call.Arguments!["key"]?.ToString());
+            // The ruled inside-order residue, as for the non-streaming path: the call left Sentinel unanswered and
+            // kept its placeholder, whose tag no later round trip knows.
+            Assert.Equal("[API_KEY_1]", Placeholders.Untag(call.Arguments!["key"]?.ToString()));
         }
     }
 
@@ -365,7 +366,7 @@ public class RedactionStreamingTests
 
         Assert.Equal($"Calling with {ApiKey} for {Email}", TextOf(updates));
         var call = Assert.Single(CallsOf(updates));
-        Assert.Equal("[API_KEY_1]", call.Arguments!["key"]?.ToString());
+        Assert.Equal("[API_KEY_1]", Placeholders.Untag(call.Arguments!["key"]?.ToString()));
         Assert.Equal(Email, call.Arguments["to"]?.ToString());
     }
 
@@ -469,15 +470,51 @@ public class RedactionStreamingTests
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _calls);
+            var request = new List<string>();
             foreach (var m in messages)
             {
-                lock (_seen) { _seen.Add(m.Text); }
+                request.Add(m.Text);
             }
+            lock (_seen) { _seen.AddRange(request); }
+            Tag = Placeholders.TagOf(string.Join("\n", request));
             foreach (var u in updates)
             {
                 await Task.Yield();
-                yield return u;
+                yield return Tag is null ? u : WithTag(u, Tag);
             }
+        }
+
+        /// <summary>The tag of the placeholders in the last request, which the scripted updates are given.</summary>
+        public string? Tag { get; private set; }
+
+        // Scripted placeholders, whole or split across updates, are written untagged: [EMA + IL_1]. The model
+        // writes the tag it was sent. A copy, so Updates keeps the script as written.
+        private static ChatResponseUpdate WithTag(ChatResponseUpdate update, string tag)
+        {
+            var contents = new List<AIContent>(update.Contents.Count);
+            foreach (var c in update.Contents)
+            {
+                contents.Add(c switch
+                {
+                    TextContent t => new TextContent(Placeholders.AddTag(t.Text, tag)),
+                    TextReasoningContent r => new TextReasoningContent(Placeholders.AddTag(r.Text, tag)),
+                    FunctionCallContent call when call.Arguments is not null => new FunctionCallContent(call.CallId, call.Name, TagArguments(call.Arguments, tag)),
+                    _ => c,
+                });
+            }
+            var copy = update.Clone();
+            copy.Contents = contents;
+            return copy;
+        }
+
+        private static Dictionary<string, object?> TagArguments(IDictionary<string, object?> arguments, string tag)
+        {
+            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var (key, value) in arguments)
+            {
+                result[key] = value is string text ? Placeholders.AddTag(text, tag) : value;
+            }
+            return result;
         }
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;

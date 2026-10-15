@@ -175,7 +175,7 @@ public class RedactionPipelineTests
 
         var response = await AskAsync(h, $"Mail {Email} please");
 
-        Assert.Equal("Echo: Mail [EMAIL_1] please", response.Text);
+        Assert.Equal("Echo: Mail [EMAIL_1] please", Placeholders.Untag(response.Text));
     }
 
     // The spec: with the opt-out, the reply and tool calls keep the placeholders, in either builder order.
@@ -189,9 +189,9 @@ public class RedactionPipelineTests
 
         var response = await AskAsync(h, $"Mail {Email} please", options);
 
-        Assert.Equal(["[EMAIL_1]"], seen);
+        Assert.Equal("[EMAIL_1]", Placeholders.Untag(Assert.Single(seen)));
         Assert.DoesNotContain(Email, h.Model.AllSeen, StringComparison.Ordinal);
-        Assert.Equal("Mailed [EMAIL_1]", response.Text);
+        Assert.Equal("Mailed [EMAIL_1]", Placeholders.Untag(response.Text));
     }
 
     [Fact]
@@ -321,24 +321,31 @@ public class RedactionPipelineTests
 
         var response = await AskAsync(h, $"my api_key={ApiKey}", options);
 
-        Assert.Equal(["[API_KEY_1]"], seen);
+        Assert.Equal("[API_KEY_1]", Placeholders.Untag(Assert.Single(seen)));
         Assert.DoesNotContain(ApiKey, h.Model.AllSeen, StringComparison.Ordinal);
         var call = Assert.Single(CallsIn(response.Messages));
+        // The model names the key by the token of the round trip it replies in, so the reply is restored.
+        Assert.Equal($"Your key is {ApiKey}", response.Text);
         if (string.Equals(order, "S>F", StringComparison.Ordinal))
         {
-            // One session spans the request: the reply is restored, and the call is answered in the returned
-            // history, so it is history and holds the real key.
-            Assert.Equal($"Your key is {ApiKey}", response.Text);
+            // One session spans the request, and the call is answered in the returned history, so it is history
+            // and holds the real key.
             Assert.Equal(ApiKey, call.Arguments!["key"]?.ToString());
         }
         else
         {
             // Accepted residue, by ruling: inside function invocation the call left Sentinel unanswered, so it
-            // kept the placeholder, which the next round trip's fresh session treats as a literal. The key gets
-            // [API_KEY_2] there and the model's [API_KEY_1] stays as it is. Nothing leaks.
-            Assert.Contains("api_key=[API_KEY_2]", h.Model.AllSeen, StringComparison.Ordinal);
-            Assert.Equal("Your key is [API_KEY_1]", response.Text);
-            Assert.Equal("[API_KEY_1]", call.Arguments!["key"]?.ToString());
+            // kept round 1's placeholder. The next round trip's session has another tag, so that token stays a
+            // literal there and the key gets that session's own [API_KEY_1]. Nothing leaks.
+            var kept = call.Arguments!["key"]?.ToString()!;
+            Assert.Equal("[API_KEY_1]", Placeholders.Untag(kept));
+            Assert.Contains(kept, h.Model.RawSeen, StringComparison.Ordinal);
+            var tokens = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match m in Regex.Matches(h.Model.RawSeen, @"\[API_KEY_1_[a-z][a-z0-9]{5}\]", RegexOptions.None, TimeSpan.FromSeconds(1)))
+            {
+                tokens.Add(m.Value);
+            }
+            Assert.Equal(2, tokens.Count);
         }
     }
 
@@ -354,7 +361,7 @@ public class RedactionPipelineTests
 
         Assert.Equal($"Calling with {ApiKey} for {Email}", response.Text);
         var call = Assert.Single(CallsIn(response.Messages));
-        Assert.Equal("[API_KEY_1]", call.Arguments!["key"]?.ToString());
+        Assert.Equal("[API_KEY_1]", Placeholders.Untag(call.Arguments!["key"]?.ToString()));
         Assert.Equal(Email, call.Arguments["to"]?.ToString());
     }
 
@@ -436,7 +443,7 @@ public class RedactionPipelineTests
 
         Assert.DoesNotContain(Email, ex.Message, StringComparison.Ordinal);
         var redacted = Assert.IsType<AI.Sentinel.Redaction.RedactedToolInvocationException>(ex.InnerException);
-        Assert.Equal("No contact found for [EMAIL_1]", redacted.Message);
+        Assert.Equal("No contact found for [EMAIL_1]", Placeholders.Untag(redacted.Message));
         // The application keeps the tool's own exception.
         Assert.Equal($"No contact found for {Email}", redacted.InnerException!.Message);
         Assert.DoesNotContain(Email, h.Model.AllSeen, StringComparison.Ordinal);
@@ -537,8 +544,7 @@ public class RedactionPipelineTests
         Assert.Same(tools, options.Tools);
         Assert.Same(tool, Assert.Single(options.Tools));
         Assert.Equal([Email, Email], seen);
-        // A result redacted twice would escape [EMAIL_1] into [EMAIL_2].
-        Assert.DoesNotContain("[EMAIL_2]", model.AllSeen, StringComparison.Ordinal);
+        Assert.DoesNotContain(Email, model.AllSeen, StringComparison.Ordinal);
         Assert.Contains("sent to [EMAIL_1]", model.AllSeen, StringComparison.Ordinal);
     }
 
@@ -555,6 +561,7 @@ public class RedactionPipelineTests
 
         await invoking.GetResponseAsync([new ChatMessage(ChatRole.User, "x")], options, TestContext.Current.CancellationToken);
 
+        // No Sentinel call is current, so nothing is restored; the scripted token was never minted.
         Assert.Equal(["[EMAIL_1]"], seen);
     }
 
@@ -594,7 +601,7 @@ public class RedactionPipelineTests
         foreach (var args in guard.Seen)
         {
             Assert.DoesNotContain(ApiKey, args, StringComparison.Ordinal);
-            Assert.Contains("[API_KEY_1]", args, StringComparison.Ordinal);
+            Assert.Contains("[API_KEY_1]", Placeholders.Untag(args), StringComparison.Ordinal);
         }
     }
 
@@ -717,17 +724,19 @@ public class RedactionPipelineTests
 
     // --- Placeholders from elsewhere are not values ---
 
-    // The ruled inside-order residue: the second round trip reserves the stale [API_KEY_1] left in the tool
-    // call's history and gives the key [API_KEY_2]. A reply that repeats the stale literal is not a secret.
+    // The ruled inside-order residue: the tool call in the second round trip's history keeps the first round
+    // trip's token, whose tag the second session does not know. A reply that repeats that stale literal is not
+    // a secret, and it stays a literal.
     [Fact]
     public async Task InsideOrder_ReplyRepeatsStalePlaceholder_IsNotFlagged()
     {
-        var h = Build("F>S", RecordingModel.CallsTool("Lookup", "key", "[API_KEY_1]", "Used api_key=[API_KEY_1] for you."));
+        var h = Build("F>S", RecordingModel.CallsTool("Lookup", "key", "[API_KEY_1]",
+            messages => $"Used api_key={CallsIn(messages)[0].Arguments!["key"]} for you."));
         var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string key) => "ok", "Lookup")] };
 
         var response = await AskAsync(h, $"my api_key={ApiKey}.", options);
 
-        Assert.Equal("Used api_key=[API_KEY_1] for you.", response.Text);
+        Assert.Equal("Used api_key=[API_KEY_1] for you.", Placeholders.Untag(response.Text));
         foreach (var e in await RecordingAuditForwarder.ReadAllAsync(h.Audit))
         {
             // OPS-01 flags the tool-call-only first round trip as blank, a known false positive filed separately.
@@ -812,7 +821,7 @@ public class RedactionPipelineTests
         var calls = CallsIn(response.Messages);
         Assert.True(calls.Count >= 2, $"expected an answered and a final call, got {calls.Count}");
         Assert.Equal(ApiKey, calls[0].Arguments!["key"]?.ToString());
-        Assert.Equal("[API_KEY_1]", calls[^1].Arguments!["key"]?.ToString());
+        Assert.Equal("[API_KEY_1]", Placeholders.Untag(calls[^1].Arguments!["key"]?.ToString()));
     }
 
     // --- Helpers ---
@@ -902,7 +911,11 @@ public class RedactionPipelineTests
 
         public int Calls => Volatile.Read(ref _calls);
 
-        public string AllSeen
+        /// <summary>Everything the model saw, with placeholder tags removed: <c>[EMAIL_1]</c>, not <c>[EMAIL_1_k3f9x2]</c>.</summary>
+        public string AllSeen => Placeholders.Untag(RawSeen);
+
+        /// <summary>Everything the model saw, as it saw it.</summary>
+        public string RawSeen
         {
             get { lock (_seen) { return string.Join("\n---\n", _seen); } }
         }
@@ -937,8 +950,43 @@ public class RedactionPipelineTests
         {
             Interlocked.Increment(ref _calls);
             var list = messages as IList<ChatMessage> ?? messages.ToList();
-            lock (_seen) { _seen.Add(Flatten(list)); }
-            return Task.FromResult(new ChatResponse(reply(list)));
+            var seen = Flatten(list);
+            lock (_seen) { _seen.Add(seen); }
+            return Task.FromResult(new ChatResponse(EchoPlaceholders(reply(list), seen)));
+        }
+
+        // Scripts write placeholders untagged, such as [EMAIL_1]; the model repeats the tagged token it was sent.
+        private static ChatMessage EchoPlaceholders(ChatMessage message, string seen)
+        {
+            var contents = new List<AIContent>(message.Contents.Count);
+            foreach (var c in message.Contents)
+            {
+                contents.Add(c switch
+                {
+                    TextContent t => new TextContent(Placeholders.Echo(t.Text, seen)),
+                    FunctionCallContent call => new FunctionCallContent(call.CallId, call.Name,
+                        call.Arguments is null ? null : (IDictionary<string, object?>)EchoDictionary(call.Arguments, seen)),
+                    _ => c,
+                });
+            }
+            var copy = message.Clone();
+            copy.Contents = contents;
+            return copy;
+        }
+
+        private static Dictionary<string, object?> EchoDictionary(IDictionary<string, object?> source, string seen)
+        {
+            var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+            foreach (var (key, value) in source)
+            {
+                result[Placeholders.Echo(key, seen)] = value switch
+                {
+                    string text => Placeholders.Echo(text, seen),
+                    IDictionary<string, object?> nested => EchoDictionary(nested, seen),
+                    _ => value,
+                };
+            }
+            return result;
         }
 
         /// <summary>False streams updates without message ids, as some providers do: they then continue the
