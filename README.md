@@ -318,10 +318,22 @@ services.AddAISentinel(opts =>
 
 builder.Services.AddChatClient(pipeline =>
     pipeline.UseAISentinel()
-            .UseToolCallAuthorization()
             .UseFunctionInvocation()
+            .UseToolCallAuthorization()
             .Use(new OpenAIChatClient(...)));
 ```
+
+Tool calls the *model* asks for are authorized before the tool runs, in either order of
+`UseToolCallAuthorization()` and `UseFunctionInvocation()`. The order only changes how a denial
+surfaces:
+
+- **Authorization inside function invocation (recommended, as above):** a denied call throws
+  `ToolCallAuthorizationException` to your caller and the tool never runs.
+- **Authorization outside function invocation:** the guard runs immediately before each tool
+  invocation. `FunctionInvokingChatClient` catches the denial and reports it to the model as a
+  failed function result (a generic error, not the deny reason), so no exception reaches your
+  caller. The tool still never runs and the denial is still audited as `AUTHZ-DENY`. When streaming,
+  the denied call is caught earlier, as it is streamed, and the exception does reach your caller.
 
 | Surface | Caller resolution default | Deny semantics |
 |---|---|---|

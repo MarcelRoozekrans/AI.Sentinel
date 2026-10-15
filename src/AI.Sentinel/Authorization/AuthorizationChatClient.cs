@@ -4,6 +4,7 @@ using System.Text.Json;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Domain;
+using AI.Sentinel.Tools;
 using Microsoft.Extensions.AI;
 using ZeroAlloc.Authorization;
 
@@ -15,6 +16,12 @@ namespace AI.Sentinel.Authorization;
 /// messages is evaluated by the configured <see cref="IToolCallGuard"/>; a deny decision throws
 /// a <see cref="ToolCallAuthorizationException"/> and (when an <see cref="IAuditStore"/> is
 /// available) appends an <c>AUTHZ-DENY</c> audit entry first.
+/// <para>
+/// Tool calls the MODEL makes are authorized too, in whichever order this client sits relative to
+/// <c>FunctionInvokingChatClient</c>. Outside it, the tools in the options are wrapped so the guard
+/// runs immediately before each invocation. Inside it, the calls in the model's response are checked
+/// before they are returned, so the function-invoking client never sees a denied call.
+/// </para>
 /// </summary>
 internal sealed class AuthorizationChatClient(
     IChatClient inner,
@@ -32,7 +39,9 @@ internal sealed class AuthorizationChatClient(
         CancellationToken cancellationToken = default)
     {
         await AuthorizeFunctionCallsAsync(messages, cancellationToken).ConfigureAwait(false);
-        return await inner.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
+        var response = await inner.GetResponseAsync(messages, ToolInvocationInterception.WrapTools(options, AuthorizeInvocationAsync), cancellationToken).ConfigureAwait(false);
+        await AuthorizePendingCallsAsync(response.Messages, cancellationToken).ConfigureAwait(false);
+        return response;
     }
 
     public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
@@ -47,8 +56,10 @@ internal sealed class AuthorizationChatClient(
         [EnumeratorCancellation] CancellationToken ct)
     {
         await AuthorizeFunctionCallsAsync(messages, ct).ConfigureAwait(false);
-        await foreach (var update in inner.GetStreamingResponseAsync(messages, options, ct).ConfigureAwait(false))
+        var wrapped = ToolInvocationInterception.WrapTools(options, AuthorizeInvocationAsync);
+        await foreach (var update in inner.GetStreamingResponseAsync(messages, wrapped, ct).ConfigureAwait(false))
         {
+            await AuthorizeUpdateAsync(update, ct).ConfigureAwait(false);
             yield return update;
         }
     }
@@ -64,6 +75,55 @@ internal sealed class AuthorizationChatClient(
                 {
                     await AuthorizeFunctionCallAsync(fnCall, caller, ct).ConfigureAwait(false);
                 }
+            }
+        }
+    }
+
+    // Runs immediately before FunctionInvokingChatClient invokes a tool the model asked for.
+    private async ValueTask<object?> AuthorizeInvocationAsync(AIFunction fn, AIFunctionArguments args, CancellationToken ct)
+    {
+        var caller = callerProvider() ?? AnonymousSecurityContext.Instance;
+        await AuthorizeFunctionCallAsync(new FunctionCallContent(string.Empty, fn.Name, args), caller, ct).ConfigureAwait(false);
+        return await fn.InvokeAsync(args, ct).ConfigureAwait(false);
+    }
+
+    // Calls in a model response that nothing has executed yet. A call with a result alongside it
+    // already went through AuthorizeInvocationAsync (this client sits outside FunctionInvokingChatClient).
+    private async ValueTask AuthorizePendingCallsAsync(IList<ChatMessage> responseMessages, CancellationToken ct)
+    {
+        var answered = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var msg in responseMessages)
+        {
+            foreach (var content in msg.Contents)
+            {
+                if (content is FunctionResultContent result)
+                {
+                    answered.Add(result.CallId);
+                }
+            }
+        }
+
+        var caller = callerProvider() ?? AnonymousSecurityContext.Instance;
+        foreach (var msg in responseMessages)
+        {
+            foreach (var content in msg.Contents)
+            {
+                if (content is FunctionCallContent fnCall && !answered.Contains(fnCall.CallId))
+                {
+                    await AuthorizeFunctionCallAsync(fnCall, caller, ct).ConfigureAwait(false);
+                }
+            }
+        }
+    }
+
+    private async ValueTask AuthorizeUpdateAsync(ChatResponseUpdate update, CancellationToken ct)
+    {
+        var caller = callerProvider() ?? AnonymousSecurityContext.Instance;
+        foreach (var content in update.Contents)
+        {
+            if (content is FunctionCallContent fnCall)
+            {
+                await AuthorizeFunctionCallAsync(fnCall, caller, ct).ConfigureAwait(false);
             }
         }
     }
