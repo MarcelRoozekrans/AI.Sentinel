@@ -92,22 +92,13 @@ public sealed class SentinelPipeline
 
         var scope = EnterScope(in request);
 
-        ChatResponse response;
-        try
-        {
-            response = await innerClient
-                .GetResponseAsync(ApplyHardening(request.Messages), chatOptions, ct)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // The request was sent, so its redactions are compliance evidence even when the call was cancelled.
-            await AppendRedactionsAsync(request.Session, sessionId, CancellationToken.None).ConfigureAwait(false);
-            return Result<ChatResponse, SentinelError>.Failure(
-                new SentinelError.PipelineFailure("Inner client failed.", ex));
-        }
+        var inner = await CallInnerAsync(request, sessionId, "Inner client failed.",
+            (sent, token) => innerClient.GetResponseAsync(sent, chatOptions, token),
+            ct).ConfigureAwait(false);
+        if (inner.IsFailure)
+            return Result<ChatResponse, SentinelError>.Failure(inner.Error);
 
-        await AppendRedactionsAsync(request.Session, sessionId, ct).ConfigureAwait(false);
+        var response = inner.Value;
 
         IReadOnlyList<ChatMessage> responseMessages =
             response.Messages as IReadOnlyList<ChatMessage> ?? response.Messages.ToList();
@@ -183,6 +174,30 @@ public sealed class SentinelPipeline
         var scope = new RedactionScope(request.Session, options.RestoreRedactedValues, request.Parent);
         RedactionScope.Current = scope;
         return scope;
+    }
+
+    /// <summary>
+    /// Sends the hardened request through <paramref name="call"/> and records this call's redactions. They are
+    /// recorded when the inner client fails too, with <see cref="CancellationToken.None"/>: the request was sent,
+    /// so its redactions are compliance evidence even when the call was cancelled.
+    /// </summary>
+    private async ValueTask<Result<T, SentinelError>> CallInnerAsync<T>(
+        PreparedRequest request, SessionId sessionId, string failureMessage,
+        Func<IReadOnlyList<ChatMessage>, CancellationToken, Task<T>> call, CancellationToken ct)
+    {
+        T value;
+        try
+        {
+            value = await call(ApplyHardening(request.Messages), ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await AppendRedactionsAsync(request.Session, sessionId, CancellationToken.None).ConfigureAwait(false);
+            return Result<T, SentinelError>.Failure(new SentinelError.PipelineFailure(failureMessage, ex));
+        }
+
+        await AppendRedactionsAsync(request.Session, sessionId, ct).ConfigureAwait(false);
+        return Result<T, SentinelError>.Success(value);
     }
 
     /// <summary>Fails the call when a tool invocation could not be redacted, then scans the response as the model
@@ -308,23 +323,19 @@ public sealed class SentinelPipeline
 
         var scope = EnterScope(in request);
 
-        var buffer = new List<ChatResponseUpdate>();
-        try
-        {
-            await foreach (var update in innerClient
-                .GetStreamingResponseAsync(ApplyHardening(request.Messages), chatOptions, ct)
-                .ConfigureAwait(false))
-                buffer.Add(update);
-        }
-        catch (Exception ex)
-        {
-            // The request was sent, so its redactions are compliance evidence even when the call was cancelled.
-            await AppendRedactionsAsync(request.Session, sessionId, CancellationToken.None).ConfigureAwait(false);
-            return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(
-                new SentinelError.PipelineFailure("Inner client streaming failed.", ex));
-        }
+        var inner = await CallInnerAsync(request, sessionId, "Inner client streaming failed.",
+            async (sent, token) =>
+            {
+                var updates = new List<ChatResponseUpdate>();
+                await foreach (var update in innerClient.GetStreamingResponseAsync(sent, chatOptions, token).ConfigureAwait(false))
+                    updates.Add(update);
+                return updates;
+            },
+            ct).ConfigureAwait(false);
+        if (inner.IsFailure)
+            return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(inner.Error);
 
-        await AppendRedactionsAsync(request.Session, sessionId, ct).ConfigureAwait(false);
+        var buffer = inner.Value;
 
         // The messages the updates make up, the same shape the non-streaming path scans.
         var responseMessages = buffer.ToChatResponse().Messages;

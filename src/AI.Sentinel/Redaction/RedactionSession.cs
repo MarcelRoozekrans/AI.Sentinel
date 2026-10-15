@@ -292,8 +292,11 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     /// reasoning and tool results get every value back, a call answered by a result streamed after it is
     /// history, and any other call keeps the placeholders of values that must never reach a tool argument.
     /// A placeholder can be split across updates, such as <c>[EMA</c> and <c>IL_1]</c>, so text that ends in
-    /// what may be the start of one is held back and put in front of the next text of the same kind; text
-    /// still held at the end goes back where it came from. No update carries part of a placeholder.
+    /// what may be the start of one is held back and put in front of the next text of the same kind in the
+    /// same message. Text still held when its message or the stream ends is no placeholder: it is released,
+    /// as it was, into the last text content of that kind seen in that message, so it is never lost or
+    /// duplicated. Messages are delimited exactly as <see cref="ChatResponseExtensions.ToChatResponse(IEnumerable{ChatResponseUpdate})"/>
+    /// delimits them, which is what the response scan saw. No update carries part of a placeholder.
     /// Returns copies: the count, the update metadata and all other content stay as they were, and the input
     /// is not mutated.
     /// </summary>
@@ -307,19 +310,18 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         var answered = AnsweredCalls(lists);
 
         var restorer = new UpdateRestorer(this, answered, LongestToken());
+        var messages = new MessageBoundaries();
         var result = new List<ChatResponseUpdate>(updates.Count);
-        string? messageId = null;
         foreach (var update in updates)
         {
             // A placeholder never spans two messages, so text is never held across into another one.
-            if (!string.Equals(update.MessageId, messageId, StringComparison.Ordinal))
+            if (messages.StartsNewMessage(update))
             {
-                restorer.GiveBackHeld();
-                messageId = update.MessageId;
+                restorer.ReleaseHeld();
             }
             result.Add(restorer.Restore(update));
         }
-        restorer.GiveBackHeld();
+        restorer.ReleaseHeld();
         return result;
     }
 
@@ -359,8 +361,9 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             return copy;
         }
 
-        // Held text is no placeholder: it never got its closing bracket. It goes back to the text it came from.
-        public void GiveBackHeld()
+        // Held text is no placeholder: it never got its closing bracket. It is released, as it was, into the last
+        // text content of its kind, which belongs to the message that just ended; the next text starts empty.
+        public void ReleaseHeld()
         {
             if (_lastText is not null)
             {
@@ -371,6 +374,52 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
                 _lastReasoning.Text += _reasoning.TakeHeld();
             }
         }
+    }
+
+    /// <summary>
+    /// Tells where a new message starts in a stream, the way <c>ToChatResponse</c> groups updates: a new message
+    /// starts when a non-empty message id or author name differs from the current message's, or when a role is
+    /// given that differs from the current message's role, which is assistant until one is given. Empty ids and
+    /// authors and a missing role continue the current message; a non-empty value is adopted by it.
+    /// </summary>
+    private sealed class MessageBoundaries
+    {
+        private bool _started;
+        private string? _id;
+        private string? _author;
+        private ChatRole _role;
+
+        public bool StartsNewMessage(ChatResponseUpdate update)
+        {
+            var isNew = !_started
+                || Differs(update.MessageId, _id)
+                || Differs(update.AuthorName, _author)
+                || (update.Role is { } role && role != _role);
+            if (isNew)
+            {
+                _started = true;
+                _id = null;
+                _author = null;
+                _role = ChatRole.Assistant;
+            }
+
+            if (!string.IsNullOrEmpty(update.MessageId))
+            {
+                _id = update.MessageId;
+            }
+            if (!string.IsNullOrEmpty(update.AuthorName))
+            {
+                _author = update.AuthorName;
+            }
+            if (update.Role is { } given)
+            {
+                _role = given;
+            }
+            return isNew;
+        }
+
+        private static bool Differs(string? value, string? current) =>
+            !string.IsNullOrEmpty(value) && !string.IsNullOrEmpty(current) && !string.Equals(value, current, StringComparison.Ordinal);
     }
 
     private int LongestToken()

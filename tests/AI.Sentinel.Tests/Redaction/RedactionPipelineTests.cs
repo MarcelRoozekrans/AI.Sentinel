@@ -941,6 +941,10 @@ public class RedactionPipelineTests
             return Task.FromResult(new ChatResponse(reply(list)));
         }
 
+        /// <summary>False streams updates without message ids, as some providers do: they then continue the
+        /// current message until the role changes.</summary>
+        public bool StreamMessageIds { get; set; } = true;
+
         // Streams the same reply, with text cut into 3-character updates so a placeholder spans several of them.
         public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
             IEnumerable<ChatMessage> messages,
@@ -951,7 +955,7 @@ public class RedactionPipelineTests
             var response = await GetResponseAsync(messages, options, cancellationToken);
             foreach (var m in response.Messages)
             {
-                var messageId = Guid.NewGuid().ToString("N");
+                var messageId = StreamMessageIds ? Guid.NewGuid().ToString("N") : null;
                 foreach (var c in m.Contents)
                 {
                     if (c is TextContent { Text: { Length: > 0 } text })

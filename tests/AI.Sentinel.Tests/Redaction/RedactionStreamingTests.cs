@@ -17,7 +17,18 @@ public class RedactionStreamingTests
     private const string Email = "jan@acme.nl";
     private const string ApiKey = "abc123def456ghi789";
 
-    public static TheoryData<string> BuilderOrders => new() { "S>F", "F>S" };
+    public static TheoryData<bool> IdModes => new() { true, false };
+
+    public static TheoryData<string, bool> BuilderOrders => new()
+    {
+        { "S>F", true }, { "F>S", true }, { "S>F", false }, { "F>S", false },
+    };
+
+    private static RecordingModel WithIds(RecordingModel model, bool messageIds)
+    {
+        model.StreamMessageIds = messageIds;
+        return model;
+    }
 
     private static async Task<List<ChatResponseUpdate>> StreamAsync(Harness h, string prompt, ChatOptions? options = null)
     {
@@ -120,6 +131,69 @@ public class RedactionStreamingTests
         Assert.Equal("AIL_1] second", result.Value[1].Text);
     }
 
+    private static async Task<IReadOnlyList<ChatResponseUpdate>> RestoreAsync(params ChatResponseUpdate[] updates)
+    {
+        var (sentinel, _) = Direct(new FixedStream(updates));
+        var result = await sentinel.GetStreamingResultAsync([new ChatMessage(ChatRole.User, $"Mail {Email}")], null, TestContext.Current.CancellationToken);
+        Assert.True(result.IsSuccess);
+        Assert.Equal(updates.Length, result.Value.Count);
+        return result.Value;
+    }
+
+    // ToChatResponse, which the response scan uses, continues the current message when an update has no id.
+    [Fact]
+    public async Task Streaming_MessageIdOnFirstChunkOnly_PlaceholderStillRestored()
+    {
+        var updates = await RestoreAsync(
+            new ChatResponseUpdate(ChatRole.Assistant, "mail [EMA") { MessageId = "m1" },
+            new ChatResponseUpdate(null, "IL_1] today"));
+
+        Assert.Equal("mail ", updates[0].Text);
+        Assert.Equal($"{Email} today", updates[1].Text);
+    }
+
+    // A role change starts a new message even without ids, so held text never crosses a tool update.
+    [Fact]
+    public async Task Streaming_RoleChangeWithoutIds_HeldTextReleasedInItsOwnMessage()
+    {
+        var updates = await RestoreAsync(
+            new ChatResponseUpdate(ChatRole.Assistant, "a [EM"),
+            new ChatResponseUpdate(ChatRole.Tool, [new FunctionResultContent("c1", "r")]),
+            new ChatResponseUpdate(ChatRole.Assistant, "AIL_1] b"));
+
+        Assert.Equal("a [EM", updates[0].Text);
+        Assert.Equal("AIL_1] b", updates[2].Text);
+    }
+
+    [Fact]
+    public async Task Streaming_HeldTailGrowsOverUpdates_ReleasedAtMessageBoundary()
+    {
+        var updates = await RestoreAsync(
+            new ChatResponseUpdate(ChatRole.Assistant, "x [EM") { MessageId = "m1" },
+            new ChatResponseUpdate(ChatRole.Assistant, "AI") { MessageId = "m1" },
+            new ChatResponseUpdate(ChatRole.Assistant, "L_") { MessageId = "m1" },
+            new ChatResponseUpdate(ChatRole.Assistant, "y") { MessageId = "m2" });
+
+        // Released once, as it was, into the last text of the message it belongs to.
+        Assert.Equal("x ", updates[0].Text);
+        Assert.Equal("", updates[1].Text);
+        Assert.Equal("[EMAIL_", updates[2].Text);
+        Assert.Equal("y", updates[3].Text);
+        Assert.Equal("x [EMAIL_y", TextOf(updates));
+    }
+
+    [Fact]
+    public async Task Streaming_TwoTextContentsInOneUpdate_CarryMovesWithinTheUpdate()
+    {
+        var updates = await RestoreAsync(
+            new ChatResponseUpdate(ChatRole.Assistant, [new TextContent("a [EMA"), new TextContent("IL_1] b")]));
+
+        var contents = updates[0].Contents;
+        Assert.Equal(2, contents.Count);
+        Assert.Equal("a ", Assert.IsType<TextContent>(contents[0]).Text);
+        Assert.Equal($"{Email} b", Assert.IsType<TextContent>(contents[1]).Text);
+    }
+
     [Fact]
     public async Task Streaming_ReasoningSplitAcrossUpdates_Restored()
     {
@@ -209,10 +283,11 @@ public class RedactionStreamingTests
 
     // --- Mirrors of the non-streaming pipeline tests ---
 
-    [Fact]
-    public async Task Streaming_ModelSeesPlaceholder_UserSeesRealValue()
+    [Theory]
+    [MemberData(nameof(IdModes))]
+    public async Task Streaming_ModelSeesPlaceholder_UserSeesRealValue(bool messageIds)
     {
-        var h = Build("S", RecordingModel.Echo());
+        var h = Build("S", WithIds(RecordingModel.Echo(), messageIds));
 
         var updates = await StreamAsync(h, $"Mail {Email} please");
 
@@ -222,10 +297,11 @@ public class RedactionStreamingTests
         Assert.Equal($"Echo: Mail {Email} please", TextOf(updates));
     }
 
-    [Fact]
-    public async Task Streaming_RestoreDisabled_ReplyKeepsPlaceholders()
+    [Theory]
+    [MemberData(nameof(IdModes))]
+    public async Task Streaming_RestoreDisabled_ReplyKeepsPlaceholders(bool messageIds)
     {
-        var h = Build("S", RecordingModel.Echo(), o => o.RestoreRedactedValues = false);
+        var h = Build("S", WithIds(RecordingModel.Echo(), messageIds), o => o.RestoreRedactedValues = false);
 
         var updates = await StreamAsync(h, $"Mail {Email} please");
 
@@ -234,9 +310,9 @@ public class RedactionStreamingTests
 
     [Theory]
     [MemberData(nameof(BuilderOrders))]
-    public async Task Streaming_ToolGetsRealValue_ModelNeverSeesIt(string order)
+    public async Task Streaming_ToolGetsRealValue_ModelNeverSeesIt(string order, bool messageIds)
     {
-        var h = Build(order, RecordingModel.CallsTool("SendMail", "to", "[EMAIL_1]", "Mailed [EMAIL_1]"));
+        var h = Build(order, WithIds(RecordingModel.CallsTool("SendMail", "to", "[EMAIL_1]", "Mailed [EMAIL_1]"), messageIds));
         var seen = new List<string>();
         var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string to) => { seen.Add(to); return "sent to " + to; }, "SendMail")] };
 
@@ -251,9 +327,9 @@ public class RedactionStreamingTests
 
     [Theory]
     [MemberData(nameof(BuilderOrders))]
-    public async Task Streaming_ApiKeyPlaceholder_NeverRestoredIntoToolArguments(string order)
+    public async Task Streaming_ApiKeyPlaceholder_NeverRestoredIntoToolArguments(string order, bool messageIds)
     {
-        var h = Build(order, RecordingModel.CallsTool("Lookup", "key", "[API_KEY_1]", "Your key is [API_KEY_1]"));
+        var h = Build(order, WithIds(RecordingModel.CallsTool("Lookup", "key", "[API_KEY_1]", "Your key is [API_KEY_1]"), messageIds));
         var seen = new List<string>();
         var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string key) => { seen.Add(key); return "ok"; }, "Lookup")] };
 
@@ -276,13 +352,14 @@ public class RedactionStreamingTests
         }
     }
 
-    [Fact]
-    public async Task Streaming_UnansweredSecretCall_KeepsPlaceholder_PiiArgumentRestored()
+    [Theory]
+    [MemberData(nameof(IdModes))]
+    public async Task Streaming_UnansweredSecretCall_KeepsPlaceholder_PiiArgumentRestored(bool messageIds)
     {
-        var h = Build("S", new RecordingModel(_ => new ChatMessage(ChatRole.Assistant, [
+        var h = Build("S", WithIds(new RecordingModel(_ => new ChatMessage(ChatRole.Assistant, [
             new TextContent("Calling with [API_KEY_1] for [EMAIL_1]"),
             new FunctionCallContent("c1", "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1]", ["to"] = "[EMAIL_1]" }),
-        ])));
+        ])), messageIds));
 
         var updates = await StreamAsync(h, $"api_key={ApiKey} for {Email}");
 
@@ -292,10 +369,11 @@ public class RedactionStreamingTests
         Assert.Equal(Email, call.Arguments["to"]?.ToString());
     }
 
-    [Fact]
-    public async Task Streaming_RedactionAudited_ResponseScannedBeforeRestore_Notified()
+    [Theory]
+    [MemberData(nameof(IdModes))]
+    public async Task Streaming_RedactionAudited_ResponseScannedBeforeRestore_Notified(bool messageIds)
     {
-        var h = Build("S", RecordingModel.Echo());
+        var h = Build("S", WithIds(RecordingModel.Echo(), messageIds));
 
         await StreamAsync(h, $"Mail {Email} please.");
 
@@ -333,11 +411,12 @@ public class RedactionStreamingTests
         Assert.Equal(0, model.Calls);
     }
 
-    [Fact]
-    public async Task Streaming_ToolArgumentsCannotBeRestored_FailsClosed_ToolNeverRuns()
+    [Theory]
+    [MemberData(nameof(IdModes))]
+    public async Task Streaming_ToolArgumentsCannotBeRestored_FailsClosed_ToolNeverRuns(bool messageIds)
     {
         var payload = new Dictionary<string, object?>(StringComparer.Ordinal) { ["[EMAIL_1]"] = "a", [Email] = "b" };
-        var h = Build("S>F", RecordingModel.CallsTool("Send", "payload", payload, "done"));
+        var h = Build("S>F", WithIds(RecordingModel.CallsTool("Send", "payload", payload, "done"), messageIds));
         var ran = 0;
         var options = new ChatOptions { Tools = [AIFunctionFactory.Create((Dictionary<string, object?> payload) => { ran++; return "ok"; }, "Send")] };
 
