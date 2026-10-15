@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Security;
+using AI.Sentinel.Tests.Helpers;
 using AI.Sentinel.Domain;
 
 namespace AI.Sentinel.Tests.Detectors.Security;
@@ -93,14 +94,14 @@ public class PiiLeakageDetectorSpanTests
     [InlineData("a-")]
     [InlineData("a.")]
     [InlineData("a+")]
-    public void FindSpans_LongInputWithoutAt_IsFastAndEmpty(string unit)
+    public void FindSpans_LongInputWithoutAt_IsLinearAndEmpty(string unit)
     {
-        var text = string.Concat(Enumerable.Repeat(unit, 50_000));
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        var spans = new PiiLeakageDetector().FindSpans(text);
-        sw.Stop();
-        Assert.Empty(spans);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2), $"took {sw.Elapsed}");
+        var detector = new PiiLeakageDetector();
+        Assert.Empty(detector.FindSpans(string.Concat(Enumerable.Repeat(unit, 50_000))));
+        LinearTime.Assert(
+            chars => string.Concat(Enumerable.Repeat(unit, chars / unit.Length)),
+            text => detector.FindSpans(text),
+            n: 25_000);
     }
 
     [Theory]
@@ -123,14 +124,30 @@ public class PiiLeakageDetectorSpanTests
     }
 
     [Fact]
-    public void DropContained_EqualRanges_KeepsTheEarlierHigherSeverityType()
+    public void Normalize_EqualRanges_KeepsTheEarlierHigherSeverityType()
     {
-        var kept = RedactionSpanCollector.DropContained(new List<RedactionSpan>
+        var kept = RedactionSpanCollector.Normalize(new List<RedactionSpan>
         {
             new(0, 10, "SSN"),
             new(0, 10, "PHONE"),
             new(2, 3, "EMAIL"),
         });
         Assert.Equal(new[] { new RedactionSpan(0, 10, "SSN") }, kept);
+    }
+
+    [Fact]
+    public void Normalize_DropsContainedSpans_KeepsPartialOverlaps_SortsByStartLongerFirst()
+    {
+        var kept = RedactionSpanCollector.Normalize(new List<RedactionSpan>
+        {
+            new(20, 5, "C"),
+            new(3, 4, "B"),
+            new(0, 10, "A"),
+            new(8, 6, "D"),
+            new(20, 5, "E"),
+            new(21, 2, "F"),
+            new(0, 12, "G"),
+        });
+        Assert.Equal(new[] { new RedactionSpan(0, 12, "G"), new RedactionSpan(8, 6, "D"), new RedactionSpan(20, 5, "C") }, kept);
     }
 }

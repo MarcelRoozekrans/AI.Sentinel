@@ -1,9 +1,9 @@
-using System.Diagnostics;
 using Xunit;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
+using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.AI;
 
 namespace AI.Sentinel.Tests.Detectors.Security;
@@ -211,12 +211,13 @@ public class CredentialExposureDetectorSpanTests
     [InlineData("-----BEGIN PRIVATE KEY-----")]
     [InlineData("sk-")]
     [InlineData("Authorization: Bearer ")]
-    public void FindSpans_LongAdversarialInput_StaysFast(string unit)
+    public void FindSpans_LongAdversarialInput_StaysLinear(string unit)
     {
-        var text = string.Concat(Enumerable.Repeat(unit, 100_000 / unit.Length));
-        var sw = Stopwatch.StartNew();
-        _ = new CredentialExposureDetector().FindSpans(text);
-        Assert.True(sw.ElapsedMilliseconds < 1000, $"took {sw.ElapsedMilliseconds} ms");
+        var detector = new CredentialExposureDetector();
+        LinearTime.Assert(
+            chars => string.Concat(Enumerable.Repeat(unit, chars / unit.Length)),
+            text => detector.FindSpans(text),
+            n: 25_000);
     }
 
     // A redacted request must not trip the detector that redacted it: a placeholder the current call minted

@@ -87,33 +87,44 @@ internal static class RedactionSpanCollector
         return true;
     }
 
-    // Keeps only outermost spans. For equal ranges the earlier list entry wins,
-    // so callers pass spans in priority order.
-    internal static List<RedactionSpan> DropContained(List<RedactionSpan> spans)
-    {
-        var result = new List<RedactionSpan>(spans.Count);
-        for (var i = 0; i < spans.Count; i++)
-        {
-            var inner = spans[i];
-            var contained = false;
-            for (var j = 0; j < spans.Count && !contained; j++)
-            {
-                var outer = spans[j];
-                contained = j != i
-                    && outer.Start <= inner.Start
-                    && outer.Start + outer.Length >= inner.Start + inner.Length
-                    && (outer.Length > inner.Length || j < i);
-            }
-            if (!contained) result.Add(inner);
-        }
-        return result;
-    }
-
-    /// <summary>Drops contained spans and sorts by Start ascending, longer first on equal starts.</summary>
+    /// <summary>
+    /// Drops every span contained in another and sorts the rest by Start ascending, longer first on equal
+    /// starts. For equal ranges the earlier list entry wins, so callers pass spans in priority order.
+    /// </summary>
+    /// <remarks>
+    /// Runs in O(k log k) for k spans: after sorting by start, then length descending, then list position, a
+    /// span is contained exactly when an earlier span in that order ends at or after it. Comparing every pair
+    /// instead made adversarial input with thousands of matches quadratic.
+    /// </remarks>
     internal static List<RedactionSpan> Normalize(List<RedactionSpan> spans)
     {
-        var kept = DropContained(spans);
-        kept.Sort(static (a, b) => a.Start != b.Start ? a.Start.CompareTo(b.Start) : b.Length.CompareTo(a.Length));
+        var order = new int[spans.Count];
+        for (var i = 0; i < order.Length; i++)
+        {
+            order[i] = i;
+        }
+
+        Array.Sort(order, (a, b) =>
+        {
+            var x = spans[a];
+            var y = spans[b];
+            if (x.Start != y.Start) return x.Start.CompareTo(y.Start);
+            if (x.Length != y.Length) return y.Length.CompareTo(x.Length);
+            return a.CompareTo(b);
+        });
+
+        var kept = new List<RedactionSpan>(spans.Count);
+        var maxEnd = int.MinValue;
+        foreach (var index in order)
+        {
+            var span = spans[index];
+            var end = span.Start + span.Length;
+            if (end > maxEnd)
+            {
+                kept.Add(span);
+                maxEnd = end;
+            }
+        }
         return kept;
     }
 }
