@@ -181,6 +181,21 @@ internal static class DashboardHandlers
         _               => true,
     };
 
+    /// <summary>True when <paramref name="e"/> belongs under the chip <paramref name="category"/>. The Redacted chip
+    /// lists only redactions; a category chip lists only detections, so a redaction never appears under Security
+    /// even though its detector id starts with SEC-. An unknown category filters nothing.</summary>
+    private static bool MatchesChip(AuditEntry e, string category)
+    {
+        if (string.Equals(category, "redacted", StringComparison.Ordinal))
+            return IsRedaction(e);
+        if (!IsKnownCategory(category))
+            return true;
+        return !IsRedaction(e) && IsInCategory(e.DetectorId, category);
+    }
+
+    private static bool IsKnownCategory(string category) =>
+        category is "security" or "hallucination" or "operational" or "authorization" or "authz";
+
     /// <summary>Single-source-of-truth filter pipeline used by /api/feed and /api/export.ndjson.
     /// /api/trend deliberately does NOT use this — it always renders the global trend (design D4).
     /// All four filters AND together: chips ∧ session ∧ source ∧ search.</summary>
@@ -192,9 +207,7 @@ internal static class DashboardHandlers
         // Order is deliberate: cheap+selective filters (category, session) first,
         // expensive Contains() last so it runs on the smallest residual set.
         if (!string.IsNullOrEmpty(category))
-            entries = string.Equals(category, "redacted", StringComparison.Ordinal)
-                ? entries.Where(IsRedaction)
-                : entries.Where(e => IsInCategory(e.DetectorId, category));
+            entries = entries.Where(e => MatchesChip(e, category));
         if (!string.IsNullOrEmpty(session))
             entries = entries.Where(e => string.Equals(e.SessionId, session, StringComparison.Ordinal));
         if (!string.IsNullOrEmpty(source))

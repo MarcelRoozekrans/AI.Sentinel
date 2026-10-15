@@ -106,6 +106,35 @@ public class RedactionDashboardTests
         Assert.Contains("badge redacted", html, StringComparison.Ordinal);
     }
 
+    // A redaction is not a detection, so the category chips never list it, not even Security for its SEC- id.
+    // It stays in the unfiltered feed and under the Redacted chip.
+    [Theory]
+    [InlineData("security", 1, false)]
+    [InlineData("redacted", 1, true)]
+    [InlineData(null, 2, true)]
+    public async Task CategoryChip_ExcludesRedactionEntries(string? filter, int rows, bool hasRedaction)
+    {
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(Redaction(), CancellationToken.None);
+        await store.AppendAsync(Threat(Severity.High), CancellationToken.None);
+
+        var html = await GetAsync(host, filter is null ? "/sentinel/api/feed" : "/sentinel/api/feed?filter=" + filter);
+
+        Assert.Equal(rows, Regex.Count(html, "<tr class=", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        Assert.Equal(hasRedaction, html.Contains("badge redacted", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void FilterAuditEntries_SecurityCategory_SkipsRedactionOfASecurityDetector()
+    {
+        var result = new List<AuditEntry>(DashboardHandlers.FilterAuditEntries(
+            [Redaction(), Threat(Severity.High)], category: "security", q: null, session: null, source: null));
+
+        var only = Assert.Single(result);
+        Assert.Null(only.PolicyCode);
+    }
+
     [Fact]
     public async Task NonRedactionNoneEntry_StillRendersAsNormalRow()
     {
