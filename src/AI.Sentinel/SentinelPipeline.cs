@@ -75,8 +75,9 @@ public sealed class SentinelPipeline
     /// <remarks>
     /// Values found by a redacting detector whose effective action is <see cref="SentinelAction.Redact"/>
     /// are replaced by placeholders such as <c>[EMAIL_1_k3f9x2]</c> in everything sent to the model: every message,
-    /// tool-call arguments and tool results, including the results of tools the model calls during this call. The
-    /// tag is random per call, so a placeholder from another call never resolves to a value of this one.
+    /// tool-call arguments and tool results, including the results of tools the model calls during this call, and
+    /// <see cref="ChatOptions.Instructions"/>, which is redacted in a copy of <paramref name="chatOptions"/>. The tag
+    /// is random per call, so a placeholder from another call never resolves to a value of this one.
     /// The other detectors judge the redacted request. The response is scanned as the model produced it and
     /// then, when <see cref="SentinelOptions.RestoreRedactedValues"/> is set, restored. The mapping lives only
     /// for this call. Any failure to redact fails the call closed: nothing is sent unredacted.
@@ -94,7 +95,7 @@ public sealed class SentinelPipeline
         var scope = EnterScope(in request);
 
         var inner = await CallInnerAsync(request, sessionId, "Inner client failed.",
-            (sent, token) => innerClient.GetResponseAsync(sent, chatOptions, token),
+            (sent, token) => innerClient.GetResponseAsync(sent, request.Options, token),
             ct).ConfigureAwait(false);
         if (inner.IsFailure)
             return Result<ChatResponse, SentinelError>.Failure(inner.Error);
@@ -116,6 +117,7 @@ public sealed class SentinelPipeline
 
     /// <summary>A request after its redaction and prompt scan, ready to send.</summary>
     /// <param name="Messages">The request as the model will see it, redacted when <paramref name="Session"/> is set.</param>
+    /// <param name="Options">The caller's options, or a copy with redacted <see cref="ChatOptions.Instructions"/>.</param>
     /// <param name="Session">This call's redaction session; null when no detector redacts.</param>
     /// <param name="Parent">The scope of an enclosing Sentinel call, when this one runs below another.</param>
     /// <param name="SystemPrompt">The conversation's system prompt, if any.</param>
@@ -123,6 +125,7 @@ public sealed class SentinelPipeline
     /// <param name="Redactors">The redacting detectors, read once for the whole call.</param>
     private readonly record struct PreparedRequest(
         IReadOnlyList<ChatMessage> Messages,
+        ChatOptions? Options,
         IReadOnlyList<IRedactingDetector> Redactors,
         RedactionSession? Session,
         RedactionScope? Parent,
@@ -142,7 +145,7 @@ public sealed class SentinelPipeline
         var parent = RedactionScope.Current;
         var redactors = pipeline.Redactors;
         var session = redactors.Count > 0 ? new RedactionSession(redactors) : null;
-        var (redacted, redactionError) = Redact(session, messageList);
+        var (redacted, redactionError) = Redact(session, messageList, chatOptions);
         if (redactionError is not null)
             return (default, redactionError);
         messageList = redacted.Messages;
@@ -159,7 +162,7 @@ public sealed class SentinelPipeline
         // Every placeholder-shaped token in the request the model is about to see. For the detectors that redacted
         // it none is a raw value, and the model may legitimately repeat one, including a literal left in history
         // from an earlier round trip. Only those detectors get to exempt them, see SentinelContext.
-        return (new PreparedRequest(messageList, redactors, session, parent, systemPrompt, redacted.Placeholders), null);
+        return (new PreparedRequest(messageList, redacted.Options, redactors, session, parent, systemPrompt, redacted.Placeholders), null);
     }
 
     /// <summary>
@@ -240,19 +243,31 @@ public sealed class SentinelPipeline
         }
     }
 
-    /// <summary>The request after redaction and the placeholder-shaped tokens it holds.</summary>
-    private readonly record struct RedactedInput(IReadOnlyList<ChatMessage> Messages, IReadOnlySet<string>? Placeholders);
+    /// <summary>The request after redaction: messages, options and the placeholder-shaped tokens they hold.</summary>
+    private readonly record struct RedactedInput(
+        IReadOnlyList<ChatMessage> Messages, ChatOptions? Options, IReadOnlySet<string>? Placeholders);
 
+    /// <summary>
+    /// Redacts the messages and <see cref="ChatOptions.Instructions"/>, which providers send as a system prompt. The
+    /// instructions are redacted into a copy of the options, so the caller's options are never mutated; options
+    /// with nothing to redact are passed on as they are. Nothing in the options is restored: they never come back.
+    /// </summary>
     private static (RedactedInput Input, SentinelError? Error) Redact(
-        RedactionSession? session, IReadOnlyList<ChatMessage> messages)
+        RedactionSession? session, IReadOnlyList<ChatMessage> messages, ChatOptions? options)
     {
         if (session is null)
-            return (new RedactedInput(messages, null), null);
+            return (new RedactedInput(messages, options, null), null);
 
         try
         {
-            var redacted = session.RedactRequest(messages);
-            return (new RedactedInput(redacted.Messages, redacted.Placeholders), null);
+            var redacted = session.RedactRequest(messages, options?.Instructions);
+            var sentOptions = options;
+            if (options is not null && !string.Equals(redacted.Instructions, options.Instructions, StringComparison.Ordinal))
+            {
+                sentOptions = options.Clone();
+                sentOptions.Instructions = redacted.Instructions;
+            }
+            return (new RedactedInput(redacted.Messages, sentOptions, redacted.Placeholders), null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -333,7 +348,7 @@ public sealed class SentinelPipeline
             async (sent, token) =>
             {
                 var updates = new List<ChatResponseUpdate>();
-                await foreach (var update in innerClient.GetStreamingResponseAsync(sent, chatOptions, token).ConfigureAwait(false))
+                await foreach (var update in innerClient.GetStreamingResponseAsync(sent, request.Options, token).ConfigureAwait(false))
                     updates.Add(update);
                 return updates;
             },

@@ -176,15 +176,18 @@ internal sealed class RedactionSession
 
     /// <summary>A request as the model will see it.</summary>
     /// <param name="Messages">Redacted copies of the messages.</param>
-    /// <param name="Placeholders">Every placeholder-shaped token in <paramref name="Messages"/>: this session's,
-    /// and literals from other calls.</param>
-    public readonly record struct RedactedRequest(IReadOnlyList<ChatMessage> Messages, IReadOnlySet<string> Placeholders);
+    /// <param name="Instructions">The redacted instructions, or the input when it had nothing to redact.</param>
+    /// <param name="Placeholders">Every placeholder-shaped token in <paramref name="Messages"/> and
+    /// <paramref name="Instructions"/>: this session's, and literals from other calls.</param>
+    public readonly record struct RedactedRequest(
+        IReadOnlyList<ChatMessage> Messages, string? Instructions, IReadOnlySet<string> Placeholders);
 
     /// <summary>
-    /// Redacts every string of <paramref name="messages"/> that goes to the model in one pass over copies,
-    /// collecting the placeholder-shaped tokens of the result as it goes. The input is not mutated.
+    /// Redacts every string of <paramref name="messages"/> that goes to the model, and <paramref name="instructions"/>,
+    /// in one pass over copies, collecting the placeholder-shaped tokens of the result as it goes. The input is not
+    /// mutated.
     /// </summary>
-    public RedactedRequest RedactRequest(IReadOnlyList<ChatMessage> messages)
+    public RedactedRequest RedactRequest(IReadOnlyList<ChatMessage> messages, string? instructions = null)
     {
         ArgumentNullException.ThrowIfNull(messages);
         var placeholders = new HashSet<string>(StringComparer.Ordinal);
@@ -200,7 +203,7 @@ internal sealed class RedactionSession
         {
             result.Add(MapMessage(message, Map, redact: true));
         }
-        return new RedactedRequest(result, placeholders);
+        return new RedactedRequest(result, instructions is null ? null : Map(instructions), placeholders);
     }
 
     /// <summary>Redacted copies of <paramref name="messages"/>; see <see cref="RedactRequest"/>.</summary>
@@ -625,6 +628,13 @@ internal sealed class RedactionSession
                 {
                     ProtectedData = reasoning.ProtectedData,
                 });
+            case ToolApprovalRequestContent request when request.ToolCall is FunctionCallContent call:
+                return CopyApprovalRequest(request, MapApprovalCall(call, map, redact));
+            case ToolApprovalResponseContent response when response.ToolCall is FunctionCallContent call:
+                return CopyMetadata(response, new ToolApprovalResponseContent(response.RequestId, response.Approved, MapApprovalCall(call, map, redact))
+                {
+                    Reason = response.Reason is null ? null : map(response.Reason),
+                });
             case DataContent data when redact && IsText(data) && !data.Data.IsEmpty:
                 var encoding = EncodingOf(data);
                 var mapped = encoding.GetBytes(map(encoding.GetString(data.Data.Span)));
@@ -662,8 +672,66 @@ internal sealed class RedactionSession
         return Encoding.UTF8;
     }
 
-    private static bool IsText(DataContent data) =>
-        data.MediaType.StartsWith("text/", StringComparison.OrdinalIgnoreCase);
+    // Text and the text-based application types a model reads as text: JSON, XML and their +json and +xml
+    // variants, NDJSON, YAML, JavaScript and form data. Parameters such as charset are ignored here.
+    private static bool IsText(DataContent data)
+    {
+        var mediaType = data.MediaType.AsSpan();
+        var semicolon = mediaType.IndexOf(';');
+        if (semicolon >= 0)
+        {
+            mediaType = mediaType[..semicolon];
+        }
+        mediaType = mediaType.Trim();
+
+        if (mediaType.StartsWith("text/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        if (!mediaType.StartsWith("application/", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var subtype = mediaType["application/".Length..];
+        foreach (var textual in TextApplicationSubtypes)
+        {
+            if (subtype.Equals(textual, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return subtype.EndsWith("+json", StringComparison.OrdinalIgnoreCase)
+            || subtype.EndsWith("+xml", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static readonly string[] TextApplicationSubtypes =
+        ["json", "xml", "x-ndjson", "yaml", "x-yaml", "javascript", "x-www-form-urlencoded"];
+
+    // The call inside an approval request or response: redacted like any call on the way to the model. On the way
+    // back it is a call that runs once approved, so it follows the tool rule whether or not a result follows it.
+    private FunctionCallContent MapApprovalCall(FunctionCallContent call, Func<string, string> map, bool redact) =>
+        CopyMetadata(call, MapCall(call, redact ? map : RestoreToolArgument, redact));
+
+    /// <summary>
+    /// A copy of <paramref name="request"/> carrying <paramref name="call"/>. The request is copied through its
+    /// JSON contract, which carries every property, including RequiresConfirmation, which is experimental and so
+    /// is not set from code here; the copy's call is then given the mapped arguments and the call's metadata.
+    /// </summary>
+    private static ToolApprovalRequestContent CopyApprovalRequest(ToolApprovalRequestContent request, FunctionCallContent call)
+    {
+        var json = JsonSerializer.SerializeToElement<AIContent>(request, AIJsonUtilities.DefaultOptions);
+        if (json.Deserialize<AIContent>(AIJsonUtilities.DefaultOptions) is not ToolApprovalRequestContent { ToolCall: FunctionCallContent copiedCall } copy)
+        {
+            throw new InvalidOperationException("A tool approval request could not be copied for redaction.");
+        }
+
+        copiedCall.Arguments = call.Arguments;
+        copiedCall.Exception = call.Exception;
+        copiedCall.InformationalOnly = call.InformationalOnly;
+        CopyMetadata(call, copiedCall);
+        return CopyMetadata(request, copy);
+    }
 
     private FunctionCallContent MapCall(FunctionCallContent call, Func<string, string> map, bool redact)
     {

@@ -661,7 +661,7 @@ public class RedactionSessionTests
     }
 
     [Fact]
-    public void RedactRequest_CollectsEveryPlaceholderShapedToken_FromTextArgumentsAndResults()
+    public void RedactRequest_CollectsEveryPlaceholderShapedToken_FromTextArgumentsResultsAndInstructions()
     {
         var session = Pii();
         var request = session.RedactRequest(
@@ -669,11 +669,18 @@ public class RedactionSessionTests
             new ChatMessage(ChatRole.User, "see jan@acme.nl and [email_2_abc123] and [IBAN_3]"),
             new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c", "f", new Dictionary<string, object?>(StringComparer.Ordinal) { ["k"] = "[API_KEY_1_old001]" })]),
             new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c", "[IBAN_3_old001]")]),
-        ]);
+        ], "operator b@acme.nl");
 
+        Assert.Equal("operator [EMAIL_2_abc123]", request.Instructions);
         Assert.Equal(
-            new HashSet<string>(StringComparer.Ordinal) { "[EMAIL_1_abc123]", "[API_KEY_1_old001]", "[IBAN_3_old001]" },
+            new HashSet<string>(StringComparer.Ordinal) { "[EMAIL_1_abc123]", "[EMAIL_2_abc123]", "[API_KEY_1_old001]", "[IBAN_3_old001]" },
             request.Placeholders);
+    }
+
+    [Fact]
+    public void RedactRequest_NoInstructions_GivesNull()
+    {
+        Assert.Null(Pii().RedactRequest([new ChatMessage(ChatRole.User, "hi")]).Instructions);
     }
 
 
@@ -751,5 +758,101 @@ public class RedactionSessionTests
         var counts = session.CountsByDetector;
         Assert.Equal(winnerId, Assert.Single(counts).Key);
         Assert.Equal(count, counts[winnerId][winner]);
+    }
+
+    [Theory]
+    [InlineData("application/json")]
+    [InlineData("application/json; charset=utf-8")]
+    [InlineData("application/xml")]
+    [InlineData("application/vnd.api+json")]
+    [InlineData("application/atom+xml")]
+    [InlineData("TEXT/CSV")]
+    public void TextLikeDataContent_IsRedacted(string mediaType)
+    {
+        var session = Pii();
+        var data = new DataContent(Encoding.UTF8.GetBytes("""{"mail":"jan@acme.nl"}"""), mediaType);
+
+        var result = session.Redact([new ChatMessage(ChatRole.User, [data])]);
+
+        var redacted = (DataContent)result[0].Contents[0];
+        Assert.Equal("""{"mail":"[EMAIL_1]"}""", Placeholders.Untag(Encoding.UTF8.GetString(redacted.Data.Span)));
+        Assert.Equal(mediaType, redacted.MediaType);
+    }
+
+    [Theory]
+    [InlineData("application/octet-stream")]
+    [InlineData("image/png")]
+    [InlineData("application/pdf")]
+    [InlineData("application/jsonx")]
+    public void BinaryDataContent_IsNotTouched(string mediaType)
+    {
+        var session = Pii();
+        var bytes = Encoding.UTF8.GetBytes("jan@acme.nl");
+        var data = new DataContent(bytes, mediaType);
+
+        var result = session.Redact([new ChatMessage(ChatRole.User, [data])]);
+
+        Assert.Same(data, result[0].Contents[0]);
+    }
+
+    [Fact]
+    public void ToolApprovalContents_CallArgumentsAreRedacted()
+    {
+        var session = Pii();
+        static FunctionCallContent Call() =>
+            new("c1", "SendMail", new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "jan@acme.nl" });
+        var request = new ToolApprovalRequestContent("r1", Call());
+        var response = new ToolApprovalResponseContent("r1", approved: true, Call()) { Reason = "ok for jan@acme.nl" };
+
+        var result = session.Redact(
+        [
+            new ChatMessage(ChatRole.Assistant, [request]),
+            new ChatMessage(ChatRole.User, [response]),
+        ]);
+
+        var redactedRequest = Assert.IsType<ToolApprovalRequestContent>(result[0].Contents[0]);
+        Assert.Equal("r1", redactedRequest.RequestId);
+        Assert.Equal("[EMAIL_1]", Placeholders.Untag((string?)((FunctionCallContent)redactedRequest.ToolCall).Arguments!["to"]));
+        var redactedResponse = Assert.IsType<ToolApprovalResponseContent>(result[1].Contents[0]);
+        Assert.True(redactedResponse.Approved);
+        Assert.Equal("[EMAIL_1]", Placeholders.Untag((string?)((FunctionCallContent)redactedResponse.ToolCall).Arguments!["to"]));
+        Assert.Equal("ok for [EMAIL_1]", Placeholders.Untag(redactedResponse.Reason));
+        // The caller's contents are not mutated.
+        Assert.Equal("jan@acme.nl", ((FunctionCallContent)request.ToolCall).Arguments!["to"]);
+    }
+
+    // An approval request is for a call that will run once approved, so its arguments follow the tool rule:
+    // PII is restored, a secret keeps its placeholder. Everything else on the request is kept, including
+    // RequiresConfirmation, which is set here through JSON because its property is still experimental.
+    [Fact]
+    public void ToolApprovalRequest_InAResponse_RestoresByTheToolRule_AndKeepsTheRequest()
+    {
+        var session = new RedactionSession([new PiiLeakageDetector(), new CredentialExposureDetector()], Tag);
+        var redacted = session.Redact("jan@acme.nl api_key=abc123def456");
+        var email = Placeholders.FirstSeen(redacted, "[EMAIL_1]")!;
+        var key = Placeholders.FirstSeen(redacted, "[API_KEY_1]")!;
+        var json = """{"$type":"toolApprovalRequest","requestId":"r1","requiresConfirmation":false,"toolCall":{"$type":"functionCall","callId":"c1","name":"Lookup","arguments":{"to":"EMAIL","key":"KEY"}}}"""
+            .Replace("EMAIL", email, StringComparison.Ordinal)
+            .Replace("KEY", key, StringComparison.Ordinal);
+        var request = JsonSerializer.Deserialize<AIContent>(json, AIJsonUtilities.DefaultOptions)!;
+
+        var restored = session.Restore(new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [request]),
+            // A result for c1 does not make the approval history: the call still waits for approval.
+            new(ChatRole.Tool, [new FunctionResultContent("c1", "ok")]),
+        });
+
+        var approval = Assert.IsType<ToolApprovalRequestContent>(restored[0].Contents[0]);
+        Assert.NotSame(request, approval);
+        Assert.Equal("r1", approval.RequestId);
+        var call = Assert.IsType<FunctionCallContent>(approval.ToolCall);
+        Assert.Equal("Lookup", call.Name);
+        Assert.Equal("jan@acme.nl", call.Arguments!["to"]?.ToString());
+        Assert.Equal(key, call.Arguments["key"]?.ToString());
+        var copy = JsonSerializer.SerializeToElement<AIContent>(approval, AIJsonUtilities.DefaultOptions);
+        Assert.False(copy.GetProperty("requiresConfirmation").GetBoolean());
+        // The input is not mutated.
+        Assert.Equal(email, ((FunctionCallContent)((ToolApprovalRequestContent)request).ToolCall).Arguments!["to"]?.ToString());
     }
 }
