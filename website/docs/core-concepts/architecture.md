@@ -46,7 +46,7 @@ If pass 1 quarantines, pass 2 never runs — the inner LLM call is skipped. This
 Every pass gets a `SentinelContext` carrying:
 
 - **`SenderId` / `ReceiverId`** — `AgentId` value objects. Defaults: `"user"` → `"assistant"`.
-- **`SessionId`** — stable across the two passes of a single chat call.
+- **`SessionId`** — stable across the two passes of a single chat call, and across a conversation's calls when the caller names the conversation: the string under `"sentinel.session_id"` (`SentinelPipeline.SessionIdKey`) in `ChatOptions.AdditionalProperties`, else `ChatOptions.ConversationId`. Without either, each call gets its own id. The hook CLIs and the MCP proxy use the agent's own session id.
 - **`Messages`** — the prompt or response messages being scanned.
 - **`History`** — previous `AuditEntry` records from the same session, available to detectors that span turns (`HAL-07 IntraSessionContradiction`, `OPS-13 PersonaDrift`, etc.).
 - **`LlmId`** — optional model identifier passed via `ChatOptions.ModelId`.

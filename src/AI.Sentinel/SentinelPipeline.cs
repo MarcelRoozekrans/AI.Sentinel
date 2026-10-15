@@ -87,7 +87,7 @@ public sealed class SentinelPipeline
         ChatOptions? chatOptions,
         CancellationToken ct)
     {
-        var sessionId = SessionId.New();
+        var sessionId = SessionIdFor(chatOptions);
         var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, sessionId, ct).ConfigureAwait(false);
         if (requestError is not null)
             return Result<ChatResponse, SentinelError>.Failure(requestError);
@@ -337,7 +337,7 @@ public sealed class SentinelPipeline
         ChatOptions? chatOptions,
         CancellationToken ct)
     {
-        var sessionId = SessionId.New();
+        var sessionId = SessionIdFor(chatOptions);
         var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, sessionId, ct).ConfigureAwait(false);
         if (requestError is not null)
             return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(requestError);
@@ -394,7 +394,7 @@ public sealed class SentinelPipeline
 
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var (scanned, systemPrompt) = WithInstructions(messageList, chatOptions?.Instructions);
-        return await ScanAsync(scanned, sessionId ?? SessionId.New(),
+        return await ScanAsync(scanned, sessionId ?? SessionIdFor(chatOptions),
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt).ConfigureAwait(false);
     }
 
@@ -414,6 +414,23 @@ public sealed class SentinelPipeline
         scanned.AddRange(messages);
         var systemPrompt = string.IsNullOrEmpty(systemMessage) ? instructions : $"{instructions}\n\n{systemMessage}";
         return (scanned, systemPrompt);
+    }
+
+    /// <summary>The <see cref="ChatOptions.AdditionalProperties"/> key that names the caller's session.</summary>
+    public const string SessionIdKey = "sentinel.session_id";
+
+    /// <summary>
+    /// The session this call's audit entries belong to: the string under <see cref="SessionIdKey"/> in
+    /// <see cref="ChatOptions.AdditionalProperties"/>, else <see cref="ChatOptions.ConversationId"/>, else a new id.
+    /// One conversation's calls then share a session in the audit log, the dashboard and alert de-duplication.
+    /// </summary>
+    private static SessionId SessionIdFor(ChatOptions? chatOptions)
+    {
+        if (chatOptions?.AdditionalProperties?.GetValueOrDefault(SessionIdKey) is string key && !string.IsNullOrWhiteSpace(key))
+            return new SessionId(key);
+        if (!string.IsNullOrWhiteSpace(chatOptions?.ConversationId))
+            return new SessionId(chatOptions.ConversationId);
+        return SessionId.New();
     }
 
     /// <summary>Returns the conversation's system prompt, if one was supplied.</summary>
@@ -538,7 +555,7 @@ public sealed class SentinelPipeline
         if (options.MaxCallsPerSecond is not int maxRps) return null;
 
         var sessionKey = chatOptions?.AdditionalProperties
-            ?.GetValueOrDefault("sentinel.session_id") as string ?? "__global__";
+            ?.GetValueOrDefault(SessionIdKey) as string ?? "__global__";
         var burst = options.BurstSize ?? maxRps;
         var entry = _rateLimiters.GetOrAdd(sessionKey,
             _ => new RateLimiterEntry(new RateLimiter(maxRps, burst, RateLimitScope.Instance)));
