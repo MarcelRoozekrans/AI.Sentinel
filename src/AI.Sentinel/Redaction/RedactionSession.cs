@@ -273,13 +273,163 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     /// </remarks>
     public IList<ChatMessage> Restore(IList<ChatMessage> messages)
     {
-        var answered = AnsweredCalls(messages);
+        var contents = new List<IList<AIContent>>(messages.Count);
+        foreach (var message in messages)
+        {
+            contents.Add(message.Contents);
+        }
+        var answered = AnsweredCalls(contents);
         var result = new List<ChatMessage>(messages.Count);
         foreach (var message in messages)
         {
             result.Add(MapMessage(message, Restore, redact: false, answered));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Restores streamed updates for the caller by the rules of <see cref="Restore(IList{ChatMessage})"/>: text,
+    /// reasoning and tool results get every value back, a call answered by a result streamed after it is
+    /// history, and any other call keeps the placeholders of values that must never reach a tool argument.
+    /// A placeholder can be split across updates, such as <c>[EMA</c> and <c>IL_1]</c>, so text that ends in
+    /// what may be the start of one is held back and put in front of the next text of the same kind; text
+    /// still held at the end goes back where it came from. No update carries part of a placeholder.
+    /// Returns copies: the count, the update metadata and all other content stay as they were, and the input
+    /// is not mutated.
+    /// </summary>
+    public IReadOnlyList<ChatResponseUpdate> RestoreUpdates(IReadOnlyList<ChatResponseUpdate> updates)
+    {
+        var lists = new List<IList<AIContent>>(updates.Count);
+        foreach (var update in updates)
+        {
+            lists.Add(update.Contents);
+        }
+        var answered = AnsweredCalls(lists);
+
+        var restorer = new UpdateRestorer(this, answered, LongestToken());
+        var result = new List<ChatResponseUpdate>(updates.Count);
+        string? messageId = null;
+        foreach (var update in updates)
+        {
+            // A placeholder never spans two messages, so text is never held across into another one.
+            if (!string.Equals(update.MessageId, messageId, StringComparison.Ordinal))
+            {
+                restorer.GiveBackHeld();
+                messageId = update.MessageId;
+            }
+            result.Add(restorer.Restore(update));
+        }
+        restorer.GiveBackHeld();
+        return result;
+    }
+
+    /// <summary>Restores the updates of one stream in order, holding text back across them.</summary>
+    private sealed class UpdateRestorer(RedactionSession session, HashSet<FunctionCallContent> answered, int longestToken)
+    {
+        private readonly StreamedText _text = new(session, longestToken);
+        private readonly StreamedText _reasoning = new(session, longestToken);
+        private TextContent? _lastText;
+        private TextReasoningContent? _lastReasoning;
+
+        public ChatResponseUpdate Restore(ChatResponseUpdate update)
+        {
+            var contents = new List<AIContent>(update.Contents.Count);
+            foreach (var content in update.Contents)
+            {
+                switch (content)
+                {
+                    case TextContent t:
+                        _lastText = CopyMetadata(t, new TextContent(_text.Restore(t.Text)));
+                        contents.Add(_lastText);
+                        break;
+                    case TextReasoningContent r:
+                        _lastReasoning = CopyMetadata(r, new TextReasoningContent(_reasoning.Restore(r.Text))
+                        {
+                            ProtectedData = r.ProtectedData,
+                        });
+                        contents.Add(_lastReasoning);
+                        break;
+                    default:
+                        contents.Add(session.MapContent(content, session.Restore, redact: false, answered));
+                        break;
+                }
+            }
+            var copy = update.Clone();
+            copy.Contents = contents;
+            return copy;
+        }
+
+        // Held text is no placeholder: it never got its closing bracket. It goes back to the text it came from.
+        public void GiveBackHeld()
+        {
+            if (_lastText is not null)
+            {
+                _lastText.Text += _text.TakeHeld();
+            }
+            if (_lastReasoning is not null)
+            {
+                _lastReasoning.Text += _reasoning.TakeHeld();
+            }
+        }
+    }
+
+    private int LongestToken()
+    {
+        lock (_gate)
+        {
+            var longest = 0;
+            foreach (var token in _valueByToken.Keys)
+            {
+                longest = Math.Max(longest, token.Length);
+            }
+            return longest;
+        }
+    }
+
+    /// <summary>One kind of streamed text, restored piece by piece, holding back a possible placeholder start.</summary>
+    private sealed class StreamedText(RedactionSession session, int longestToken)
+    {
+        private string Held { get; set; } = string.Empty;
+
+        public string TakeHeld()
+        {
+            var held = Held;
+            Held = string.Empty;
+            return held;
+        }
+
+        public string? Restore(string? text)
+        {
+            if (Held.Length == 0 && text is null)
+            {
+                return null;
+            }
+
+            var joined = Held + text;
+            var cut = HoldFrom(joined);
+            Held = joined[cut..];
+            return session.Restore(joined[..cut]);
+        }
+
+        // The start of an unterminated '[' followed only by placeholder characters and shorter than the longest
+        // token this session minted, so it may still become one; otherwise the end of the text.
+        private int HoldFrom(string text)
+        {
+            var open = text.LastIndexOf('[');
+            if (open < 0 || text.Length - open >= longestToken)
+            {
+                return text.Length;
+            }
+
+            for (var i = open + 1; i < text.Length; i++)
+            {
+                if (!char.IsAsciiLetterUpper(text[i]) && !char.IsAsciiDigit(text[i]) && text[i] != '_')
+                {
+                    return text.Length;
+                }
+            }
+            return open;
+        }
     }
 
     /// <summary>
@@ -396,14 +546,14 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     }
 
     // Walks backwards collecting the ids of results seen so far, so a call counts as answered only when a
-    // result with its id comes after it.
-    private static HashSet<FunctionCallContent> AnsweredCalls(IList<ChatMessage> messages)
+    // result with its id comes after it. One content list per message, or per streamed update.
+    private static HashSet<FunctionCallContent> AnsweredCalls(List<IList<AIContent>> lists)
     {
         var answered = new HashSet<FunctionCallContent>(ReferenceEqualityComparer.Instance);
         var laterResults = new HashSet<string>(StringComparer.Ordinal);
-        for (var m = messages.Count - 1; m >= 0; m--)
+        for (var m = lists.Count - 1; m >= 0; m--)
         {
-            var contents = messages[m].Contents;
+            var contents = lists[m];
             for (var c = contents.Count - 1; c >= 0; c--)
             {
                 switch (contents[c])

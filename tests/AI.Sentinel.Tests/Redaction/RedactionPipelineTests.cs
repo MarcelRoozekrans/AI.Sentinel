@@ -42,7 +42,7 @@ public class RedactionPipelineTests
         return b;
     }
 
-    private sealed class Harness(IChatClient client, RecordingModel model, RingBufferAuditStore audit, List<object> published)
+    internal sealed class Harness(IChatClient client, RecordingModel model, RingBufferAuditStore audit, List<object> published)
     {
         public IChatClient Client => client;
         public RecordingModel Model => model;
@@ -50,7 +50,7 @@ public class RedactionPipelineTests
         public List<object> Published => published;
     }
 
-    private static Harness Build(
+    internal static Harness Build(
         string order,
         RecordingModel model,
         Action<SentinelOptions>? configure = null,
@@ -828,7 +828,7 @@ public class RedactionPipelineTests
         }
     }
 
-    private static List<FunctionCallContent> CallsIn(IList<ChatMessage> messages)
+    internal static List<FunctionCallContent> CallsIn(IList<ChatMessage> messages)
     {
         var calls = new List<FunctionCallContent>();
         foreach (var m in messages)
@@ -941,8 +941,33 @@ public class RedactionPipelineTests
             return Task.FromResult(new ChatResponse(reply(list)));
         }
 
-        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+        // Streams the same reply, with text cut into 3-character updates so a placeholder spans several of them.
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            const int chunk = 3;
+            var response = await GetResponseAsync(messages, options, cancellationToken);
+            foreach (var m in response.Messages)
+            {
+                var messageId = Guid.NewGuid().ToString("N");
+                foreach (var c in m.Contents)
+                {
+                    if (c is TextContent { Text: { Length: > 0 } text })
+                    {
+                        for (var i = 0; i < text.Length; i += chunk)
+                        {
+                            yield return new ChatResponseUpdate(m.Role, text.Substring(i, Math.Min(chunk, text.Length - i))) { MessageId = messageId };
+                        }
+                    }
+                    else
+                    {
+                        yield return new ChatResponseUpdate(m.Role, [c]) { MessageId = messageId };
+                    }
+                }
+            }
+        }
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
 

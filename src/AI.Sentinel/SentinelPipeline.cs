@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Text;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Alerts;
 using AI.Sentinel.Audit;
@@ -86,20 +85,74 @@ public sealed class SentinelPipeline
         ChatOptions? chatOptions,
         CancellationToken ct)
     {
+        var sessionId = SessionId.New();
+        var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, sessionId, ct).ConfigureAwait(false);
+        if (requestError is not null)
+            return Result<ChatResponse, SentinelError>.Failure(requestError);
+
+        var scope = EnterScope(in request);
+
+        ChatResponse response;
+        try
+        {
+            response = await innerClient
+                .GetResponseAsync(ApplyHardening(request.Messages), chatOptions, ct)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // The request was sent, so its redactions are compliance evidence even when the call was cancelled.
+            await AppendRedactionsAsync(request.Session, sessionId, CancellationToken.None).ConfigureAwait(false);
+            return Result<ChatResponse, SentinelError>.Failure(
+                new SentinelError.PipelineFailure("Inner client failed.", ex));
+        }
+
+        await AppendRedactionsAsync(request.Session, sessionId, ct).ConfigureAwait(false);
+
+        IReadOnlyList<ChatMessage> responseMessages =
+            response.Messages as IReadOnlyList<ChatMessage> ?? response.Messages.ToList();
+        var responseError = await CheckResponseAsync(responseMessages, request, scope, sessionId, ct).ConfigureAwait(false);
+        if (responseError is not null)
+            return Result<ChatResponse, SentinelError>.Failure(responseError);
+
+        return RestoreResponse(scope, response, static (session, r) =>
+        {
+            r.Messages = session.Restore(r.Messages);
+            return r;
+        });
+    }
+
+    /// <summary>A request after its redaction and prompt scan, ready to send.</summary>
+    /// <param name="Messages">The request as the model will see it, redacted when <paramref name="Session"/> is set.</param>
+    /// <param name="Session">This call's redaction session; null when no detector redacts.</param>
+    /// <param name="Parent">The scope of an enclosing Sentinel call, when this one runs below another.</param>
+    /// <param name="SystemPrompt">The conversation's system prompt, if any.</param>
+    /// <param name="SentPlaceholders">Every placeholder-shaped token in <paramref name="Messages"/>.</param>
+    /// <param name="Redactors">The redacting detectors, read once for the whole call.</param>
+    private readonly record struct PreparedRequest(
+        IReadOnlyList<ChatMessage> Messages,
+        IReadOnlyList<IRedactingDetector> Redactors,
+        RedactionSession? Session,
+        RedactionScope? Parent,
+        string? SystemPrompt,
+        IReadOnlySet<string>? SentPlaceholders);
+
+    /// <summary>Checks the rate limit, redacts the request and scans the redacted request.</summary>
+    private async ValueTask<(PreparedRequest Request, SentinelError? Error)> PrepareRequestAsync(
+        IEnumerable<ChatMessage> messages, ChatOptions? chatOptions, SessionId sessionId, CancellationToken ct)
+    {
         var rateError = CheckRateLimit(chatOptions);
         if (rateError is not null)
-            return Result<ChatResponse, SentinelError>.Failure(rateError);
+            return (default, rateError);
 
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
-        var sessionId = SessionId.New();
-        // The scope of an enclosing Sentinel call, when this one runs below another.
-        var parent = RedactionScope.Current;
 
+        var parent = RedactionScope.Current;
         var redactors = pipeline.Redactors;
         var session = redactors.Count > 0 ? new RedactionSession(redactors) : null;
         (messageList, var redactionError) = Redact(session, messageList);
         if (redactionError is not null)
-            return Result<ChatResponse, SentinelError>.Failure(redactionError);
+            return (default, redactionError);
 
         var systemPrompt = SystemPromptOf(messageList);
 
@@ -108,71 +161,66 @@ public sealed class SentinelPipeline
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
             new Exemptions(RedactionScope.ExemptPlaceholders(session, parent))).ConfigureAwait(false);
         if (promptError is not null)
-            return Result<ChatResponse, SentinelError>.Failure(promptError);
+            return (default, promptError);
 
         // Every placeholder-shaped token in the request the model is about to see. For the detectors that redacted
         // it none is a raw value, and the model may legitimately repeat one, including a literal left in history
         // from an earlier round trip. Only those detectors get to exempt them, see SentinelContext.
-        var sentPlaceholders = session?.PlaceholdersIn(messageList);
-
-        // Set inside this async method: it flows into the inner clients and never back out to the caller.
-        // An enclosing Sentinel's scope becomes the parent, so a tool below both resolves both layers.
-        var scope = session is null ? null : new RedactionScope(session, options.RestoreRedactedValues, parent);
-        if (scope is not null)
-            RedactionScope.Current = scope;
-
-        ChatResponse response;
-        try
-        {
-            response = await innerClient
-                .GetResponseAsync(ApplyHardening(messageList), chatOptions, ct)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // The request was sent, so its redactions are compliance evidence even when the call was cancelled.
-            await AppendRedactionsAsync(session, sessionId, CancellationToken.None).ConfigureAwait(false);
-            return Result<ChatResponse, SentinelError>.Failure(
-                new SentinelError.PipelineFailure("Inner client failed.", ex));
-        }
-
-        await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
-        var responseExempt = new Exemptions(RedactionScope.ExemptPlaceholders(session, parent), sentPlaceholders, RedactorIds(redactors));
-        return await FinishResponseAsync(response, scope, responseExempt, sessionId, systemPrompt, ct).ConfigureAwait(false);
+        return (new PreparedRequest(messageList, redactors, session, parent, systemPrompt, session?.PlaceholdersIn(messageList)), null);
     }
 
-    /// <summary>Scans the response as the model produced it, so restored values never trigger a response
-    /// detection, then restores the redacted values in it.</summary>
-    private async ValueTask<Result<ChatResponse, SentinelError>> FinishResponseAsync(
-        ChatResponse response, RedactionScope? scope, Exemptions exemptPlaceholders,
-        SessionId sessionId, string? systemPrompt, CancellationToken ct)
+    /// <summary>
+    /// Makes this call's redaction scope current, so the tool hook of a function-invoking client below sees it.
+    /// Deliberately not async: the value is set in the calling async method's context, so it flows into the inner
+    /// clients and never back out to that method's caller. An enclosing Sentinel's scope becomes the parent, so
+    /// a tool below both resolves both layers.
+    /// </summary>
+    private RedactionScope? EnterScope(in PreparedRequest request)
+    {
+        if (request.Session is null)
+            return null;
+
+        var scope = new RedactionScope(request.Session, options.RestoreRedactedValues, request.Parent);
+        RedactionScope.Current = scope;
+        return scope;
+    }
+
+    /// <summary>Fails the call when a tool invocation could not be redacted, then scans the response as the model
+    /// produced it, before any restore, so restored values never trigger a response detection.</summary>
+    private async ValueTask<SentinelError?> CheckResponseAsync(
+        IReadOnlyList<ChatMessage> responseMessages, PreparedRequest request, RedactionScope? scope,
+        SessionId sessionId, CancellationToken ct)
     {
         if (scope is { Failed: true })
         {
-            return Result<ChatResponse, SentinelError>.Failure(new SentinelError.PipelineFailure(
-                "AI.Sentinel could not redact a tool call made during the request; the request was stopped and nothing unredacted was sent."));
+            return new SentinelError.PipelineFailure(
+                "AI.Sentinel could not redact a tool call made during the request; the request was stopped and nothing unredacted was sent.");
         }
 
-        IReadOnlyList<ChatMessage> responseMessages =
-            response.Messages as IReadOnlyList<ChatMessage> ?? response.Messages.ToList();
-        var responseError = await ScanAsync(responseMessages, sessionId,
-            options.DefaultReceiverId, options.DefaultSenderId, ct, systemPrompt, exemptPlaceholders).ConfigureAwait(false);
-        if (responseError is not null)
-            return Result<ChatResponse, SentinelError>.Failure(responseError);
+        var exempt = new Exemptions(
+            RedactionScope.ExemptPlaceholders(request.Session, request.Parent),
+            request.SentPlaceholders,
+            RedactorIds(request.Redactors));
+        return await ScanAsync(responseMessages, sessionId,
+            options.DefaultReceiverId, options.DefaultSenderId, ct, request.SystemPrompt, exempt).ConfigureAwait(false);
+    }
 
-        if (scope is { Session.HasRedactions: true } && options.RestoreRedactedValues)
+    /// <summary>Restores the redacted values in <paramref name="response"/> when this call redacted anything and
+    /// <see cref="SentinelOptions.RestoreRedactedValues"/> is set; a failure to restore fails the call.</summary>
+    private Result<T, SentinelError> RestoreResponse<T>(
+        RedactionScope? scope, T response, Func<RedactionSession, T, T> restore)
+    {
+        if (scope is not { Session.HasRedactions: true } || !options.RestoreRedactedValues)
+            return Result<T, SentinelError>.Success(response);
+
+        try
         {
-            try
-            {
-                response.Messages = scope.Session.Restore(response.Messages);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                return Result<ChatResponse, SentinelError>.Failure(RedactionFailed(ex));
-            }
+            return Result<T, SentinelError>.Success(restore(scope.Session, response));
         }
-
-        return Result<ChatResponse, SentinelError>.Success(response);
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return Result<T, SentinelError>.Failure(RedactionFailed(ex));
+        }
     }
 
     private static (IReadOnlyList<ChatMessage> Messages, SentinelError? Error) Redact(
@@ -238,57 +286,56 @@ public sealed class SentinelPipeline
         interventionEngine.PublishRedaction(sessionId, byType, AuditEntryRedactionExtensions.Summarize(byType));
     }
 
-    /// <summary>Buffers the full inner streaming response, scans both prompt and response,
-    /// and returns the buffer on success or a <see cref="SentinelError"/> on failure.</summary>
+    /// <summary>Redacts and scans the prompt, buffers the full inner streaming response, scans it and restores
+    /// the redacted values in the buffered updates. Returns the buffer on success or a <see cref="SentinelError"/>
+    /// on failure.</summary>
     /// <remarks>
     /// Buffering is intentional — it ensures a quarantined response never reaches the caller.
     /// Time-to-first-token equals total LLM response latency on this path.
+    /// Redaction works as for <see cref="GetResponseResultAsync"/>. The response is scanned as the model streamed
+    /// it, then restored update by update: a placeholder split across updates is restored whole, and no update
+    /// carries part of one. The number of updates, their metadata and their non-text content are kept.
     /// </remarks>
     public async ValueTask<Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>> GetStreamingResultAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions,
         CancellationToken ct)
     {
-        var rateError = CheckRateLimit(chatOptions);
-        if (rateError is not null)
-            return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(rateError);
-
-        var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var sessionId = SessionId.New();
+        var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, sessionId, ct).ConfigureAwait(false);
+        if (requestError is not null)
+            return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(requestError);
 
-        var systemPrompt = SystemPromptOf(messageList);
-
-        var promptError = await ScanAsync(messageList, sessionId,
-            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt).ConfigureAwait(false);
-        if (promptError is not null)
-            return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(promptError);
+        var scope = EnterScope(in request);
 
         var buffer = new List<ChatResponseUpdate>();
         try
         {
             await foreach (var update in innerClient
-                .GetStreamingResponseAsync(ApplyHardening(messageList), chatOptions, ct)
+                .GetStreamingResponseAsync(ApplyHardening(request.Messages), chatOptions, ct)
                 .ConfigureAwait(false))
                 buffer.Add(update);
         }
         catch (Exception ex)
         {
+            // The request was sent, so its redactions are compliance evidence even when the call was cancelled.
+            await AppendRedactionsAsync(request.Session, sessionId, CancellationToken.None).ConfigureAwait(false);
             return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(
                 new SentinelError.PipelineFailure("Inner client streaming failed.", ex));
         }
 
-        var sb = new StringBuilder();
-        for (var i = 0; i < buffer.Count; i++) sb.Append(buffer[i].Text);
-        var responseText = sb.ToString();
-        IReadOnlyList<ChatMessage> responseMessages =
-            [new ChatMessage(ChatRole.Assistant, responseText)];
+        await AppendRedactionsAsync(request.Session, sessionId, ct).ConfigureAwait(false);
 
-        var responseError = await ScanAsync(responseMessages, sessionId,
-            options.DefaultReceiverId, options.DefaultSenderId, ct, systemPrompt).ConfigureAwait(false);
+        // The messages the updates make up, the same shape the non-streaming path scans.
+        var responseMessages = buffer.ToChatResponse().Messages;
+        var responseError = await CheckResponseAsync(
+            responseMessages as IReadOnlyList<ChatMessage> ?? responseMessages.ToList(),
+            request, scope, sessionId, ct).ConfigureAwait(false);
         if (responseError is not null)
             return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(responseError);
 
-        return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Success(buffer);
+        return RestoreResponse<IReadOnlyList<ChatResponseUpdate>>(scope, buffer,
+            static (session, updates) => session.RestoreUpdates(updates));
     }
 
     /// <summary>Runs detection against <paramref name="messages"/> without invoking the inner chat client.
