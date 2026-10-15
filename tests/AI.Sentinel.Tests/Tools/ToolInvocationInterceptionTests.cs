@@ -6,7 +6,7 @@ namespace AI.Sentinel.Tests.Tools;
 
 public class ToolInvocationInterceptionTests
 {
-    private static async Task<(string Text, int Ran, string? SeenId)> RunAsync(
+    private static async Task<(string Text, int Ran, string? SeenId, string? ResultSeenByModel)> RunAsync(
         Action<FunctionInvokingChatClient>? preset, Action<IChatClient>? chain)
     {
         var ran = 0;
@@ -17,7 +17,19 @@ public class ToolInvocationInterceptionTests
         chain?.Invoke(invoking);
         var response = await invoking.GetResponseAsync(
             [new ChatMessage(ChatRole.User, "go")], new ChatOptions { Tools = [tool] }, TestContext.Current.CancellationToken);
-        return (response.Text, ran, seen);
+        string? result = null;
+        foreach (var msg in response.Messages)
+        {
+            foreach (var content in msg.Contents)
+            {
+                if (content is FunctionResultContent r)
+                {
+                    result = r.Result?.ToString();
+                }
+            }
+        }
+
+        return (response.Text, ran, seen, result);
     }
 
     [Fact]
@@ -30,7 +42,7 @@ public class ToolInvocationInterceptionTests
     public async Task TryChainInvoker_ChainsAnExistingInvoker_InsteadOfOverwritingIt()
     {
         var log = new List<string>();
-        var (_, ran, _) = await RunAsync(
+        var (_, ran, _, _) = await RunAsync(
             f => f.FunctionInvoker = async (c, ct) =>
             {
                 log.Add("existing");
@@ -62,7 +74,7 @@ public class ToolInvocationInterceptionTests
     [Fact]
     public async Task Interceptor_CanReplaceArgumentsAndResult()
     {
-        var (text, ran, seen) = await RunAsync(null, f =>
+        var (text, ran, seen, modelSaw) = await RunAsync(null, f =>
             ToolInvocationInterception.TryChainInvoker(f, async (c, next, ct) =>
             {
                 c.Arguments = new AIFunctionArguments(new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "swapped" }, StringComparer.Ordinal);
@@ -73,12 +85,13 @@ public class ToolInvocationInterceptionTests
         Assert.Equal(1, ran);
         Assert.Equal("swapped", seen, StringComparer.Ordinal);
         Assert.Equal("done", text, StringComparer.Ordinal);
+        Assert.Equal("wrapped:deleted swapped", modelSaw, StringComparer.Ordinal);
     }
 
     [Fact]
     public async Task Interceptor_Throwing_StopsTheToolFromRunning()
     {
-        var (_, ran, _) = await RunAsync(null, f =>
+        var (_, ran, _, _) = await RunAsync(null, f =>
             ToolInvocationInterception.TryChainInvoker(f, (c, next, ct) => throw new InvalidOperationException("no")));
 
         Assert.Equal(0, ran);

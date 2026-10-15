@@ -228,7 +228,7 @@ public class ModelInitiatedToolCallTests
     }
 
     [Fact]
-    public async Task StreamingOutside_LeavesNoStateBehind_LaterRequestWithTheSameCallIdIsEvaluatedFresh()
+    public async Task StreamingOutside_LeavesNoStateBehind_LaterRequestForAnUndecidedCallIsEvaluatedFresh()
     {
         ISecurityContext caller = new TestSecurityContext("alice", "admin");
         var (client, ran, options, audit) = BuildDirect(() => caller, new ScriptedModel(callsTool: true));
@@ -240,11 +240,153 @@ public class ModelInitiatedToolCallTests
 
         Assert.Equal(1, ran[0]);
 
+        // Same call id c1, but DeleteUser is not registered, so the invocation hook never decides it and
+        // only the response check can. A stale "allowed" left by the stream would let it through.
         caller = new TestSecurityContext("bob");
         await Assert.ThrowsAsync<ToolCallAuthorizationException>(() =>
-            client.GetResponseAsync([new ChatMessage(ChatRole.User, "delete 42")], options, ct));
+            client.GetResponseAsync([new ChatMessage(ChatRole.User, "delete 42")], new ChatOptions(), ct));
         Assert.Equal(1, ran[0]);
         Assert.Single(await RecordingAuditForwarder.ReadAllAsync(audit));
+    }
+
+    // Scripts a conversation by what has been answered so far. Prompt "outer": c1 Outer, then c2 DeleteUser.
+    // Prompt "nested": c2 Safe. Prompt "turns": c1 DeleteUser, then c1 Safe.
+    private sealed class PromptModel : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            var list = messages.ToList();
+            var prompt = list[0].Text;
+            var results = 0;
+            foreach (var m in list)
+            {
+                foreach (var c in m.Contents)
+                {
+                    results += c is FunctionResultContent ? 1 : 0;
+                }
+            }
+
+            (string Id, string Name)? call = (prompt, results) switch
+            {
+                ("outer", 0) => ("c1", "Outer"),
+                ("outer", 1) => ("c2", "DeleteUser"),
+                ("nested", 0) => ("c2", "Safe"),
+                ("turns", 0) => ("c1", "DeleteUser"),
+                ("turns", 1) => ("c1", "Safe"),
+                _ => null,
+            };
+            var reply = call is { } c0
+                ? new ChatMessage(ChatRole.Assistant, [new FunctionCallContent(c0.Id, c0.Name, new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "42" })])
+                : new ChatMessage(ChatRole.Assistant, "done");
+            return Task.FromResult(new ChatResponse(reply));
+        }
+
+        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => StreamAsync(messages, options, cancellationToken);
+
+        private async IAsyncEnumerable<ChatResponseUpdate> StreamAsync(IEnumerable<ChatMessage> messages, ChatOptions? options, [EnumeratorCancellation] CancellationToken ct)
+        {
+            var response = await GetResponseAsync(messages, options, ct).ConfigureAwait(false);
+            foreach (var update in response.ToChatResponseUpdates())
+            {
+                yield return update;
+            }
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
+    private static AuthorizationChatClient BuildPrompted(
+        out IList<AITool> tools, out RingBufferAuditStore audit, Func<AuthorizationChatClient, IList<AITool>> makeTools, string caller = "bob")
+    {
+        var opts = new SentinelOptions().RequireToolPolicy("DeleteUser", "admin-only");
+        audit = new RingBufferAuditStore();
+        var guard = new DefaultToolCallGuard(
+            opts.GetAuthorizationBindings(),
+            new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal) { ["admin-only"] = new AdminOnlyPolicy() },
+            opts.DefaultToolPolicy, approvalStore: null, logger: null);
+        var client = new AuthorizationChatClient(new FunctionInvokingChatClient(new PromptModel()), guard, () => new TestSecurityContext(caller), audit);
+        tools = makeTools(client);
+        return client;
+    }
+
+    // A streaming call made from inside a tool must not write into the enclosing request's outcomes. If it
+    // did, its allowed c2 would hide the outer request's later c2, which the hook never decides because
+    // DeleteUser is not registered.
+    [Fact]
+    public async Task NestedStreamingCallInsideATool_DoesNotLeakIntoTheEnclosingRequest()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        AuthorizationChatClient? self = null;
+        var client = BuildPrompted(out var tools, out _, _ =>
+        [
+            AIFunctionFactory.Create(async () =>
+            {
+                await foreach (var _ in self!.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "nested")], new ChatOptions { Tools = [AIFunctionFactory.Create(() => "ok", "Safe")] }, ct))
+                {
+                }
+
+                return "outer-done";
+            }, "Outer"),
+        ]);
+        self = client;
+
+        await Assert.ThrowsAsync<ToolCallAuthorizationException>(() =>
+            client.GetResponseAsync([new ChatMessage(ChatRole.User, "outer")], new ChatOptions { Tools = tools }, ct));
+    }
+
+    [Fact]
+    public async Task DenialInAnEarlierTurn_IsNotOverwrittenByALaterAllowedCallWithTheSameId()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var ran = 0;
+        var client = BuildPrompted(out var tools, out var audit, _ =>
+        [
+            AIFunctionFactory.Create(() => { ran++; return "x"; }, "DeleteUser"),
+            AIFunctionFactory.Create(() => "ok", "Safe"),
+        ]);
+
+        await Assert.ThrowsAsync<ToolCallAuthorizationException>(() =>
+            client.GetResponseAsync([new ChatMessage(ChatRole.User, "turns")], new ChatOptions { Tools = tools }, ct));
+
+        Assert.Equal(0, ran);
+        Assert.Single(await RecordingAuditForwarder.ReadAllAsync(audit));
+    }
+
+    [Fact]
+    public async Task TwoClientsWithTheSameConfigurationOverOneFunctionInvokingClient_EvaluateACallOnce()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var opts = new SentinelOptions().RequireToolPolicy("DeleteUser", "admin-only");
+        var audit = new RingBufferAuditStore();
+        var counting = new CountingGuard(new DefaultToolCallGuard(
+            opts.GetAuthorizationBindings(),
+            new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal) { ["admin-only"] = new AdminOnlyPolicy() },
+            opts.DefaultToolPolicy, approvalStore: null, logger: null));
+        var shared = new FunctionInvokingChatClient(new PromptModel());
+        ISecurityContext Caller() => new TestSecurityContext("alice", "admin");
+        _ = new AuthorizationChatClient(shared, counting, Caller, audit);   // e.g. an earlier Build()
+        var second = new AuthorizationChatClient(shared, counting, Caller, audit);
+        var ran = 0;
+        var tool = AIFunctionFactory.Create(() => { ran++; return "x"; }, "Safe");
+
+        await second.GetResponseAsync([new ChatMessage(ChatRole.User, "nested")], new ChatOptions { Tools = [tool] }, ct);
+
+        Assert.Equal(1, ran);
+        Assert.Equal(1, counting.Calls);
+    }
+
+    private sealed class CountingGuard(IToolCallGuard inner) : IToolCallGuard
+    {
+        public int Calls;
+
+        public ValueTask<AuthorizationDecision> AuthorizeAsync(ISecurityContext caller, string toolName, System.Text.Json.JsonElement args, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref Calls);
+            return inner.AuthorizeAsync(caller, toolName, args, ct);
+        }
     }
 
     // Asks for DeleteUser c1 first; once `parties` requests have all reached their second call, answers "done".

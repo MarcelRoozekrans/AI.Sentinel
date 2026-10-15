@@ -33,14 +33,27 @@ internal sealed class AuthorizationChatClient : IChatClient
     private readonly IApprovalStore? approvalStore;
     private readonly IAuditForwarder[] _forwarders;
 
+    // Per FunctionInvokingChatClient: who has hooked it, so building this client twice over the same
+    // instance (for example Build() run twice over a singleton) does not stack the hook.
+    private static readonly ConditionalWeakTable<FunctionInvokingChatClient, List<HookRegistration>> Hooked = new();
+
+    private sealed record HookRegistration(IToolCallGuard Guard, IAuditStore? Audit, IApprovalStore? Approvals, HookState State);
+
     // Outcome of every call the invocation hook decided in the CURRENT non-streaming request, by call id:
     // null when allowed, the denial otherwise. FunctionInvokingChatClient swallows a throwing function and
     // reports it to the model as a failed result, so the response check uses this to tell "we decided this
     // call" from "a result is merely present", and to surface a denial to the caller. The dictionary is
     // created per request and reached through an AsyncLocal (the hook runs inside the request's execution
     // context), so nothing is shared between requests or outlives one. Model call ids repeat across
-    // conversations, so a store shared on this client would mix up callers.
-    private readonly AsyncLocal<ConcurrentDictionary<string, ToolCallAuthorizationException?>?> _requestOutcomes = new();
+    // conversations, so a store shared on this client would mix up callers. Streaming sets the value to
+    // null around every step into the inner client, so a streaming call made from inside a tool never
+    // writes into the enclosing request's dictionary.
+    private sealed class HookState
+    {
+        public readonly AsyncLocal<ConcurrentDictionary<string, ToolCallAuthorizationException?>?> RequestOutcomes = new();
+    }
+
+    private readonly HookState _hookState;
 
     public AuthorizationChatClient(
         IChatClient inner,
@@ -56,41 +69,70 @@ internal sealed class AuthorizationChatClient : IChatClient
         this.audit = audit;
         this.approvalStore = approvalStore;
         _forwarders = forwarders ?? [];
-        InstallInvocationHook();
+        _hookState = InstallInvocationHook();
     }
 
     // When a FunctionInvokingChatClient sits below this client (the "outside" order), hook the point
     // where it invokes a function. That one point covers ChatOptions.Tools and AdditionalTools alike,
-    // and needs no per-request change to the caller's options. Chained once, here, on the pipeline's own
-    // instance. With no such client below (the "inside" order) there is nothing to hook: calls are
-    // checked in the model response instead.
-    private void InstallInvocationHook()
-        => ToolInvocationInterception.TryChainInvoker(inner, async (context, next, ct) =>
+    // and needs no per-request change to the caller's options. Chained once per FunctionInvokingChatClient
+    // and guard, audit store and approval store combination: a second client with the same combination
+    // shares the first one's hook (and its caller provider) instead of stacking another. With no such client
+    // below (the "inside" order) there is nothing to hook: calls are checked in the model response instead.
+    private HookState InstallInvocationHook()
+    {
+        if (inner.GetService(typeof(FunctionInvokingChatClient)) is not FunctionInvokingChatClient invoking)
         {
-            var caller = callerProvider() ?? AnonymousSecurityContext.Instance;
-            var outcomes = _requestOutcomes.Value;   // null while streaming: nothing is recorded
-            try
+            return new HookState();
+        }
+
+        var registrations = Hooked.GetOrCreateValue(invoking);
+        lock (registrations)
+        {
+            foreach (var existing in registrations)
             {
-                await AuthorizeFunctionCallAsync(
-                    new FunctionCallContent(context.CallContent.CallId, context.Function.Name, context.Arguments), caller, ct).ConfigureAwait(false);
-            }
-            catch (ToolCallAuthorizationException denial)
-            {
-                if (outcomes is not null)
+                if (ReferenceEquals(existing.Guard, guard) && ReferenceEquals(existing.Audit, audit)
+                    && ReferenceEquals(existing.Approvals, approvalStore))
                 {
-                    outcomes[context.CallContent.CallId] = denial;
+                    return existing.State;
                 }
-
-                throw;
             }
 
+            var state = new HookState();
+            if (ToolInvocationInterception.TryChainInvoker(inner, (context, next, ct) => HookAsync(state, context, next, ct)))
+            {
+                registrations.Add(new HookRegistration(guard, audit, approvalStore, state));
+            }
+
+            return state;
+        }
+    }
+
+    private async ValueTask<object?> HookAsync(
+        HookState state, FunctionInvocationContext context, ToolInvocationInterception.ToolInvoker next, CancellationToken ct)
+    {
+        var caller = callerProvider() ?? AnonymousSecurityContext.Instance;
+        var outcomes = state.RequestOutcomes.Value;   // null while streaming: nothing is recorded
+        var callId = context.CallContent.CallId;
+        try
+        {
+            await AuthorizeFunctionCallAsync(
+                new FunctionCallContent(callId, context.Function.Name, context.Arguments), caller, ct).ConfigureAwait(false);
+        }
+        catch (ToolCallAuthorizationException denial)
+        {
             if (outcomes is not null)
             {
-                outcomes[context.CallContent.CallId] = null;
+                outcomes[callId] = denial;
             }
 
-            return await next(context, ct).ConfigureAwait(false);
-        });
+            throw;
+        }
+
+        // A recorded denial is never overwritten: FunctionInvokingChatClient loops several model turns in
+        // one request, and a later turn may reuse the call id for an allowed tool.
+        outcomes?.AddOrUpdate(callId, static _ => null, static (_, existing) => existing);
+        return await next(context, ct).ConfigureAwait(false);
+    }
 
     public async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
@@ -99,7 +141,7 @@ internal sealed class AuthorizationChatClient : IChatClient
     {
         await AuthorizeFunctionCallsAsync(messages, cancellationToken).ConfigureAwait(false);
         var outcomes = new ConcurrentDictionary<string, ToolCallAuthorizationException?>(StringComparer.Ordinal);
-        _requestOutcomes.Value = outcomes;
+        _hookState.RequestOutcomes.Value = outcomes;
         var response = await inner.GetResponseAsync(messages, options, cancellationToken).ConfigureAwait(false);
         await AuthorizePendingCallsAsync(response.Messages, outcomes, cancellationToken).ConfigureAwait(false);
         return response;
@@ -117,12 +159,29 @@ internal sealed class AuthorizationChatClient : IChatClient
         [EnumeratorCancellation] CancellationToken ct)
     {
         await AuthorizeFunctionCallsAsync(messages, ct).ConfigureAwait(false);
-        await foreach (var update in inner.GetStreamingResponseAsync(messages, options, ct).ConfigureAwait(false))
+        var enumerator = inner.GetStreamingResponseAsync(messages, options, ct).GetAsyncEnumerator(ct);
+        try
         {
-            // Streaming outside FunctionInvokingChatClient evaluates an allowed call twice: here, as it is
-            // streamed, and again in the invocation hook. The guard is a pure decision, so this is only cost.
-            await AuthorizeUpdateAsync(update, ct).ConfigureAwait(false);
-            yield return update;
+            while (true)
+            {
+                // Each MoveNextAsync starts from the consumer's context, so the scope is set immediately
+                // before every step into the inner client rather than once.
+                _hookState.RequestOutcomes.Value = null;
+                if (!await enumerator.MoveNextAsync().ConfigureAwait(false))
+                {
+                    break;
+                }
+
+                var update = enumerator.Current;
+                // Streaming outside FunctionInvokingChatClient evaluates an allowed call twice: here, as it is
+                // streamed, and again in the invocation hook. The guard is a pure decision, so this is only cost.
+                await AuthorizeUpdateAsync(update, ct).ConfigureAwait(false);
+                yield return update;
+            }
+        }
+        finally
+        {
+            await enumerator.DisposeAsync().ConfigureAwait(false);
         }
     }
 
