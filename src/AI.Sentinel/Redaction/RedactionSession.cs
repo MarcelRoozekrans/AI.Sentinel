@@ -34,7 +34,8 @@ internal sealed class RedactionSession
     private readonly Dictionary<string, int> _nextByType = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, int>> _counts = new(StringComparer.Ordinal);
 
-    /// <summary>A session with a new random tag.</summary>
+    /// <summary>A session with a new random tag. <paramref name="redactors"/> are asked for spans in this order,
+    /// which also decides between two of them reporting the same span.</summary>
     public RedactionSession(IReadOnlyList<IRedactingDetector> redactors)
         : this(redactors, PlaceholderFormat.NewTag())
     {
@@ -93,8 +94,9 @@ internal sealed class RedactionSession
 
         // Detectors run outside the lock; any exception (including regex timeouts) propagates to the caller.
         var found = new List<Found>();
-        foreach (var redactor in _redactors)
+        for (var order = 0; order < _redactors.Count; order++)
         {
+            var redactor = _redactors[order];
             var id = redactor.Id.Value;
             foreach (var span in redactor.FindSpans(text))
             {
@@ -103,7 +105,7 @@ internal sealed class RedactionSession
                     throw new InvalidOperationException(
                         $"Detector {id} reported a span outside the scanned text; refusing to redact with unreliable offsets.");
                 }
-                found.Add(new Found(span.Start, span.Length, NormalizeType(span.EntityType), id, redactor.RestoreIntoToolArguments));
+                found.Add(new Found(span.Start, span.Length, NormalizeType(span.EntityType), id, redactor.RestoreIntoToolArguments, order, found.Count));
             }
         }
 
@@ -128,10 +130,15 @@ internal sealed class RedactionSession
             return text;
         }
 
+        // Start, then longer first, then detector order, then the order the detector reported them. List.Sort is
+        // unstable, so the last two keep the outcome the same on every run: of two detectors reporting the same
+        // span, the earlier one types the placeholder and is credited.
         found.Sort(static (a, b) =>
         {
-            var byStart = a.Start.CompareTo(b.Start);
-            return byStart != 0 ? byStart : b.Length.CompareTo(a.Length);
+            if (a.Start != b.Start) return a.Start.CompareTo(b.Start);
+            if (a.Length != b.Length) return b.Length.CompareTo(a.Length);
+            if (a.DetectorOrder != b.DetectorOrder) return a.DetectorOrder.CompareTo(b.DetectorOrder);
+            return a.Sequence.CompareTo(b.Sequence);
         });
 
         var sb = new StringBuilder(text.Length);
@@ -144,7 +151,8 @@ internal sealed class RedactionSession
             var end = winner.Start + winner.Length;
             var toolRestorable = winner.ToolRestorable;
             i++;
-            // Partial overlaps and containment merge into one union span typed by the longest original.
+            // Partial overlaps and containment merge into one union span typed by the longest original; of equally
+            // long ones, the first in sort order.
             while (i < found.Count && found[i].Start < end)
             {
                 var next = found[i];
@@ -820,5 +828,5 @@ internal sealed class RedactionSession
         }
     }
 
-    private readonly record struct Found(int Start, int Length, string EntityType, string DetectorId, bool ToolRestorable);
+    private readonly record struct Found(int Start, int Length, string EntityType, string DetectorId, bool ToolRestorable, int DetectorOrder, int Sequence);
 }

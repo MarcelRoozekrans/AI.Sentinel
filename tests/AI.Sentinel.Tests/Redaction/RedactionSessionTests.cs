@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -713,5 +714,42 @@ public class RedactionSessionTests
 
         Assert.Equal(1, enumerations);
         Assert.Equal("a [EMAIL_1]", Placeholders.Untag(((TextContent)Assert.Single(result)).Text));
+    }
+
+    private static RedactionSpan[] EverySegment(int count, string type)
+    {
+        var spans = new RedactionSpan[count];
+        for (var i = 0; i < count; i++)
+        {
+            spans[i] = new RedactionSpan(i * 5, 4, type);
+        }
+        return spans;
+    }
+
+    // Two detectors reporting the same start and length: the earlier detector in the list types the
+    // placeholder and gets the count, every time. Enough spans that the sort is not an insertion sort.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SameSpanFromTwoDetectors_TheEarlierDetectorWins(bool reversed)
+    {
+        const int count = 40;
+        var alpha = new FakeRedactor("TST-01", EverySegment(count, "ALPHA"));
+        var beta = new FakeRedactor("TST-02", EverySegment(count, "BETA"));
+        var text = new StringBuilder();
+        for (var i = 0; i < count; i++)
+        {
+            text.Append(CultureInfo.InvariantCulture, $"v{i:D3} ");
+        }
+
+        var session = new RedactionSession(reversed ? [beta, alpha] : [alpha, beta]);
+        var redacted = Placeholders.Untag(session.Redact(text.ToString()));
+
+        var (winner, loser, winnerId) = reversed ? ("BETA", "ALPHA", "TST-02") : ("ALPHA", "BETA", "TST-01");
+        Assert.DoesNotContain(loser, redacted, StringComparison.Ordinal);
+        Assert.Contains($"[{winner}_{count}]", redacted, StringComparison.Ordinal);
+        var counts = session.CountsByDetector;
+        Assert.Equal(winnerId, Assert.Single(counts).Key);
+        Assert.Equal(count, counts[winnerId][winner]);
     }
 }
