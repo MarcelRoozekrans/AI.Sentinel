@@ -205,6 +205,8 @@ td.session, td.source { white-space: nowrap; }
 
 tr.severity-critical { background: rgba(239,68,68,0.04); }
 tr.severity-high     { background: rgba(249,115,22,0.04); }
+/* Redaction rows are informational: deliberately no row tint, only the blue badge marks them. */
+tr.severity-redacted { background: none; }
 
 /* Authorization denial rows (DetectorId starts with "AUTHZ-") */
 tr.audit-row-authz {
