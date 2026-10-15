@@ -13,36 +13,40 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
-    // Each pattern names a `value` group that covers only the secret, so a redacted
-    // span keeps the key name. Whitespace runs are bounded so a long run of spaces
-    // after a keyword cannot be rescanned from every keyword occurrence.
+    // Each pattern names a `value` group that covers only the secret, so a redacted span
+    // keeps the key name. A quoted value takes the text between the quotes, which may contain
+    // spaces. An unquoted value stops at whitespace and excludes trailing , ; " ' ) ] }
+    // punctuation, so `abc`, `abc;` and `"abc"` all yield the original `abc`. The unquoted
+    // form backtracks only over that trailing punctuation, so it stays linear.
+    private const string Value =
+        @"(?:""(?<value>[^""\r\n]+)""|'(?<value>[^'\r\n]+)'|(?<value>[^\s""'](?:\S*[^\s,;""')\]}])?))";
 
     [GeneratedRegex(
-        @"password\s{0,32}[=:]\s{0,32}(?<value>\S+)",
+        @"password[""']?\s*[=:]\s*" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex PasswordPattern();
 
     [GeneratedRegex(
-        @"api[_-]?key\s{0,32}[=:]\s{0,32}(?<value>\S+)",
+        @"api[_-]?key[""']?\s*[=:]\s*" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex ApiKeyPattern();
 
     [GeneratedRegex(
-        @"secret[_-]?key\s{0,32}[=:]\s{0,32}(?<value>\S+)",
+        @"secret[_-]?key[""']?\s*[=:]\s*" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex SecretKeyPattern();
 
     [GeneratedRegex(
-        @"Authorization\s{0,32}:\s{0,32}Bearer\s{1,32}(?<value>\S+)",
+        @"Authorization[""']?\s*:\s*[""']?Bearer\s+" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex BearerPattern();
 
     [GeneratedRegex(
-        @"AWS_SECRET_ACCESS_KEY\s{0,32}=\s{0,32}(?<value>\S+)",
+        @"AWS_SECRET_ACCESS_KEY[""']?\s*[=:]\s*" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex AwsSecretPattern();
@@ -51,20 +55,20 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     // there is none. The second alternative consumes the rest of the input, so an input made
     // of many BEGIN headers without an END marker is scanned once rather than once per header.
     [GeneratedRegex(
-        @"(?<value>-----BEGIN\s{1,8}(?:[A-Z]{2,12}\s{1,8}){0,2}PRIVATE\s{1,8}KEY-----(?:[\s\S]*?-----END\s{1,8}(?:[A-Z]{2,12}\s{1,8}){0,2}PRIVATE\s{1,8}KEY-----|[\s\S]*))",
+        @"(?<value>-----BEGIN\s+(?:[A-Z]{2,12}\s+){0,2}PRIVATE\s+KEY-----(?:[\s\S]*?-----END\s+(?:[A-Z]{2,12}\s+){0,2}PRIVATE\s+KEY-----|[\s\S]*))",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex PrivateKeyPattern();
 
     [GeneratedRegex(
         @"(?<value>ghp_[a-zA-Z0-9]{36})",
-        RegexOptions.Compiled,
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex GithubTokenPattern();
 
     [GeneratedRegex(
         @"(?<value>sk-[a-zA-Z0-9]{32,})",
-        RegexOptions.Compiled,
+        RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex BareApiKeyPattern();
 

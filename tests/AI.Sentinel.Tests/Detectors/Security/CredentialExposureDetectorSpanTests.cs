@@ -107,7 +107,80 @@ public class CredentialExposureDetectorSpanTests
     }
 
     [Theory]
+    [InlineData("password=\"correct horse battery\"", "correct horse battery", "PASSWORD")]
+    [InlineData("password: 'my pass phrase'", "my pass phrase", "PASSWORD")]
+    [InlineData("API_KEY=\"abc 123\"", "abc 123", "API_KEY")]
+    [InlineData("secret_key='a b'", "a b", "SECRET_KEY")]
+    [InlineData("AWS_SECRET_ACCESS_KEY=\"wJal rXUt\"", "wJal rXUt", "AWS_SECRET")]
+    [InlineData("password=abc;", "abc", "PASSWORD")]
+    [InlineData("password=abc", "abc", "PASSWORD")]
+    [InlineData("password=\"abc\"", "abc", "PASSWORD")]
+    [InlineData("{\"api_key\": \"abc\", \"x\": 1}", "abc", "API_KEY")]
+    [InlineData("\"api_key\": \"abc123\"", "abc123", "API_KEY")]
+    [InlineData("{\"password\":\"p w\"}", "p w", "PASSWORD")]
+    [InlineData("Authorization: Bearer xyz,", "xyz", "BEARER_TOKEN")]
+    [InlineData("(password=abc)", "abc", "PASSWORD")]
+    [InlineData("password=a(b)c);", "a(b)c", "PASSWORD")]
+    [InlineData("\"Authorization\": \"Bearer xyz\"", "xyz", "BEARER_TOKEN")]
+    public void FindSpans_QuotesAndPunctuation_SpanCoversExactSecret(string text, string value, string entity)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(entity, span.EntityType);
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    [Theory]
+    [InlineData("GHP_abcdefghijklmnopqrstuvwxyz0123456789", "GITHUB_TOKEN")]
+    [InlineData("SK-abcdefghijklmnopqrstuvwxyz012345", "API_KEY")]
+    public void FindSpans_PrefixedTokens_AreCaseInsensitive(string text, string entity)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(new RedactionSpan(0, text.Length, entity), span);
+    }
+
+    [Theory]
+    [InlineData("-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaA==\n-----END OPENSSH PRIVATE KEY-----")]
+    [InlineData("-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFHDBO\n-----END ENCRYPTED PRIVATE KEY-----")]
+    public void FindSpans_OpensshAndEncryptedPem_CoverWholeBlock(string pem)
+    {
+        var text = "k " + pem + " tail";
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(new RedactionSpan(2, pem.Length, "PRIVATE_KEY"), span);
+    }
+
+    [Fact]
+    public async Task AnalyzeAsync_BearerWithSkToken_ReportsBearerFirst()
+    {
+        var result = await new CredentialExposureDetector().AnalyzeAsync(
+            Ctx($"Authorization: Bearer {SkToken}"), CancellationToken.None);
+        Assert.Equal("Credential exposure: BEARER_TOKEN", result.Reason);
+    }
+
+    [Theory]
+    [InlineData("password: hunter2", true)]
+    [InlineData("password=\"a b c\"", true)]
+    [InlineData("\"api_key\": \"abc\"", true)]
+    [InlineData("Authorization: Bearer xyz", true)]
+    [InlineData("AWS_SECRET_ACCESS_KEY=abc", true)]
+    [InlineData("-----BEGIN RSA PRIVATE KEY-----", true)]
+    [InlineData("ghp_abcdefghijklmnopqrstuvwxyz0123456789", true)]
+    [InlineData("sk-abcdefghijklmnopqrstuvwxyz012345", true)]
+    [InlineData("the password is long and secret", false)]
+    [InlineData("nothing to see", false)]
+    public async Task AnalyzeAsync_AndFindSpans_AgreeOnTheSameInput(string text, bool expectHit)
+    {
+        var detector = new CredentialExposureDetector();
+        var result = await detector.AnalyzeAsync(Ctx(text), CancellationToken.None);
+        var spans = detector.FindSpans(text);
+        Assert.Equal(expectHit, result.Severity != Severity.None);
+        Assert.Equal(expectHit, spans.Count > 0);
+    }
+
+    [Theory]
     [InlineData("password=")]
+    [InlineData("password=\"")]
+    [InlineData("password='a ")]
+    [InlineData("api_key=\"x\",")]
     [InlineData("-----BEGIN PRIVATE KEY-----")]
     [InlineData("sk-")]
     [InlineData("Authorization: Bearer ")]
