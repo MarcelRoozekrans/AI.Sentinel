@@ -22,6 +22,7 @@ const sidebars = {
         'core-concepts/severity-model',
       ],
     },
+    'redaction',
     {
       type: 'category',
       label: 'Detectors',

@@ -282,7 +282,7 @@ AI.Sentinel provides runtime building blocks for several technical obligations o
 
 | Article | Requirement | What AI.Sentinel provides | Active by default |
 |---|---|---|---|
-| Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors |
+| Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses and, by default, [redact](#redaction) them so they never reach the model; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors. They detect and keep the values away from the model, they do not make a system's training, validation and test data compliant |
 | Art. 12 | Record-keeping (automatic logging) | Every detection and authorization denial is written to `IAuditStore` and linked into a SHA-256 hash chain, so an edited, inserted or deleted entry is detectable with `AuditHashChain.VerifyAsync`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`, and the `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` CLIs use it by default, recording a `Source` on each entry; forwarders mirror it, chain hashes included, to NDJSON, Azure Sentinel or OpenTelemetry | ⚠️ partial: hash-chained. The hook CLIs and the MCP proxy record findings, denials and approval holds durably to a local SQLite file by default. An in-process app still defaults to the in-memory ring buffer, capped at `opts.AuditCapacity` entries and lost on restart, until it registers `AI.Sentinel.Sqlite` |
 | Art. 14 | Human oversight | [Tool-call authorization](#tool-call-authorization) and the [approval workflow](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview): `RequireApproval` holds a tool call until a person approves it in the dashboard or in Entra PIM (`AI.Sentinel.Approvals.Sqlite`, `AI.Sentinel.Approvals.EntraPim`). The dashboard shows detections live | ❌ none: every tool call is allowed until policies or approvals are configured |
 | Art. 15 | Accuracy, robustness and cybersecurity | The [56 detectors](#detectors-56), [OWASP LLM Top 10 coverage](#owasp-llm-top-10-2025-coverage) and [prompt hardening](#prompt-hardening-owasp-llm01--preventive) | ⚠️ partial: 15 rule-based detectors; the 39 semantic ones need an `EmbeddingGenerator` and `SystemPrefix` is opt-in |
@@ -290,6 +290,8 @@ AI.Sentinel provides runtime building blocks for several technical obligations o
 | Art. 5 | Prohibited practices | Not covered yet ([#337](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/337)) | — |
 
 > **Active by default** means what a stock `AddAISentinel()` install does with no further configuration, as in the OWASP table above. The 15 rule-based detectors counted for Art. 15 are the 14 marked `Rule-based`, minus `SEC‑29 OutputSchema` (inactive without `opts.ExpectedResponseType`), plus the rule layers of `SEC‑01` and `SEC‑05`.
+
+> **GDPR.** Redaction supports data minimisation (Art. 5(1)(c)) and data protection by design (Art. 25): the model gets `[EMAIL_1]`, not the address. See [Redaction](#redaction).
 
 > **Timeline.** The Art. 5 prohibitions have applied since 2 February 2025. [Regulation (EU) 2026/1744](https://eur-lex.europa.eu/eli/reg/2026/1744/oj), the Digital Omnibus on AI, in force since 27 July 2026, moved the obligations for Annex III high-risk systems from 2 August 2026 to **2 December 2027**, and for high-risk systems under Annex I to 2 August 2028. Check the regulation itself for the dates that apply to your system.
 
@@ -508,6 +510,7 @@ builder.Services.AddAISentinel(opts =>
 | `Quarantine` | Throws `SentinelException` with full `PipelineResult`. Stops the call. Also fires the alert sink. |
 | `Alert` | Publishes `ThreatDetectedNotification` + `InterventionAppliedNotification` via `IMediator`. Fires the alert sink. Call continues. |
 | `Log` | Writes to `ILogger<InterventionEngine>`. Call continues. |
+| `Redact` | Allow the call, minus the sensitive parts: the model gets `[EMAIL_1]` in place of the value and the reply is restored. Per detector only, not a block. See [Redaction](#redaction). |
 | `PassThrough` | No action. Detections are still audited. |
 
 Alert sink behaviour: when `opts.AlertWebhook` is set, `WebhookAlertSink` POSTs a JSON payload (type, severity, detector, reason, action, session) to the configured URL on `Quarantine` or `Alert` actions. The `DeduplicatingAlertSink` wraps the webhook sink and suppresses repeat alerts for the same detector+session, controlled by `opts.AlertDeduplicationWindow`.
@@ -524,6 +527,27 @@ To use a persistent or shared cache, implement `IEmbeddingCache` and set it on
 ```csharp
 options.EmbeddingCache = new MyRedisEmbeddingCache(redis, ttl: TimeSpan.FromHours(1));
 ```
+
+### Redaction
+
+Redact is **allow, minus the sensitive parts**. `PiiLeakageDetector` and `CredentialExposureDetector` replace each value in everything sent to the model with a numbered placeholder (`[EMAIL_1]`, `[IBAN_1]`, `api_key=[API_KEY_1]`) and let the call through. After the response scan the real values are put back in the reply, in tool results and, for PII, in tool-call arguments before the tool runs. Secrets are never restored into tool arguments.
+
+> **3.0 breaking default.** These two detectors now redact by default instead of using their severity action. One line restores the 2.x behaviour:
+>
+> ```csharp
+> opts.RedactByDefault = false;
+> ```
+
+```csharp
+services.AddAISentinel(opts =>
+{
+    opts.Configure<PiiLeakageDetector>(c => c.Action = SentinelAction.Redact);
+    opts.Configure<CredentialExposureDetector>(c => c.Action = SentinelAction.Quarantine); // per-detector override
+    opts.RestoreRedactedValues = false; // keep placeholders in the reply and in tool calls
+});
+```
+
+`Redact` is invalid on `OnCritical`, `OnHigh`, `OnMedium` and `OnLow`, and on a detector that cannot redact. The placeholder mapping lives in memory for one call and is never logged, audited or forwarded. A redaction is audited as one informational `REDACTED` entry with counts only, and never counts as a threat. When redaction is not possible (the response scan, the hook CLIs and the MCP proxy in 3.0) the detection uses its severity action and the audit summary ends with `; not redacted`. Full details, including the known limitation with `UseFunctionInvocation`: [Redaction](https://marcelroozekrans.github.io/AI.Sentinel/docs/redaction).
 
 ### Tuning individual detectors
 

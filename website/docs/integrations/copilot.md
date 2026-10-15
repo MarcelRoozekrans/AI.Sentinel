@@ -70,6 +70,8 @@ What each action does:
 - **`Warn`** → exit 0 with the reason on stderr (visible in Copilot's log).
 - **`Allow`** → silent pass.
 
+> **Redaction in 3.0:** the hook CLIs cannot rewrite the request, so a detection configured to `Redact` (the 3.0 default for PII and credentials) falls back to the action of its severity here, and its audit summary ends with `; not redacted`. See [Redaction](../redaction#fallback).
+
 ## Diagnostics — did the hook fire?
 
 `SENTINEL_HOOK_VERBOSE=1` produces a stderr line on every invocation:

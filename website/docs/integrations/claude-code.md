@@ -69,6 +69,8 @@ What each action does:
 - **`Warn`** → exit 0 with the reason on stderr (visible in Claude Code's log).
 - **`Allow`** → silent pass.
 
+> **Redaction in 3.0:** the hook CLIs cannot rewrite the request, so a detection configured to `Redact` (the 3.0 default for PII and credentials) falls back to the action of its severity here, and its audit summary ends with `; not redacted`. See [Redaction](../redaction#fallback).
+
 Set the env vars in your shell profile or directly in `settings.json`:
 
 ```json

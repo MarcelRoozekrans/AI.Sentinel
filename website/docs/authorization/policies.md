@@ -90,6 +90,8 @@ opts.RequireToolPolicy("update_*",    "same-tenant");
 
 For tools where the *target tenant* must match the caller's tenant, the check needs the tool's argument context — that's not surfaced to `IAuthorizationPolicy` in v1. Use a custom `IToolCallGuard` for cases needing argument inspection (or wait for the Phase B per-call-context API).
 
+A guard that inspects arguments sees the real values, not [redaction](/docs/redaction) placeholders. A deny reason that includes argument values puts them in the audit, so keep values out of reasons.
+
 ### Allow-list authentication
 
 ```csharp
