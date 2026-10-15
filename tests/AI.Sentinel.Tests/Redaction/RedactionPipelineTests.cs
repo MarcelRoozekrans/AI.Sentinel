@@ -715,6 +715,70 @@ public class RedactionPipelineTests
         Assert.Equal("Redacted 1 EMAIL", entry.Summary);
     }
 
+    // --- Placeholders from elsewhere are not values ---
+
+    // The ruled inside-order residue: the second round trip reserves the stale [API_KEY_1] left in the tool
+    // call's history and gives the key [API_KEY_2]. A reply that repeats the stale literal is not a secret.
+    [Fact]
+    public async Task InsideOrder_ReplyRepeatsStalePlaceholder_IsNotFlagged()
+    {
+        var h = Build("F>S", RecordingModel.CallsTool("Lookup", "key", "[API_KEY_1]", "Used api_key=[API_KEY_1] for you."));
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string key) => "ok", "Lookup")] };
+
+        var response = await AskAsync(h, $"my api_key={ApiKey}.", options);
+
+        Assert.Equal("Used api_key=[API_KEY_1] for you.", response.Text);
+        foreach (var e in await RecordingAuditForwarder.ReadAllAsync(h.Audit))
+        {
+            if (string.Equals(e.DetectorId, "SEC-02", StringComparison.Ordinal))
+            {
+                Assert.Equal(Severity.None, e.Severity);
+            }
+        }
+    }
+
+    // An inner Sentinel that detects credentials without redacting them sees the outer one's placeholders.
+    [Fact]
+    public async Task StackedSentinels_InnerDetectsWithoutRedacting_DoesNotFlagOuterPlaceholders()
+    {
+        var model = RecordingModel.Echo();
+        var audit = new RingBufferAuditStore();
+        var sc = new ServiceCollection();
+        sc.AddAISentinel(_ => { });
+        sc.AddAISentinel("detect-only", o => o.RedactByDefault = false);
+        sc.AddSingleton<IAuditStore>(audit);
+        var client = new ChatClientBuilder(model).UseAISentinel().UseAISentinel("detect-only").Build(sc.BuildServiceProvider());
+
+        var response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "my password=hunter2xyz please.")], null, TestContext.Current.CancellationToken);
+
+        Assert.Equal("Echo: my password=hunter2xyz please.", response.Text);
+        Assert.Contains("password=[PASSWORD_1]", model.AllSeen, StringComparison.Ordinal);
+        Assert.DoesNotContain("hunter2xyz", model.AllSeen, StringComparison.Ordinal);
+        foreach (var e in await RecordingAuditForwarder.ReadAllAsync(audit))
+        {
+            Assert.True(e.Severity == Severity.None, $"{e.DetectorId} {e.Severity}: {e.Summary}");
+        }
+    }
+
+    // Providers reuse call ids. An earlier answered call_0 must not make the final, unanswered call_0 look
+    // answered, or its secret would be restored into a call that may still be invoked.
+    [Fact]
+    public async Task ReusedCallId_FinalUnansweredCall_KeepsSecretPlaceholder()
+    {
+        var model = new RecordingModel(_ => new ChatMessage(ChatRole.Assistant, [
+            new FunctionCallContent("call_0", "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1]" }),
+        ]));
+        var h = Build("S>F", model, invoking: f => f.MaximumIterationsPerRequest = 1);
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string key) => "ok", "Lookup")] };
+
+        var response = await AskAsync(h, $"my api_key={ApiKey}", options);
+
+        var calls = CallsIn(response.Messages);
+        Assert.True(calls.Count >= 2, $"expected an answered and a final call, got {calls.Count}");
+        Assert.Equal(ApiKey, calls[0].Arguments!["key"]?.ToString());
+        Assert.Equal("[API_KEY_1]", calls[^1].Arguments!["key"]?.ToString());
+    }
+
     // --- Helpers ---
 
     // Below Sentinel, a denial reaches the caller wrapped by Sentinel's inner-client failure, as it always has.

@@ -92,31 +92,32 @@ public sealed class SentinelPipeline
 
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var sessionId = SessionId.New();
+        // The scope of an enclosing Sentinel call, when this one runs below another.
+        var parent = RedactionScope.Current;
 
         var redactors = pipeline.Redactors;
         var session = redactors.Count > 0 ? new RedactionSession(redactors) : null;
-        if (session is not null)
-        {
-            try
-            {
-                messageList = session.Redact(messageList);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                return Result<ChatResponse, SentinelError>.Failure(RedactionFailed(ex));
-            }
-        }
+        (messageList, var redactionError) = Redact(session, messageList);
+        if (redactionError is not null)
+            return Result<ChatResponse, SentinelError>.Failure(redactionError);
 
         var systemPrompt = SystemPromptOf(messageList);
 
+        // The request holds this call's placeholders and those of any enclosing Sentinel call; none is a value.
         var promptError = await ScanAsync(messageList, sessionId,
-            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, session?.MintedTokens).ConfigureAwait(false);
+            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
+            RedactionScope.ExemptPlaceholders(session, parent)).ConfigureAwait(false);
         if (promptError is not null)
             return Result<ChatResponse, SentinelError>.Failure(promptError);
 
+        // Every placeholder-shaped token in the request the model is about to see. The request was redacted, so
+        // none is a raw secret, and the model may legitimately repeat one, including a literal left in history
+        // from an earlier round trip.
+        var sentPlaceholders = session?.PlaceholdersIn(messageList);
+
         // Set inside this async method: it flows into the inner clients and never back out to the caller.
         // An enclosing Sentinel's scope becomes the parent, so a tool below both resolves both layers.
-        var scope = session is null ? null : new RedactionScope(session, options.RestoreRedactedValues, RedactionScope.Current);
+        var scope = session is null ? null : new RedactionScope(session, options.RestoreRedactedValues, parent);
         if (scope is not null)
             RedactionScope.Current = scope;
 
@@ -136,13 +137,15 @@ public sealed class SentinelPipeline
         }
 
         await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
-        return await FinishResponseAsync(response, scope, sessionId, systemPrompt, ct).ConfigureAwait(false);
+        var responseExempt = RedactionScope.ExemptPlaceholders(session, parent, sentPlaceholders);
+        return await FinishResponseAsync(response, scope, responseExempt, sessionId, systemPrompt, ct).ConfigureAwait(false);
     }
 
     /// <summary>Scans the response as the model produced it, so restored values never trigger a response
     /// detection, then restores the redacted values in it.</summary>
     private async ValueTask<Result<ChatResponse, SentinelError>> FinishResponseAsync(
-        ChatResponse response, RedactionScope? scope, SessionId sessionId, string? systemPrompt, CancellationToken ct)
+        ChatResponse response, RedactionScope? scope, IReadOnlySet<string>? exemptPlaceholders,
+        SessionId sessionId, string? systemPrompt, CancellationToken ct)
     {
         if (scope is { Failed: true })
         {
@@ -153,7 +156,7 @@ public sealed class SentinelPipeline
         IReadOnlyList<ChatMessage> responseMessages =
             response.Messages as IReadOnlyList<ChatMessage> ?? response.Messages.ToList();
         var responseError = await ScanAsync(responseMessages, sessionId,
-            options.DefaultReceiverId, options.DefaultSenderId, ct, systemPrompt, scope?.Session.MintedTokens).ConfigureAwait(false);
+            options.DefaultReceiverId, options.DefaultSenderId, ct, systemPrompt, exemptPlaceholders).ConfigureAwait(false);
         if (responseError is not null)
             return Result<ChatResponse, SentinelError>.Failure(responseError);
 
@@ -170,6 +173,22 @@ public sealed class SentinelPipeline
         }
 
         return Result<ChatResponse, SentinelError>.Success(response);
+    }
+
+    private static (IReadOnlyList<ChatMessage> Messages, SentinelError? Error) Redact(
+        RedactionSession? session, IReadOnlyList<ChatMessage> messages)
+    {
+        if (session is null)
+            return (messages, null);
+
+        try
+        {
+            return (session.Redact(messages), null);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return (messages, RedactionFailed(ex));
+        }
     }
 
     // The exception is not chained: messages and properties of regex, serializer and detector exceptions can

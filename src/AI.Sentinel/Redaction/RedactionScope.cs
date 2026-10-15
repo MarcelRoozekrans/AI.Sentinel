@@ -88,6 +88,35 @@ internal sealed class RedactionScope(RedactionSession session, bool restoreArgum
         return restored ?? arguments;
     }
 
+    /// <summary>
+    /// The placeholders a detector must not flag as a value: those <paramref name="own"/> minted, those every
+    /// enclosing Sentinel call in the <paramref name="parent"/> chain minted, and <paramref name="extra"/>.
+    /// Null when there are none to exempt, so a call that redacts nothing exempts nothing.
+    /// </summary>
+    public static IReadOnlySet<string>? ExemptPlaceholders(
+        RedactionSession? own, RedactionScope? parent, IReadOnlySet<string>? extra = null)
+    {
+        if (own is null && parent is null && extra is null)
+        {
+            return null;
+        }
+
+        var exempt = new HashSet<string>(StringComparer.Ordinal);
+        if (own is not null)
+        {
+            exempt.UnionWith(own.MintedTokens);
+        }
+        for (var s = parent; s is not null; s = s.Parent)
+        {
+            exempt.UnionWith(s.Session.MintedTokens);
+        }
+        if (extra is not null)
+        {
+            exempt.UnionWith(extra);
+        }
+        return exempt;
+    }
+
     private static IEqualityComparer<string> ComparerOf(IDictionary<string, object?>? arguments) =>
         (arguments as Dictionary<string, object?>)?.Comparer ?? StringComparer.Ordinal;
 
@@ -140,8 +169,9 @@ internal sealed class RedactionScope(RedactionSession session, bool restoreArgum
 
     // The tool ran with real values, so its message may hold one, and FunctionInvokingChatClient puts the
     // message into the history it sends to the model when IncludeDetailedErrors is set, or rethrows the
-    // exception to the caller after too many errors. Both see only the redacted message; the original stays
-    // available as the inner exception. Null when the message cannot be redacted.
+    // exception to the caller after too many errors. Only the message is redacted: the inner exception keeps
+    // the original, with its values, for the application, and anything that renders the whole exception,
+    // such as ToString or a logger, includes it. Null when the message cannot be redacted.
     private RedactedToolInvocationException? TryRedact(Exception ex)
     {
         try

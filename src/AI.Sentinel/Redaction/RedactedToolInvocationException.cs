@@ -1,9 +1,11 @@
 namespace AI.Sentinel.Redaction;
 
 /// <summary>
-/// A tool invoked during a redacted request threw. <see cref="Exception.Message"/> is the tool's message with
-/// sensitive values replaced by placeholders, because it can reach the model or a log; the original exception,
-/// which may hold the values, is the <see cref="Exception.InnerException"/>.
+/// A tool invoked during a redacted request threw. Only <see cref="Exception.Message"/> is redacted: it is the
+/// tool's message with sensitive values replaced by placeholders, because a function-invoking client can send
+/// it to the model or rethrow it to the caller. <see cref="Exception.InnerException"/> is the original exception
+/// and keeps the real values for the application, so <see cref="Exception.ToString"/>, which includes it, and
+/// any log that writes the whole exception, can contain them.
 /// </summary>
 public sealed class RedactedToolInvocationException : Exception
 {

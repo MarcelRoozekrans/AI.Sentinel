@@ -608,4 +608,53 @@ public class RedactionSessionTests
         Assert.Equal("[EMAIL_2]", escaped);
         Assert.Equal("[EMAIL_1]", session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = escaped }, StringComparer.Ordinal)["v"]);
     }
+
+    [Fact]
+    public void Restore_CallIsAnsweredOnlyByAResultThatFollowsIt()
+    {
+        var session = new RedactionSession([new CredentialExposureDetector()]);
+        Assert.Equal("api_key=[API_KEY_1]", session.Redact("api_key=abc123def456"));
+        static FunctionCallContent Call(string id) =>
+            new(id, "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1]" });
+
+        var restored = session.Restore(new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [Call("call_0")]),
+            new(ChatRole.Tool, [new FunctionResultContent("call_0", "ok")]),
+            new(ChatRole.Assistant, [Call("call_0")]),
+            new(ChatRole.Assistant, [Call("")]),
+            new(ChatRole.Tool, [new FunctionResultContent("", "ok")]),
+        });
+
+        Assert.Equal("abc123def456", ((FunctionCallContent)restored[0].Contents[0]).Arguments!["key"]);
+        Assert.Equal("[API_KEY_1]", ((FunctionCallContent)restored[2].Contents[0]).Arguments!["key"]);
+        Assert.Equal("[API_KEY_1]", ((FunctionCallContent)restored[3].Contents[0]).Arguments!["key"]);
+    }
+
+    [Fact]
+    public void Restore_ResultBeforeTheCall_DoesNotAnswerIt()
+    {
+        var session = new RedactionSession([new CredentialExposureDetector()]);
+        session.Redact("api_key=abc123def456");
+
+        var restored = session.Restore(new List<ChatMessage>
+        {
+            new(ChatRole.Tool, [new FunctionResultContent("c1", "ok")]),
+            new(ChatRole.Assistant, [new FunctionCallContent("c1", "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1]" })]),
+        });
+
+        Assert.Equal("[API_KEY_1]", ((FunctionCallContent)restored[1].Contents[0]).Arguments!["key"]);
+    }
+
+    [Fact]
+    public void PlaceholdersIn_FindsTokensInTextArgumentsAndResults()
+    {
+        var session = Pii();
+        var found = session.PlaceholdersIn([
+            new ChatMessage(ChatRole.User, "see [EMAIL_1] and [email_2]"),
+            new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c", "f", new Dictionary<string, object?>(StringComparer.Ordinal) { ["k"] = "[API_KEY_1]" })]),
+            new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c", "[IBAN_3]")]),
+        ]);
+        Assert.Equal(new HashSet<string>(StringComparer.Ordinal) { "[EMAIL_1]", "[API_KEY_1]", "[IBAN_3]" }, found);
+    }
 }

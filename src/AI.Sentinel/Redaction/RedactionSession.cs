@@ -44,6 +44,32 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         get { lock (_gate) { return _valueByToken.Count > 0; } }
     }
 
+    /// <summary>
+    /// Every placeholder-shaped token, such as <c>[API_KEY_1]</c>, in the strings of <paramref name="messages"/>:
+    /// text, tool-call arguments and tool results. Meant for a request this session already redacted.
+    /// </summary>
+    public IReadOnlySet<string> PlaceholdersIn(IReadOnlyList<ChatMessage> messages)
+    {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        string Collect(string text)
+        {
+            if (text.IndexOf('[', StringComparison.Ordinal) >= 0)
+            {
+                foreach (Match m in PlaceholderPattern().Matches(text))
+                {
+                    found.Add(m.Value);
+                }
+            }
+            return text;
+        }
+
+        foreach (var message in messages)
+        {
+            MapMessage(message, Collect, redact: true);
+        }
+        return found;
+    }
+
     /// <summary>Every placeholder this session minted so far. Placeholders only, never values.</summary>
     public IReadOnlySet<string> MintedTokens
     {
@@ -233,9 +259,12 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
     /// <summary>
     /// Restores a response for the caller, who owns the values: text, reasoning and tool results get every
-    /// value back. A tool call answered by a result in the same list is history and gets every value back
-    /// too. A call without a result may still be invoked, by a function-invoking client above Sentinel, so it
+    /// value back. A tool call answered by a result that FOLLOWS it in the same list is history and gets every
+    /// value back too. Any other call may still be invoked, by a function-invoking client above Sentinel, so it
     /// follows the tool rule and keeps the placeholders of values that must never reach a tool argument.
+    /// Matching is positional because providers reuse call ids, for example <c>call_0</c> on every turn: an
+    /// earlier answered call must not make a later unanswered one with the same id look answered. A call with
+    /// an empty id is never answered.
     /// </summary>
     /// <remarks>
     /// With Sentinel inside function invocation, such a kept placeholder is a literal in the next round trip,
@@ -244,18 +273,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     /// </remarks>
     public IList<ChatMessage> Restore(IList<ChatMessage> messages)
     {
-        var answered = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var message in messages)
-        {
-            foreach (var content in message.Contents)
-            {
-                if (content is FunctionResultContent fr && fr.CallId is not null)
-                {
-                    answered.Add(fr.CallId);
-                }
-            }
-        }
-
+        var answered = AnsweredCalls(messages);
         var result = new List<ChatMessage>(messages.Count);
         foreach (var message in messages)
         {
@@ -377,7 +395,32 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         return new string(chars);
     }
 
-    private ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redact, HashSet<string>? answered = null)
+    // Walks backwards collecting the ids of results seen so far, so a call counts as answered only when a
+    // result with its id comes after it.
+    private static HashSet<FunctionCallContent> AnsweredCalls(IList<ChatMessage> messages)
+    {
+        var answered = new HashSet<FunctionCallContent>(ReferenceEqualityComparer.Instance);
+        var laterResults = new HashSet<string>(StringComparer.Ordinal);
+        for (var m = messages.Count - 1; m >= 0; m--)
+        {
+            var contents = messages[m].Contents;
+            for (var c = contents.Count - 1; c >= 0; c--)
+            {
+                switch (contents[c])
+                {
+                    case FunctionResultContent fr when !string.IsNullOrEmpty(fr.CallId):
+                        laterResults.Add(fr.CallId);
+                        break;
+                    case FunctionCallContent call when !string.IsNullOrEmpty(call.CallId) && laterResults.Contains(call.CallId):
+                        answered.Add(call);
+                        break;
+                }
+            }
+        }
+        return answered;
+    }
+
+    private ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redact, HashSet<FunctionCallContent>? answered = null)
     {
         var copy = message.Clone();
         var contents = new List<AIContent>(message.Contents.Count);
@@ -389,9 +432,9 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         return copy;
     }
 
-    // answered: call ids that have a result in the list being restored; null when redacting, or for content
-    // nested in a value, which follows the tool rule.
-    private AIContent MapContent(AIContent content, Func<string, string> map, bool redact, HashSet<string>? answered = null)
+    // answered: the calls followed by their result in the list being restored; null when redacting, or for
+    // content nested in a value, which follows the tool rule.
+    private AIContent MapContent(AIContent content, Func<string, string> map, bool redact, HashSet<FunctionCallContent>? answered = null)
     {
         switch (content)
         {
@@ -400,7 +443,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             case FunctionCallContent call:
                 // Arguments of a call that may still be invoked are what a tool would receive, so restoring
                 // them follows the tool rule; an answered call is history and is restored like text.
-                var restoreAll = redact || (answered is not null && answered.Contains(call.CallId));
+                var restoreAll = redact || (answered is not null && answered.Contains(call));
                 return CopyMetadata(call, MapCall(call, restoreAll ? map : RestoreToolArgument, redact));
             case FunctionResultContent fr:
                 return CopyMetadata(fr, new FunctionResultContent(fr.CallId, MapValue(fr.Result, map, redact))
