@@ -59,6 +59,7 @@ Pass 1 (prompt scan) sees:
 - The user's incoming `Messages`
 - The session's `History`
 - Whatever the host added (system prompt, tool messages, retrieved documents)
+- `ChatOptions.Instructions`, as a leading system message. Providers send it to the model as a system prompt, so the detectors judge it, and the system prompt that SEC-32 compares against includes it
 
 Pass 2 (response scan) sees:
 - The LLM's response message(s) appended to `Messages`

@@ -41,7 +41,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-28** | `RefusalBypassDetector` | Semantic ⚠️ | Model complied with a request it should have refused (caller-supplied forbidden patterns) |
 | **SEC-29** | `OutputSchemaDetector` | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05). **Inactive unless** `SentinelOptions.ExpectedResponseType` *and* an `ISerializerDispatcher` are supplied — neither is registered by default |
 | **SEC-30** | `ShorthandEmergenceDetector` | Semantic ⚠️ | Unknown all-caps tokens that may signal emergent covert language |
-| **SEC-32** | `SystemPromptEchoDetector` | Rule-based | The system prompt appearing verbatim in the model's output. Compares the generated message against the conversation's system prompt; SEC-20 covers *requests* to reveal it |
+| **SEC-32** | `SystemPromptEchoDetector` | Rule-based | The system prompt appearing verbatim in the model's output. Compares the generated message against the conversation's system prompt, including `ChatOptions.Instructions`; SEC-20 covers *requests* to reveal it |
 | **SEC-31** | `VectorRetrievalPoisoningDetector` | Semantic ⚠️ | Malicious instructions embedded in RAG-retrieved document chunks (OWASP LLM08) |
 
 ## Severity ranges

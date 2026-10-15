@@ -150,10 +150,10 @@ public sealed class SentinelPipeline
             return (default, redactionError);
         messageList = redacted.Messages;
 
-        var systemPrompt = SystemPromptOf(messageList);
+        var (scanned, systemPrompt) = WithInstructions(messageList, redacted.Options?.Instructions);
 
         // The request holds this call's placeholders and those of any enclosing Sentinel call; none is a value.
-        var promptError = await ScanAsync(messageList, sessionId,
+        var promptError = await ScanAsync(scanned, sessionId,
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
             new Exemptions(RedactionScope.ExemptPlaceholders(session, parent))).ConfigureAwait(false);
         if (promptError is not null)
@@ -393,8 +393,27 @@ public sealed class SentinelPipeline
         if (rateError is not null) return rateError;
 
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
-        return await ScanAsync(messageList, sessionId ?? SessionIdFor(chatOptions),
-            options.DefaultSenderId, options.DefaultReceiverId, ct, SystemPromptOf(messageList)).ConfigureAwait(false);
+        var (scanned, systemPrompt) = WithInstructions(messageList, chatOptions?.Instructions);
+        return await ScanAsync(scanned, sessionId ?? SessionIdFor(chatOptions),
+            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// The messages the detectors judge, and the system prompt they compare against. Providers send
+    /// <see cref="ChatOptions.Instructions"/> to the model as a system prompt, so the scan sees them as a leading
+    /// system message and the system prompt includes them. The messages sent to the model are not changed.
+    /// </summary>
+    private static (IReadOnlyList<ChatMessage> Scanned, string? SystemPrompt) WithInstructions(
+        IReadOnlyList<ChatMessage> messages, string? instructions)
+    {
+        var systemMessage = SystemPromptOf(messages);
+        if (string.IsNullOrEmpty(instructions))
+            return (messages, systemMessage);
+
+        var scanned = new List<ChatMessage>(messages.Count + 1) { new(ChatRole.System, instructions) };
+        scanned.AddRange(messages);
+        var systemPrompt = string.IsNullOrEmpty(systemMessage) ? instructions : $"{instructions}\n\n{systemMessage}";
+        return (scanned, systemPrompt);
     }
 
     /// <summary>The <see cref="ChatOptions.AdditionalProperties"/> key that names the caller's session.</summary>
