@@ -21,6 +21,23 @@ public class SentinelOptionsTests
         Assert.False(validator.Validate(opts).IsValid);
     }
 
+    [Fact] public void RedactionOptions_DefaultToTrue()
+    {
+        var opts = new SentinelOptions();
+        Assert.True(opts.RedactByDefault);
+        Assert.True(opts.RestoreRedactedValues);
+    }
+
+    [Fact] public void EffectiveAction_UsesOverrideUnlessNullOrRedact()
+    {
+        var opts = new SentinelOptions { OnHigh = SentinelAction.Alert };
+        var id = new AI.Sentinel.Domain.DetectorId("X-01");
+        var d = DetectionResult.WithSeverity(id, Severity.High, "r");
+        Assert.Equal(SentinelAction.Alert, opts.EffectiveAction(d));
+        Assert.Equal(SentinelAction.Alert, opts.EffectiveAction(d with { ActionOverride = SentinelAction.Redact }));
+        Assert.Equal(SentinelAction.Quarantine, opts.EffectiveAction(d with { ActionOverride = SentinelAction.Quarantine }));
+    }
+
     [Fact] public void ActionFor_ReturnsMappedAction()
     {
         var opts = new SentinelOptions { OnCritical = SentinelAction.Quarantine };

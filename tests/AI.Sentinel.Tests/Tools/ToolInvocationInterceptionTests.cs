@@ -71,6 +71,60 @@ public class ToolInvocationInterceptionTests
         Assert.Equal(["second-in", "first-in", "first-out", "second-out"], log);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task TryChainInvoker_RewriteStage_RunsBeforeEveryGate_WhateverTheChainOrder(bool rewriteFirst)
+    {
+        var log = new List<string>();
+        string? gateSaw = null;
+        ToolInvocationInterception.ToolInterceptor rewrite = async (c, next, ct) =>
+        {
+            log.Add("rewrite");
+            c.Arguments = new AIFunctionArguments(new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "real" }, StringComparer.Ordinal);
+            return await next(c, ct);
+        };
+        ToolInvocationInterception.ToolInterceptor gate = async (c, next, ct) =>
+        {
+            log.Add("gate");
+            gateSaw = c.Arguments["id"]?.ToString();
+            return await next(c, ct);
+        };
+
+        var (_, ran, seen, _) = await RunAsync(null, f =>
+        {
+            if (rewriteFirst)
+            {
+                ToolInvocationInterception.TryChainInvoker(f, rewrite, ToolInterceptorStage.RewriteArguments);
+                ToolInvocationInterception.TryChainInvoker(f, gate);
+            }
+            else
+            {
+                ToolInvocationInterception.TryChainInvoker(f, gate);
+                ToolInvocationInterception.TryChainInvoker(f, rewrite, ToolInterceptorStage.RewriteArguments);
+            }
+        });
+
+        Assert.Equal(["rewrite", "gate"], log);
+        Assert.Equal("real", gateSaw);
+        Assert.Equal("real", seen);
+        Assert.Equal(1, ran);
+    }
+
+    [Fact]
+    public async Task TryChainInvoker_InvokerReplacedAfterwards_IsWrappedByTheNextChain()
+    {
+        var log = new List<string>();
+        await RunAsync(null, f =>
+        {
+            ToolInvocationInterception.TryChainInvoker(f, async (c, next, ct) => { log.Add("first"); return await next(c, ct); });
+            ((FunctionInvokingChatClient)f).FunctionInvoker = async (c, ct) => { log.Add("replaced"); return await c.Function.InvokeAsync(c.Arguments, ct); };
+            ToolInvocationInterception.TryChainInvoker(f, async (c, next, ct) => { log.Add("second"); return await next(c, ct); });
+        });
+
+        Assert.Equal(["second", "replaced"], log);
+    }
+
     [Fact]
     public async Task Interceptor_CanReplaceArgumentsAndResult()
     {

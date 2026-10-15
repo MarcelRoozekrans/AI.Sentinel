@@ -12,15 +12,18 @@ public sealed class DetectionPipeline : IDetectionPipeline
     private readonly IChatClient? _escalationClient;
     private readonly ILogger<DetectionPipeline>? _logger;
     private readonly Action<string>? _onDetectorFailure;
+    private readonly bool _redactByDefault;
 
     public DetectionPipeline(
         IEnumerable<IDetector> detectors,
         IReadOnlyDictionary<Type, DetectorConfiguration>? configurations,
         IChatClient? escalationClient,
         ILogger<DetectionPipeline>? logger = null,
-        Action<string>? onDetectorFailure = null)
+        Action<string>? onDetectorFailure = null,
+        bool redactByDefault = true)
     {
         var enabled = new List<IDetector>();
+        var redactors = new List<IRedactingDetector>();
         var enabledConfigs = new List<DetectorConfiguration?>();
         foreach (var d in detectors)
         {
@@ -35,16 +38,34 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 continue;  // skip disabled detector entirely — zero CPU on the hot path
             }
 
+            if (cfg?.Action == SentinelAction.Redact && d is not IRedactingDetector)
+            {
+                throw new InvalidOperationException(
+                    $"AI.Sentinel: detector {d.GetType().Name} is configured with Action = Redact but does not implement IRedactingDetector. " +
+                    "Only detectors that can locate their match can redact.");
+            }
+
             enabled.Add(d);
             enabledConfigs.Add(cfg);
+            if (d is IRedactingDetector redactor
+                && (cfg?.Action ?? (redactByDefault ? SentinelAction.Redact : (SentinelAction?)null)) == SentinelAction.Redact)
+            {
+                redactors.Add(redactor);
+            }
         }
+
+        Redactors = redactors.ToArray();
 
         _detectors        = enabled.ToArray();
         _configurations   = enabledConfigs.ToArray();
         _escalationClient = escalationClient;
         _logger           = logger;
         _onDetectorFailure = onDetectorFailure;
+        _redactByDefault  = redactByDefault;
     }
+
+    /// <inheritdoc />
+    public IReadOnlyList<IRedactingDetector> Redactors { get; }
 
     private static int SeverityScore(Severity s) => s switch
     {
@@ -110,6 +131,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
             results = escalated.ToArray();
         }
 
+        // After escalation: EscalateAsync rebuilds the result, which would drop an override set earlier.
+        ApplyActionOverrides(results);
+
         return BuildResult(results);
     }
 
@@ -157,6 +181,21 @@ public sealed class DetectionPipeline : IDetectionPipeline
             if (clamped != results[i].Severity)
             {
                 results[i] = results[i] with { Severity = clamped };
+            }
+        }
+    }
+
+    private void ApplyActionOverrides(DetectionResult[] results)
+    {
+        for (int i = 0; i < results.Length; i++)
+        {
+            if (results[i].IsClean) continue;
+
+            var action = _configurations[i]?.Action
+                ?? (_detectors[i] is IRedactingDetector && _redactByDefault ? SentinelAction.Redact : (SentinelAction?)null);
+            if (action is not null)
+            {
+                results[i] = results[i] with { ActionOverride = action };
             }
         }
     }

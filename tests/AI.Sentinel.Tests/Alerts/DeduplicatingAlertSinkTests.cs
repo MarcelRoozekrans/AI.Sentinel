@@ -6,6 +6,8 @@ using Xunit;
 
 namespace AI.Sentinel.Tests.Alerts;
 
+// Asserts an exact count on the process-wide ai.sentinel meter, so no other test may emit alongside it.
+[Collection("NonParallel")]
 public class DeduplicatingAlertSinkTests
 {
     private static SentinelError.ThreatDetected MakeThreat(string detectorId, SessionId sessionId) =>

@@ -86,7 +86,7 @@ public class PiiLeakageDetectorTests
     }
 
     [Fact]
-    public async Task EmailWithName_Detected()
+    public async Task EmailWithName_StillDetected()
     {
         var d = new PiiLeakageDetector();
         var r = await d.AnalyzeAsync(Ctx("Contact John Smith at john.smith@example.com"), TestContext.Current.CancellationToken);

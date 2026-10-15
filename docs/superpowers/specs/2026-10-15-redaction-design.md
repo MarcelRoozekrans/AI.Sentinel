@@ -108,6 +108,7 @@ Sentinel publishes an `InterventionAppliedNotification` with `Action = Redact`, 
   - lives in memory for one `GetResponseAsync` / `GetStreamingResponseAsync` call and is dropped when the call ends;
   - is never logged, audited, forwarded or put into an exception;
   - is not shared across calls, so numbering may differ between turns. That is fine, because each request is redacted afresh from the caller's history, which holds real values.
+- **Amended after the final review:** every placeholder also carries a random tag drawn per call, `[TYPE_n_tag]` such as `[EMAIL_1_k3f9x2]`. With a provider that keeps the conversation and returns a `ConversationId`, only new messages are sent, so the model holds placeholders from earlier calls; with numbering restarting at 1, such a placeholder resolved to whatever value the current call gave the same type and number. A placeholder with another call's tag never resolves and stays text, so placeholder-shaped input needs no reserving or escaping either.
 - **Text that already looks like a placeholder:** if the input already contains text in the placeholder format, such as a user literally typing `[EMAIL_1]`, restoring must not turn it into a real value. Only placeholders this request created are restored. The builder picks the mechanism, for example numbering past any existing matches.
 
 ### Restoring

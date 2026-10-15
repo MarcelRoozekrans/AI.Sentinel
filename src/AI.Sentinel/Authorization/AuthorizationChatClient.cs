@@ -5,6 +5,7 @@ using System.Text.Json;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Domain;
+using AI.Sentinel.Redaction;
 using AI.Sentinel.Tools;
 using Microsoft.Extensions.AI;
 using ZeroAlloc.Authorization;
@@ -221,7 +222,7 @@ internal sealed class AuthorizationChatClient : IChatClient
             {
                 if (content is FunctionCallContent fnCall && !answered.Contains(fnCall.CallId))
                 {
-                    await AuthorizeFunctionCallAsync(fnCall, caller, ct).ConfigureAwait(false);
+                    await AuthorizeFunctionCallAsync(AsInvoked(fnCall), caller, ct).ConfigureAwait(false);
                 }
             }
         }
@@ -255,7 +256,7 @@ internal sealed class AuthorizationChatClient : IChatClient
                     continue;
                 }
 
-                await AuthorizeFunctionCallAsync(fnCall, caller, ct).ConfigureAwait(false);
+                await AuthorizeFunctionCallAsync(AsInvoked(fnCall), caller, ct).ConfigureAwait(false);
             }
         }
     }
@@ -266,9 +267,21 @@ internal sealed class AuthorizationChatClient : IChatClient
         {
             if (content is FunctionCallContent fnCall)
             {
-                await AuthorizeFunctionCallAsync(fnCall, caller, ct).ConfigureAwait(false);
+                await AuthorizeFunctionCallAsync(AsInvoked(fnCall), caller, ct).ConfigureAwait(false);
             }
         }
+    }
+
+    // A call found in messages, as opposed to one at the invocation hook, may still hold redaction placeholders
+    // when this client sits below Sentinel: Sentinel restores them only when the tool is invoked, or when the
+    // response leaves it. The guard must judge what the tool will actually receive, so resolve them the same
+    // way. The invocation hook needs no such step: Sentinel's argument rewrite always runs before this gate.
+    private static FunctionCallContent AsInvoked(FunctionCallContent fnCall)
+    {
+        var arguments = RedactionScope.AsInvoked(fnCall.Arguments);
+        return ReferenceEquals(arguments, fnCall.Arguments)
+            ? fnCall
+            : new FunctionCallContent(fnCall.CallId, fnCall.Name, arguments);
     }
 
     private const int MaxApprovalIterations = 5;

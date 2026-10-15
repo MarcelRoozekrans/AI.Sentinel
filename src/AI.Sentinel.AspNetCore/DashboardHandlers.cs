@@ -28,6 +28,9 @@ internal static class DashboardHandlers
         await foreach (var e in store.QueryAsync(new AuditQuery(), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
+        // Redactions are informational evidence, not threats: they stay out of every tile.
+        entries.RemoveAll(IsRedaction);
+
         ctx.Response.ContentType = "text/html";
         var html = $"""
             <div class="stat-card">
@@ -98,7 +101,9 @@ internal static class DashboardHandlers
     private static void RenderFeedRow(StringBuilder sb, AuditEntry e)
     {
         var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;
-        var severityLower = e.Severity.ToString().ToLowerInvariant();
+        var isRedaction = IsRedaction(e);
+        var severityLower = isRedaction ? "redacted" : e.Severity.ToString().ToLowerInvariant();
+        var severityLabel = isRedaction ? "Redacted" : e.Severity.ToString();
         var ts = e.Timestamp.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
         var hashPrefix = e.Hash[..Math.Min(8, e.Hash.Length)];
         var isAuthz = string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal);
@@ -110,7 +115,7 @@ internal static class DashboardHandlers
           .Append("  <td>").Append(ts).AppendLine("</td>")
           .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>");
         AppendSourceCell(sb, e.Source);
-        sb.Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
+        sb.Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(severityLabel).AppendLine("</span></td>")
           .Append("  <td title=\"").Append(HtmlEncode(e.Summary)).Append("\">");
         if (isAuthz)
         {
@@ -160,6 +165,11 @@ internal static class DashboardHandlers
         sb.AppendLine("</td>");
     }
 
+    /// <summary>True for the informational audit entry written when a detector redacted values
+    /// instead of reporting a threat. A fallback detection keeps its real severity and is not one.</summary>
+    private static bool IsRedaction(AuditEntry e) =>
+        string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal);
+
     /// <summary>Maps a category name from a chip filter (e.g. "security", "hallucination") to the
     /// matching DetectorId prefix. Unknown / empty / null category returns true (no filtering).</summary>
     internal static bool IsInCategory(string detectorId, string? category) => category switch
@@ -170,6 +180,21 @@ internal static class DashboardHandlers
         "authorization" or "authz" => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),  // 'authz' = legacy alias
         _               => true,
     };
+
+    /// <summary>True when <paramref name="e"/> belongs under the chip <paramref name="category"/>. The Redacted chip
+    /// lists only redactions; a category chip lists only detections, so a redaction never appears under Security
+    /// even though its detector id starts with SEC-. An unknown category filters nothing.</summary>
+    private static bool MatchesChip(AuditEntry e, string category)
+    {
+        if (string.Equals(category, "redacted", StringComparison.Ordinal))
+            return IsRedaction(e);
+        if (!IsKnownCategory(category))
+            return true;
+        return !IsRedaction(e) && IsInCategory(e.DetectorId, category);
+    }
+
+    private static bool IsKnownCategory(string category) =>
+        category is "security" or "hallucination" or "operational" or "authorization" or "authz";
 
     /// <summary>Single-source-of-truth filter pipeline used by /api/feed and /api/export.ndjson.
     /// /api/trend deliberately does NOT use this — it always renders the global trend (design D4).
@@ -182,7 +207,7 @@ internal static class DashboardHandlers
         // Order is deliberate: cheap+selective filters (category, session) first,
         // expensive Contains() last so it runs on the smallest residual set.
         if (!string.IsNullOrEmpty(category))
-            entries = entries.Where(e => IsInCategory(e.DetectorId, category));
+            entries = entries.Where(e => MatchesChip(e, category));
         if (!string.IsNullOrEmpty(session))
             entries = entries.Where(e => string.Equals(e.SessionId, session, StringComparison.Ordinal));
         if (!string.IsNullOrEmpty(source))
@@ -213,7 +238,7 @@ internal static class DashboardHandlers
             new AuditQuery(From: windowStart, PageSize: 10000),
             ctx.RequestAborted).ConfigureAwait(false))
         {
-            if (e.Timestamp < windowStart) continue;
+            if (e.Timestamp < windowStart || IsRedaction(e)) continue;
             var idx = (int)((e.Timestamp - windowStart).TotalMilliseconds / bucketMs);
             if (idx < 0 || idx >= BucketCount) continue;
             buckets[idx].count++;
@@ -366,11 +391,13 @@ internal static class DashboardHandlers
         }
     }
 
-    private static List<ThreatRiskScore> BuildScoreInputs(List<AuditEntry> entries)
+    internal static List<ThreatRiskScore> BuildScoreInputs(List<AuditEntry> entries)
     {
         var result = new List<ThreatRiskScore>(entries.Count);
         for (int i = 0; i < entries.Count; i++)
         {
+            // A redaction scores 0 and would dilute the average of real detections.
+            if (IsRedaction(entries[i])) continue;
             result.Add(new ThreatRiskScore(entries[i].Severity switch
             {
                 Severity.Critical => 100,

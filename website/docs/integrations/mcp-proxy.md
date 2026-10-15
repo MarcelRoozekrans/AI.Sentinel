@@ -76,6 +76,8 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 | `SENTINEL_HOOK_ON_CRITICAL` (shared with hooks) | low |
 | Default (`Block` / `Block` / `Warn` / `Allow`) | lowest |
 
+> **Redaction in 3.0:** the hook CLIs cannot rewrite the request, so a detection configured to `Redact` (the 3.0 default for PII and credentials) falls back to the action of its severity here, and its audit summary ends with `; not redacted`. See [Redaction](../redaction#fallback).
+
 ## Environment variables
 
 ### Shared with hook adapters

@@ -16,8 +16,11 @@ public enum SentinelAction
     Log,            // write to ILogger
     Alert,          // publish IMediator notification + invoke IAlertSink
     Quarantine,     // throw SentinelException — caller must catch
+    Redact,         // allow the call, minus the sensitive parts — per detector only
 }
 ```
+
+`Redact` is not a block and cannot be set on `OnCritical`/`OnHigh`/`OnMedium`/`OnLow`; set it per detector with `DetectorConfiguration.Action`. See [Redaction](../redaction). `PiiLeakageDetector` and `CredentialExposureDetector` redact by default from 3.0.
 
 ## Configuration
 

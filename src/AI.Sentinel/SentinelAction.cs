@@ -28,5 +28,14 @@ public enum SentinelAction
     /// Block the message by throwing <see cref="Intervention.SentinelException"/>.
     /// Mediator notifications are still published before the exception is thrown.
     /// </summary>
-    Quarantine
+    Quarantine,
+
+    /// <summary>
+    /// Replace the detected span with a placeholder before the prompt reaches the model, then forward it.
+    /// Valid only as a per-detector action (<see cref="Detection.DetectorConfiguration.Action"/>); it is not
+    /// accepted on the severity options (<c>OnCritical</c> and friends). A detection that still carries
+    /// <c>Redact</c> in a result means redaction was not possible, and the action its severity maps to applies instead.
+    /// Appended last so existing numeric values do not change.
+    /// </summary>
+    Redact
 }
