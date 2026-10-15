@@ -17,7 +17,7 @@ public sealed class InterventionEngine(
     {
         if (result.IsClean) return;
 
-        var action = options.ActionFor(result.MaxSeverity);
+        var action = SentinelActionRanking.MostRestrictive(result.Detections.Select(options.EffectiveAction));
 
         if (mediator is not null && action != SentinelAction.PassThrough)
         {

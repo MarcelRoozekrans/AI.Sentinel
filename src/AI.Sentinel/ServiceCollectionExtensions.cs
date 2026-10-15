@@ -58,6 +58,7 @@ public static class ServiceCollectionExtensions
     {
         var opts = new SentinelOptions();
         configure?.Invoke(opts);
+        RejectRedactOnSeverityOptions(opts);
 
         // Auto-register InMemoryApprovalStore if any binding has an ApprovalSpec and the user
         // hasn't registered an IApprovalStore yet. Keeps the happy path zero-config.
@@ -100,6 +101,26 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
+    private static void RejectRedactOnSeverityOptions(SentinelOptions opts)
+    {
+        foreach (var (option, action) in new[]
+        {
+            (nameof(SentinelOptions.OnCritical), opts.OnCritical),
+            (nameof(SentinelOptions.OnHigh), opts.OnHigh),
+            (nameof(SentinelOptions.OnMedium), opts.OnMedium),
+            (nameof(SentinelOptions.OnLow), opts.OnLow),
+        })
+        {
+            if (action == SentinelAction.Redact)
+            {
+                throw new ArgumentException(
+                    $"SentinelOptions.{option} cannot be Redact: redaction needs the location of a match, which a severity does not have. " +
+                    "Set DetectorConfiguration.Action on a redacting detector instead.",
+                    option);
+            }
+        }
+    }
+
     private static IAlertSink BuildAlertSink(SentinelOptions opts)
     {
         IAlertSink raw = opts.AlertWebhook is not null
@@ -124,7 +145,8 @@ public static class ServiceCollectionExtensions
                 opts.GetDetectorConfigurations(),
                 opts.EscalationClient,
                 sp.GetService<ILogger<DetectionPipeline>>(),
-                opts.OnDetectorFailure));
+                opts.OnDetectorFailure,
+                opts.RedactByDefault));
 
     private static IToolCallGuard BuildToolCallGuard(IServiceCollection services, SentinelOptions opts, IServiceProvider sp)
     {

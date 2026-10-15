@@ -213,7 +213,7 @@ public sealed class SentinelPipeline(
             SentinelMetrics.Threats.Add(1, tags);
         }
 
-        var action = options.ActionFor(pipelineResult.MaxSeverity);
+        var action = SentinelActionRanking.MostRestrictive(pipelineResult.Detections.Select(options.EffectiveAction));
 
         if ((action == SentinelAction.Quarantine || action == SentinelAction.Alert) && alertSink is not null)
         {
@@ -309,7 +309,9 @@ public sealed class SentinelPipeline(
                 Hash: string.Empty, PreviousHash: null,
                 detection.Severity,
                 detection.DetectorId.Value,
-                detection.Reason,
+                detection.ActionOverride == SentinelAction.Redact
+                    ? detection.Reason + "; not redacted"
+                    : detection.Reason,
                 SessionId: sessionId.Value);
             await auditStore.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
         }
