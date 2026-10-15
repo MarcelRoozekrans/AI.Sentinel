@@ -213,6 +213,11 @@ public class RedactionSessionTests
         public string Boom => throw new InvalidOperationException("boom jan@acme.nl");
     }
 
+    private sealed class FormatGetter
+    {
+        public string Boom => throw new FormatException("bad jan@acme.nl");
+    }
+
     private sealed class ServiceCollectionStub : IServiceProvider
     {
         public object? GetService(Type serviceType) => null;
@@ -352,7 +357,7 @@ public class RedactionSessionTests
     }
 
     [Fact]
-    public void RestoreArguments_KeepsComparerContextAndServices()
+    public void RestoreArguments_RestoresInPlace_KeepingComparerContextAndServices()
     {
         var session = Pii();
         session.Redact("jan@acme.nl");
@@ -360,9 +365,52 @@ public class RedactionSessionTests
         var context = new Dictionary<object, object?> { ["k"] = "v" };
         var args = new AIFunctionArguments(StringComparer.OrdinalIgnoreCase) { ["To"] = "[EMAIL_1]", Services = services, Context = context };
         var restored = session.Restore(args);
+        Assert.Same(args, restored);
         Assert.Equal("jan@acme.nl", restored["TO"]);
         Assert.Same(services, restored.Services);
         Assert.Same(context, restored.Context);
+    }
+
+    [Fact]
+    public void LaterCall_LiteralEqualToMintedToken_RestoresToTheLiteral()
+    {
+        var session = Pii();
+        Assert.Equal("[EMAIL_1]", session.Redact("jan@acme.nl"));
+        var later = (string)session.RedactResult("template [EMAIL_1]")!;
+        Assert.Equal("template [EMAIL_2]", later);
+        Assert.Equal("template [EMAIL_1]", session.Restore(later));
+        Assert.Equal("jan@acme.nl", session.Restore("[EMAIL_1]"));
+    }
+
+    [Fact]
+    public void RedactResult_ThrowingGetterWithValue_FailsClosedWithoutValue()
+    {
+        var session = Pii();
+        var ex = Assert.Throws<InvalidOperationException>(() => session.RedactResult(new FormatGetter()));
+        Assert.DoesNotContain("acme", ex.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactResult_PrimitiveArrays_ByteUntouchedCharRedacted()
+    {
+        var session = Pii();
+        var bytes = new byte[] { 1, 2, 3 };
+        Assert.Same(bytes, session.RedactResult(bytes));
+        var chars = Assert.IsType<char[]>(session.RedactResult("jan@acme.nl".ToCharArray()));
+        Assert.Equal("[EMAIL_1]", new string(chars));
+    }
+
+    [Fact]
+    public void DataContent_HonoursCharset_AndUnknownCharsetFailsClosed()
+    {
+        var session = Pii();
+        var utf16 = new DataContent(Encoding.Unicode.GetBytes("mail jan@acme.nl"), "text/plain; charset=utf-16");
+        var result = session.Redact([new ChatMessage(ChatRole.User, [utf16])]);
+        Assert.Equal("mail [EMAIL_1]", Encoding.Unicode.GetString(((DataContent)result[0].Contents[0]).Data.Span));
+
+        var bogus = new DataContent(Encoding.UTF8.GetBytes("jan@acme.nl"), "text/plain; charset=bogus-xyz");
+        var ex = Assert.Throws<InvalidOperationException>(() => session.Redact([new ChatMessage(ChatRole.User, [bogus])]));
+        Assert.DoesNotContain("acme", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,7 +1,6 @@
 using System.Buffers;
 using System.Collections;
 using System.Globalization;
-using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -20,9 +19,6 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 {
     // Reserved numbers above this cap are ignored so a hostile literal cannot push counters towards overflow.
     private const int MaxReservedNumber = 1_000_000;
-
-    private static readonly FieldInfo? _argumentsField =
-        typeof(AIFunctionArguments).GetField("_arguments", BindingFlags.Instance | BindingFlags.NonPublic);
 
 #if NET9_0_OR_GREATER
     private readonly System.Threading.Lock _gate = new();
@@ -62,7 +58,9 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         }
     }
 
-    public string Redact(string text)
+    public string Redact(string text) => RedactCore(EscapeLiterals(text));
+
+    private string RedactCore(string text)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -87,7 +85,6 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
         lock (_gate)
         {
-            ReserveExistingPlaceholders(text);
             if (found.Count == 0)
             {
                 return text;
@@ -137,16 +134,24 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
     public IReadOnlyList<ChatMessage> Redact(IReadOnlyList<ChatMessage> messages)
     {
-        // Reserve every placeholder-shaped literal in the whole request before minting any token.
+        // Pass 1 reserves every placeholder-shaped literal in the whole request so no minted token can collide.
+        // Pass 2 swaps literals that equal an already minted token for fresh tokens that restore to the literal.
+        // Pass 3 redacts.
         foreach (var message in messages)
         {
             MapMessage(message, Reserve, redact: true);
         }
 
-        var result = new List<ChatMessage>(messages.Count);
+        var escaped = new List<ChatMessage>(messages.Count);
         foreach (var message in messages)
         {
-            result.Add(MapMessage(message, Redact, redact: true));
+            escaped.Add(MapMessage(message, EscapeLiterals, redact: true));
+        }
+
+        var result = new List<ChatMessage>(escaped.Count);
+        foreach (var message in escaped)
+        {
+            result.Add(MapMessage(message, RedactCore, redact: true));
         }
         return result;
     }
@@ -154,7 +159,8 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     public object? RedactResult(object? result)
     {
         MapValue(result, Reserve, redact: true);
-        return MapValue(result, Redact, redact: true);
+        var escaped = MapValue(result, EscapeLiterals, redact: true);
+        return MapValue(escaped, RedactCore, redact: true);
     }
 
     private string Reserve(string text)
@@ -164,6 +170,21 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             ReserveExistingPlaceholders(text);
         }
         return text;
+    }
+
+    private string EscapeLiterals(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.IndexOf('[', StringComparison.Ordinal) < 0)
+        {
+            return text;
+        }
+
+        lock (_gate)
+        {
+            ReserveExistingPlaceholders(text);
+            return PlaceholderPattern().Replace(text, m =>
+                _valueByToken.ContainsKey(m.Value) ? TokenFor(m.Groups["type"].Value, m.Value) : m.Value);
+        }
     }
 
     public string Restore(string text)
@@ -193,18 +214,17 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         return result;
     }
 
+    /// <summary>
+    /// Restores the argument values in place through the public indexer and returns the same instance,
+    /// so the comparer, Context, Services and any subclass are kept. The input is mutated.
+    /// </summary>
     public AIFunctionArguments Restore(AIFunctionArguments args)
     {
-        var restored = new AIFunctionArguments(ComparerOf(args))
+        foreach (var key in new List<string>(args.Keys))
         {
-            Context = args.Context,
-            Services = args.Services,
-        };
-        foreach (var (key, value) in args)
-        {
-            restored[key] = MapValue(value, Restore, redact: false);
+            args[key] = MapValue(args[key], Restore, redact: false);
         }
-        return restored;
+        return args;
     }
 
     private string TokenFor(string type, string value)
@@ -279,9 +299,6 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         return new string(chars);
     }
 
-    private static IEqualityComparer<string> ComparerOf(AIFunctionArguments args) =>
-        (_argumentsField?.GetValue(args) as Dictionary<string, object?>)?.Comparer ?? StringComparer.Ordinal;
-
     private ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redact)
     {
         var copy = message.Clone();
@@ -313,11 +330,40 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
                     ProtectedData = reasoning.ProtectedData,
                 });
             case DataContent data when redact && IsText(data) && !data.Data.IsEmpty:
-                var mapped = Encoding.UTF8.GetBytes(map(Encoding.UTF8.GetString(data.Data.Span)));
+                var encoding = EncodingOf(data);
+                var mapped = encoding.GetBytes(map(encoding.GetString(data.Data.Span)));
                 return CopyMetadata(data, new DataContent(mapped, data.MediaType) { Name = data.Name });
             default:
                 return content;
         }
+    }
+
+    private static Encoding EncodingOf(DataContent data)
+    {
+        var parameters = data.MediaType.Split(';');
+        for (var i = 1; i < parameters.Length; i++)
+        {
+            var parameter = parameters[i].Trim();
+            if (!parameter.StartsWith("charset=", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var name = parameter["charset=".Length..].Trim('"', ' ');
+            Encoding? encoding = null;
+            try
+            {
+                encoding = Encoding.GetEncoding(name);
+            }
+            catch (ArgumentException)
+            {
+                encoding = null;
+            }
+
+            return encoding ?? throw new InvalidOperationException(
+                "Text data content declares a charset that is not supported, so it cannot be scanned.");
+        }
+        return Encoding.UTF8;
     }
 
     private static bool IsText(DataContent data) =>
@@ -369,6 +415,12 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
                 return MapDictionary(dict, map, redact);
             case IEnumerable<AIContent> contents:
                 return MapContents(contents, map, redact);
+            case char[] chars when redact:
+                return map(new string(chars)).ToCharArray();
+            case Array array when array.GetType().GetElementType()!.IsPrimitive:
+                return value; // binary or numeric data, not text
+            // Typed collections such as List<string> or string[] are not restored in arguments: model-parsed
+            // arguments arrive as JsonElement or object containers.
             case IList list when redact || value is object[] or List<object?>:
                 return MapList(list, map, redact);
             default:
@@ -383,7 +435,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         {
             if (!result.TryAdd(map(key), MapValue(item, map, redact)))
             {
-                throw new InvalidOperationException("Redaction made two argument names identical.");
+                throw new InvalidOperationException("Mapping made two names identical.");
             }
         }
         return result;
@@ -423,9 +475,9 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         {
             serialized = JsonSerializer.SerializeToElement(value, value.GetType(), AIJsonUtilities.DefaultOptions);
         }
-        catch (Exception ex) when (ex is NotSupportedException or JsonException or InvalidOperationException)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
-            // Deliberately not chained: serializer messages can echo paths and parts of the value.
+            // Deliberately not chained: serializer and getter messages can echo paths and parts of the value.
             serialized = null;
         }
 
