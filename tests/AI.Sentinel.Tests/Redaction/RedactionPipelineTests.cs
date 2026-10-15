@@ -83,6 +83,29 @@ public class RedactionPipelineTests
     // --- Prompt redaction ---
 
     [Fact]
+    public async Task Prompt_WithEmail_DoesNotMoveThreatsCounter()
+    {
+        var threats = 0L;
+        using var listener = new System.Diagnostics.Metrics.MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (string.Equals(instrument.Meter.Name, "ai.sentinel", StringComparison.Ordinal) &&
+                string.Equals(instrument.Name, "sentinel.threats", StringComparison.Ordinal))
+            {
+                l.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((_, measurement, _, _) => Interlocked.Add(ref threats, measurement));
+        listener.Start();
+        var h = Build("S", RecordingModel.Echo());
+
+        await AskAsync(h, $"Mail {Email} please.");
+
+        Assert.Equal(0, Interlocked.Read(ref threats));
+        Assert.Single(await RecordingAuditForwarder.ReadAllAsync(h.Audit));
+    }
+
+    [Fact]
     public async Task Prompt_WithEmail_ModelSeesPlaceholder_UserSeesRealValue()
     {
         var h = Build("S", RecordingModel.Echo());

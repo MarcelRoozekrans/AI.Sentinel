@@ -58,6 +58,28 @@ public sealed class OpenTelemetryAuditForwarderTests
     }
 
     [Fact]
+    public async Task OpenTelemetry_RedactionEntry_LogsAtInformation()
+    {
+        var records = new List<LogRecord>();
+        using var loggerFactory = LoggerFactory.Create(b => b
+            .SetMinimumLevel(LogLevel.Information)
+            .AddOpenTelemetry(o =>
+            {
+                o.IncludeScopes = true;
+                o.AddInMemoryExporter(records);
+            }));
+
+        var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
+        var redaction = AuditEntryRedactionExtensions.Redaction(
+            "SEC-23", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "s1");
+        await f.SendAsync(new[] { redaction }, TestContext.Current.CancellationToken);
+
+        loggerFactory.Dispose();
+        Assert.Single(records);
+        Assert.Equal(LogLevel.Information, records[0].LogLevel);
+    }
+
+    [Fact]
     public async Task SendAsync_AuditEntryFieldsLiftedAsAttributes()
     {
         var records = new List<LogRecord>();
