@@ -63,7 +63,7 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     // --- Medium ---
 
     [GeneratedRegex(
-        @"\b[\w.+-]{1,64}@(?:[A-Za-z][\w-]{0,62}\.){1,8}[A-Za-z]{2,}\b",
+        @"\b[\w.+-]{1,64}@(?:[A-Za-z0-9][\w-]{0,62}\.){1,8}[A-Za-z]{2,}\b",
         RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex BareEmailPattern();

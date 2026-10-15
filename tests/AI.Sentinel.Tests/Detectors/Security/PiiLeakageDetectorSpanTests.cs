@@ -79,10 +79,15 @@ public class PiiLeakageDetectorSpanTests
 
     [Theory]
     [InlineData("lodash@4.17.21")]
-    [InlineData("image@2x.png")]
     [InlineData("user@host")]
     public void FindSpans_NotAnEmail_ReturnsEmpty(string text)
         => Assert.Empty(new PiiLeakageDetector().FindSpans(text));
+
+    [Theory]
+    [InlineData("user@163.com")]
+    [InlineData("jan@3m.com")]
+    public void FindSpans_DomainStartingWithDigit_IsEmail(string text)
+        => Assert.Equal(new RedactionSpan(0, text.Length, "EMAIL"), Assert.Single(new PiiLeakageDetector().FindSpans(text)));
 
     [Theory]
     [InlineData("a-")]
