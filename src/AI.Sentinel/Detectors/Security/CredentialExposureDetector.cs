@@ -14,39 +14,41 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     public DetectorCategory Category => DetectorCategory.Security;
 
     // Each pattern names a `value` group that covers only the secret, so a redacted span
-    // keeps the key name. A quoted value takes the text between the quotes, which may contain
-    // spaces. An unquoted value stops at whitespace and excludes trailing , ; " ' ) ] }
-    // punctuation, so `abc`, `abc;` and `"abc"` all yield the original `abc`. The unquoted
-    // form backtracks only over that trailing punctuation, so it stays linear.
+    // keeps the key name. A quoted value takes the text between the quotes, may contain spaces
+    // and backslash escapes, and runs to the end of the line when the closing quote is missing
+    // (a truncated or streamed chunk), so nothing leaks. An unquoted value stops at whitespace,
+    // skips leading ( [ { and excludes trailing . , ; " ' ) ] } so `abc`, `abc;` and `"abc"` all
+    // yield the original `abc`. The unquoted form backtracks only over trailing punctuation and
+    // the quoted forms use disjoint alternatives, so every form stays linear.
     private const string Value =
-        @"(?:""(?<value>[^""\r\n]+)""|'(?<value>[^'\r\n]+)'|(?<value>[^\s""'](?:\S*[^\s,;""')\]}])?))";
+        @"(?:""(?<value>(?:[^""\\\r\n]|\\.)+)""?|'(?<value>(?:[^'\\\r\n]|\\.)+)'?|[(\[{]*(?<value>[^\s""'(\[{](?:\S*[^\s.,;""')\]}])?))";
 
     [GeneratedRegex(
-        @"password[""']?\s*[=:]\s*" + Value,
+        @"password[""']?\s*[=:][ \t]*" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex PasswordPattern();
 
     [GeneratedRegex(
-        @"api[_-]?key[""']?\s*[=:]\s*" + Value,
+        @"api[_-]?key[""']?\s*[=:][ \t]*" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex ApiKeyPattern();
 
     [GeneratedRegex(
-        @"secret[_-]?key[""']?\s*[=:]\s*" + Value,
+        @"secret[_-]?key[""']?\s*[=:][ \t]*" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex SecretKeyPattern();
 
     [GeneratedRegex(
-        @"Authorization[""']?\s*:\s*[""']?Bearer\s+" + Value,
+        @"Authorization[""']?\s*:\s*[""']?Bearer[ \t]+" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex BearerPattern();
 
     [GeneratedRegex(
-        @"AWS_SECRET_ACCESS_KEY[""']?\s*[=:]\s*" + Value,
+        @"AWS_SECRET_ACCESS_KEY[""']?\s*[=:][ \t]*" + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex AwsSecretPattern();

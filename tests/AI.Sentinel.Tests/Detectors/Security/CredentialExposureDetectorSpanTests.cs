@@ -121,12 +121,34 @@ public class CredentialExposureDetectorSpanTests
     [InlineData("Authorization: Bearer xyz,", "xyz", "BEARER_TOKEN")]
     [InlineData("(password=abc)", "abc", "PASSWORD")]
     [InlineData("password=a(b)c);", "a(b)c", "PASSWORD")]
+    [InlineData("password=\"abc def", "abc def", "PASSWORD")]
+    [InlineData("password=\"hunter2", "hunter2", "PASSWORD")]
+    [InlineData("password='abc", "abc", "PASSWORD")]
+    [InlineData("{\"password\": \"ab\\\"cd\"}", "ab\\\"cd", "PASSWORD")]
+    [InlineData("password='it\\'s'", "it\\'s", "PASSWORD")]
+    [InlineData("my password: hunter2.", "hunter2", "PASSWORD")]
+    [InlineData("password=(abc)", "abc", "PASSWORD")]
+    [InlineData("password=[abc]", "abc", "PASSWORD")]
+    [InlineData("password: hunter2\nnext: line", "hunter2", "PASSWORD")]
     [InlineData("\"Authorization\": \"Bearer xyz\"", "xyz", "BEARER_TOKEN")]
     public void FindSpans_QuotesAndPunctuation_SpanCoversExactSecret(string text, string value, string entity)
     {
         var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
         Assert.Equal(entity, span.EntityType);
         Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    [Theory]
+    [InlineData("password:\n  min_length: 8")]
+    [InlineData("password:\r\nnext")]
+    public void FindSpans_ValueOnNextLine_IsNotTakenAsTheSecret(string text)
+        => Assert.Empty(new CredentialExposureDetector().FindSpans(text));
+
+    [Fact]
+    public async Task AnalyzeAsync_UnterminatedQuote_IsStillCritical()
+    {
+        var result = await new CredentialExposureDetector().AnalyzeAsync(Ctx("password=\"x"), CancellationToken.None);
+        Assert.Equal(Severity.Critical, result.Severity);
     }
 
     [Theory]
@@ -179,6 +201,8 @@ public class CredentialExposureDetectorSpanTests
     [Theory]
     [InlineData("password=")]
     [InlineData("password=\"")]
+    [InlineData("password=\"\\")]
+    [InlineData("password=\"a\\\"b")]
     [InlineData("password='a ")]
     [InlineData("api_key=\"x\",")]
     [InlineData("-----BEGIN PRIVATE KEY-----")]
