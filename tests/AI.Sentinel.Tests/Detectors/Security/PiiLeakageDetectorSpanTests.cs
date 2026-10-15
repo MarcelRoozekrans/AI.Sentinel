@@ -125,7 +125,7 @@ public class PiiLeakageDetectorSpanTests
     [Fact]
     public void DropContained_EqualRanges_KeepsTheEarlierHigherSeverityType()
     {
-        var kept = PiiLeakageDetector.DropContained(new List<RedactionSpan>
+        var kept = RedactionSpanCollector.DropContained(new List<RedactionSpan>
         {
             new(0, 10, "SSN"),
             new(0, 10, "PHONE"),

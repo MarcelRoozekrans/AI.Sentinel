@@ -117,52 +117,17 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     public IReadOnlyList<RedactionSpan> FindSpans(string text)
     {
         var spans = new List<RedactionSpan>();
-        Collect(CreditCardPattern(), "CREDIT_CARD", text, spans);
-        Collect(SsnPattern(), "SSN", text, spans);
-        Collect(IbanPattern(), "IBAN", text, spans);
-        Collect(BsnPattern(), "BSN", text, spans);
-        Collect(UkNinoPattern(), "NINO", text, spans);
-        Collect(PassportPattern(), "PASSPORT", text, spans);
-        Collect(DeTaxIdPattern(), "TAX_ID", text, spans);
-        Collect(BareEmailPattern(), "EMAIL", text, spans);
-        Collect(PhonePattern(), "PHONE", text, spans);
-        Collect(DobPattern(), "DATE_OF_BIRTH", text, spans);
-        var kept = DropContained(spans);
-        kept.Sort(static (a, b) => a.Start != b.Start ? a.Start.CompareTo(b.Start) : b.Length.CompareTo(a.Length));
-        return kept;
-    }
-
-    // A card number also looks like a phone number; keep only the outermost span.
-    // For equal ranges the earlier list entry wins, so callers pass spans in severity order.
-    internal static List<RedactionSpan> DropContained(List<RedactionSpan> spans)
-    {
-        var result = new List<RedactionSpan>(spans.Count);
-        for (var i = 0; i < spans.Count; i++)
-        {
-            var inner = spans[i];
-            var contained = false;
-            for (var j = 0; j < spans.Count && !contained; j++)
-            {
-                var outer = spans[j];
-                contained = j != i
-                    && outer.Start <= inner.Start
-                    && outer.Start + outer.Length >= inner.Start + inner.Length
-                    && (outer.Length > inner.Length || j < i);
-            }
-            if (!contained) result.Add(inner);
-        }
-        return result;
-    }
-
-    // Keyword-prefixed patterns name their value group, so the span excludes the keyword.
-    private static void Collect(Regex pattern, string entityType, string text, List<RedactionSpan> spans)
-    {
-        foreach (Match m in pattern.Matches(text))
-        {
-            var g = m.Groups["value"];
-            var target = g.Success ? g : m;
-            spans.Add(new RedactionSpan(target.Index, target.Length, entityType));
-        }
+        RedactionSpanCollector.Collect(CreditCardPattern(), "CREDIT_CARD", text, spans);
+        RedactionSpanCollector.Collect(SsnPattern(), "SSN", text, spans);
+        RedactionSpanCollector.Collect(IbanPattern(), "IBAN", text, spans);
+        RedactionSpanCollector.Collect(BsnPattern(), "BSN", text, spans);
+        RedactionSpanCollector.Collect(UkNinoPattern(), "NINO", text, spans);
+        RedactionSpanCollector.Collect(PassportPattern(), "PASSPORT", text, spans);
+        RedactionSpanCollector.Collect(DeTaxIdPattern(), "TAX_ID", text, spans);
+        RedactionSpanCollector.Collect(BareEmailPattern(), "EMAIL", text, spans);
+        RedactionSpanCollector.Collect(PhonePattern(), "PHONE", text, spans);
+        RedactionSpanCollector.Collect(DobPattern(), "DATE_OF_BIRTH", text, spans);
+        return RedactionSpanCollector.Normalize(spans);
     }
 
     private static ValueTask<DetectionResult> Hit(Severity severity, string reason)
