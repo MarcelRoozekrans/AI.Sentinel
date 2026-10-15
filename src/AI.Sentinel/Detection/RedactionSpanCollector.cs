@@ -6,14 +6,82 @@ namespace AI.Sentinel.Detection;
 internal static class RedactionSpanCollector
 {
     // Keyword-prefixed patterns name their value group, so the span excludes the keyword.
+    // A value that is a redaction placeholder is not a match: `api_key=[API_KEY_1]` is what a redacted
+    // request looks like, and flagging it would block or re-redact the very text redaction produced.
     internal static void Collect(Regex pattern, string entityType, string text, List<RedactionSpan> spans)
     {
         foreach (Match m in pattern.Matches(text))
         {
-            var g = m.Groups["value"];
-            var target = g.Success ? g : m;
-            spans.Add(new RedactionSpan(target.Index, target.Length, entityType));
+            var target = Target(m);
+            if (!IsPlaceholder(text, target.Index, target.Length))
+            {
+                spans.Add(new RedactionSpan(target.Index, target.Length, entityType));
+            }
         }
+    }
+
+    /// <summary>True when <paramref name="pattern"/> matches <paramref name="text"/> with a value that is not a placeholder.</summary>
+    internal static bool HasMatch(Regex pattern, string text)
+    {
+        foreach (Match m in pattern.Matches(text))
+        {
+            var target = Target(m);
+            if (!IsPlaceholder(text, target.Index, target.Length))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Group Target(Match m)
+    {
+        var g = m.Groups["value"];
+        return g.Success ? g : m;
+    }
+
+    /// <summary>
+    /// True when the matched value is a placeholder of the form <c>[TYPE_n]</c>, either including its
+    /// brackets or sitting directly between them.
+    /// </summary>
+    internal static bool IsPlaceholder(string text, int index, int length)
+    {
+        var value = text.AsSpan(index, length);
+        if (value.Length >= 2 && value[0] == '[' && value[^1] == ']')
+        {
+            return IsToken(value[1..^1]);
+        }
+
+        return index > 0 && text[index - 1] == '['
+            && index + length < text.Length && text[index + length] == ']'
+            && IsToken(value);
+    }
+
+    // TYPE_n: upper-case letters, digits and underscores, then an underscore and digits.
+    private static bool IsToken(ReadOnlySpan<char> s)
+    {
+        var underscore = s.LastIndexOf('_');
+        if (underscore <= 0 || underscore == s.Length - 1)
+        {
+            return false;
+        }
+
+        for (var i = 0; i < underscore; i++)
+        {
+            if (s[i] is not ((>= 'A' and <= 'Z') or (>= '0' and <= '9') or '_'))
+            {
+                return false;
+            }
+        }
+
+        for (var i = underscore + 1; i < s.Length; i++)
+        {
+            if (s[i] is < '0' or > '9')
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Keeps only outermost spans. For equal ranges the earlier list entry wins,

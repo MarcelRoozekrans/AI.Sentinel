@@ -46,6 +46,29 @@ public sealed class InterventionEngine(
                 result);
     }
 
+    /// <summary>
+    /// Publishes an <see cref="InterventionAppliedNotification"/> with <see cref="SentinelAction.Redact"/> for
+    /// the values redacted in one call. It carries counts per entity type only, never a value, and no
+    /// <see cref="ThreatDetectedNotification"/> is published: a redaction is not a threat.
+    /// </summary>
+    /// <param name="sessionId">Session of the call.</param>
+    /// <param name="countsByType">Number of redacted occurrences per entity type.</param>
+    /// <param name="summary">Counts-only summary, for example <c>Redacted 1 EMAIL</c>.</param>
+    public void PublishRedaction(SessionId sessionId, IReadOnlyDictionary<string, int> countsByType, string summary)
+    {
+        ArgumentNullException.ThrowIfNull(sessionId);
+        ArgumentNullException.ThrowIfNull(countsByType);
+        if (mediator is null) return;
+
+        PublishSafe(mediator.Publish(new InterventionAppliedNotification(
+            sessionId,
+            SentinelAction.Redact,
+            Severity.None,
+            summary,
+            DateTimeOffset.UtcNow,
+            countsByType)));
+    }
+
     // Fast path: synchronous success — no allocation, return immediately.
     // Sync fault: log inline and return.
     // Async path: attach continuation that logs only on fault (OnlyOnFaulted avoids firing for success).

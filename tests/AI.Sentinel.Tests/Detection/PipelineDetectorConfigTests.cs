@@ -273,4 +273,39 @@ public class PipelineDetectorConfigTests
             string.Equals(e.DetectorId, "E2E-FLOOR-01", StringComparison.Ordinal) &&
             e.Severity == Severity.High);
     }
+
+    private static IReadOnlyList<string> RedactorIds(bool redactByDefault, Action<SentinelOptions>? configure = null)
+    {
+        var opts = new SentinelOptions();
+        configure?.Invoke(opts);
+        var pipeline = new DetectionPipeline(
+            [new AI.Sentinel.Detectors.Security.PiiLeakageDetector(), new AI.Sentinel.Detectors.Security.CredentialExposureDetector(), new CountingDetector(Severity.High)],
+            opts.GetDetectorConfigurations(), escalationClient: null, redactByDefault: redactByDefault);
+        var ids = new List<string>();
+        foreach (var r in pipeline.Redactors)
+        {
+            ids.Add(r.Id.Value);
+        }
+        return ids;
+    }
+
+    [Fact]
+    public void Redactors_Default_AreTheRedactingDetectors()
+        => Assert.Equal(["SEC-23", "SEC-02"], RedactorIds(redactByDefault: true));
+
+    [Fact]
+    public void Redactors_RedactByDefaultOff_Empty()
+        => Assert.Empty(RedactorIds(redactByDefault: false));
+
+    [Fact]
+    public void Redactors_ExplicitRedact_IncludedEvenWhenDefaultOff()
+        => Assert.Equal(["SEC-02"], RedactorIds(false, o => o.Configure<AI.Sentinel.Detectors.Security.CredentialExposureDetector>(c => c.Action = SentinelAction.Redact)));
+
+    [Fact]
+    public void Redactors_OtherActionOrDisabled_Excluded()
+        => Assert.Empty(RedactorIds(true, o =>
+        {
+            o.Configure<AI.Sentinel.Detectors.Security.PiiLeakageDetector>(c => c.Action = SentinelAction.Quarantine);
+            o.Configure<AI.Sentinel.Detectors.Security.CredentialExposureDetector>(c => c.Enabled = false);
+        }));
 }

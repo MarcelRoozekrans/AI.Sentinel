@@ -218,4 +218,36 @@ public class CredentialExposureDetectorSpanTests
         _ = new CredentialExposureDetector().FindSpans(text);
         Assert.True(sw.ElapsedMilliseconds < 1000, $"took {sw.ElapsedMilliseconds} ms");
     }
+
+    // A redacted request must not trip the detector that redacted it: the placeholder is not a secret.
+    [Theory]
+    [InlineData("api_key=[API_KEY_1]")]
+    [InlineData("password: [PASSWORD_12]")]
+    [InlineData("password=\"[PASSWORD_1]\"")]
+    [InlineData("Authorization: Bearer [BEARER_TOKEN_1]")]
+    [InlineData("AWS_SECRET_ACCESS_KEY=[AWS_SECRET_3]")]
+    public async Task PlaceholderValue_IsNotASecret(string text)
+    {
+        var detector = new CredentialExposureDetector();
+        Assert.Empty(detector.FindSpans(text));
+        Assert.Equal(Severity.None, (await detector.AnalyzeAsync(Ctx(text), CancellationToken.None)).Severity);
+    }
+
+    [Theory]
+    [InlineData("api_key=[API_KEY_1]x", "API_KEY_1]x")]
+    [InlineData("api_key=[api_key_1]", "api_key_1")]
+    [InlineData("password=[PASSWORD]", "PASSWORD")]
+    public void PlaceholderLookalike_IsStillRedacted(string text, string value)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    [Fact]
+    public void Secrets_AreNeverRestoredIntoToolArguments()
+        => Assert.False(((IRedactingDetector)new CredentialExposureDetector()).RestoreIntoToolArguments);
+
+    [Fact]
+    public void Pii_IsRestoredIntoToolArguments()
+        => Assert.True(((IRedactingDetector)new PiiLeakageDetector()).RestoreIntoToolArguments);
 }

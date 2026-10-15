@@ -27,6 +27,9 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 #endif
     private readonly Dictionary<(string Type, string Value), string> _tokenByValue = new();
     private readonly Dictionary<string, string> _valueByToken = new(StringComparer.Ordinal);
+    // Tokens whose value may go back into a tool call's arguments. A token is in here only when every
+    // detector that produced its value allows it; see IRedactingDetector.RestoreIntoToolArguments.
+    private readonly HashSet<string> _toolRestorable = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _nextByType = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, int>> _counts = new(StringComparer.Ordinal);
 
@@ -79,7 +82,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
                     throw new InvalidOperationException(
                         $"Detector {id} reported a span outside the scanned text; refusing to redact with unreliable offsets.");
                 }
-                found.Add(new Found(span.Start, span.Length, NormalizeType(span.EntityType), id));
+                found.Add(new Found(span.Start, span.Length, NormalizeType(span.EntityType), id, redactor.RestoreIntoToolArguments));
             }
         }
 
@@ -110,11 +113,13 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             var winner = found[i];
             var start = winner.Start;
             var end = winner.Start + winner.Length;
+            var toolRestorable = winner.ToolRestorable;
             i++;
             // Partial overlaps and containment merge into one union span typed by the longest original.
             while (i < found.Count && found[i].Start < end)
             {
                 var next = found[i];
+                toolRestorable &= next.ToolRestorable;
                 if (next.Length > winner.Length)
                 {
                     winner = next;
@@ -124,7 +129,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             }
 
             sb.Append(text, pos, start - pos);
-            sb.Append(TokenFor(winner.EntityType, text.Substring(start, end - start)));
+            sb.Append(TokenFor(winner.EntityType, text.Substring(start, end - start), toolRestorable));
             pos = end;
             Count(winner.DetectorId, winner.EntityType);
         }
@@ -183,11 +188,16 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         {
             ReserveExistingPlaceholders(text);
             return PlaceholderPattern().Replace(text, m =>
-                _valueByToken.ContainsKey(m.Value) ? TokenFor(m.Groups["type"].Value, m.Value) : m.Value);
+                _valueByToken.ContainsKey(m.Value) ? TokenFor(m.Groups["type"].Value, m.Value, toolRestorable: true) : m.Value);
         }
     }
 
-    public string Restore(string text)
+    public string Restore(string text) => RestoreCore(text, toolArguments: false);
+
+    /// <summary>Restores only the tokens whose value may go into a tool call's arguments.</summary>
+    private string RestoreToolArgument(string text) => RestoreCore(text, toolArguments: true);
+
+    private string RestoreCore(string text, bool toolArguments)
     {
         if (string.IsNullOrEmpty(text) || text.IndexOf('[', StringComparison.Ordinal) < 0)
         {
@@ -199,7 +209,10 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             lock (_gate)
             {
                 // Only tokens this session created are restored; anything else stays literal.
-                return _valueByToken.TryGetValue(m.Value, out var original) ? original : m.Value;
+                return _valueByToken.TryGetValue(m.Value, out var original)
+                    && (!toolArguments || _toolRestorable.Contains(m.Value))
+                    ? original
+                    : m.Value;
             }
         });
     }
@@ -215,7 +228,8 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     }
 
     /// <summary>
-    /// Returns a new <see cref="AIFunctionArguments"/> with the real values restored, keyed by
+    /// Returns a new <see cref="AIFunctionArguments"/> with the real values restored, except values whose
+    /// detector forbids restoring them into tool arguments, which keep their placeholder. Keyed by
     /// <paramref name="comparer"/>. The input and any dictionary or list nested in it are never mutated,
     /// because the input can be backed by the arguments of a function call kept in the chat history, which
     /// must keep the placeholders. Context and Services are copied. <see cref="AIFunctionArguments"/> does not
@@ -238,7 +252,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
                 throw new InvalidOperationException(
                     "Two argument names are identical under the given comparer; refusing to drop one.");
             }
-            restored[key] = MapValue(value, Restore, redact: false);
+            restored[key] = MapValue(value, RestoreToolArgument, redact: false);
         }
         return restored;
     }
@@ -246,10 +260,14 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     private static IEqualityComparer<string> ComparerOf(IDictionary<string, object?> source) =>
         source is Dictionary<string, object?> dictionary ? dictionary.Comparer : StringComparer.Ordinal;
 
-    private string TokenFor(string type, string value)
+    private string TokenFor(string type, string value, bool toolRestorable)
     {
         if (_tokenByValue.TryGetValue((type, value), out var existing))
         {
+            if (!toolRestorable)
+            {
+                _toolRestorable.Remove(existing);
+            }
             return existing;
         }
 
@@ -263,6 +281,10 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         var token = $"[{type}_{n.ToString(CultureInfo.InvariantCulture)}]";
         _tokenByValue[(type, value)] = token;
         _valueByToken[token] = value;
+        if (toolRestorable)
+        {
+            _toolRestorable.Add(token);
+        }
         return token;
     }
 
@@ -337,7 +359,8 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
             case TextContent text:
                 return CopyMetadata(text, new TextContent(text.Text is null ? null : map(text.Text)));
             case FunctionCallContent call:
-                return CopyMetadata(call, MapCall(call, map, redact));
+                // Arguments of a call are what a tool would receive, so restoring them follows the tool rule.
+                return CopyMetadata(call, MapCall(call, redact ? map : RestoreToolArgument, redact));
             case FunctionResultContent fr when redact:
                 return CopyMetadata(fr, new FunctionResultContent(fr.CallId, MapValue(fr.Result, map, redact))
                 {
@@ -551,5 +574,5 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         }
     }
 
-    private readonly record struct Found(int Start, int Length, string EntityType, string DetectorId);
+    private readonly record struct Found(int Start, int Length, string EntityType, string DetectorId, bool ToolRestorable);
 }

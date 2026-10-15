@@ -13,6 +13,9 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
+    /// <summary>False: a secret is restored into the reply but never into a tool call's arguments.</summary>
+    public bool RestoreIntoToolArguments => false;
+
     // Each pattern names a `value` group that covers only the secret, so a redacted span
     // keeps the key name. A quoted value takes the text between the quotes, may contain spaces
     // and backslash escapes, and runs to the end of the line when the closing quote is missing
@@ -82,15 +85,16 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         var text = ctx.TextContent;
-        // The reason carries only the entity type; no part of the matched secret.
-        if (PasswordPattern().IsMatch(text)) return Hit("PASSWORD");
-        if (ApiKeyPattern().IsMatch(text)) return Hit("API_KEY");
-        if (SecretKeyPattern().IsMatch(text)) return Hit("SECRET_KEY");
-        if (BearerPattern().IsMatch(text)) return Hit("BEARER_TOKEN");
-        if (AwsSecretPattern().IsMatch(text)) return Hit("AWS_SECRET");
-        if (PrivateKeyPattern().IsMatch(text)) return Hit("PRIVATE_KEY");
-        if (GithubTokenPattern().IsMatch(text)) return Hit("GITHUB_TOKEN");
-        if (BareApiKeyPattern().IsMatch(text)) return Hit("API_KEY");
+        // The reason carries only the entity type; no part of the matched secret. A value that is a
+        // redaction placeholder is not a secret.
+        if (RedactionSpanCollector.HasMatch(PasswordPattern(), text)) return Hit("PASSWORD");
+        if (RedactionSpanCollector.HasMatch(ApiKeyPattern(), text)) return Hit("API_KEY");
+        if (RedactionSpanCollector.HasMatch(SecretKeyPattern(), text)) return Hit("SECRET_KEY");
+        if (RedactionSpanCollector.HasMatch(BearerPattern(), text)) return Hit("BEARER_TOKEN");
+        if (RedactionSpanCollector.HasMatch(AwsSecretPattern(), text)) return Hit("AWS_SECRET");
+        if (RedactionSpanCollector.HasMatch(PrivateKeyPattern(), text)) return Hit("PRIVATE_KEY");
+        if (RedactionSpanCollector.HasMatch(GithubTokenPattern(), text)) return Hit("GITHUB_TOKEN");
+        if (RedactionSpanCollector.HasMatch(BareApiKeyPattern(), text)) return Hit("API_KEY");
         return ValueTask.FromResult(_clean);
     }
 

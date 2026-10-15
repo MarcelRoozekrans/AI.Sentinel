@@ -532,4 +532,80 @@ public class RedactionSessionTests
         Assert.DoesNotContain("secret", ex.Message, StringComparison.Ordinal);
         Assert.Contains("TST-01", ex.Message, StringComparison.Ordinal);
     }
+
+    private sealed class SecretRedactor(params RedactionSpan[] spans) : IRedactingDetector
+    {
+        public DetectorId Id { get; } = new("TST-SECRET");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(DetectionResult.Clean(Id));
+        public IReadOnlyList<RedactionSpan> FindSpans(string text) => spans;
+        public bool RestoreIntoToolArguments => false;
+    }
+
+    [Fact]
+    public void Secret_RestoredInText_ButNeverIntoToolArguments_PiiIsRestoredIntoBoth()
+    {
+        var session = new RedactionSession([new PiiLeakageDetector(), new CredentialExposureDetector()]);
+        var redacted = session.Redact("jan@acme.nl api_key=abc123def456");
+        Assert.Equal("[EMAIL_1] api_key=[API_KEY_1]", redacted);
+
+        Assert.Equal("jan@acme.nl api_key=abc123def456", session.Restore(redacted));
+
+        var args = session.Restore(
+            new AIFunctionArguments(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]", ["key"] = "[API_KEY_1]" }, StringComparer.Ordinal);
+        Assert.Equal("jan@acme.nl", args["to"]);
+        Assert.Equal("[API_KEY_1]", args["key"]);
+
+        var reply = session.Restore(new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [
+                new TextContent("[EMAIL_1] [API_KEY_1]"),
+                new FunctionCallContent("c1", "Send", new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]", ["key"] = "[API_KEY_1]" }),
+            ]),
+        });
+        Assert.Equal("jan@acme.nl abc123def456", reply[0].Text);
+        var call = Assert.IsType<FunctionCallContent>(reply[0].Contents[1]);
+        Assert.Equal("jan@acme.nl", call.Arguments!["to"]);
+        Assert.Equal("[API_KEY_1]", call.Arguments["key"]);
+    }
+
+    [Fact]
+    public void MergedSpan_WithASecretDetector_IsNotRestoredIntoToolArguments()
+    {
+        var session = new RedactionSession([
+            new FakeRedactor("TST-01", new RedactionSpan(0, 6, "PHONE")),
+            new SecretRedactor(new RedactionSpan(3, 6, "API_KEY")),
+        ]);
+        var redacted = session.Redact("abcdefghij");
+        Assert.Equal("[PHONE_1]j", redacted);
+
+        var args = session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = "[PHONE_1]" }, StringComparer.Ordinal);
+        Assert.Equal("[PHONE_1]", args["v"]);
+        Assert.Equal("abcdefghij", session.Restore(redacted));
+    }
+
+    [Fact]
+    public void SameValue_FoundLaterByASecretDetector_LosesToolRestore()
+    {
+        var pii = new FakeRedactor("TST-01", new RedactionSpan(0, 5, "X"));
+        var secret = new SecretRedactor(new RedactionSpan(0, 5, "X"));
+        var first = new RedactionSession([pii]);
+        Assert.Equal("[X_1]", first.Redact("hello"));
+        Assert.Equal("hello", first.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = "[X_1]" }, StringComparer.Ordinal)["v"]);
+
+        var both = new RedactionSession([pii, secret]);
+        Assert.Equal("[X_1]", both.Redact("hello"));
+        Assert.Equal("[X_1]", both.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = "[X_1]" }, StringComparer.Ordinal)["v"]);
+    }
+
+    [Fact]
+    public void EscapedLiteral_IsRestoredIntoToolArguments()
+    {
+        var session = Pii();
+        session.Redact("jan@acme.nl");
+        var escaped = session.Redact("[EMAIL_1]");
+        Assert.Equal("[EMAIL_2]", escaped);
+        Assert.Equal("[EMAIL_1]", session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["v"] = escaped }, StringComparer.Ordinal)["v"]);
+    }
 }

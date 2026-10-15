@@ -7,6 +7,7 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
+using AI.Sentinel.Redaction;
 using ZeroAlloc.Resilience;
 using ZeroAlloc.Results;
 
@@ -34,6 +35,10 @@ public sealed class SentinelPipeline(
     private readonly IAuditForwarder[] _forwarders = AuditForwarding.Snapshot(forwarders);
     private int _rateLimiterWriteCount;
 
+    // Tool calls the model makes run inside a FunctionInvokingChatClient below this pipeline, if there is one;
+    // its hook restores their arguments and redacts their results for the current call.
+    private readonly bool _toolHookInstalled = InstallToolHook(innerClient);
+
     // EmbeddingGenerator not set — all SemanticDetectorBase subclasses return Clean.
     // Set SentinelOptions.EmbeddingGenerator to enable language-agnostic detection.
 
@@ -43,11 +48,21 @@ public sealed class SentinelPipeline(
         public long LastUsedMs = Environment.TickCount64;
     }
 
-    /// <summary>Scans the prompt and response for threats and returns the chat response on success, or a <see cref="SentinelError"/> if a threat is detected or the inner client fails.</summary>
+    /// <summary>Redacts and scans the prompt, forwards it, scans the response and restores the redacted
+    /// values in it. Returns the chat response on success, or a <see cref="SentinelError"/> if a threat is
+    /// detected, redaction fails or the inner client fails.</summary>
     /// <param name="messages">The conversation messages to send to the inner client.</param>
     /// <param name="chatOptions">Optional chat options forwarded to the inner client.</param>
     /// <param name="ct">Cancellation token for the operation.</param>
     /// <returns>A successful <see cref="ChatResponse"/> when no threats are found, or a <see cref="SentinelError.ThreatDetected"/> / <see cref="SentinelError.PipelineFailure"/> on failure.</returns>
+    /// <remarks>
+    /// Values found by a redacting detector whose effective action is <see cref="SentinelAction.Redact"/>
+    /// are replaced by placeholders such as <c>[EMAIL_1]</c> in everything sent to the model: every message,
+    /// tool-call arguments and tool results, including the results of tools the model calls during this call.
+    /// The other detectors judge the redacted request. The response is scanned as the model produced it and
+    /// then, when <see cref="SentinelOptions.RestoreRedactedValues"/> is set, restored. The mapping lives only
+    /// for this call. Any failure to redact fails the call closed: nothing is sent unredacted.
+    /// </remarks>
     public async ValueTask<Result<ChatResponse, SentinelError>> GetResponseResultAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions,
@@ -60,12 +75,31 @@ public sealed class SentinelPipeline(
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var sessionId = SessionId.New();
 
+        var redactors = pipeline.Redactors;
+        var session = redactors.Count > 0 ? new RedactionSession(redactors) : null;
+        if (session is not null)
+        {
+            try
+            {
+                messageList = session.Redact(messageList);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return Result<ChatResponse, SentinelError>.Failure(RedactionFailed(ex));
+            }
+        }
+
         var systemPrompt = SystemPromptOf(messageList);
 
         var promptError = await ScanAsync(messageList, sessionId,
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt).ConfigureAwait(false);
         if (promptError is not null)
             return Result<ChatResponse, SentinelError>.Failure(promptError);
+
+        // Set inside this async method: it flows into the inner clients and never back out to the caller.
+        var scope = session is null ? null : new RedactionScope(session, options.RestoreRedactedValues);
+        if (scope is not null)
+            RedactionScope.Current = scope;
 
         ChatResponse response;
         try
@@ -76,8 +110,24 @@ public sealed class SentinelPipeline(
         }
         catch (Exception ex)
         {
+            await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
             return Result<ChatResponse, SentinelError>.Failure(
                 new SentinelError.PipelineFailure("Inner client failed.", ex));
+        }
+
+        await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
+        return await FinishResponseAsync(response, scope, sessionId, systemPrompt, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Scans the response as the model produced it, so restored values never trigger a response
+    /// detection, then restores the redacted values in it.</summary>
+    private async ValueTask<Result<ChatResponse, SentinelError>> FinishResponseAsync(
+        ChatResponse response, RedactionScope? scope, SessionId sessionId, string? systemPrompt, CancellationToken ct)
+    {
+        if (scope is { Failed: true })
+        {
+            return Result<ChatResponse, SentinelError>.Failure(new SentinelError.PipelineFailure(
+                "AI.Sentinel could not redact a tool call made during the request; the request was stopped and nothing unredacted was sent."));
         }
 
         IReadOnlyList<ChatMessage> responseMessages =
@@ -87,7 +137,54 @@ public sealed class SentinelPipeline(
         if (responseError is not null)
             return Result<ChatResponse, SentinelError>.Failure(responseError);
 
+        if (scope is { Session.HasRedactions: true } && options.RestoreRedactedValues)
+        {
+            try
+            {
+                response.Messages = scope.Session.Restore(response.Messages);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                return Result<ChatResponse, SentinelError>.Failure(RedactionFailed(ex));
+            }
+        }
+
         return Result<ChatResponse, SentinelError>.Success(response);
+    }
+
+    private static bool InstallToolHook(IChatClient inner)
+    {
+        RedactionScope.InstallToolHook(inner);
+        return true;
+    }
+
+    // The exception is not chained: messages and properties of regex, serializer and detector exceptions can
+    // carry the text being redacted, for example RegexMatchTimeoutException.Input.
+    private static SentinelError.PipelineFailure RedactionFailed(Exception ex) => new(
+        $"AI.Sentinel could not redact the request ({ex.GetType().Name}); nothing was sent unredacted.");
+
+    /// <summary>One audit entry per redacting detector, counts only, and one Redact notification.</summary>
+    private async Task AppendRedactionsAsync(RedactionSession? session, SessionId sessionId, CancellationToken ct)
+    {
+        if (session is null)
+            return;
+
+        var byDetector = session.CountsByDetector;
+        if (byDetector.Count == 0)
+            return;
+
+        var byType = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var (detectorId, counts) in byDetector)
+        {
+            var entry = AuditEntryRedactionExtensions.Redaction(detectorId, counts, sessionId.Value);
+            await auditStore.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
+            foreach (var (type, count) in counts)
+            {
+                byType[type] = byType.GetValueOrDefault(type) + count;
+            }
+        }
+
+        interventionEngine.PublishRedaction(sessionId, byType, AuditEntryRedactionExtensions.Summarize(byType));
     }
 
     /// <summary>Buffers the full inner streaming response, scans both prompt and response,

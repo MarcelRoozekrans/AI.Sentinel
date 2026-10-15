@@ -23,6 +23,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         bool redactByDefault = true)
     {
         var enabled = new List<IDetector>();
+        var redactors = new List<IRedactingDetector>();
         var enabledConfigs = new List<DetectorConfiguration?>();
         foreach (var d in detectors)
         {
@@ -46,7 +47,14 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
             enabled.Add(d);
             enabledConfigs.Add(cfg);
+            if (d is IRedactingDetector redactor
+                && (cfg?.Action ?? (redactByDefault ? SentinelAction.Redact : (SentinelAction?)null)) == SentinelAction.Redact)
+            {
+                redactors.Add(redactor);
+            }
         }
+
+        Redactors = redactors.ToArray();
 
         _detectors        = enabled.ToArray();
         _configurations   = enabledConfigs.ToArray();
@@ -55,6 +63,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
         _onDetectorFailure = onDetectorFailure;
         _redactByDefault  = redactByDefault;
     }
+
+    /// <inheritdoc />
+    public IReadOnlyList<IRedactingDetector> Redactors { get; }
 
     private static int SeverityScore(Severity s) => s switch
     {
