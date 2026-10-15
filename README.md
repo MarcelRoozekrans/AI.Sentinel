@@ -291,7 +291,7 @@ AI.Sentinel provides runtime building blocks for several technical obligations o
 
 > **Active by default** means what a stock `AddAISentinel()` install does with no further configuration, as in the OWASP table above. The 15 rule-based detectors counted for Art. 15 are the 14 marked `Rule-based`, minus `SEC‑29 OutputSchema` (inactive without `opts.ExpectedResponseType`), plus the rule layers of `SEC‑01` and `SEC‑05`.
 
-> **GDPR.** Redaction supports data minimisation (Art. 5(1)(c)) and data protection by design (Art. 25): the model gets `[EMAIL_1]`, not the address. See [Redaction](#redaction).
+> **GDPR.** Redaction supports data minimisation (Art. 5(1)(c)) and data protection by design (Art. 25): the model gets `[EMAIL_1_k3f9x2]`, not the address. See [Redaction](#redaction).
 
 > **Timeline.** The Art. 5 prohibitions have applied since 2 February 2025. [Regulation (EU) 2026/1744](https://eur-lex.europa.eu/eli/reg/2026/1744/oj), the Digital Omnibus on AI, in force since 27 July 2026, moved the obligations for Annex III high-risk systems from 2 August 2026 to **2 December 2027**, and for high-risk systems under Annex I to 2 August 2028. Check the regulation itself for the dates that apply to your system.
 
@@ -510,7 +510,7 @@ builder.Services.AddAISentinel(opts =>
 | `Quarantine` | Throws `SentinelException` with full `PipelineResult`. Stops the call. Also fires the alert sink. |
 | `Alert` | Publishes `ThreatDetectedNotification` + `InterventionAppliedNotification` via `IMediator`. Fires the alert sink. Call continues. |
 | `Log` | Writes to `ILogger<InterventionEngine>`. Call continues. |
-| `Redact` | Allow the call, minus the sensitive parts: the model gets `[EMAIL_1]` in place of the value and the reply is restored. Per detector only, not a block. See [Redaction](#redaction). |
+| `Redact` | Allow the call, minus the sensitive parts: the model gets `[EMAIL_1_k3f9x2]` in place of the value and the reply is restored. Per detector only, not a block. See [Redaction](#redaction). |
 | `PassThrough` | No action. Detections are still audited. |
 
 Alert sink behaviour: when `opts.AlertWebhook` is set, `WebhookAlertSink` POSTs a JSON payload (type, severity, detector, reason, action, session) to the configured URL on `Quarantine` or `Alert` actions. The `DeduplicatingAlertSink` wraps the webhook sink and suppresses repeat alerts for the same detector+session, controlled by `opts.AlertDeduplicationWindow`.
@@ -530,12 +530,18 @@ options.EmbeddingCache = new MyRedisEmbeddingCache(redis, ttl: TimeSpan.FromHour
 
 ### Redaction
 
-Redact is **allow, minus the sensitive parts**. `PiiLeakageDetector` and `CredentialExposureDetector` replace each value in everything sent to the model with a numbered placeholder (`[EMAIL_1]`, `[IBAN_1]`, `api_key=[API_KEY_1]`) and let the call through. After the response scan the real values are put back in the reply, in tool results and, for PII, in tool-call arguments before the tool runs. Secrets are never restored into tool arguments.
+Redact is **allow, minus the sensitive parts**. `PiiLeakageDetector` and `CredentialExposureDetector` replace each value in the messages, `ChatOptions.Instructions`, tool calls, tool results and text attachments sent to the model with a numbered placeholder (`[EMAIL_1_k3f9x2]`, `[IBAN_1_k3f9x2]`, `api_key=[API_KEY_1_k3f9x2]`) and let the call through. The last part is a random tag drawn for every call, so a placeholder from another call or model round trip is never restored to a value of this one. After the response scan the real values are put back in the reply, in tool results and, for PII, in tool-call arguments before the tool runs. Secrets are never restored into tool arguments.
 
-> **3.0 breaking default.** These two detectors now redact by default instead of using their severity action. One line restores the 2.x behaviour:
+> **3.0 breaking changes.** These two detectors now redact by default instead of using their severity action. `opts.RedactByDefault = false` makes their findings use the severity action again, as in 2.x. It does not bring back 2.x detection, which changed regardless:
+>
+> - `PiiLeakageDetector` matches every email address at Medium severity, not only one preceded by a "First Last" name.
+> - `CredentialExposureDetector` matches quoted keys and values, any PEM private key type, `AWS_SECRET_ACCESS_KEY:` and quoted YAML values on the next line, and an unquoted next-line value no longer matches. Its reasons name the type only, such as `Credential exposure: API_KEY`.
+>
+> So where Medium findings block, with `OnMedium = Quarantine` and redaction off, or `SENTINEL_HOOK_ON_MEDIUM` / `SENTINEL_MCP_ON_MEDIUM` set to `Block` in the hook CLIs and the MCP proxy, any email address in a prompt or reply now blocks it. No option restores the 2.x patterns; in an app, give the detector its own setting, which applies to every PII type it finds:
 >
 > ```csharp
 > opts.RedactByDefault = false;
+> opts.Configure<PiiLeakageDetector>(c => c.Action = SentinelAction.Log); // or c.SeverityCap = Severity.Low, or c.Enabled = false
 > ```
 
 ```csharp
@@ -548,7 +554,7 @@ services.AddAISentinel(opts =>
 });
 ```
 
-`Redact` is invalid on `OnCritical`, `OnHigh`, `OnMedium` and `OnLow`, and on a detector that cannot redact. The placeholder mapping lives in memory for one call and is never logged, audited or forwarded. A redaction is audited as one informational `REDACTED` entry with counts only, and never counts as a threat. When redaction is not possible (the response scan, the hook CLIs and the MCP proxy in 3.0) the detection uses its severity action and the audit summary ends with `; not redacted`. Full details, including the known limitation with `UseFunctionInvocation`: [Redaction](https://marcelroozekrans.github.io/AI.Sentinel/docs/redaction).
+`Redact` is invalid on `OnCritical`, `OnHigh`, `OnMedium` and `OnLow`, and on a detector that cannot redact; `AddAISentinel` throws an `ArgumentException` for either. The placeholder mapping lives in memory for one call and is never logged, audited or forwarded. A redaction is audited as one informational `REDACTED` entry with counts only, and never counts as a threat. When redaction is not possible (the response scan, the hook CLIs and the MCP proxy in 3.0) the detection uses its severity action and the audit summary ends with `; not redacted`. Full details, including what is not redacted and the known limitation with `UseFunctionInvocation`: [Redaction](https://marcelroozekrans.github.io/AI.Sentinel/docs/redaction).
 
 ### Tuning individual detectors
 
