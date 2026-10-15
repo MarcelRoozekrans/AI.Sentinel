@@ -38,6 +38,34 @@ public sealed class SentinelContext(
     /// </summary>
     public IReadOnlySet<string> RedactionPlaceholders { get; init; } = NoPlaceholders;
 
+    /// <summary>
+    /// Every placeholder-shaped token in the redacted request the model was sent, for the response scan.
+    /// Only a detector listed in <see cref="RedactingDetectorIds"/> may treat them as exempt: that detector
+    /// redacted the request, so a token still sitting where its value would be was minted or judged not a value.
+    /// For any other detector, such a token may be a real secret that reached the model as it was.
+    /// </summary>
+    public IReadOnlySet<string> RequestPlaceholders { get; init; } = NoPlaceholders;
+
+    /// <summary>Ids of the detectors that redacted the request of this call.</summary>
+    public IReadOnlySet<string> RedactingDetectorIds { get; init; } = NoPlaceholders;
+
+    /// <summary>
+    /// The placeholders <paramref name="detector"/> must not flag as a value: <see cref="RedactionPlaceholders"/>,
+    /// plus <see cref="RequestPlaceholders"/> when that detector redacted this call's request.
+    /// </summary>
+    public IReadOnlySet<string> PlaceholdersExemptFor(DetectorId detector)
+    {
+        ArgumentNullException.ThrowIfNull(detector);
+        if (RequestPlaceholders.Count == 0 || !RedactingDetectorIds.Contains(detector.Value))
+        {
+            return RedactionPlaceholders;
+        }
+
+        var exempt = new HashSet<string>(RedactionPlaceholders, StringComparer.Ordinal);
+        exempt.UnionWith(RequestPlaceholders);
+        return exempt;
+    }
+
     private string? _textContent;
 
     /// <summary>

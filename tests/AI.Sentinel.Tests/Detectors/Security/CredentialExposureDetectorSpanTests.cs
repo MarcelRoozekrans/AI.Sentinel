@@ -239,6 +239,23 @@ public class CredentialExposureDetectorSpanTests
         Assert.Equal(Severity.None, (await new CredentialExposureDetector().AnalyzeAsync(ctx, CancellationToken.None)).Severity);
     }
 
+    // Tokens from the redacted request are exempt only for a detector that redacted that request.
+    [Theory]
+    [InlineData(true, Severity.None)]
+    [InlineData(false, Severity.Critical)]
+    public async Task RequestPlaceholder_IsExemptOnlyWhenThisDetectorRedacted(bool detectorRedacted, Severity expected)
+    {
+        var ctx = new SentinelContext(new AgentId("a"), new AgentId("b"), SessionId.New(),
+            new List<ChatMessage> { new(ChatRole.Assistant, "password=[ADMIN_99]") }, new List<AuditEntry>())
+        {
+            RequestPlaceholders = new HashSet<string>(StringComparer.Ordinal) { "[ADMIN_99]" },
+            RedactingDetectorIds = detectorRedacted
+                ? new HashSet<string>(StringComparer.Ordinal) { "SEC-02" }
+                : new HashSet<string>(StringComparer.Ordinal) { "SEC-23" },
+        };
+        Assert.Equal(expected, (await new CredentialExposureDetector().AnalyzeAsync(ctx, CancellationToken.None)).Severity);
+    }
+
     // Only the call's own placeholders are exempt: a real secret that looks like one is still a secret, on
     // every surface, including those that never redact and so mint nothing.
     [Theory]

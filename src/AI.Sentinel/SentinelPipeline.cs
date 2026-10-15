@@ -106,13 +106,13 @@ public sealed class SentinelPipeline
         // The request holds this call's placeholders and those of any enclosing Sentinel call; none is a value.
         var promptError = await ScanAsync(messageList, sessionId,
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
-            RedactionScope.ExemptPlaceholders(session, parent)).ConfigureAwait(false);
+            new Exemptions(RedactionScope.ExemptPlaceholders(session, parent))).ConfigureAwait(false);
         if (promptError is not null)
             return Result<ChatResponse, SentinelError>.Failure(promptError);
 
-        // Every placeholder-shaped token in the request the model is about to see. The request was redacted, so
-        // none is a raw secret, and the model may legitimately repeat one, including a literal left in history
-        // from an earlier round trip.
+        // Every placeholder-shaped token in the request the model is about to see. For the detectors that redacted
+        // it none is a raw value, and the model may legitimately repeat one, including a literal left in history
+        // from an earlier round trip. Only those detectors get to exempt them, see SentinelContext.
         var sentPlaceholders = session?.PlaceholdersIn(messageList);
 
         // Set inside this async method: it flows into the inner clients and never back out to the caller.
@@ -137,14 +137,14 @@ public sealed class SentinelPipeline
         }
 
         await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
-        var responseExempt = RedactionScope.ExemptPlaceholders(session, parent, sentPlaceholders);
+        var responseExempt = new Exemptions(RedactionScope.ExemptPlaceholders(session, parent), sentPlaceholders, RedactorIds(redactors));
         return await FinishResponseAsync(response, scope, responseExempt, sessionId, systemPrompt, ct).ConfigureAwait(false);
     }
 
     /// <summary>Scans the response as the model produced it, so restored values never trigger a response
     /// detection, then restores the redacted values in it.</summary>
     private async ValueTask<Result<ChatResponse, SentinelError>> FinishResponseAsync(
-        ChatResponse response, RedactionScope? scope, IReadOnlySet<string>? exemptPlaceholders,
+        ChatResponse response, RedactionScope? scope, Exemptions exemptPlaceholders,
         SessionId sessionId, string? systemPrompt, CancellationToken ct)
     {
         if (scope is { Failed: true })
@@ -189,6 +189,24 @@ public sealed class SentinelPipeline
         {
             return (messages, RedactionFailed(ex));
         }
+    }
+
+    private static readonly IReadOnlySet<string> NoStrings = new HashSet<string>(StringComparer.Ordinal);
+
+    /// <summary>Placeholders a scan must not flag; see <see cref="SentinelContext.PlaceholdersExemptFor"/>.</summary>
+    private readonly record struct Exemptions(
+        IReadOnlySet<string>? Minted,
+        IReadOnlySet<string>? Request = null,
+        IReadOnlySet<string>? RedactorIds = null);
+
+    private static HashSet<string> RedactorIds(IReadOnlyList<IRedactingDetector> redactors)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var r in redactors)
+        {
+            ids.Add(r.Id.Value);
+        }
+        return ids;
     }
 
     // The exception is not chained: messages and properties of regex, serializer and detector exceptions can
@@ -318,11 +336,16 @@ public sealed class SentinelPipeline
         AgentId receiver,
         CancellationToken ct,
         string? systemPrompt = null,
-        IReadOnlySet<string>? placeholders = null)
+        Exemptions exemptions = default)
     {
-        var ctx = placeholders is null
+        var ctx = exemptions.Minted is null
             ? new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt)
-            : new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt) { RedactionPlaceholders = placeholders };
+            : new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt)
+            {
+                RedactionPlaceholders = exemptions.Minted,
+                RequestPlaceholders = exemptions.Request ?? NoStrings,
+                RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,
+            };
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
         await AppendAuditAsync(pipelineResult, sessionId, ct).ConfigureAwait(false);

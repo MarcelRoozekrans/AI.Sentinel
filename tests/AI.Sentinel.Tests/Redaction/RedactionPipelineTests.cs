@@ -730,9 +730,10 @@ public class RedactionPipelineTests
         Assert.Equal("Used api_key=[API_KEY_1] for you.", response.Text);
         foreach (var e in await RecordingAuditForwarder.ReadAllAsync(h.Audit))
         {
-            if (string.Equals(e.DetectorId, "SEC-02", StringComparison.Ordinal))
+            // OPS-01 flags the tool-call-only first round trip as blank, a known false positive filed separately.
+            if (!string.Equals(e.DetectorId, "OPS-01", StringComparison.Ordinal))
             {
-                Assert.Equal(Severity.None, e.Severity);
+                Assert.True(e.Severity == Severity.None, $"{e.DetectorId} {e.Severity}: {e.Summary}");
             }
         }
     }
@@ -757,6 +758,41 @@ public class RedactionPipelineTests
         foreach (var e in await RecordingAuditForwarder.ReadAllAsync(audit))
         {
             Assert.True(e.Severity == Severity.None, $"{e.DetectorId} {e.Severity}: {e.Summary}");
+        }
+    }
+
+    // The response scan may exempt the placeholder-shaped tokens of the request it sent only for detectors that
+    // redacted it. Here SEC-02 only logs, so a real secret shaped like a placeholder reaches the model as it is,
+    // and the model echoing it is still a detection.
+    [Fact]
+    public async Task NonRedactingCredentialDetector_StillFlagsEchoedPlaceholderShapedSecret()
+    {
+        var h = Build("S", RecordingModel.Echo(), o =>
+        {
+            o.RedactByDefault = false;
+            o.Configure<PiiLeakageDetector>(c => c.Action = SentinelAction.Redact);
+            o.Configure<CredentialExposureDetector>(c => c.Action = SentinelAction.Log);
+        });
+
+        var response = await AskAsync(h, $"password=[ADMIN_99] and mail {Email} please.");
+
+        Assert.Contains("password=[ADMIN_99]", h.Model.AllSeen, StringComparison.Ordinal);
+        Assert.DoesNotContain(Email, h.Model.AllSeen, StringComparison.Ordinal);
+        Assert.Equal($"Echo: password=[ADMIN_99] and mail {Email} please.", response.Text);
+        var credential = new List<AuditEntry>();
+        foreach (var e in await RecordingAuditForwarder.ReadAllAsync(h.Audit))
+        {
+            if (string.Equals(e.DetectorId, "SEC-02", StringComparison.Ordinal))
+            {
+                credential.Add(e);
+            }
+        }
+        // One on the prompt, one on the echoed response; both real detections, not redactions.
+        Assert.Equal(2, credential.Count);
+        foreach (var e in credential)
+        {
+            Assert.Equal(Severity.Critical, e.Severity);
+            Assert.Null(e.PolicyCode);
         }
     }
 

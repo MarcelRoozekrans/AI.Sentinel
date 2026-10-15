@@ -89,14 +89,13 @@ internal sealed class RedactionScope(RedactionSession session, bool restoreArgum
     }
 
     /// <summary>
-    /// The placeholders a detector must not flag as a value: those <paramref name="own"/> minted, those every
-    /// enclosing Sentinel call in the <paramref name="parent"/> chain minted, and <paramref name="extra"/>.
-    /// Null when there are none to exempt, so a call that redacts nothing exempts nothing.
+    /// The placeholders no detector may flag as a value: those <paramref name="own"/> minted and those every
+    /// enclosing Sentinel call in the <paramref name="parent"/> chain minted. Null when there are none, so a
+    /// call that redacts nothing exempts nothing.
     /// </summary>
-    public static IReadOnlySet<string>? ExemptPlaceholders(
-        RedactionSession? own, RedactionScope? parent, IReadOnlySet<string>? extra = null)
+    public static IReadOnlySet<string>? ExemptPlaceholders(RedactionSession? own, RedactionScope? parent)
     {
-        if (own is null && parent is null && extra is null)
+        if (own is null && parent is null)
         {
             return null;
         }
@@ -109,10 +108,6 @@ internal sealed class RedactionScope(RedactionSession session, bool restoreArgum
         for (var s = parent; s is not null; s = s.Parent)
         {
             exempt.UnionWith(s.Session.MintedTokens);
-        }
-        if (extra is not null)
-        {
-            exempt.UnionWith(extra);
         }
         return exempt;
     }

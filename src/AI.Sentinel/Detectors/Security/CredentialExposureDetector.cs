@@ -85,7 +85,7 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         var text = ctx.TextContent;
-        var placeholders = ctx.RedactionPlaceholders;
+        var placeholders = ctx.PlaceholdersExemptFor(_id);
         // The reason carries only the entity type; no part of the matched secret. A placeholder this call
         // minted is not a secret.
         if (RedactionSpanCollector.HasMatch(PasswordPattern(), text, placeholders)) return Hit("PASSWORD");
