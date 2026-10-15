@@ -541,8 +541,9 @@ Redact is **allow, minus the sensitive parts**. `PiiLeakageDetector` and `Creden
 ```csharp
 services.AddAISentinel(opts =>
 {
-    opts.Configure<PiiLeakageDetector>(c => c.Action = SentinelAction.Redact);
-    opts.Configure<CredentialExposureDetector>(c => c.Action = SentinelAction.Quarantine); // per-detector override
+    // PII and credentials already redact by default in 3.0
+    opts.Configure<CredentialExposureDetector>(c => c.Action = SentinelAction.Quarantine); // block a pasted secret instead
+    opts.Configure<PiiLeakageDetector>(c => c.Action = SentinelAction.Log);               // log PII instead of redacting
     opts.RestoreRedactedValues = false; // keep placeholders in the reply and in tool calls
 });
 ```

@@ -21,7 +21,7 @@ services.AddAISentinel(opts => opts.RedactByDefault = false);
 
 - **GDPR Art. 5(1)(c), data minimisation:** the model receives only the personal data it needs, and usually it needs none.
 - **GDPR Art. 25, data protection by design:** the safe behaviour is the default.
-- **EU AI Act Art. 10:** the README row moves from "detects" to "detects and keeps it away from the model". Art. 10 is mainly about the training, validation and test data of high-risk systems, so treat this as a building block, not as compliance on its own.
+- **EU AI Act Art. 10:** the PII and credential detectors do not only detect personal data and secrets, they keep them away from the model. Art. 10 is mainly about the training, validation and test data of high-risk systems, so treat this as a building block, not as compliance on its own.
 
 ## What the model sees
 
@@ -86,11 +86,12 @@ Redact is a `SentinelAction`, set per detector:
 ```csharp
 services.AddAISentinel(opts =>
 {
-    // Redact (the 3.0 default for these two detectors)
-    opts.Configure<PiiLeakageDetector>(c => c.Action = SentinelAction.Redact);
-
-    // Keep the 2.x behaviour for one detector
+    // PII and credentials already redact by default in 3.0.
+    // Quarantine a pasted secret instead of redacting it
     opts.Configure<CredentialExposureDetector>(c => c.Action = SentinelAction.Quarantine);
+
+    // Log PII findings instead of redacting them
+    opts.Configure<PiiLeakageDetector>(c => c.Action = SentinelAction.Log);
 });
 ```
 
