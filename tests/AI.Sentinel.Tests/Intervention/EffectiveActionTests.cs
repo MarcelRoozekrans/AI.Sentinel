@@ -244,6 +244,43 @@ public class EffectiveActionTests
         Assert.Contains("OnHigh", ex.Message, StringComparison.Ordinal);
     }
 
+    // Validation happens when AI.Sentinel is registered, not when the pipeline is first resolved: the configured
+    // detector type tells whether it can redact, without building the detector.
+    [Fact]
+    public void RedactConfigured_OnNonRedactingDetector_ThrowsOnAddAISentinel()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new ServiceCollection().AddAISentinel(o => o.Configure<FixedDetector>(c => c.Action = SentinelAction.Redact)));
+        Assert.Contains(nameof(FixedDetector), ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactConfigured_OnNonRedactingDetector_ThrowsOnNamedAddAISentinel()
+    {
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new ServiceCollection().AddAISentinel("strict", o => o.Configure<FixedDetector>(c => c.Action = SentinelAction.Redact)));
+        Assert.Contains(nameof(FixedDetector), ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RedactConfigured_OnDisabledNonRedactingDetector_IsAccepted()
+    {
+        var services = new ServiceCollection().AddAISentinel(o => o.Configure<FixedDetector>(c =>
+        {
+            c.Action = SentinelAction.Redact;
+            c.Enabled = false;
+        }));
+        Assert.NotNull(services);
+    }
+
+    [Fact]
+    public void RedactConfigured_OnRedactingDetector_IsAccepted()
+    {
+        var services = new ServiceCollection().AddAISentinel(o =>
+            o.Configure<FakeRedactingDetector>(c => c.Action = SentinelAction.Redact));
+        Assert.NotNull(services);
+    }
+
     [Fact]
     public void RedactConfigured_OnNonRedactingDetector_ThrowsWhenPipelineBuilds()
     {

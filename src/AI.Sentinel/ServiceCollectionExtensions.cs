@@ -59,6 +59,7 @@ public static class ServiceCollectionExtensions
         var opts = new SentinelOptions();
         configure?.Invoke(opts);
         RejectRedactOnSeverityOptions(opts);
+        RejectRedactOnNonRedactingDetectors(opts, nameof(configure));
 
         // Auto-register InMemoryApprovalStore if any binding has an ApprovalSpec and the user
         // hasn't registered an IApprovalStore yet. Keeps the happy path zero-config.
@@ -117,6 +118,22 @@ public static class ServiceCollectionExtensions
                     $"SentinelOptions.{option} cannot be Redact: redaction needs the location of a match, which a severity does not have. " +
                     "Set DetectorConfiguration.Action on a redacting detector instead.",
                     option);
+            }
+        }
+    }
+
+    // Configure<T> keys each configuration by the detector type, so whether it can redact is known here, at
+    // registration, without building a detector. DetectionPipeline still checks the instances it is given.
+    private static void RejectRedactOnNonRedactingDetectors(SentinelOptions opts, string paramName)
+    {
+        foreach (var (type, cfg) in opts.GetDetectorConfigurations())
+        {
+            if (cfg.Enabled && cfg.Action == SentinelAction.Redact && !typeof(IRedactingDetector).IsAssignableFrom(type))
+            {
+                throw new ArgumentException(
+                    $"AI.Sentinel: detector {type.Name} is configured with Action = Redact but does not implement IRedactingDetector. " +
+                    "Only detectors that can locate their match can redact.",
+                    paramName);
             }
         }
     }
