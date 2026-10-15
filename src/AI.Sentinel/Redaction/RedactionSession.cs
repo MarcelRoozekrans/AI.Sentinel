@@ -215,48 +215,36 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
     }
 
     /// <summary>
-    /// Returns a new <see cref="AIFunctionArguments"/> with the real values restored. The input and any
-    /// dictionary or list nested in it are never mutated, because the input can be backed by the arguments
-    /// of a function call kept in the chat history, which must keep the placeholders.
-    /// Context and Services are copied. The comparer is not publicly readable, so case-insensitivity is
-    /// inferred from the public lookup behaviour and otherwise ordinal is used.
+    /// Returns a new <see cref="AIFunctionArguments"/> with the real values restored, keyed by
+    /// <paramref name="comparer"/>. The input and any dictionary or list nested in it are never mutated,
+    /// because the input can be backed by the arguments of a function call kept in the chat history, which
+    /// must keep the placeholders. Context and Services are copied. <see cref="AIFunctionArguments"/> does not
+    /// expose its comparer, so the caller passes the one of the dictionary it was built from.
     /// </summary>
-    public AIFunctionArguments Restore(AIFunctionArguments args)
+    public AIFunctionArguments Restore(AIFunctionArguments args, IEqualityComparer<string> comparer)
     {
-        var restored = new AIFunctionArguments(ComparerOf(args))
+        ArgumentNullException.ThrowIfNull(args);
+        ArgumentNullException.ThrowIfNull(comparer);
+
+        var restored = new AIFunctionArguments(comparer)
         {
             Context = args.Context,
             Services = args.Services,
         };
         foreach (var (key, value) in args)
         {
+            if (restored.ContainsKey(key))
+            {
+                throw new InvalidOperationException(
+                    "Two argument names are identical under the given comparer; refusing to drop one.");
+            }
             restored[key] = MapValue(value, Restore, redact: false);
         }
         return restored;
     }
 
-    private static StringComparer ComparerOf(AIFunctionArguments args)
-    {
-        foreach (var key in args.Keys)
-        {
-            var flipped = FlipCase(key);
-            if (!string.Equals(flipped, key, StringComparison.Ordinal))
-            {
-                return args.ContainsKey(flipped) ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
-            }
-        }
-        return StringComparer.Ordinal;
-    }
-
-    private static string FlipCase(string key)
-    {
-        var chars = key.ToCharArray();
-        for (var i = 0; i < chars.Length; i++)
-        {
-            chars[i] = char.IsUpper(chars[i]) ? char.ToLowerInvariant(chars[i]) : char.ToUpperInvariant(chars[i]);
-        }
-        return new string(chars);
-    }
+    private static IEqualityComparer<string> ComparerOf(IDictionary<string, object?> source) =>
+        source is Dictionary<string, object?> dictionary ? dictionary.Comparer : StringComparer.Ordinal;
 
     private string TokenFor(string type, string value)
     {
@@ -405,7 +393,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
         IDictionary<string, object?>? args = null;
         if (call.Arguments is not null)
         {
-            var mapped = new Dictionary<string, object?>(call.Arguments.Count, StringComparer.Ordinal);
+            var mapped = new Dictionary<string, object?>(call.Arguments.Count, ComparerOf(call.Arguments));
             foreach (var (key, value) in call.Arguments)
             {
                 mapped[key] = MapValue(value, map, redact);
@@ -461,7 +449,7 @@ internal sealed partial class RedactionSession(IReadOnlyList<IRedactingDetector>
 
     private Dictionary<string, object?> MapDictionary(IDictionary<string, object?> dict, Func<string, string> map, bool redact)
     {
-        var result = new Dictionary<string, object?>(dict.Count, StringComparer.Ordinal);
+        var result = new Dictionary<string, object?>(dict.Count, ComparerOf(dict));
         foreach (var (key, item) in dict)
         {
             if (!result.TryAdd(map(key), MapValue(item, map, redact)))

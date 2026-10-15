@@ -154,7 +154,7 @@ public class RedactionSessionTests
         Assert.Equal(5, args["n"]);
         Assert.Equal("hi jan@acme.nl", ((TextContent)restored[0].Contents[1]).Text);
 
-        var fnArgs = session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]" });
+        var fnArgs = session.Restore(new AIFunctionArguments(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]" }, StringComparer.Ordinal);
         Assert.Equal("jan@acme.nl", fnArgs["to"]);
     }
 
@@ -367,7 +367,7 @@ public class RedactionSessionTests
         var backing = new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "[EMAIL_1]", ["n"] = nested };
         var args = new AIFunctionArguments(backing, StringComparer.Ordinal) { Services = services, Context = context };
 
-        var restored = session.Restore(args);
+        var restored = session.Restore(args, StringComparer.Ordinal);
 
         Assert.NotSame(args, restored);
         Assert.Equal("jan@acme.nl", restored["to"]);
@@ -380,14 +380,75 @@ public class RedactionSessionTests
     }
 
     [Fact]
-    public void RestoreArguments_CaseInsensitiveSource_KeepsCaseInsensitivity()
+    public void RestoreArguments_OrdinalComparer_KeepsKeysDifferingOnlyInCase()
+    {
+        var session = Pii();
+        session.Redact("jan@acme.nl");
+        var args = new AIFunctionArguments(StringComparer.Ordinal) { ["id"] = "[EMAIL_1]", ["ID"] = "other" };
+        var restored = session.Restore(args, StringComparer.Ordinal);
+        Assert.Equal(2, restored.Count);
+        Assert.Equal("jan@acme.nl", restored["id"]);
+        Assert.Equal("other", restored["ID"]);
+        Assert.False(restored.ContainsKey("Id"));
+    }
+
+    [Fact]
+    public void RestoreArguments_CaseInsensitiveComparer_GivesCaseInsensitiveLookup()
     {
         var session = Pii();
         session.Redact("jan@acme.nl");
         var args = new AIFunctionArguments(StringComparer.OrdinalIgnoreCase) { ["To"] = "[EMAIL_1]" };
-        var restored = session.Restore(args);
+        var restored = session.Restore(args, StringComparer.OrdinalIgnoreCase);
         Assert.Equal("jan@acme.nl", restored["TO"]);
         Assert.Equal("[EMAIL_1]", args["to"]);
+    }
+
+    [Fact]
+    public void RestoreArguments_ComparerThatMergesKeys_ThrowsWithoutValues()
+    {
+        var session = Pii();
+        session.Redact("jan@acme.nl");
+        var args = new AIFunctionArguments(StringComparer.Ordinal) { ["id"] = "[EMAIL_1]", ["ID"] = "[EMAIL_1]" };
+        var ex = Assert.Throws<InvalidOperationException>(() => session.Restore(args, StringComparer.OrdinalIgnoreCase));
+        Assert.DoesNotContain("jan@acme.nl", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RestoreArguments_NullComparer_Throws()
+    {
+        var session = Pii();
+        Assert.Throws<ArgumentNullException>(() => session.Restore(new AIFunctionArguments(StringComparer.Ordinal), null!));
+    }
+
+    [Fact]
+    public void Redact_FunctionCallArguments_KeepSourceComparer()
+    {
+        var session = Pii();
+        var insensitive = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["To"] = "jan@acme.nl",
+            ["n"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase) { ["Inner"] = "jan@acme.nl" },
+        };
+        var ordinal = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["id"] = "jan@acme.nl",
+            ["ID"] = "other",
+            ["n"] = new Dictionary<string, object?>(StringComparer.Ordinal) { ["x"] = "a", ["X"] = "b" },
+        };
+        var output = session.Redact([new ChatMessage(ChatRole.User,
+            [new FunctionCallContent("c1", "f", insensitive), new FunctionCallContent("c2", "g", ordinal)])]);
+
+        var first = ((FunctionCallContent)output[0].Contents[0]).Arguments!;
+        Assert.Equal("[EMAIL_1]", first["TO"]);
+        Assert.Equal("[EMAIL_1]", ((Dictionary<string, object?>)first["N"]!)["inner"]);
+
+        var second = ((FunctionCallContent)output[0].Contents[1]).Arguments!;
+        Assert.Equal(3, second.Count);
+        Assert.Equal("[EMAIL_1]", second["id"]);
+        Assert.Equal("other", second["ID"]);
+        var nested = (Dictionary<string, object?>)second["n"]!;
+        Assert.Equal(2, nested.Count);
+        Assert.Same(StringComparer.Ordinal, nested.Comparer);
     }
 
     [Fact]
