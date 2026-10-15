@@ -20,23 +20,28 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     // skips leading ( [ { and excludes trailing . , ; " ' ) ] } so `abc`, `abc;` and `"abc"` all
     // yield the original `abc`. The unquoted form backtracks only over trailing punctuation and
     // the quoted forms use disjoint alternatives, so every form stays linear.
+    // Between the separator and the value: horizontal whitespace, plus one line break and
+    // indentation only when the value is quoted, so YAML `password:\n  "abc"` is caught while
+    // `password:\n  min_length: 8` is not.
+    private const string Gap = @"[ \t]*(?:\r?\n[ \t]*(?=[""']))?";
+
     private const string Value =
-        @"(?:""(?<value>(?:[^""\\\r\n]|\\.)+)""?|'(?<value>(?:[^'\\\r\n]|\\.)+)'?|[(\[{]*(?<value>[^\s""'(\[{](?:\S*[^\s.,;""')\]}])?))";
+        @"(?:""(?<value>(?:[^""\\\r\n]|\\[^\r\n])+)""?|'(?<value>(?:[^'\\\r\n]|\\[^\r\n])+)'?|[(\[{]*(?<value>[^\s""'(\[{](?:\S*[^\s.,;""')\]}])?))";
 
     [GeneratedRegex(
-        @"password[""']?\s*[=:][ \t]*" + Value,
+        @"password[""']?\s*[=:]" + Gap + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex PasswordPattern();
 
     [GeneratedRegex(
-        @"api[_-]?key[""']?\s*[=:][ \t]*" + Value,
+        @"api[_-]?key[""']?\s*[=:]" + Gap + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex ApiKeyPattern();
 
     [GeneratedRegex(
-        @"secret[_-]?key[""']?\s*[=:][ \t]*" + Value,
+        @"secret[_-]?key[""']?\s*[=:]" + Gap + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex SecretKeyPattern();
@@ -48,7 +53,7 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     private static partial Regex BearerPattern();
 
     [GeneratedRegex(
-        @"AWS_SECRET_ACCESS_KEY[""']?\s*[=:][ \t]*" + Value,
+        @"AWS_SECRET_ACCESS_KEY[""']?\s*[=:]" + Gap + Value,
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex AwsSecretPattern();

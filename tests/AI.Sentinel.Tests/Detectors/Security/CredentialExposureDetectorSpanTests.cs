@@ -130,6 +130,9 @@ public class CredentialExposureDetectorSpanTests
     [InlineData("password=(abc)", "abc", "PASSWORD")]
     [InlineData("password=[abc]", "abc", "PASSWORD")]
     [InlineData("password: hunter2\nnext: line", "hunter2", "PASSWORD")]
+    [InlineData("password=\"abc\\\r\nnext", "abc", "PASSWORD")]
+    [InlineData("\"password\":\n  \"abc\"", "abc", "PASSWORD")]
+    [InlineData("password:\r\n  'abc def'", "abc def", "PASSWORD")]
     [InlineData("\"Authorization\": \"Bearer xyz\"", "xyz", "BEARER_TOKEN")]
     public void FindSpans_QuotesAndPunctuation_SpanCoversExactSecret(string text, string value, string entity)
     {
