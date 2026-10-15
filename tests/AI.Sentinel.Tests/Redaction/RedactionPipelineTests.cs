@@ -739,11 +739,7 @@ public class RedactionPipelineTests
         Assert.Equal("Used api_key=[API_KEY_1] for you.", Placeholders.Untag(response.Text));
         foreach (var e in await RecordingAuditForwarder.ReadAllAsync(h.Audit))
         {
-            // OPS-01 flags the tool-call-only first round trip as blank, a known false positive filed separately.
-            if (!string.Equals(e.DetectorId, "OPS-01", StringComparison.Ordinal))
-            {
-                Assert.True(e.Severity == Severity.None, $"{e.DetectorId} {e.Severity}: {e.Summary}");
-            }
+            Assert.True(e.Severity == Severity.None, $"{e.DetectorId} {e.Severity}: {e.Summary}");
         }
     }
 

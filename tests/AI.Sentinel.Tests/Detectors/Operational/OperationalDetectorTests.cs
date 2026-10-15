@@ -21,6 +21,49 @@ public class OperationalDetectorTests
     [Fact] public async Task BlankResponse_Detected() =>
         Assert.True((await new BlankResponseDetector().AnalyzeAsync(Ctx("   "), TestContext.Current.CancellationToken)).Severity >= Severity.Medium);
 
+    [Fact]
+    public async Task BlankResponse_ToolCallOnlyReply_IsClean()
+    {
+        var call = new FunctionCallContent("c1", "SendMail", new Dictionary<string, object?>(StringComparer.Ordinal) { ["to"] = "x" });
+        var result = await new BlankResponseDetector().AnalyzeAsync(
+            CtxMessages([new ChatMessage(ChatRole.Assistant, [call])]), TestContext.Current.CancellationToken);
+        Assert.Equal(Severity.None, result.Severity);
+    }
+
+    [Fact]
+    public async Task BlankResponse_ShortTextWithToolCall_IsClean()
+    {
+        var call = new FunctionCallContent("c1", "SendMail", null);
+        var result = await new BlankResponseDetector().AnalyzeAsync(
+            CtxMessages([new ChatMessage(ChatRole.Assistant, [new TextContent("ok"), call])]), TestContext.Current.CancellationToken);
+        Assert.Equal(Severity.None, result.Severity);
+    }
+
+    [Fact]
+    public async Task BlankResponse_ImageOnlyReply_IsClean()
+    {
+        var image = new DataContent(new byte[] { 1, 2, 3 }, "image/png");
+        var result = await new BlankResponseDetector().AnalyzeAsync(
+            CtxMessages([new ChatMessage(ChatRole.Assistant, [image])]), TestContext.Current.CancellationToken);
+        Assert.Equal(Severity.None, result.Severity);
+    }
+
+    [Fact]
+    public async Task BlankResponse_WhitespaceAndUsageOnly_IsStillBlank()
+    {
+        var usage = new UsageContent(new UsageDetails { TotalTokenCount = 3 });
+        var result = await new BlankResponseDetector().AnalyzeAsync(
+            CtxMessages([new ChatMessage(ChatRole.Assistant, [new TextContent("  "), usage])]), TestContext.Current.CancellationToken);
+        Assert.Equal(Severity.Medium, result.Severity);
+    }
+
+    [Fact]
+    public async Task BlankResponse_NoMessages_IsStillBlank()
+    {
+        var result = await new BlankResponseDetector().AnalyzeAsync(CtxMessages([]), TestContext.Current.CancellationToken);
+        Assert.Equal(Severity.Medium, result.Severity);
+    }
+
     [Fact] public async Task RepetitionLoop_Detected()
     {
         var repeated = string.Join(". ", Enumerable.Repeat("I cannot help with that", 5));
