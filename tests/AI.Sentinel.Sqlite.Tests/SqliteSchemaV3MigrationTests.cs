@@ -32,11 +32,11 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
     }
 
     [Fact]
-    public async Task FreshDb_HasV3Schema()
+    public async Task FreshDb_HasCurrentSchema()
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-        Assert.Equal(3, version);
+        Assert.Equal(5, version);
     }
 
     [Fact]
@@ -84,7 +84,7 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
     }
 
     [Fact]
-    public async Task V1Db_MigratesToV3_AndHasBothNewColumns()
+    public async Task V1Db_MigratesToCurrent_AndHasBothNewColumns()
     {
         var csb = new SqliteConnectionStringBuilder
         {
@@ -100,7 +100,7 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
             var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-            Assert.Equal(3, version);
+            Assert.Equal(5, version);
         }
 
         // Step 3: verify both new columns exist on a fresh raw connection.

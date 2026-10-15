@@ -8,7 +8,7 @@ namespace AI.Sentinel.Detectors.Operational;
 public sealed class SemanticRepetitionDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("OPS-12");
-    public override DetectorId Id       => _id;
+    public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Operational;
 
     protected override string[] HighExamples => [];

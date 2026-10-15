@@ -5,6 +5,7 @@ using Xunit;
 
 namespace AI.Sentinel.Tests.Audit;
 
+[Collection("NonParallel")] // two tests swap Console.Error
 public class NdjsonFileAuditForwarderTests : IDisposable
 {
     private readonly string _tempPath = Path.Combine(Path.GetTempPath(), $"sentinel-{Guid.NewGuid():N}.ndjson");
@@ -157,5 +158,56 @@ public class NdjsonFileAuditForwarderTests : IDisposable
         Assert.Single(lines);
         var parsed = JsonDocument.Parse(lines[0]);
         Assert.Equal("tenant_inactive", parsed.RootElement.GetProperty("PolicyCode").GetString());
+    }
+
+    [Fact]
+    public async Task SendAsync_Failure_WithOnError_GoesToTheCallbackNotStderr()
+    {
+        var messages = new List<string>();
+        var options = new NdjsonFileAuditForwarderOptions { FilePath = _tempPath, OnError = messages.Add };
+        var stderr = await CaptureStderrAsync(async () =>
+        {
+            await using var f = new NdjsonFileAuditForwarder(options);
+            using var cancelled = new CancellationTokenSource();
+            await cancelled.CancelAsync();
+            await f.SendAsync([MakeEntry("e1")], cancelled.Token);   // send_error
+            await f.DisposeAsync();
+            await f.SendAsync([MakeEntry("e2")], TestContext.Current.CancellationToken);   // send_dropped
+        });
+
+        Assert.Equal(2, messages.Count);
+        Assert.Contains("action=send_error", messages[0], StringComparison.Ordinal);
+        Assert.Contains("action=send_dropped", messages[1], StringComparison.Ordinal);
+        Assert.DoesNotContain("audit_forward", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task SendAsync_Failure_WithoutOnError_WritesToStderr()
+    {
+        var stderr = await CaptureStderrAsync(async () =>
+        {
+            var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath });
+            await f.DisposeAsync();
+            await f.SendAsync([MakeEntry("e1")], TestContext.Current.CancellationToken);
+        });
+
+        Assert.Contains(
+            "event=audit_forward action=send_dropped forwarder=NdjsonFile reason=disposed", stderr, StringComparison.Ordinal);
+    }
+
+    private static async Task<string> CaptureStderrAsync(Func<Task> action)
+    {
+        var previous = Console.Error;
+        using var captured = new StringWriter();
+        Console.SetError(captured);
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            Console.SetError(previous);
+        }
+        return captured.ToString();
     }
 }

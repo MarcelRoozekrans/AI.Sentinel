@@ -6,7 +6,7 @@ namespace AI.Sentinel.Detectors.Operational;
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed class RepetitionLoopDetector : IDetector
 {
-    private static readonly DetectorId _id    = new("OPS-02");
+    private static readonly DetectorId _id = new("OPS-02");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
 
     public DetectorId Id => _id;

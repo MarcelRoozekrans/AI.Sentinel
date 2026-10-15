@@ -24,10 +24,10 @@ public class ConcurrencyAndAdversarialTests
 {
     private static HookConfig DefaultConfig() => new(
         OnCritical: HookDecision.Block,
-        OnHigh:     HookDecision.Block,
-        OnMedium:   HookDecision.Block,
-        OnLow:      HookDecision.Block,
-        Verbose:    false);
+        OnHigh: HookDecision.Block,
+        OnMedium: HookDecision.Block,
+        OnLow: HookDecision.Block,
+        Verbose: false);
 
     [Fact]
     public async Task ConcurrentToolCalls_AllScanned()

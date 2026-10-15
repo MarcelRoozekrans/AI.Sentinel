@@ -10,9 +10,9 @@ using ChatApp.Server.Hubs;
 var builder = WebApplication.CreateBuilder(args);
 
 // ── OpenRouter config ────────────────────────────────────────────────────────
-var apiKey  = builder.Configuration["OpenRouter:ApiKey"]
+var apiKey = builder.Configuration["OpenRouter:ApiKey"]
               ?? throw new InvalidOperationException("OpenRouter:ApiKey is required.");
-var model   = builder.Configuration["OpenRouter:Model"]
+var model = builder.Configuration["OpenRouter:Model"]
               ?? "nvidia/llama-3.3-nemotron-super-49b-v1";
 var baseUrl = builder.Configuration["OpenRouter:BaseUrl"]
               ?? "https://openrouter.ai/api/v1";
@@ -24,9 +24,9 @@ static SentinelAction ParseAction(string? value, SentinelAction fallback) =>
 builder.Services.AddAISentinel(opts =>
 {
     opts.OnCritical = ParseAction(builder.Configuration["AISentinel:OnCritical"], SentinelAction.Quarantine);
-    opts.OnHigh     = ParseAction(builder.Configuration["AISentinel:OnHigh"],     SentinelAction.Alert);
-    opts.OnMedium   = ParseAction(builder.Configuration["AISentinel:OnMedium"],   SentinelAction.Log);
-    opts.OnLow      = ParseAction(builder.Configuration["AISentinel:OnLow"],      SentinelAction.Log);
+    opts.OnHigh = ParseAction(builder.Configuration["AISentinel:OnHigh"], SentinelAction.Alert);
+    opts.OnMedium = ParseAction(builder.Configuration["AISentinel:OnMedium"], SentinelAction.Log);
+    opts.OnLow = ParseAction(builder.Configuration["AISentinel:OnLow"], SentinelAction.Log);
     // To enable semantic (language-agnostic) detection, set an embedding provider:
     // opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(new OpenAIClient(...), "text-embedding-3-small");
 });
@@ -93,20 +93,17 @@ internal static class DashboardDemoSeed
             (Severity.Low,      "REPETITION-LOOP",  "Same 4-token sequence repeated 8 times in streamed response", 340),
         };
 
-        string? prevHash = null;
-        for (int i = 0; i < seeds.Length; i++)
+        // The store assigns Hash and PreviousHash as it links each entry into its chain.
+        foreach (var s in seeds)
         {
-            var s = seeds[i];
-            var hash = $"{(uint)HashCode.Combine(s.Detector, s.Summary, i):x8}{i:x8}";
             await store.AppendAsync(new AuditEntry(
-                Id:           Guid.NewGuid().ToString("N"),
-                Timestamp:    now.AddSeconds(-s.SecondsAgo),
-                Hash:         hash,
-                PreviousHash: prevHash,
-                Severity:     s.Sev,
-                DetectorId:   s.Detector,
-                Summary:      s.Summary), ct).ConfigureAwait(false);
-            prevHash = hash;
+                Id: Guid.NewGuid().ToString("N"),
+                Timestamp: now.AddSeconds(-s.SecondsAgo),
+                Hash: string.Empty,
+                PreviousHash: null,
+                Severity: s.Sev,
+                DetectorId: s.Detector,
+                Summary: s.Summary), ct).ConfigureAwait(false);
         }
     }
 }

@@ -8,12 +8,14 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
     private readonly FileStream _stream;
     private readonly StreamWriter _writer;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private readonly Action<string>? _onError;
     private int _disposed;   // 0 = open, 1 = disposed. Interlocked-gated so exactly one caller tears down.
 
     public NdjsonFileAuditForwarder(NdjsonFileAuditForwarderOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.FilePath, nameof(options));
+        _onError = options.OnError;
         _stream = new FileStream(options.FilePath, FileMode.Append, FileAccess.Write, FileShare.Read);
         // NewLine = "\n" forces LF terminators so NDJSON output is identical on
         // Windows + Linux + macOS. SIEMs accept either, but byte-identical output
@@ -64,7 +66,7 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
             // Surface IO / serialization / post-dispose failures via stderr; never propagate.
             // Matches the swallow-and-log posture of BufferingAuditForwarder.FlushAsync
             // and AzureSentinelAuditForwarder.SendAsync.
-            Console.Error.WriteLine($"event=audit_forward action=send_error forwarder=NdjsonFile error={ex.GetType().Name}");
+            Report($"event=audit_forward action=send_error forwarder=NdjsonFile error={ex.GetType().Name}");
         }
 #pragma warning restore CA1031
         finally
@@ -107,6 +109,28 @@ public sealed class NdjsonFileAuditForwarder : IAuditForwarder, IAsyncDisposable
         _lock.Dispose();
     }
 
-    private static void LogDropped() =>
-        Console.Error.WriteLine("event=audit_forward action=send_dropped forwarder=NdjsonFile reason=disposed");
+    private void LogDropped() =>
+        Report("event=audit_forward action=send_dropped forwarder=NdjsonFile reason=disposed");
+
+    /// <summary>Hands <paramref name="message"/> to <see cref="NdjsonFileAuditForwarderOptions.OnError"/>,
+    /// or writes it to stderr when no callback is set. Never throws.</summary>
+    private void Report(string message)
+    {
+        if (_onError is null)
+        {
+            Console.Error.WriteLine(message);
+            return;
+        }
+
+#pragma warning disable CA1031, ERP022 // IAuditForwarder.SendAsync MUST NOT throw, even through a faulty callback.
+        try
+        {
+            _onError(message);
+        }
+        catch
+        {
+            // The callback's own failure has nowhere safer to go.
+        }
+#pragma warning restore CA1031, ERP022
+    }
 }

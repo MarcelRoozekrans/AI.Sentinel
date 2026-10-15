@@ -9,6 +9,7 @@ public static class Program
         var root = new RootCommand("AI.Sentinel - offline replay CLI")
         {
             ScanCommand.Build(),
+            DashboardCommand.Build(),
         };
         return root.Parse(args).InvokeAsync();
     }

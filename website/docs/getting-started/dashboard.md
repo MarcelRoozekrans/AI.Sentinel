@@ -27,10 +27,22 @@ Open `http://localhost:5000/ai-sentinel` and you'll see the live UI. The path pr
   - **WATCH** (15–39)
   - **ALERT** (40–69)
   - **ISOLATE** (70–100)
-- **Live event feed** — every detection streamed via Server-Sent Events with severity badge, detector ID, reason, session ID, and timestamp
+- **Live event feed** — the newest 50 detections streamed via Server-Sent Events with severity badge, detector ID, reason, session ID, source, and timestamp
+- **Source** — a column and a `source` filter naming the tool that wrote each entry (`claude-code`, `copilot`, `mcp`; blank for in-process apps). Click a source to filter on it, as with session. The export honours the filter
 - **Detector hit stats** — which detectors fire most over the current window
 
 The feed updates as new audit entries land — no polling, no manual refresh.
+
+## Browse the local audit file
+
+The Claude Code hook, the Copilot hook and the MCP proxy record to a local SQLite file by default. The `sentinel dashboard` command in the `AI.Sentinel.Cli` tool serves this same dashboard over that file, without an ASP.NET app:
+
+```bash
+dotnet tool install -g AI.Sentinel.Cli
+sentinel dashboard [--db <path>] [--port <port>]
+```
+
+It serves `http://127.0.0.1:5170/ai-sentinel/` by default, listens on loopback only and does not open a browser. Without `--db` it reads the file the CLIs write, `ai-sentinel/audit.db` under your per-user data folder. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a file that does not exist, never appends to it, and shows no approvals panel. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Claude Code → Audit destination](../integrations/claude-code#audit-destination) for what is recorded.
 
 ## Protect it
 

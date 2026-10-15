@@ -23,7 +23,8 @@ public class SentinelChatClientTests
         return new SentinelChatClient(inner, pipeline, store, engine, options);
     }
 
-    [Fact] public async Task CleanMessage_PassesThrough()
+    [Fact]
+    public async Task CleanMessage_PassesThrough()
     {
         var inner = new FakeChatClient("Hello!");
         var client = BuildSentinelClient(inner);
@@ -32,7 +33,8 @@ public class SentinelChatClientTests
         Assert.Contains("Hello!", result.Text ?? "", StringComparison.Ordinal);
     }
 
-    [Fact] public async Task CriticalThreat_WithQuarantine_ThrowsSentinelException()
+    [Fact]
+    public async Task CriticalThreat_WithQuarantine_ThrowsSentinelException()
     {
         var inner = new FakeChatClient("response");
         var client = BuildSentinelClient(inner,

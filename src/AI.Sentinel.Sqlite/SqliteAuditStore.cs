@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using AI.Sentinel.Audit;
-using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using Microsoft.Data.Sqlite;
 
@@ -9,8 +8,10 @@ namespace AI.Sentinel.Sqlite;
 
 /// <summary>
 /// Persistent <see cref="IAuditStore"/> backed by a single-file SQLite database.
-/// Survives process restarts, maintains the hash chain across restarts, and supports
-/// optional time-based retention via a background sweep timer.
+/// Survives process restarts, links every appended entry into the <see cref="AuditHashChain"/>
+/// and continues that chain across restarts, and supports optional time-based retention via a
+/// background sweep timer. Several processes may write to one file at once: each append reads
+/// the chain head and the next sequence inside its own write transaction.
 /// </summary>
 public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
 {
@@ -18,7 +19,6 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     private readonly SqliteConnection _connection;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly Timer? _retentionTimer;
-    private long _sequence;
     private bool _disposed;
 
     public SqliteAuditStore(SqliteAuditStoreOptions options)
@@ -26,6 +26,8 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(options.DatabasePath, nameof(options));
         _options = options;
+
+        ValidateBusyTimeout(options.BusyTimeout);
 
         var dir = Path.GetDirectoryName(options.DatabasePath);
         if (!string.IsNullOrEmpty(dir))
@@ -41,14 +43,31 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             DataSource = options.DatabasePath,
             Pooling = false,
             Mode = SqliteOpenMode.ReadWriteCreate,
+            // DefaultTimeout is both the busy wait and the command timeout. Round up so a
+            // sub-second value never becomes 0, which would mean no wait at all.
+            DefaultTimeout = (int)Math.Max(1, Math.Ceiling(options.BusyTimeout.TotalSeconds)),
         };
         _connection = new SqliteConnection(csb.ToString());
-        _connection.Open();
+        try
+        {
+            _connection.Open();
 
-        // Schema bootstrap is synchronous in ctor — failure here surfaces immediately
-        // rather than on first append.
-        SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
-        _sequence = LoadHighestSequence();
+            // Schema bootstrap is synchronous in ctor — failure here surfaces immediately
+            // rather than on first append.
+            SqliteSchema.InitializeAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
+
+            if (options.EnforceSizeCapOnOpen && options.MaxDatabaseSizeBytes is { } openCap && openCap > 0)
+            {
+                TrimOnOpen(openCap);
+            }
+        }
+        catch
+        {
+            // Nothing else owns the connection yet; leaving it open would hold its file handle,
+            // and any lock, until the finalizer runs.
+            _connection.Dispose();
+            throw;
+        }
 
         var hasTimeRetention = options.RetentionPeriod is { } r && r > TimeSpan.Zero;
         var hasSizeCap = options.MaxDatabaseSizeBytes is { } b && b > 0;
@@ -62,7 +81,37 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
     }
 
-    public async ValueTask AppendAsync(AuditEntry entry, CancellationToken ct)
+    private static void ValidateBusyTimeout(TimeSpan busyTimeout)
+    {
+        if (busyTimeout < TimeSpan.Zero || busyTimeout.TotalSeconds > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(busyTimeout), busyTimeout, "BusyTimeout must be between zero and int.MaxValue seconds.");
+        }
+    }
+
+    // Short-lived writers never reach the timer, so trim at construction. A failure, for example
+    // a busy lock, must not leave the store unusable; the next open retries.
+    private void TrimOnOpen(long maxBytes)
+    {
+        _writeLock.Wait();
+        try
+        {
+            EnforceSizeCap(maxBytes);
+        }
+        catch (SqliteException)
+        {
+            // Safe to swallow: trimming is best-effort and never needed for correctness, the
+            // background sweep treats SqliteException the same way, and the next open or sweep
+            // retries. Only the size bound is late, never the chain or the data.
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(entry);
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -70,13 +119,35 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var seq = ++_sequence;
+            // BEGIN IMMEDIATE takes the write lock before the chain head and sequence are read, so
+            // another process cannot append between that read and this insert. The entry and the
+            // chain head commit together, so a failed insert never moves the head.
+            using var tx = _connection.BeginTransaction();
+            long seq;
+            string? lastHash;
+            using (var head = _connection.CreateCommand())
+            {
+                head.Transaction = tx;
+                head.CommandText = """
+                    SELECT (SELECT hash FROM audit_chain_head WHERE id = 1),
+                           (SELECT COALESCE(MAX(sequence), 0) + 1 FROM audit_entries);
+                    """;
+                using var reader = await head.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                await reader.ReadAsync(ct).ConfigureAwait(false);
+                lastHash = reader.IsDBNull(0) ? null : reader.GetString(0);
+                seq = reader.GetInt64(1);
+            }
+
+            entry = AuditHashChain.Link(entry, lastHash);
             using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = """
                 INSERT INTO audit_entries
-                    (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id)
+                    (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id, source)
                 VALUES
-                    ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session);
+                    ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session, $source);
+                INSERT INTO audit_chain_head (id, hash) VALUES (1, $hash)
+                    ON CONFLICT (id) DO UPDATE SET hash = excluded.hash;
                 """;
             cmd.Parameters.AddWithValue("$id", entry.Id);
             cmd.Parameters.AddWithValue("$ts", entry.Timestamp.UtcTicks);
@@ -86,13 +157,14 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             cmd.Parameters.AddWithValue("$prev", (object?)entry.PreviousHash ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$summary", entry.Summary);
             cmd.Parameters.AddWithValue("$seq", seq);
-            // Non-AUTHZ entries pass null; the column is NOT NULL with default 'policy_denied'
-            // so we coalesce here to keep the wire shape stable across detector kinds.
-            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? SentinelDenyCodes.PolicyDenied);
+            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? DBNull.Value);
             // session_id is nullable: detectors that don't carry a session pass null and we
             // round-trip that as DBNull for dashboard queries to filter on IS NULL.
             cmd.Parameters.AddWithValue("$session", (object?)entry.SessionId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$source", (object?)entry.Source ?? DBNull.Value);
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+            return entry;
         }
         finally
         {
@@ -127,7 +199,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     {
         var cmd = _connection.CreateCommand();
         var sql = new System.Text.StringBuilder(
-            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code, session_id FROM audit_entries WHERE 1=1");
+            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code, session_id, source FROM audit_entries WHERE 1=1");
 
         if (query.MinSeverity.HasValue)
         {
@@ -148,6 +220,11 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         {
             sql.Append(" AND session_id = $session");
             cmd.Parameters.AddWithValue("$session", query.SessionId);
+        }
+        if (!string.IsNullOrEmpty(query.Source))
+        {
+            sql.Append(" AND source = $source COLLATE NOCASE");
+            cmd.Parameters.AddWithValue("$source", query.Source);
         }
 
         sql.Append(query.Reverse
@@ -173,16 +250,9 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         var summary = reader.GetString(6);
         var policyCode = reader.IsDBNull(7) ? null : reader.GetString(7);
         var sessionId = reader.IsDBNull(8) ? null : reader.GetString(8);
+        var source = reader.IsDBNull(9) ? null : reader.GetString(9);
         var ts = new DateTimeOffset(tsTicks, TimeSpan.Zero);
-        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary, policyCode, sessionId);
-    }
-
-    private long LoadHighestSequence()
-    {
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = "SELECT COALESCE(MAX(sequence), 0) FROM audit_entries;";
-        var raw = cmd.ExecuteScalar();
-        return raw is null or DBNull ? 0L : Convert.ToInt64(raw, CultureInfo.InvariantCulture);
+        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary, policyCode, sessionId, source);
     }
 
     private void SweepRetention()
@@ -198,7 +268,15 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
                 {
                     var cutoff = DateTimeOffset.UtcNow - retention;
                     using var cmd = _connection.CreateCommand();
-                    cmd.CommandText = "DELETE FROM audit_entries WHERE timestamp < $cutoff;";
+                    // Delete only the longest expired prefix in append order. Timestamps are taken
+                    // before the write lock, so an expired entry can follow a younger one; deleting
+                    // by timestamp alone would cut the hash chain in the middle.
+                    cmd.CommandText = """
+                        DELETE FROM audit_entries
+                         WHERE sequence < COALESCE(
+                             (SELECT MIN(sequence) FROM audit_entries WHERE timestamp >= $cutoff),
+                             (SELECT MAX(sequence) + 1 FROM audit_entries));
+                        """;
                     cmd.Parameters.AddWithValue("$cutoff", cutoff.UtcTicks);
                     cmd.ExecuteNonQuery();
                 }
@@ -223,9 +301,22 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
     }
 
+    /// <summary>Bytes in use: pages minus freelist pages, times page size. Unlike the file
+    /// length this drops as soon as rows are deleted, with no <c>VACUUM</c> needed.</summary>
+    private long UsedBytes()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT ((SELECT * FROM pragma_page_count) - (SELECT * FROM pragma_freelist_count))
+                   * (SELECT * FROM pragma_page_size);
+            """;
+        return Convert.ToInt64(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
     /// <summary>
-    /// Deletes oldest entries in 10%-batches (minimum 100) until the on-disk file size
-    /// is under <paramref name="maxBytes"/>. Runs <c>VACUUM</c> after each batch so the
+    /// Deletes oldest entries in 10%-batches (minimum 100) until the used size
+    /// is under <paramref name="maxBytes"/>. Unless <see cref="SqliteAuditStoreOptions.VacuumAfterTrim"/>
+    /// is false, runs <c>VACUUM</c> after each batch so the
     /// file actually shrinks (SQLite holds onto freed pages until VACUUM reclaims them).
     /// Caller must hold <see cref="_writeLock"/>.
     /// </summary>
@@ -236,10 +327,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         const int maxIterations = 8;
         for (int i = 0; i < maxIterations; i++)
         {
-            long currentSize;
-            try { currentSize = new FileInfo(_options.DatabasePath).Length; }
-            catch (IOException) { return; }
-            if (currentSize <= maxBytes) return;
+            if (UsedBytes() <= maxBytes) return;
 
             long totalRows;
             using (var countCmd = _connection.CreateCommand())
@@ -265,6 +353,8 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
                 if (del.ExecuteNonQuery() == 0) return; // safety: nothing deleted, avoid infinite loop
             }
 
+            if (!_options.VacuumAfterTrim) continue;
+
             // VACUUM reclaims freed pages and shrinks the main DB. Schema uses WAL mode,
             // so we must also force a TRUNCATE checkpoint — otherwise the main file
             // can't shrink past whatever the WAL has pinned.
@@ -282,22 +372,6 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     }
 
     // ---- Test helpers (exposed via InternalsVisibleTo) ------------------------------------------
-
-    internal async Task<string?> GetLastHashForTestingAsync(CancellationToken ct)
-    {
-        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = "SELECT hash FROM audit_entries ORDER BY sequence DESC LIMIT 1;";
-            var raw = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
-            return raw is null or DBNull ? null : (string)raw;
-        }
-        finally
-        {
-            _writeLock.Release();
-        }
-    }
 
     /// <summary>Runs a single retention sweep synchronously. Test hook so the timer-driven sweep
     /// can be exercised deterministically without sleeping on the timer interval.</summary>

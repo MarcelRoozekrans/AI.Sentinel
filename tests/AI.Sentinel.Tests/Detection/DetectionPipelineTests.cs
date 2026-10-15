@@ -13,7 +13,8 @@ public class DetectionPipelineTests
         new List<ChatMessage> { new(ChatRole.User, "hello") },
         new List<AuditEntry>());
 
-    [Fact] public async Task Pipeline_AllClean_ScoreIsZero()
+    [Fact]
+    public async Task Pipeline_AllClean_ScoreIsZero()
     {
         var detectors = new IDetector[]
         {
@@ -26,7 +27,8 @@ public class DetectionPipelineTests
         Assert.True(result.IsClean);
     }
 
-    [Fact] public async Task Pipeline_OneHigh_ScoreReflectsSeverity()
+    [Fact]
+    public async Task Pipeline_OneHigh_ScoreReflectsSeverity()
     {
         var detectors = new IDetector[]
         {
@@ -40,7 +42,8 @@ public class DetectionPipelineTests
         Assert.Contains(result.Detections, d => d.Severity == Severity.High);
     }
 
-    [Fact] public async Task Pipeline_MaxSeverity_IsHighestDetection()
+    [Fact]
+    public async Task Pipeline_MaxSeverity_IsHighestDetection()
     {
         var detectors = new IDetector[]
         {

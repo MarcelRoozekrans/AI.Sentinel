@@ -56,6 +56,8 @@ services.AddAISentinel(opts =>
 
 For CLIs (where source-edits aren't an option), use a [config file](/docs/approvals/cli-config) instead.
 
+Policies and approval requests see the real argument values, not [redaction](/docs/redaction) placeholders, so an approver can judge the actual call.
+
 ## Next steps
 
 - Pick a backend: [in-memory](/docs/approvals/in-memory), [SQLite](/docs/approvals/sqlite), or [Entra PIM](/docs/approvals/entra-pim).

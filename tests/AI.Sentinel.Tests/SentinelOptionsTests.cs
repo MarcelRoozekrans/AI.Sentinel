@@ -6,7 +6,8 @@ namespace AI.Sentinel.Tests;
 
 public class SentinelOptionsTests
 {
-    [Fact] public void DefaultOptions_AreValid()
+    [Fact]
+    public void DefaultOptions_AreValid()
     {
         var opts = new SentinelOptions();
         var validator = new SentinelOptionsValidator();
@@ -14,14 +15,35 @@ public class SentinelOptionsTests
         Assert.True(result.IsValid);
     }
 
-    [Fact] public void AuditCapacity_BelowMinimum_IsInvalid()
+    [Fact]
+    public void AuditCapacity_BelowMinimum_IsInvalid()
     {
         var opts = new SentinelOptions { AuditCapacity = 0 };
         var validator = new SentinelOptionsValidator();
         Assert.False(validator.Validate(opts).IsValid);
     }
 
-    [Fact] public void ActionFor_ReturnsMappedAction()
+    [Fact]
+    public void RedactionOptions_DefaultToTrue()
+    {
+        var opts = new SentinelOptions();
+        Assert.True(opts.RedactByDefault);
+        Assert.True(opts.RestoreRedactedValues);
+    }
+
+    [Fact]
+    public void EffectiveAction_UsesOverrideUnlessNullOrRedact()
+    {
+        var opts = new SentinelOptions { OnHigh = SentinelAction.Alert };
+        var id = new AI.Sentinel.Domain.DetectorId("X-01");
+        var d = DetectionResult.WithSeverity(id, Severity.High, "r");
+        Assert.Equal(SentinelAction.Alert, opts.EffectiveAction(d));
+        Assert.Equal(SentinelAction.Alert, opts.EffectiveAction(d with { ActionOverride = SentinelAction.Redact }));
+        Assert.Equal(SentinelAction.Quarantine, opts.EffectiveAction(d with { ActionOverride = SentinelAction.Quarantine }));
+    }
+
+    [Fact]
+    public void ActionFor_ReturnsMappedAction()
     {
         var opts = new SentinelOptions { OnCritical = SentinelAction.Quarantine };
         Assert.Equal(SentinelAction.Quarantine, opts.ActionFor(Severity.Critical));
@@ -82,9 +104,9 @@ public class SentinelOptionsTests
     {
         var opts = new SentinelOptions
         {
-            AuditCapacity      = 0,
-            MaxCallsPerSecond  = 0,
-            BurstSize          = 0,
+            AuditCapacity = 0,
+            MaxCallsPerSecond = 0,
+            BurstSize = 0,
             SessionIdleTimeout = TimeSpan.Zero,
         };
 

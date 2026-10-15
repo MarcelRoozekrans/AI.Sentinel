@@ -55,11 +55,11 @@ public static class ApprovalBackendSelector
     private static ApprovalBackendKind ParseBackend(string backend) =>
         backend.Trim().ToLowerInvariant() switch
         {
-            "none"      => ApprovalBackendKind.None,
+            "none" => ApprovalBackendKind.None,
             "in-memory" => ApprovalBackendKind.InMemory,
-            "sqlite"    => ApprovalBackendKind.Sqlite,
+            "sqlite" => ApprovalBackendKind.Sqlite,
             "entra-pim" => ApprovalBackendKind.EntraPim,
-            _           => throw new InvalidOperationException(
+            _ => throw new InvalidOperationException(
                 $"Unknown backend '{backend}'. Loader should have caught this — fix Validate."),
         };
 }

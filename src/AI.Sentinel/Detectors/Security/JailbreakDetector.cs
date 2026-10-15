@@ -9,7 +9,7 @@ namespace AI.Sentinel.Detectors.Security;
 public sealed partial class JailbreakDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("SEC-05");
-    public override DetectorId Id       => _id;
+    public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
     /// <summary>Only phrasings with no innocent reading. The original regex matched bare
@@ -29,9 +29,9 @@ public sealed partial class JailbreakDetector(SentinelOptions options) : Semanti
     protected override Regex? FastPathPattern => JailbreakPattern();
     protected override Severity FastPathSeverity => Severity.Critical;
 
-    protected override Severity HighSeverity   => Severity.Critical;
+    protected override Severity HighSeverity => Severity.Critical;
     protected override Severity MediumSeverity => Severity.High;
-    protected override Severity LowSeverity    => Severity.Medium;
+    protected override Severity LowSeverity => Severity.Medium;
 
     protected override string[] HighExamples =>
     [

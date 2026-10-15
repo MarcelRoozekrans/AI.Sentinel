@@ -58,6 +58,28 @@ public sealed class OpenTelemetryAuditForwarderTests
     }
 
     [Fact]
+    public async Task OpenTelemetry_RedactionEntry_LogsAtInformation()
+    {
+        var records = new List<LogRecord>();
+        using var loggerFactory = LoggerFactory.Create(b => b
+            .SetMinimumLevel(LogLevel.Information)
+            .AddOpenTelemetry(o =>
+            {
+                o.IncludeScopes = true;
+                o.AddInMemoryExporter(records);
+            }));
+
+        var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
+        var redaction = AuditEntryRedactionExtensions.Redaction(
+            "SEC-23", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "s1");
+        await f.SendAsync(new[] { redaction }, TestContext.Current.CancellationToken);
+
+        loggerFactory.Dispose();
+        Assert.Single(records);
+        Assert.Equal(LogLevel.Information, records[0].LogLevel);
+    }
+
+    [Fact]
     public async Task SendAsync_AuditEntryFieldsLiftedAsAttributes()
     {
         var records = new List<LogRecord>();
@@ -151,6 +173,35 @@ public sealed class OpenTelemetryAuditForwarderTests
             },
             null);
         Assert.Equal("tenant_inactive", scopeAttrs["audit.policy_code"]);
+    }
+
+    [Fact]
+    public async Task SendAsync_MapsSourceAndSessionId()
+    {
+        var records = new List<LogRecord>();
+        using var loggerFactory = LoggerFactory.Create(b => b
+            .SetMinimumLevel(LogLevel.Trace)
+            .AddOpenTelemetry(o =>
+            {
+                o.IncludeScopes = true;
+                o.AddInMemoryExporter(records);
+            }));
+
+        var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
+        var entry = Make("e1") with { Source = AuditSources.Copilot, SessionId = "s1" };
+        await f.SendAsync(new[] { entry }, TestContext.Current.CancellationToken);
+        loggerFactory.Dispose();
+
+        Assert.Single(records);
+        var scopeAttrs = new Dictionary<string, object?>(StringComparer.Ordinal);
+        records[0].ForEachScope<object?>(
+            (scope, _) =>
+            {
+                foreach (var kv in scope) scopeAttrs[kv.Key] = kv.Value;
+            },
+            null);
+        Assert.Equal("copilot", scopeAttrs["audit.source"]);
+        Assert.Equal("s1", scopeAttrs["audit.session_id"]);
     }
 
     [Fact]

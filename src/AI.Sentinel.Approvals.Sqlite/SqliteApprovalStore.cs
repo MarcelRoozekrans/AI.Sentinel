@@ -63,7 +63,12 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var existing = await TryReadDedupeRowAsync(caller.Id, spec.PolicyName, ct).ConfigureAwait(false);
+            // The semaphore only serialises this instance. BEGIN IMMEDIATE takes the database
+            // write lock before the dedupe read, so another process sharing the file cannot insert
+            // its own request for the same caller and policy between that read and this write.
+            // Disposing an uncommitted transaction rolls it back.
+            using var tx = _connection.BeginTransaction();
+            var existing = await TryReadDedupeRowAsync(tx, caller.Id, spec.PolicyName, ct).ConfigureAwait(false);
             if (existing is { } row)
             {
                 // We check the *projected* ApprovalState returned by RowToState, not the raw
@@ -76,14 +81,16 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
                 {
                     // Terminal observed — delete row inline so the next call creates fresh.
                     // Mirrors InMemoryApprovalStore's cleanup-on-observation semantic.
-                    await DeleteRowAsync(row.Id, ct).ConfigureAwait(false);
+                    await DeleteRowAsync(tx, row.Id, ct).ConfigureAwait(false);
+                    tx.Commit();
                 }
                 return row.State;
             }
 
             var requestId = $"req-{Guid.NewGuid():N}";
             var now = _time.GetUtcNow();
-            await InsertPendingAsync(requestId, caller, spec, context, now, ct).ConfigureAwait(false);
+            await InsertPendingAsync(tx, requestId, caller, spec, context, now, ct).ConfigureAwait(false);
+            tx.Commit();
             return new ApprovalState.Pending(requestId, $"sentinel://approve/{requestId}", now);
         }
         finally
@@ -93,9 +100,10 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
     }
 
     private async Task<(string Id, ApprovalState State)?> TryReadDedupeRowAsync(
-        string callerId, string policyName, CancellationToken ct)
+        SqliteTransaction tx, string callerId, string policyName, CancellationToken ct)
     {
         using var sel = _connection.CreateCommand();
+        sel.Transaction = tx;
         sel.CommandText = """
             SELECT id, status, requested_at, approved_at, denied_at, deny_reason, grant_duration_ticks
             FROM approval_requests
@@ -123,19 +131,21 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         return (id, state);
     }
 
-    private async Task DeleteRowAsync(string id, CancellationToken ct)
+    private async Task DeleteRowAsync(SqliteTransaction tx, string id, CancellationToken ct)
     {
         using var del = _connection.CreateCommand();
+        del.Transaction = tx;
         del.CommandText = "DELETE FROM approval_requests WHERE id = $id;";
         del.Parameters.AddWithValue("$id", id);
         await del.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
     private async Task InsertPendingAsync(
-        string requestId, ISecurityContext caller, ApprovalSpec spec, ApprovalContext context,
+        SqliteTransaction tx, string requestId, ISecurityContext caller, ApprovalSpec spec, ApprovalContext context,
         DateTimeOffset now, CancellationToken ct)
     {
         using var ins = _connection.CreateCommand();
+        ins.Transaction = tx;
         ins.CommandText = """
             INSERT INTO approval_requests
                 (id, caller_id, policy_name, tool_name, args_json, justification,

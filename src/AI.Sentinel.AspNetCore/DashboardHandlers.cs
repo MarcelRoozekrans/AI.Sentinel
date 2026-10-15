@@ -28,6 +28,9 @@ internal static class DashboardHandlers
         await foreach (var e in store.QueryAsync(new AuditQuery(), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
+        // Redactions are informational evidence, not threats: they stay out of every tile.
+        entries.RemoveAll(IsRedaction);
+
         ctx.Response.ContentType = "text/html";
         var html = $"""
             <div class="stat-card">
@@ -58,26 +61,27 @@ internal static class DashboardHandlers
     {
         ctx.Response.ContentType = "text/html";
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
-        var filter  = (string?)ctx.Request.Query["filter"];
-        var q       = (string?)ctx.Request.Query["q"];
+        var filter = (string?)ctx.Request.Query["filter"];
+        var q = (string?)ctx.Request.Query["q"];
         var session = (string?)ctx.Request.Query["session"];
+        var source = (string?)ctx.Request.Query["source"];
 
         var entries = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50), ctx.RequestAborted).ConfigureAwait(false))
+        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50, Reverse: true, SessionId: session, Source: source), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
-        var filtered = FilterAuditEntries(entries, filter, q, session).ToList();
+        var filtered = FilterAuditEntries(entries, filter, q, session, source).ToList();
 
         var sb = new StringBuilder();
         var ordered = filtered.OrderByDescending(x => x.Timestamp).Take(50).ToList();
         if (ordered.Count == 0)
         {
-            var emptyMessage = (filter, q, session) switch
+            var emptyMessage = (filter, q, session, source) switch
             {
-                (null or "", null or "", null or "") => "No events yet — agents are quiet.",
-                _                                      => "No events match this filter.",
+                (null or "", null or "", null or "", null or "") => "No events yet — agents are quiet.",
+                _ => "No events match this filter.",
             };
-            sb.Append("<tr class=\"feed-empty\"><td colspan=\"6\">")
+            sb.Append("<tr class=\"feed-empty\"><td colspan=\"7\">")
               .Append(emptyMessage)
               .AppendLine("</td></tr>");
             await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
@@ -97,7 +101,9 @@ internal static class DashboardHandlers
     private static void RenderFeedRow(StringBuilder sb, AuditEntry e)
     {
         var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;
-        var severityLower = e.Severity.ToString().ToLowerInvariant();
+        var isRedaction = IsRedaction(e);
+        var severityLower = isRedaction ? "redacted" : e.Severity.ToString().ToLowerInvariant();
+        var severityLabel = isRedaction ? "Redacted" : e.Severity.ToString();
         var ts = e.Timestamp.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
         var hashPrefix = e.Hash[..Math.Min(8, e.Hash.Length)];
         var isAuthz = string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal);
@@ -107,8 +113,9 @@ internal static class DashboardHandlers
             sb.Append(" audit-row-authz");
         sb.AppendLine("\">")
           .Append("  <td>").Append(ts).AppendLine("</td>")
-          .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>")
-          .Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(e.Severity.ToString()).AppendLine("</span></td>")
+          .Append("  <td>").Append(HtmlEncode(e.DetectorId)).AppendLine("</td>");
+        AppendSourceCell(sb, e.Source);
+        sb.Append("  <td><span class=\"badge ").Append(severityLower).Append("\">").Append(severityLabel).AppendLine("</span></td>")
           .Append("  <td title=\"").Append(HtmlEncode(e.Summary)).Append("\">");
         if (isAuthz)
         {
@@ -121,7 +128,7 @@ internal static class DashboardHandlers
         if (!string.IsNullOrEmpty(e.SessionId))
         {
             var sessionShort = e.SessionId.Length > 8 ? e.SessionId[..8] : e.SessionId;
-            sb.Append("<a href=\"#\" class=\"session-link\" data-session=\"")
+            sb.Append("<a href=\"#\" class=\"session-link filter-link\" data-filter-key=\"session\" data-filter-value=\"")
               .Append(HtmlEncode(e.SessionId))
               .Append("\" title=\"")
               .Append(HtmlEncode(e.SessionId))
@@ -138,31 +145,73 @@ internal static class DashboardHandlers
           .AppendLine("</tr>");
     }
 
+    /// <summary>Renders the Source cell: a clickable filter link, or an em dash for in-process
+    /// entries that carry no source.</summary>
+    private static void AppendSourceCell(StringBuilder sb, string? source)
+    {
+        sb.Append("  <td class=\"source\">");
+        if (!string.IsNullOrEmpty(source))
+        {
+            sb.Append("<a href=\"#\" class=\"source-link filter-link\" data-filter-key=\"source\" data-filter-value=\"")
+              .Append(HtmlEncode(source))
+              .Append("\" title=\"Filter by source\">")
+              .Append(HtmlEncode(source))
+              .Append("</a>");
+        }
+        else
+        {
+            sb.Append("\u2014");
+        }
+        sb.AppendLine("</td>");
+    }
+
+    /// <summary>True for the informational audit entry written when a detector redacted values
+    /// instead of reporting a threat. A fallback detection keeps its real severity and is not one.</summary>
+    private static bool IsRedaction(AuditEntry e) =>
+        string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal);
+
     /// <summary>Maps a category name from a chip filter (e.g. "security", "hallucination") to the
     /// matching DetectorId prefix. Unknown / empty / null category returns true (no filtering).</summary>
     internal static bool IsInCategory(string detectorId, string? category) => category switch
     {
-        "security"      => detectorId.StartsWith("SEC-",   StringComparison.Ordinal),
-        "hallucination" => detectorId.StartsWith("HAL-",   StringComparison.Ordinal),
-        "operational"   => detectorId.StartsWith("OPS-",   StringComparison.Ordinal),
+        "security" => detectorId.StartsWith("SEC-", StringComparison.Ordinal),
+        "hallucination" => detectorId.StartsWith("HAL-", StringComparison.Ordinal),
+        "operational" => detectorId.StartsWith("OPS-", StringComparison.Ordinal),
         "authorization" or "authz" => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),  // 'authz' = legacy alias
-        _               => true,
+        _ => true,
     };
+
+    /// <summary>True when <paramref name="e"/> belongs under the chip <paramref name="category"/>. The Redacted chip
+    /// lists only redactions; a category chip lists only detections, so a redaction never appears under Security
+    /// even though its detector id starts with SEC-. An unknown category filters nothing.</summary>
+    private static bool MatchesChip(AuditEntry e, string category)
+    {
+        if (string.Equals(category, "redacted", StringComparison.Ordinal))
+            return IsRedaction(e);
+        if (!IsKnownCategory(category))
+            return true;
+        return !IsRedaction(e) && IsInCategory(e.DetectorId, category);
+    }
+
+    private static bool IsKnownCategory(string category) =>
+        category is "security" or "hallucination" or "operational" or "authorization" or "authz";
 
     /// <summary>Single-source-of-truth filter pipeline used by /api/feed and /api/export.ndjson.
     /// /api/trend deliberately does NOT use this — it always renders the global trend (design D4).
-    /// All three filters AND together: chips ∧ session ∧ search.</summary>
+    /// All four filters AND together: chips ∧ session ∧ source ∧ search.</summary>
     /// <remarks>Returns a lazy IEnumerable; callers that enumerate more than once should
     /// materialise via .ToList() to avoid re-evaluating predicates.</remarks>
     internal static IEnumerable<AuditEntry> FilterAuditEntries(
-        IEnumerable<AuditEntry> entries, string? category, string? q, string? session)
+        IEnumerable<AuditEntry> entries, string? category, string? q, string? session, string? source)
     {
         // Order is deliberate: cheap+selective filters (category, session) first,
         // expensive Contains() last so it runs on the smallest residual set.
         if (!string.IsNullOrEmpty(category))
-            entries = entries.Where(e => IsInCategory(e.DetectorId, category));
+            entries = entries.Where(e => MatchesChip(e, category));
         if (!string.IsNullOrEmpty(session))
             entries = entries.Where(e => string.Equals(e.SessionId, session, StringComparison.Ordinal));
+        if (!string.IsNullOrEmpty(source))
+            entries = entries.Where(e => string.Equals(e.Source, source, StringComparison.OrdinalIgnoreCase));
         if (!string.IsNullOrEmpty(q))
             entries = entries.Where(e => e.Summary.Contains(q, StringComparison.OrdinalIgnoreCase));
         return entries;
@@ -179,7 +228,7 @@ internal static class DashboardHandlers
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
 
         const int BucketSeconds = 30;
-        const int BucketCount   = 30;  // 30 × 30s = 15 minutes
+        const int BucketCount = 30;  // 30 × 30s = 15 minutes
         var bucketMs = BucketSeconds * 1000L;
         var now = DateTimeOffset.UtcNow;
         var windowStart = now.AddSeconds(-BucketSeconds * BucketCount);
@@ -189,7 +238,7 @@ internal static class DashboardHandlers
             new AuditQuery(From: windowStart, PageSize: 10000),
             ctx.RequestAborted).ConfigureAwait(false))
         {
-            if (e.Timestamp < windowStart) continue;
+            if (e.Timestamp < windowStart || IsRedaction(e)) continue;
             var idx = (int)((e.Timestamp - windowStart).TotalMilliseconds / bucketMs);
             if (idx < 0 || idx >= BucketCount) continue;
             buckets[idx].count++;
@@ -216,10 +265,10 @@ internal static class DashboardHandlers
         string stroke = maxSevOverall switch
         {
             >= 4 => "#ef4444",  // critical → red
-            3    => "#f97316",  // high → orange
-            2    => "#eab308",  // medium → amber
-            1    => "#22c55e",  // low → green
-            _    => "#475569",  // none / no data → muted
+            3 => "#f97316",  // high → orange
+            2 => "#eab308",  // medium → amber
+            1 => "#22c55e",  // low → green
+            _ => "#475569",  // none / no data → muted
         };
 
         sb.Append("<svg viewBox=\"0 0 ").Append(Width).Append(' ').Append(Height)
@@ -257,7 +306,7 @@ internal static class DashboardHandlers
     private const int ExportPageCap = 10_000;
 
     /// <summary>Streams the current filtered audit log as NDJSON for download. Honours
-    /// chips ∧ session ∧ search filters from the live feed.</summary>
+    /// chips ∧ session ∧ source ∧ search filters from the live feed.</summary>
     /// <remarks>
     /// Capped at <see cref="ExportPageCap"/> entries per request. When the cap is hit, the
     /// response includes <c>X-Sentinel-Truncated: true</c> so consumers can detect partial
@@ -267,9 +316,10 @@ internal static class DashboardHandlers
     /// </remarks>
     public static async Task ExportNdjsonAsync(HttpContext ctx)
     {
-        var filter  = (string?)ctx.Request.Query["filter"];
-        var q       = (string?)ctx.Request.Query["q"];
+        var filter = (string?)ctx.Request.Query["filter"];
+        var q = (string?)ctx.Request.Query["q"];
         var session = (string?)ctx.Request.Query["session"];
+        var source = (string?)ctx.Request.Query["source"];
 
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
         var entries = new List<AuditEntry>();
@@ -278,14 +328,14 @@ internal static class DashboardHandlers
         // activity on long-running stores). Session is pushed down to the store so an
         // old-session export can't be silently emptied by newer entries filling the cap.
         await foreach (var e in store.QueryAsync(
-            new AuditQuery(PageSize: ExportPageCap, Reverse: true, SessionId: session),
+            new AuditQuery(PageSize: ExportPageCap, Reverse: true, SessionId: session, Source: source),
             ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
         // Session is now pushed down to the store; FilterAuditEntries only handles
         // the in-memory chip+q filters. Truncation (entries.Count >= ExportPageCap)
         // thus reflects "the store hit its cap for this session+severity selection."
-        var filtered = FilterAuditEntries(entries, filter, q, session: null)
+        var filtered = FilterAuditEntries(entries, filter, q, session: null, source: null)
             .OrderBy(e => e.Timestamp)
             .ToArray();
 
@@ -341,18 +391,20 @@ internal static class DashboardHandlers
         }
     }
 
-    private static List<ThreatRiskScore> BuildScoreInputs(List<AuditEntry> entries)
+    internal static List<ThreatRiskScore> BuildScoreInputs(List<AuditEntry> entries)
     {
         var result = new List<ThreatRiskScore>(entries.Count);
         for (int i = 0; i < entries.Count; i++)
         {
+            // A redaction scores 0 and would dilute the average of real detections.
+            if (IsRedaction(entries[i])) continue;
             result.Add(new ThreatRiskScore(entries[i].Severity switch
             {
                 Severity.Critical => 100,
-                Severity.High     => 70,
-                Severity.Medium   => 40,
-                Severity.Low      => 15,
-                _                 => 0
+                Severity.High => 70,
+                Severity.Medium => 40,
+                Severity.Low => 15,
+                _ => 0
             }));
         }
         return result;

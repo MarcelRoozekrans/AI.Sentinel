@@ -1,3 +1,4 @@
+using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Authorization.Policies;
 using AI.Sentinel.Tests.Helpers;
@@ -10,9 +11,15 @@ namespace AI.Sentinel.Tests.Authorization.Integration;
 
 public class InProcessAuthorizationTests
 {
-    private static IChatClient BuildPipeline(SentinelOptions opts, ISecurityContext caller, IChatClient inner)
+    private static IChatClient BuildPipeline(SentinelOptions opts, ISecurityContext caller, IChatClient inner,
+        Action<IServiceCollection>? configure = null)
+        => BuildPipeline(opts, caller, inner, configure, out _);
+
+    private static IChatClient BuildPipeline(SentinelOptions opts, ISecurityContext caller, IChatClient inner,
+        Action<IServiceCollection>? configure, out IServiceProvider provider)
     {
         var services = new ServiceCollection();
+        configure?.Invoke(services);
         services.AddSingleton(opts);
         services.AddSingleton<IAuthorizationPolicy, AdminOnlyPolicy>();
         services.AddSingleton(caller);
@@ -29,6 +36,7 @@ public class InProcessAuthorizationTests
             return new DefaultToolCallGuard(opts.GetAuthorizationBindings(), policiesByName, opts.DefaultToolPolicy, approvalStore: null, logger: null);
         });
         var sp = services.BuildServiceProvider();
+        provider = sp;
 
         return new ChatClientBuilder(inner)
             .UseToolCallAuthorization()
@@ -59,6 +67,26 @@ public class InProcessAuthorizationTests
             client.GetResponseAsync([new ChatMessage(ChatRole.Assistant, [fnCall])], default, TestContext.Current.CancellationToken));
         Assert.NotNull(ex.Decision);
         Assert.Equal("admin-only", Assert.IsType<AuthorizationDecision.DenyDecision>(ex.Decision!).PolicyName);
+    }
+
+    [Fact]
+    public async Task BoundTool_NonAdminCaller_ForwardsTheStoredAuditEntry()
+    {
+        var opts = new SentinelOptions().RequireToolPolicy("DeleteUser", "admin-only");
+        var forwarder = new RecordingAuditForwarder();
+        var client = BuildPipeline(opts, new TestSecurityContext("bob"), new EchoChatClient(), services =>
+        {
+            services.AddSingleton<IAuditStore>(new RingBufferAuditStore());
+            services.AddSingleton<IAuditForwarder>(forwarder);
+        }, out var provider);
+
+        var fnCall = new FunctionCallContent("call-1", "DeleteUser", new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "42" });
+        await Assert.ThrowsAsync<ToolCallAuthorizationException>(() =>
+            client.GetResponseAsync([new ChatMessage(ChatRole.Assistant, [fnCall])], default, TestContext.Current.CancellationToken));
+
+        var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()));
+        await forwarder.WaitForAsync(1);
+        Assert.Equal(denied, Assert.Single(forwarder.Entries));
     }
 
     [Fact]

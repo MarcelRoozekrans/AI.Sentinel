@@ -6,6 +6,7 @@ using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Tests.Detectors.Security;
+using AI.Sentinel.Tests.Helpers;
 using Xunit;
 
 namespace AI.Sentinel.Tests;
@@ -28,7 +29,7 @@ public class SentinelPipelineTests
     public async Task GetResponseResultAsync_CleanMessage_ReturnsSuccess()
     {
         var result = await Build().GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
+            [new ChatMessage(ChatRole.User, "Hello")], null, ct: TestContext.Current.CancellationToken);
         Assert.True(result.IsSuccess);
     }
 
@@ -36,7 +37,7 @@ public class SentinelPipelineTests
     public async Task GetResponseResultAsync_QuarantineThreat_ReturnsFailure()
     {
         var result = await Build([new AlwaysCriticalDetector()]).GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
+            [new ChatMessage(ChatRole.User, "Hello")], null, ct: TestContext.Current.CancellationToken);
         Assert.True(result.IsFailure);
         Assert.IsType<SentinelError.ThreatDetected>(result.Error);
     }
@@ -45,7 +46,7 @@ public class SentinelPipelineTests
     public async Task GetResponseResultAsync_InnerClientThrows_ReturnsPipelineFailure()
     {
         var result = await Build(inner: new ThrowingChatClient()).GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
+            [new ChatMessage(ChatRole.User, "Hello")], null, ct: TestContext.Current.CancellationToken);
         Assert.True(result.IsFailure);
         Assert.IsType<SentinelError.PipelineFailure>(result.Error);
     }
@@ -67,7 +68,7 @@ public class SentinelPipelineTests
     {
         var sink = new RecordingAlertSink();
         _ = await Build(alertSink: sink).GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
+            [new ChatMessage(ChatRole.User, "Hello")], null, ct: TestContext.Current.CancellationToken);
         Assert.Equal(0, sink.CallCount);
     }
 
@@ -148,7 +149,7 @@ public class SentinelPipelineTests
     {
         var sentinel = Build();
         var error = await sentinel.ScanMessagesAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
+            [new ChatMessage(ChatRole.User, "Hello")], null, ct: TestContext.Current.CancellationToken);
         Assert.Null(error);
     }
 
@@ -157,8 +158,43 @@ public class SentinelPipelineTests
     {
         var sentinel = Build([new AlwaysCriticalDetector()]);
         var error = await sentinel.ScanMessagesAsync(
-            [new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
+            [new ChatMessage(ChatRole.User, "hi")], null, ct: TestContext.Current.CancellationToken);
         Assert.IsType<SentinelError.ThreatDetected>(error);
+    }
+
+    private static (SentinelPipeline Pipeline, RingBufferAuditStore Store) BuildWithStore()
+    {
+        var opts = new SentinelOptions();
+        var pipeline = new DetectionPipeline([new AlwaysCriticalDetector()], configurations: null, escalationClient: null);
+        var audit = new RingBufferAuditStore(100);
+        return (new SentinelPipeline(new TestChatClient("hello"), pipeline, audit, new InterventionEngine(opts, null), opts, null), audit);
+    }
+
+    [Fact]
+    public async Task ScanMessagesAsync_WithSessionId_RecordsIt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (sentinel, store) = BuildWithStore();
+
+        await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, new SessionId("agent-7"), ct);
+
+        var entries = await RecordingAuditForwarder.ReadAllAsync(store);
+        Assert.NotEmpty(entries);
+        Assert.All(entries, e => Assert.Equal("agent-7", e.SessionId));
+    }
+
+    [Fact]
+    public async Task ScanMessagesAsync_WithoutSessionId_MintsOne()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (sentinel, store) = BuildWithStore();
+
+        await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, ct: ct);
+        await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, ct: ct);
+
+        var ids = (await RecordingAuditForwarder.ReadAllAsync(store)).Select(e => e.SessionId).Distinct(StringComparer.Ordinal).ToList();
+        Assert.Equal(2, ids.Count);
+        Assert.All(ids, id => Assert.False(string.IsNullOrEmpty(id)));
     }
 
     [Fact]
@@ -166,7 +202,7 @@ public class SentinelPipelineTests
     {
         var sentinel = Build(inner: new ThrowingChatClient());
         var error = await sentinel.ScanMessagesAsync(
-            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
+            [new ChatMessage(ChatRole.User, "Hello")], null, ct: TestContext.Current.CancellationToken);
         Assert.Null(error);
     }
 
@@ -180,8 +216,8 @@ public class SentinelPipelineTests
         var sentinel = new SentinelPipeline(
             new TestChatClient("ok"), pipeline, audit, engine, opts);
 
-        _ = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
-        var error = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, TestContext.Current.CancellationToken);
+        _ = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, ct: TestContext.Current.CancellationToken);
+        var error = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], null, ct: TestContext.Current.CancellationToken);
 
         Assert.IsType<SentinelError.RateLimitExceeded>(error);
     }

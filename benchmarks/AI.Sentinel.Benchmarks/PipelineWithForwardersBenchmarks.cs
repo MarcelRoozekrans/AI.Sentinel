@@ -33,8 +33,8 @@ public class PipelineWithForwardersBenchmarks
     [GlobalSetup]
     public void Setup()
     {
-        var options            = SentinelOptionsFactory.AllPassThrough();
-        _auditStore            = new RingBufferAuditStore();
+        var options = SentinelOptionsFactory.AllPassThrough();
+        _auditStore = new RingBufferAuditStore();
         var interventionEngine = new InterventionEngine(options, mediator: null);
 
         var forwarders = new IAuditForwarder[ForwarderCount];

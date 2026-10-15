@@ -10,7 +10,7 @@ using Microsoft.Extensions.DependencyInjection;
 namespace AI.Sentinel.Tests.Copilot;
 
 [Collection("NonParallel")]
-public class CopilotHookCliTests
+public class CopilotHookCliTests : HookAuditOffFixtureBase
 {
     [Fact]
     public async Task Cli_CleanPrompt_ExitsZero()

@@ -8,4 +8,5 @@ public sealed record AuditQuery(
     DateTimeOffset? To = null,
     int PageSize = 200,
     bool Reverse = false,
-    string? SessionId = null);
+    string? SessionId = null,
+    string? Source = null);

@@ -41,6 +41,10 @@ Every entry is a complete `AuditEntry` serialized via the source-gen JSON contex
 
 The forwarder is **not** wrapped in `BufferingAuditForwarder` — file appends are already fast enough that batching adds latency without meaningful gain.
 
+## Several processes on one file
+
+The forwarder opens the file with `FileShare.Read`, so on Windows a second process cannot open it for writing and its constructor throws. On Linux and macOS the OS allows concurrent appends. For several writer processes on Windows, give each its own file, or use the [SQLite store](./sqlite), which supports them. See [#349](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/349).
+
 ## Failure handling
 
 Per the [forwarder reliability contract](./overview#forwarder-reliability), failures swallow + log + count:
@@ -50,6 +54,18 @@ Per the [forwarder reliability contract](./overview#forwarder-reliability), fail
 | Disk full | Exception swallowed, stderr log, `audit.forward.dropped++` |
 | File handle closed externally | First write detects, swallows, logs once per minute (rate-limited) |
 | Permission denied at startup | Constructor throws — registration fails, app fails fast |
+
+By default a send failure or dropped batch is written to `Console.Error`. Set `OnError` when stderr is reserved for other output, as in a hook process, where stderr carries the reason fed back to the model:
+
+```csharp
+services.AddSentinelNdjsonFileForwarder(opts =>
+{
+    opts.FilePath = "/var/log/ai-sentinel/audit.ndjson";
+    opts.OnError = message => myLogger.LogWarning("{Message}", message);
+});
+```
+
+`OnError` receives one line per failure. The callback must not throw; an exception from it is ignored. The CLIs set it to collect problems instead of printing them.
 
 The "fail at startup" rule for permission denied is intentional. If you can't open the file at registration time, the configuration is broken and you want to know immediately, not at first request.
 

@@ -48,6 +48,7 @@
         <button type="button" role="tab" class="feed-chip chip-hallucination" data-filter="hallucination" aria-selected="false" aria-pressed="false" tabindex="-1">Hallucination</button>
         <button type="button" role="tab" class="feed-chip chip-operational"   data-filter="operational"   aria-selected="false" aria-pressed="false" tabindex="-1">Operational</button>
         <button type="button" role="tab" class="feed-chip chip-authz"         data-filter="authorization" aria-selected="false" aria-pressed="false" tabindex="-1">Authorization</button>
+        <button type="button" role="tab" class="feed-chip chip-redacted"      data-filter="redacted"      aria-selected="false" aria-pressed="false" tabindex="-1">Redacted</button>
         <input type="search" id="feed-search" class="search-input"
                placeholder="Search summary&#8230;" aria-label="Search audit log"
                autocomplete="off">
@@ -61,10 +62,11 @@
         <p class="loading">Loading trend&#8230;</p>
       </div>
       <div id="session-pill-container"></div>
+      <div id="source-pill-container"></div>
       <div class="table-wrap">
-        <table>
+        <table id="feed-table">
           <thead>
-            <tr><th>Time</th><th>Detector</th><th>Severity</th><th>Reason</th><th>Session</th><th>Hash</th></tr>
+            <tr><th>Time</th><th>Detector</th><th>Source</th><th>Severity</th><th>Reason</th><th>Session</th><th>Hash</th></tr>
           </thead>
           <tbody id="feed-body"
             hx-get="api/feed"
@@ -119,6 +121,11 @@
     const feedBody = document.getElementById('feed-body');
     const searchInput = document.getElementById('feed-search');
 
+    // Filters that are set by clicking a cell in the feed, shown as a pill, mirrored in
+    // body.dataset and the page URL, and passed to the feed and export. A new filter is one entry
+    // here plus a data-<key> cell link and a pill container with id <key>-pill-container.
+    const FILTER_KEYS = ['session', 'source'];
+
     function buildFeedUrl() {
       const params = new URLSearchParams();
       const activeChip = document.querySelector('#feed-chips .feed-chip.active');
@@ -126,8 +133,10 @@
       if (filter) params.set('filter', filter);
       const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
       if (q) params.set('q', q);
-      const session = document.body.dataset.session || '';
-      if (session) params.set('session', session);
+      FILTER_KEYS.forEach(function (k) {
+        const v = document.body.dataset[k] || '';
+        if (v) params.set(k, v);
+      });
       const qs = params.toString();
       return qs ? ('api/feed?' + qs) : 'api/feed';
     }
@@ -146,8 +155,10 @@
       const q = (searchInput && searchInput.value ? searchInput.value : '').trim();
       if (q) params.set('q', q); else params.delete('q');
 
-      const session = document.body.dataset.session || '';
-      if (session) params.set('session', session); else params.delete('session');
+      FILTER_KEYS.forEach(function (k) {
+        const v = document.body.dataset[k] || '';
+        if (v) params.set(k, v); else params.delete(k);
+      });
 
       window.history.replaceState(null, '', url.toString());
     }
@@ -217,41 +228,40 @@
       });
     }
 
-    // Delegate session-link clicks -> set body.dataset.session, re-render feed.
-    // Delegation (vs per-row binding) survives HTMX swap-on-poll which destroys row nodes.
+    // Delegate filter-link clicks (a.filter-link[data-filter-key][data-filter-value]) -> set
+    // body.dataset[key], re-render feed. Delegation (vs per-row binding) survives HTMX
+    // swap-on-poll which destroys row nodes. refreshFeed() calls syncUrlFromState() which
+    // writes the query-string key for us, keeping chip/search/filters consistent.
     feedBody.addEventListener('click', function (e) {
-      const link = e.target.closest('.session-link');
+      const link = e.target.closest('.filter-link');
       if (!link) return;
       e.preventDefault();
-      const session = link.getAttribute('data-session');
-      document.body.dataset.session = session;
-      // refreshFeed() calls syncUrlFromState() which writes ?session= for us — no inline
-      // replaceState needed. Keeping the URL sync in one place keeps chip/search/session
-      // all consistent (Phase-2 review I2).
+      const key = link.getAttribute('data-filter-key');
+      const value = link.getAttribute('data-filter-value');
+      document.body.dataset[key] = value;
       refreshFeed();
-      renderSessionPill(session);
+      renderFilterPill(key, value);
     });
 
-    // Render the session-filter pill above the feed. Empty/null sessionId clears it.
-    function renderSessionPill(sessionId) {
-      const container = document.getElementById('session-pill-container');
+    // Render the filter pill for one key above the feed. Empty/null value clears it.
+    function renderFilterPill(key, value) {
+      const container = document.getElementById(key + '-pill-container');
       container.innerHTML = '';
-      if (!sessionId) return;
+      if (!value) return;
       const pill = document.createElement('div');
-      pill.className = 'session-pill';
-      const label = document.createTextNode('Filtering session: ');
+      pill.className = key + '-pill';
+      pill.appendChild(document.createTextNode('Filtering ' + key + ': '));
       const code = document.createElement('code');
-      code.textContent = sessionId;
-      pill.appendChild(label);
+      code.textContent = value;
       pill.appendChild(code);
       const clear = document.createElement('button');
       clear.type = 'button';
-      clear.className = 'session-pill-clear';
+      clear.className = key + '-pill-clear';
       clear.textContent = '✕ clear';
       clear.addEventListener('click', function () {
-        delete document.body.dataset.session;
+        delete document.body.dataset[key];
         container.innerHTML = '';
-        // refreshFeed() -> syncUrlFromState() drops ?session= (and any other empty keys).
+        // refreshFeed() -> syncUrlFromState() drops the key from the URL.
         refreshFeed();
       });
       pill.appendChild(clear);
@@ -261,11 +271,15 @@
     // On page load: hydrate filter state from URL query string
     (function hydrateFromUrl() {
       const params = new URL(window.location.href).searchParams;
-      const session = params.get('session');
-      if (session) {
-        document.body.dataset.session = session;
-        renderSessionPill(session);
-      }
+      let anyFilter = false;
+      FILTER_KEYS.forEach(function (k) {
+        const v = params.get(k);
+        if (v) {
+          document.body.dataset[k] = v;
+          renderFilterPill(k, v);
+          anyFilter = true;
+        }
+      });
       const q = params.get('q');
       if (q && searchInput) { searchInput.value = q; }
       const filter = params.get('filter');
@@ -273,11 +287,11 @@
         const chip = document.querySelector('#feed-chips .feed-chip[data-filter="' + filter + '"]');
         if (chip) activate(chip);  // already calls refreshFeed
       }
-      // If session or q was set without a filter, no activate() was called — fire one explicit
+      // If a filter or q was set without a chip filter, no activate() was called — fire one explicit
       // refreshFeed so the very first request honours the URL state. Without this the literal
       // hx-get="api/feed" triggers an unfiltered load and the user sees a 'pill says filtering /
       // table shows everything' inconsistency until the first chip click.
-      else if (session || q) {
+      else if (anyFilter || q) {
         refreshFeed();
       }
     })();

@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.Domain;
 using AI.Sentinel.Mcp.Logging;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
@@ -39,20 +40,22 @@ internal static class ResourceReadInterceptor
     private const int DefaultMaxScanBytes = 65_536;
 
     public static McpRequestFilter<ReadResourceRequestParams, ReadResourceResult> Create(
-        SentinelPipeline pipeline)
+        SentinelPipeline pipeline,
+        SessionId? sessionId = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
 
         var allowedMimes = ParseMimeAllowlist();
         var maxBytes = ParseMaxBytes();
 
-        return next => (ctx, ct) => InvokeAsync(pipeline, allowedMimes, maxBytes, next, ctx, ct);
+        return next => (ctx, ct) => InvokeAsync(pipeline, allowedMimes, maxBytes, sessionId, next, ctx, ct);
     }
 
     private static async ValueTask<ReadResourceResult> InvokeAsync(
         SentinelPipeline pipeline,
         HashSet<string> allowedMimes,
         int maxBytes,
+        SessionId? sessionId,
         McpRequestHandler<ReadResourceRequestParams, ReadResourceResult> next,
         RequestContext<ReadResourceRequestParams> ctx,
         CancellationToken ct)
@@ -95,7 +98,7 @@ internal static class ResourceReadInterceptor
                 continue;
             }
 
-            var scanError = await ScanSafelyAsync(pipeline, textContent.Text, req.Uri, ct).ConfigureAwait(false);
+            var scanError = await ScanSafelyAsync(pipeline, textContent.Text, req.Uri, sessionId, ct).ConfigureAwait(false);
             if (scanError is SentinelError.ThreatDetected threat)
             {
                 LogBlock(req.Uri, threat);
@@ -110,22 +113,22 @@ internal static class ResourceReadInterceptor
     }
 
     private static async ValueTask<SentinelError?> ScanSafelyAsync(
-        SentinelPipeline pipeline, string text, string uri, CancellationToken ct)
+        SentinelPipeline pipeline, string text, string uri, SessionId? sessionId, CancellationToken ct)
     {
         try
         {
             return await pipeline.ScanMessagesAsync(
-                [MessageBuilder.BuildResourceRead(text)], ct: ct).ConfigureAwait(false);
+                [MessageBuilder.BuildResourceRead(text)], ct: ct, sessionId: sessionId).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
             {
-                ["event"]    = "resources_read",
-                ["action"]   = "fail_open",
-                ["uri"]      = uri,
-                ["error"]    = ex.GetType().Name,
-                ["message"]  = ex.Message,
+                ["event"] = "resources_read",
+                ["action"] = "fail_open",
+                ["uri"] = uri,
+                ["error"] = ex.GetType().Name,
+                ["message"] = ex.Message,
             });
             return null;
         }
@@ -135,9 +138,9 @@ internal static class ResourceReadInterceptor
     {
         var fields = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]  = "resources_read",
+            ["event"] = "resources_read",
             ["action"] = "allow",
-            ["uri"]    = uri,
+            ["uri"] = uri,
         };
         if (!string.IsNullOrEmpty(reason)) fields["reason"] = reason;
         StderrLogger.Log(fields);
@@ -146,30 +149,30 @@ internal static class ResourceReadInterceptor
     private static void LogSkipped(string uri, string reason, string mime) =>
         StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]  = "resources_read",
+            ["event"] = "resources_read",
             ["action"] = "skipped",
             ["reason"] = reason,
-            ["uri"]    = uri,
-            ["mime"]   = mime,
+            ["uri"] = uri,
+            ["mime"] = mime,
         });
 
     private static void LogOversize(string uri, int bytes, int maxBytes) =>
         StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]    = "resources_read",
-            ["action"]   = "skipped",
-            ["reason"]   = "oversize",
-            ["uri"]      = uri,
-            ["bytes"]    = bytes.ToString(CultureInfo.InvariantCulture),
-            ["max"]      = maxBytes.ToString(CultureInfo.InvariantCulture),
+            ["event"] = "resources_read",
+            ["action"] = "skipped",
+            ["reason"] = "oversize",
+            ["uri"] = uri,
+            ["bytes"] = bytes.ToString(CultureInfo.InvariantCulture),
+            ["max"] = maxBytes.ToString(CultureInfo.InvariantCulture),
         });
 
     private static void LogBlock(string uri, SentinelError.ThreatDetected threat) =>
         StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"]    = "resources_read",
-            ["action"]   = "block",
-            ["uri"]      = uri,
+            ["event"] = "resources_read",
+            ["action"] = "block",
+            ["uri"] = uri,
             ["detector"] = threat.Result.DetectorId.Value,
             ["severity"] = threat.Result.Severity.ToString(),
         });

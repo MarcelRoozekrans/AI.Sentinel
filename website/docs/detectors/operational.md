@@ -11,7 +11,7 @@ Operational detectors flag UX and quality issues — repetition loops, truncated
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| **OPS-01** | `BlankResponseDetector` | Rule-based | Empty or whitespace-only responses |
+| **OPS-01** | `BlankResponseDetector` | Rule-based | Empty or whitespace-only responses; a reply that only calls a tool or returns non-text content is not blank |
 | **OPS-02** | `RepetitionLoopDetector` | Rule-based | Same sentence repeated 3+ times |
 | **OPS-03** | `IncompleteCodeBlockDetector` | Rule-based | Unclosed code fences |
 | **OPS-04** | `PlaceholderTextDetector` | Rule-based | `TODO`, `[INSERT HERE]`, `Lorem ipsum` leftovers |

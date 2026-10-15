@@ -6,7 +6,7 @@ using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Security;
 
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
-public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector
+public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedactingDetector
 {
     private static readonly DetectorId _id = new("SEC-23");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
@@ -37,7 +37,7 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector
     private static partial Regex IbanPattern();
 
     [GeneratedRegex(
-        @"(?:BSN|burgerservicenummer)\s*[:=]?\s*\d{9}\b",
+        @"(?:BSN|burgerservicenummer)\s*[:=]?\s*(?<value>\d{9})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex BsnPattern();
@@ -49,13 +49,13 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector
     private static partial Regex UkNinoPattern();
 
     [GeneratedRegex(
-        @"passport\s*[:=]?\s*[A-Z]{1,2}\d{6,9}\b",
+        @"passport\s*[:=]?\s*(?<value>[A-Z]{1,2}\d{6,9})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex PassportPattern();
 
     [GeneratedRegex(
-        @"(?:Steuer-?ID|tax\s+id)\s*[:=]?\s*\d{2}\s?\d{3}\s?\d{5}\b",
+        @"(?:Steuer-?ID|tax\s+id)\s*[:=]?\s*(?<value>\d{2}\s?\d{3}\s?\d{5})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex DeTaxIdPattern();
@@ -63,10 +63,10 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector
     // --- Medium ---
 
     [GeneratedRegex(
-        @"\b[A-Z][a-z]+\s[A-Z][a-z]+\b.{0,30}\b[\w.]+@[\w.]+\.\w{2,}\b",
-        RegexOptions.ExplicitCapture | RegexOptions.Compiled,
+        @"\b[\w.+-]{1,64}@(?:[A-Za-z0-9][\w-]{0,62}\.){1,8}[A-Za-z]{2,}\b",
+        RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
-    private static partial Regex EmailWithNamePattern();
+    private static partial Regex BareEmailPattern();
 
     [GeneratedRegex(
         @"(?<!\d)(?:\+\d{1,3}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{4}\b|\(?\d{1,4}\)?[\s.-]\d{3,4}[\s.-]?\d{4}\b)",
@@ -75,7 +75,7 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector
     private static partial Regex PhonePattern();
 
     [GeneratedRegex(
-        @"(?:born|DOB|date\s+of\s+birth)\s*[:=]?\s*\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b",
+        @"(?:born|DOB|date\s+of\s+birth)\s*[:=]?\s*(?<value>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex DobPattern();
@@ -103,14 +103,31 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector
             return Hit(Severity.High, "German tax ID detected");
 
         // Medium
-        if (EmailWithNamePattern().IsMatch(text))
-            return Hit(Severity.Medium, "Email with name detected");
+        if (BareEmailPattern().IsMatch(text))
+            return Hit(Severity.Medium, "Email address detected");
         if (PhonePattern().IsMatch(text))
             return Hit(Severity.Medium, "Phone number detected");
         if (DobPattern().IsMatch(text))
             return Hit(Severity.Medium, "Date of birth detected");
 
         return ValueTask.FromResult(_clean);
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<RedactionSpan> FindSpans(string text)
+    {
+        var spans = new List<RedactionSpan>();
+        RedactionSpanCollector.Collect(CreditCardPattern(), "CREDIT_CARD", text, spans);
+        RedactionSpanCollector.Collect(SsnPattern(), "SSN", text, spans);
+        RedactionSpanCollector.Collect(IbanPattern(), "IBAN", text, spans);
+        RedactionSpanCollector.Collect(BsnPattern(), "BSN", text, spans);
+        RedactionSpanCollector.Collect(UkNinoPattern(), "NINO", text, spans);
+        RedactionSpanCollector.Collect(PassportPattern(), "PASSPORT", text, spans);
+        RedactionSpanCollector.Collect(DeTaxIdPattern(), "TAX_ID", text, spans);
+        RedactionSpanCollector.Collect(BareEmailPattern(), "EMAIL", text, spans);
+        RedactionSpanCollector.Collect(PhonePattern(), "PHONE", text, spans);
+        RedactionSpanCollector.Collect(DobPattern(), "DATE_OF_BIRTH", text, spans);
+        return RedactionSpanCollector.Normalize(spans);
     }
 
     private static ValueTask<DetectionResult> Hit(Severity severity, string reason)

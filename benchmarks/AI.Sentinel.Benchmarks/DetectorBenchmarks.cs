@@ -14,56 +14,56 @@ namespace AI.Sentinel.Benchmarks;
 public class DetectorBenchmarks
 {
     // Security — SemanticDetectorBase (null EmbeddingGenerator → fast-path Clean)
-    private PromptInjectionDetector   _promptInjection   = null!;
+    private PromptInjectionDetector _promptInjection = null!;
     private CredentialExposureDetector _credentialExposure = null!;
-    private ToolPoisoningDetector     _toolPoisoning     = null!;
-    private DataExfiltrationDetector  _dataExfiltration  = null!;
-    private JailbreakDetector         _jailbreak         = null!;
+    private ToolPoisoningDetector _toolPoisoning = null!;
+    private DataExfiltrationDetector _dataExfiltration = null!;
+    private JailbreakDetector _jailbreak = null!;
     private PrivilegeEscalationDetector _privilegeEscalation = null!;
 
     // Hallucination — SemanticDetectorBase (null EmbeddingGenerator → fast-path Clean)
-    private PhantomCitationDetector   _phantomCitation   = null!;
-    private SelfConsistencyDetector   _selfConsistency   = null!;
+    private PhantomCitationDetector _phantomCitation = null!;
+    private SelfConsistencyDetector _selfConsistency = null!;
 
     // Operational — rule-based
-    private BlankResponseDetector     _blankResponse     = null!;
-    private RepetitionLoopDetector    _repetitionLoop    = null!;
+    private BlankResponseDetector _blankResponse = null!;
+    private RepetitionLoopDetector _repetitionLoop = null!;
     private IncompleteCodeBlockDetector _incompleteCodeBlock = null!;
-    private PlaceholderTextDetector   _placeholderText   = null!;
+    private PlaceholderTextDetector _placeholderText = null!;
 
     // Security — SemanticDetectorBase with embedding generator (realistic performance)
-    private PromptInjectionDetector          _promptInjectionSemantic     = null!;
-    private JailbreakDetector                _jailbreakSemantic           = null!;
-    private VectorRetrievalPoisoningDetector _vectorPoisoningSemantic     = null!;
+    private PromptInjectionDetector _promptInjectionSemantic = null!;
+    private JailbreakDetector _jailbreakSemantic = null!;
+    private VectorRetrievalPoisoningDetector _vectorPoisoningSemantic = null!;
 
-    private SentinelContext _cleanCtx     = null!;
+    private SentinelContext _cleanCtx = null!;
     private SentinelContext _maliciousCtx = null!;
 
     [GlobalSetup]
     public void Setup()
     {
-        var opts            = new SentinelOptions();
-        _promptInjection    = new PromptInjectionDetector(opts);
+        var opts = new SentinelOptions();
+        _promptInjection = new PromptInjectionDetector(opts);
         _credentialExposure = new CredentialExposureDetector();
-        _toolPoisoning      = new ToolPoisoningDetector(opts);
-        _dataExfiltration   = new DataExfiltrationDetector(opts);
-        _jailbreak          = new JailbreakDetector(opts);
+        _toolPoisoning = new ToolPoisoningDetector(opts);
+        _dataExfiltration = new DataExfiltrationDetector(opts);
+        _jailbreak = new JailbreakDetector(opts);
         _privilegeEscalation = new PrivilegeEscalationDetector(opts);
 
-        _phantomCitation    = new PhantomCitationDetector(opts);
-        _selfConsistency    = new SelfConsistencyDetector(opts);
+        _phantomCitation = new PhantomCitationDetector(opts);
+        _selfConsistency = new SelfConsistencyDetector(opts);
 
-        _blankResponse      = new BlankResponseDetector();
-        _repetitionLoop     = new RepetitionLoopDetector();
+        _blankResponse = new BlankResponseDetector();
+        _repetitionLoop = new RepetitionLoopDetector();
         _incompleteCodeBlock = new IncompleteCodeBlockDetector();
-        _placeholderText    = new PlaceholderTextDetector();
+        _placeholderText = new PlaceholderTextDetector();
 
-        var semanticOpts         = SentinelOptionsFactory.WithSemanticDetection();
+        var semanticOpts = SentinelOptionsFactory.WithSemanticDetection();
         _promptInjectionSemantic = new PromptInjectionDetector(semanticOpts);
-        _jailbreakSemantic       = new JailbreakDetector(semanticOpts);
+        _jailbreakSemantic = new JailbreakDetector(semanticOpts);
         _vectorPoisoningSemantic = new VectorRetrievalPoisoningDetector(semanticOpts);
 
-        _cleanCtx     = BuildContext(MessageFactory.CleanShort);
+        _cleanCtx = BuildContext(MessageFactory.CleanShort);
         _maliciousCtx = BuildContext(MessageFactory.Malicious);
     }
 

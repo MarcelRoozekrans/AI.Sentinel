@@ -35,7 +35,7 @@ public sealed class OpenTelemetryAuditForwarder : IAuditForwarder
         for (var i = 0; i < batch.Count; i++)
         {
             var entry = batch[i];
-            var level = MapSeverity(entry.Severity);
+            var level = MapLevel(entry);
             using (_logger.BeginScope(new Dictionary<string, object?>(StringComparer.Ordinal)
             {
                 ["audit.id"] = entry.Id,
@@ -45,6 +45,8 @@ public sealed class OpenTelemetryAuditForwarder : IAuditForwarder
                 ["audit.previous_hash"] = entry.PreviousHash,
                 ["audit.timestamp"] = entry.Timestamp.ToString("O", CultureInfo.InvariantCulture),
                 ["audit.policy_code"] = entry.PolicyCode,
+                ["audit.session_id"] = entry.SessionId,
+                ["audit.source"] = entry.Source,
             }))
             {
 #pragma warning disable CA1848 // LoggerMessage source-gen would couple emission shape to a static template; per-entry attributes flow via scope.
@@ -54,6 +56,13 @@ public sealed class OpenTelemetryAuditForwarder : IAuditForwarder
         }
         return ValueTask.CompletedTask;
     }
+
+    // A redaction entry is Severity.None but is compliance evidence: Debug would be dropped by default log filters.
+    private static LogLevel MapLevel(AuditEntry entry) =>
+        entry.Severity == Severity.None
+        && string.Equals(entry.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal)
+            ? LogLevel.Information
+            : MapSeverity(entry.Severity);
 
     private static LogLevel MapSeverity(Severity sev) => sev switch
     {

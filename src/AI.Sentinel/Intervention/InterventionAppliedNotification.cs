@@ -8,4 +8,5 @@ public readonly record struct InterventionAppliedNotification(
     SentinelAction Action,
     Severity Severity,
     string Reason,
-    DateTimeOffset AppliedAt) : INotification;
+    DateTimeOffset AppliedAt,
+    IReadOnlyDictionary<string, int>? Redactions = null) : INotification;

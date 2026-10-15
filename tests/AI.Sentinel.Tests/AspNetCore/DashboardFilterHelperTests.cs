@@ -11,15 +11,15 @@ namespace AI.Sentinel.Tests.AspNetCore;
 public class DashboardFilterHelperTests
 {
     [Theory]
-    [InlineData("SEC-01",       "security",      true)]
-    [InlineData("SEC-21",       "security",      true)]
-    [InlineData("HAL-08",       "security",      false)]
-    [InlineData("HAL-08",       "hallucination", true)]
-    [InlineData("OPS-12",       "operational",   true)]
-    [InlineData("AUTHZ-DENY",   "authorization", true)]
-    [InlineData("SEC-01",       "authorization", false)]
-    [InlineData("AUTHZ-DENY",   "authz",         true)]   // legacy alias
-    [InlineData("HAL-08",       "authz",         false)]  // legacy alias still selective
+    [InlineData("SEC-01", "security", true)]
+    [InlineData("SEC-21", "security", true)]
+    [InlineData("HAL-08", "security", false)]
+    [InlineData("HAL-08", "hallucination", true)]
+    [InlineData("OPS-12", "operational", true)]
+    [InlineData("AUTHZ-DENY", "authorization", true)]
+    [InlineData("SEC-01", "authorization", false)]
+    [InlineData("AUTHZ-DENY", "authz", true)]   // legacy alias
+    [InlineData("HAL-08", "authz", false)]  // legacy alias still selective
     public void IsInCategory_PrefixMatch_KnownCategories(string detectorId, string category, bool expected)
     {
         Assert.Equal(expected, DashboardHandlers.IsInCategory(detectorId, category));
@@ -37,15 +37,15 @@ public class DashboardFilterHelperTests
 
     private static AuditEntry NewEntry(string detectorId, string summary, string sessionId = "sess-1") =>
         new(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         "h",
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "h",
             PreviousHash: null,
-            Severity:     Severity.Medium,
-            DetectorId:   detectorId,
-            Summary:      summary,
-            PolicyCode:   null,
-            SessionId:    sessionId);
+            Severity: Severity.Medium,
+            DetectorId: detectorId,
+            Summary: summary,
+            PolicyCode: null,
+            SessionId: sessionId);
 
     [Fact]
     public void FilterAuditEntries_NoFilters_ReturnsAll()
@@ -56,7 +56,7 @@ public class DashboardFilterHelperTests
             NewEntry("HAL-08",     "hallucinated citation"),
             NewEntry("AUTHZ-DENY", "policy denied delete_database"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: null, session: null).ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: null, session: null, source: null).ToList();
         Assert.Equal(3, result.Count);
     }
 
@@ -69,7 +69,7 @@ public class DashboardFilterHelperTests
             NewEntry("HAL-08",     "x"),
             NewEntry("AUTHZ-DENY", "x"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: "security", q: null, session: null).ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: "security", q: null, session: null, source: null).ToList();
         Assert.Single(result);
         Assert.Equal("SEC-01", result[0].DetectorId);
     }
@@ -83,7 +83,7 @@ public class DashboardFilterHelperTests
             NewEntry("SEC-01", "x", sessionId: "sess-B"),
             NewEntry("HAL-08", "x", sessionId: "sess-A"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: null, session: "sess-A").ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: null, session: "sess-A", source: null).ToList();
         Assert.Equal(2, result.Count);
         Assert.All(result, e => Assert.Equal("sess-A", e.SessionId));
     }
@@ -97,7 +97,7 @@ public class DashboardFilterHelperTests
             NewEntry("SEC-01", "Hallucinated function reference"),
             NewEntry("OPS-12", "Tool call to DELETE_DATABASE detected"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: "delete_database", session: null).ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: null, q: "delete_database", session: null, source: null).ToList();
         Assert.Equal(2, result.Count);
     }
 
@@ -111,17 +111,17 @@ public class DashboardFilterHelperTests
         };
         // Build a third entry with explicit null session — NewEntry's default is "sess-1"
         var nullSessionEntry = new AuditEntry(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         "h",
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "h",
             PreviousHash: null,
-            Severity:     Severity.Medium,
-            DetectorId:   "SEC-01",
-            Summary:      "x",
-            PolicyCode:   null,
-            SessionId:    null);
+            Severity: Severity.Medium,
+            DetectorId: "SEC-01",
+            Summary: "x",
+            PolicyCode: null,
+            SessionId: null);
         var combined = entries.Concat(new[] { nullSessionEntry }).ToList();
-        var result = DashboardHandlers.FilterAuditEntries(combined, category: null, q: null, session: "sess-A").ToList();
+        var result = DashboardHandlers.FilterAuditEntries(combined, category: null, q: null, session: "sess-A", source: null).ToList();
         Assert.Equal(2, result.Count);
         Assert.All(result, e => Assert.Equal("sess-A", e.SessionId));
     }
@@ -136,7 +136,7 @@ public class DashboardFilterHelperTests
             NewEntry("AUTHZ-DENY", "delete_database",  sessionId: "sess-A"),
             NewEntry("SEC-01",     "prompt injection", sessionId: "sess-A"),
         };
-        var result = DashboardHandlers.FilterAuditEntries(entries, category: "security", q: "delete_database", session: "sess-A").ToList();
+        var result = DashboardHandlers.FilterAuditEntries(entries, category: "security", q: "delete_database", session: "sess-A", source: null).ToList();
         Assert.Single(result);
         Assert.Equal("sess-A", result[0].SessionId);
         Assert.Equal("delete_database", result[0].Summary);

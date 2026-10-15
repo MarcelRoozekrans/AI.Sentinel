@@ -20,10 +20,10 @@ public class McpProxyTests
 {
     private static HookConfig DefaultConfig() => new(
         OnCritical: HookDecision.Block,
-        OnHigh:     HookDecision.Block,
-        OnMedium:   HookDecision.Block,
-        OnLow:      HookDecision.Block,
-        Verbose:    false);
+        OnHigh: HookDecision.Block,
+        OnMedium: HookDecision.Block,
+        OnLow: HookDecision.Block,
+        Verbose: false);
 
     [Fact]
     public async Task ForwardsToolsList_FromProxyClient_ToFakeTarget()
@@ -89,7 +89,7 @@ public class McpProxyTests
         var messages = new[] { new Microsoft.Extensions.AI.ChatMessage(
             Microsoft.Extensions.AI.ChatRole.User, phrase) };
 
-        var error = await pipeline.ScanMessagesAsync(messages, default, TestContext.Current.CancellationToken);
+        var error = await pipeline.ScanMessagesAsync(messages, default, ct: TestContext.Current.CancellationToken);
 
         var threat = Assert.IsType<SentinelError.ThreatDetected>(error);
         Assert.True(threat.Result.Severity >= Severity.High);

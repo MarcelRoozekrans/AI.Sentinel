@@ -42,7 +42,7 @@ The embedded dashboard ships in `AI.Sentinel.AspNetCore`. Mount it on any ASP.NE
 | `AI.Sentinel` | Core — pipeline, 56 detectors, intervention engine, audit store |
 | `AI.Sentinel.Detectors.Sdk` | SDK for writing and testing custom detectors — `SentinelContextBuilder`, `FakeEmbeddingGenerator`, worked examples |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
-| `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
+| `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI, and `sentinel dashboard` to browse the audit file the hooks and the MCP proxy write |
 | `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
 | `AI.Sentinel.Copilot` / `AI.Sentinel.Copilot.Cli` | GitHub Copilot native hook adapter — wire into `hooks.json` to scan userPromptSubmitted, preToolUse, postToolUse |
 | `AI.Sentinel.Mcp` / `AI.Sentinel.Mcp.Cli` | `dotnet tool install AI.Sentinel.Mcp.Cli` — stdio MCP proxy that scans `tools/call` + `prompts/get` for any MCP-speaking host (Cursor, Continue, Cline, Windsurf, Copilot) |
@@ -282,14 +282,16 @@ AI.Sentinel provides runtime building blocks for several technical obligations o
 
 | Article | Requirement | What AI.Sentinel provides | Active by default |
 |---|---|---|---|
-| Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors |
-| Art. 12 | Record-keeping (automatic logging) | Every detection is written to `IAuditStore`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`; forwarders mirror it to NDJSON, Azure Sentinel or OpenTelemetry. Entries are **not hash-chained yet**, so the log is not tamper-evident ([#342](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/342)) | ⚠️ partial: in-memory ring buffer only, capped at `opts.AuditCapacity` entries and lost on restart |
+| Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses and, by default, [redact](#redaction) them so they never reach the model; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors. They detect and keep the values away from the model, they do not make a system's training, validation and test data compliant |
+| Art. 12 | Record-keeping (automatic logging) | Every detection and authorization denial is written to `IAuditStore` and linked into a SHA-256 hash chain, so an edited, inserted or deleted entry is detectable with `AuditHashChain.VerifyAsync`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`, and the `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` CLIs use it by default, recording a `Source` on each entry; forwarders mirror it, chain hashes included, to NDJSON, Azure Sentinel or OpenTelemetry | ⚠️ partial: hash-chained. The hook CLIs and the MCP proxy record findings, denials and approval holds durably to a local SQLite file by default. An in-process app still defaults to the in-memory ring buffer, capped at `opts.AuditCapacity` entries and lost on restart, until it registers `AI.Sentinel.Sqlite` |
 | Art. 14 | Human oversight | [Tool-call authorization](#tool-call-authorization) and the [approval workflow](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview): `RequireApproval` holds a tool call until a person approves it in the dashboard or in Entra PIM (`AI.Sentinel.Approvals.Sqlite`, `AI.Sentinel.Approvals.EntraPim`). The dashboard shows detections live | ❌ none: every tool call is allowed until policies or approvals are configured |
 | Art. 15 | Accuracy, robustness and cybersecurity | The [56 detectors](#detectors-56), [OWASP LLM Top 10 coverage](#owasp-llm-top-10-2025-coverage) and [prompt hardening](#prompt-hardening-owasp-llm01--preventive) | ⚠️ partial: 15 rule-based detectors; the 39 semantic ones need an `EmbeddingGenerator` and `SystemPrefix` is opt-in |
 | Art. 50 | Transparency obligations | Not covered yet ([#336](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/336)) | — |
 | Art. 5 | Prohibited practices | Not covered yet ([#337](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/337)) | — |
 
 > **Active by default** means what a stock `AddAISentinel()` install does with no further configuration, as in the OWASP table above. The 15 rule-based detectors counted for Art. 15 are the 14 marked `Rule-based`, minus `SEC‑29 OutputSchema` (inactive without `opts.ExpectedResponseType`), plus the rule layers of `SEC‑01` and `SEC‑05`.
+
+> **GDPR.** Redaction supports data minimisation (Art. 5(1)(c)) and data protection by design (Art. 25): the model gets `[EMAIL_1_k3f9x2]`, not the address. See [Redaction](#redaction).
 
 > **Timeline.** The Art. 5 prohibitions have applied since 2 February 2025. [Regulation (EU) 2026/1744](https://eur-lex.europa.eu/eli/reg/2026/1744/oj), the Digital Omnibus on AI, in force since 27 July 2026, moved the obligations for Annex III high-risk systems from 2 August 2026 to **2 December 2027**, and for high-risk systems under Annex I to 2 August 2028. Check the regulation itself for the dates that apply to your system.
 
@@ -318,10 +320,31 @@ services.AddAISentinel(opts =>
 
 builder.Services.AddChatClient(pipeline =>
     pipeline.UseAISentinel()
-            .UseToolCallAuthorization()
             .UseFunctionInvocation()
+            .UseToolCallAuthorization()
             .Use(new OpenAIChatClient(...)));
 ```
+
+Tool calls the *model* asks for are authorized before the tool runs, in either order of
+`UseToolCallAuthorization()` and `UseFunctionInvocation()`, and for tools in `ChatOptions.Tools` and in
+`FunctionInvokingChatClient.AdditionalTools` alike. A denied call never runs, is audited once as
+`AUTHZ-DENY`, and throws `ToolCallAuthorizationException` to your caller. The order only changes where the
+check happens:
+
+- **Authorization inside function invocation (recommended, as above):** the calls in the model's response
+  are checked before `FunctionInvokingChatClient` sees them.
+- **Authorization outside function invocation:** the guard is hooked into `FunctionInvokingChatClient`'s
+  function invocation, so it runs immediately before each tool. (When streaming, the call is checked as it
+  is streamed, one step earlier.)
+
+Setting `FunctionInvoker` on the pipeline's `FunctionInvokingChatClient` after `Build()` replaces the
+authorization hook, so set it before the pipeline is built or chain your own invoker around it. One
+`FunctionInvokingChatClient` may sit below several authorization clients, for example a prebuilt pipeline
+wrapped per request scope: it is hooked once, and each request is authorized as the caller of the
+authorization client it went through.
+
+A call that already has a result in the messages you send (for example history you append from an earlier
+turn) is treated as history and is not checked or audited again. Calls without a result are checked.
 
 | Surface | Caller resolution default | Deny semantics |
 |---|---|---|
@@ -375,7 +398,7 @@ services.AddSentinelSqliteStore(opts =>
 });
 ```
 
-Single-file SQLite DB. WAL mode enabled (concurrent reads while writer active). Hash chain survives restarts. Last-registration-wins for `IAuditStore`.
+Single-file SQLite DB. WAL mode enabled (concurrent reads while writer active). The hash chain continues across restarts; verify it with `AuditHashChain.VerifyAsync`. Last-registration-wins for `IAuditStore`.
 
 ### Forwarding to external systems
 
@@ -462,7 +485,8 @@ builder.Services.AddAISentinel(opts =>
     // Optional: per-session token-bucket circuit breaker.
     // MaxCallsPerSecond = steady-state refill rate; BurstSize = initial token count.
     // Pass "sentinel.session_id" in ChatOptions.AdditionalProperties for per-user buckets.
-    // Without a session key, all calls share a global bucket.
+    // Without that key, all calls share a global bucket. The same key, or else
+    // ChatOptions.ConversationId, also groups a conversation's audit entries into one session.
     opts.MaxCallsPerSecond = 5;   // allow 5 calls/sec per session (steady state)
     opts.BurstSize = 20;          // up-front burst before throttling kicks in
 
@@ -487,6 +511,7 @@ builder.Services.AddAISentinel(opts =>
 | `Quarantine` | Throws `SentinelException` with full `PipelineResult`. Stops the call. Also fires the alert sink. |
 | `Alert` | Publishes `ThreatDetectedNotification` + `InterventionAppliedNotification` via `IMediator`. Fires the alert sink. Call continues. |
 | `Log` | Writes to `ILogger<InterventionEngine>`. Call continues. |
+| `Redact` | Allow the call, minus the sensitive parts: the model gets `[EMAIL_1_k3f9x2]` in place of the value and the reply is restored. Per detector only, not a block. See [Redaction](#redaction). |
 | `PassThrough` | No action. Detections are still audited. |
 
 Alert sink behaviour: when `opts.AlertWebhook` is set, `WebhookAlertSink` POSTs a JSON payload (type, severity, detector, reason, action, session) to the configured URL on `Quarantine` or `Alert` actions. The `DeduplicatingAlertSink` wraps the webhook sink and suppresses repeat alerts for the same detector+session, controlled by `opts.AlertDeduplicationWindow`.
@@ -503,6 +528,34 @@ To use a persistent or shared cache, implement `IEmbeddingCache` and set it on
 ```csharp
 options.EmbeddingCache = new MyRedisEmbeddingCache(redis, ttl: TimeSpan.FromHours(1));
 ```
+
+### Redaction
+
+Redact is **allow, minus the sensitive parts**. `PiiLeakageDetector` and `CredentialExposureDetector` replace each value in the messages, `ChatOptions.Instructions`, tool calls, tool results and text attachments sent to the model with a numbered placeholder (`[EMAIL_1_k3f9x2]`, `[IBAN_1_k3f9x2]`, `api_key=[API_KEY_1_k3f9x2]`) and let the call through. The last part is a random tag drawn for every call, so a placeholder from another call or model round trip is never restored to a value of this one. After the response scan the real values are put back in the reply, in tool results and, for PII, in tool-call arguments before the tool runs. Secrets are never restored into tool arguments.
+
+> **3.0 breaking changes.** These two detectors now redact by default instead of using their severity action. `opts.RedactByDefault = false` makes their findings use the severity action again, as in 2.x. It does not bring back 2.x detection, which changed regardless:
+>
+> - `PiiLeakageDetector` matches every email address at Medium severity, not only one preceded by a "First Last" name.
+> - `CredentialExposureDetector` matches quoted keys and values, any PEM private key type, `AWS_SECRET_ACCESS_KEY:` and quoted YAML values on the next line, and an unquoted next-line value no longer matches. Its reasons name the type only, such as `Credential exposure: API_KEY`.
+>
+> So where Medium findings block, with `OnMedium = Quarantine` and redaction off, or `SENTINEL_HOOK_ON_MEDIUM` / `SENTINEL_MCP_ON_MEDIUM` set to `Block` in the hook CLIs and the MCP proxy, any email address in a prompt or reply now blocks it. No option restores the 2.x patterns; in an app, give the detector its own setting, which applies to every PII type it finds:
+>
+> ```csharp
+> opts.RedactByDefault = false;
+> opts.Configure<PiiLeakageDetector>(c => c.Action = SentinelAction.Log); // or c.SeverityCap = Severity.Low, or c.Enabled = false
+> ```
+
+```csharp
+services.AddAISentinel(opts =>
+{
+    // PII and credentials already redact by default in 3.0
+    opts.Configure<CredentialExposureDetector>(c => c.Action = SentinelAction.Quarantine); // block a pasted secret instead
+    opts.Configure<PiiLeakageDetector>(c => c.Action = SentinelAction.Log);               // log PII instead of redacting
+    opts.RestoreRedactedValues = false; // keep placeholders in the reply and in tool calls
+});
+```
+
+`Redact` is invalid on `OnCritical`, `OnHigh`, `OnMedium` and `OnLow`, and on a detector that cannot redact; `AddAISentinel` throws an `ArgumentException` for either. The placeholder mapping lives in memory for one call and is never logged, audited or forwarded. A redaction is audited as one informational `REDACTED` entry with counts only, and never counts as a threat. When redaction is not possible (the response scan, the hook CLIs and the MCP proxy in 3.0) the detection uses its severity action and the audit summary ends with `; not redacted`. Full details, including what is not redacted and the known limitation with `UseFunctionInvocation`: [Redaction](https://marcelroozekrans.github.io/AI.Sentinel/docs/redaction).
 
 ### Tuning individual detectors
 
@@ -614,6 +667,16 @@ sentinel scan conversation.json
 ```
 
 Exit codes: `0` scan completed (no failing assertions), `1` assertion failed or baseline regression, `2` I/O or parse error.
+
+### `sentinel dashboard` (browse the local audit file)
+
+The Claude Code hook, the Copilot hook and the MCP proxy record every finding, authorization denial and approval hold to `ai-sentinel/audit.db` under the per-user data folder (`~/.local/share` on Linux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows). Allowed calls are not recorded. `sentinel dashboard` serves the embedded dashboard over that file:
+
+```
+sentinel dashboard [--db <path>] [--port <port>]   # default: http://127.0.0.1:5170/ai-sentinel/
+```
+
+It listens on loopback only and does not open a browser. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a missing file, never appends, and shows no approvals panel. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Audit recording in the CLIs](#audit-recording-in-the-clis) for the settings.
 
 The CLI's core types — `SentinelReplayClient`, `ConversationLoader`, `ReplayRunner`, `ReplayResult` — are all `public`, so callers can reference `AI.Sentinel.Cli` programmatically from their own xUnit tests to assert detection behavior on saved conversations.
 
@@ -800,6 +863,18 @@ Set `SENTINEL_HOOK_VERBOSE=1` to emit a grep-friendly one-liner to stderr on eve
 
 Useful when wiring the hook for the first time ("did it run?") or when a block was expected but didn't happen. Leave off in steady state — the normal Block/Warn reason is already on stderr.
 
+### Audit recording in the CLIs
+
+`sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` record to a shared SQLite file by default, with `Source` set to `claude-code`, `copilot` or `mcp`. Several processes may write to it at once. On Linux and macOS the directory is created `0700` and the files `0600`. If no per-user data folder exists, recording is off and a problem is reported.
+
+| Variable (hooks) | MCP proxy | Default | Purpose |
+|---|---|---|---|
+| `SENTINEL_HOOK_AUDIT_SQLITE` | `SENTINEL_MCP_AUDIT_SQLITE` | `<data folder>/ai-sentinel/audit.db` | A database path, or `off` for the in-memory ring buffer |
+| `SENTINEL_HOOK_AUDIT_NDJSON` | `SENTINEL_MCP_AUDIT_NDJSON` | — | A file path; adds an NDJSON copy (not safe for several writer processes on Windows, see [#349](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/349)) |
+| `SENTINEL_HOOK_AUDIT_MAX_MB` | `SENTINEL_MCP_AUDIT_MAX_MB` | `100` | Size cap in MB, enforced when the CLI opens the file; `0` means no cap. The CLIs never `VACUUM`, so the file stops growing at about the cap instead of shrinking |
+
+An audit failure never changes a decision. A hook prints it to stderr with the prefix `[sentinel-hook] audit:` only on Allow, or on any decision when `SENTINEL_HOOK_VERBOSE` is set; the MCP proxy logs it as the `audit_unavailable` event.
+
 ### Native binary (optional, faster cold start)
 
 The hook CLIs are Native-AOT ready. Both `.csproj` files gate `PackAsTool` behind `PublishAot`, so a single source tree produces either the `dotnet tool` NuGet package or a ~6.5 MB single-file native binary, depending on how you publish it.
@@ -855,7 +930,7 @@ All metrics and spans are zero-cost when no listener is registered — there is 
 
 ## Audit store
 
-All detections (regardless of severity) are written to a **ring buffer audit store** in process memory. Capacity defaults to 10,000 entries; oldest entries are overwritten when full.
+All detections (regardless of severity) are written to a **ring buffer audit store** in process memory. Capacity defaults to 10,000 entries; oldest entries are overwritten when full. (The hook CLIs and the MCP proxy differ: they record to a durable SQLite file by default, see [Audit recording in the CLIs](#audit-recording-in-the-clis).)
 
 Query the store directly:
 

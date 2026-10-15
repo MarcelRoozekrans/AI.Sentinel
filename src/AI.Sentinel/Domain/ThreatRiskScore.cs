@@ -6,10 +6,10 @@ public readonly struct ThreatRiskScore(int raw) : IEquatable<ThreatRiskScore>
 
     public ThreatStage Stage => Value switch
     {
-        < 25  => ThreatStage.Safe,
-        < 50  => ThreatStage.Watch,
-        < 75  => ThreatStage.Alert,
-        _     => ThreatStage.Isolate
+        < 25 => ThreatStage.Safe,
+        < 50 => ThreatStage.Watch,
+        < 75 => ThreatStage.Alert,
+        _ => ThreatStage.Isolate
     };
 
     public static readonly ThreatRiskScore Zero = new(0);

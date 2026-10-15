@@ -10,27 +10,27 @@ namespace AI.Sentinel.Benchmarks;
 [BenchmarkCategory("Pipeline")]
 public class PipelineBenchmarks
 {
-    private DetectionPipeline _empty           = null!;
-    private DetectionPipeline _security        = null!;
-    private DetectionPipeline _all             = null!;
+    private DetectionPipeline _empty = null!;
+    private DetectionPipeline _security = null!;
+    private DetectionPipeline _all = null!;
     private DetectionPipeline _securitySemantic = null!;
-    private DetectionPipeline _allSemantic      = null!;
+    private DetectionPipeline _allSemantic = null!;
 
-    private SentinelContext _cleanCtx    = null!;
+    private SentinelContext _cleanCtx = null!;
     private SentinelContext _maliciousCtx = null!;
 
     [GlobalSetup]
     public void Setup()
     {
-        _empty    = PipelineFactory.Empty();
+        _empty = PipelineFactory.Empty();
         _security = PipelineFactory.SecurityOnly();
-        _all      = PipelineFactory.All();
+        _all = PipelineFactory.All();
 
-        var semanticOpts  = SentinelOptionsFactory.WithSemanticDetection();
+        var semanticOpts = SentinelOptionsFactory.WithSemanticDetection();
         _securitySemantic = PipelineFactory.SecurityOnly(semanticOpts);
-        _allSemantic      = PipelineFactory.All(semanticOpts);
+        _allSemantic = PipelineFactory.All(semanticOpts);
 
-        _cleanCtx     = BuildContext(MessageFactory.CleanShort);
+        _cleanCtx = BuildContext(MessageFactory.CleanShort);
         _maliciousCtx = BuildContext(MessageFactory.Malicious);
     }
 

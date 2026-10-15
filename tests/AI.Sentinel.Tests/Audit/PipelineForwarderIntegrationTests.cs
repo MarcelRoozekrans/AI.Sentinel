@@ -1,4 +1,5 @@
 using AI.Sentinel.Audit;
+using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -24,6 +25,27 @@ public class PipelineForwarderIntegrationTests
 
         Assert.NotEmpty(fwd.Batches);
         Assert.All(fwd.Batches, b => Assert.Single(b)); // single-entry batches
+    }
+
+    [Fact]
+    public async Task ForwardedEntries_AreTheEntriesAsStored()
+    {
+        // Forwarders must receive the chain hashes the store assigned, or a SIEM cannot verify them.
+        var fwd = new RecordingAuditForwarder();
+        var services = new ServiceCollection();
+        services.AddAISentinel(opts => { });
+        services.AddSingleton<IAuditForwarder>(fwd);
+        var sp = services.BuildServiceProvider();
+
+        var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
+        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
+
+        var stored = await RecordingAuditForwarder.ReadAllAsync(sp.GetRequiredService<IAuditStore>());
+        Assert.NotEmpty(stored);
+        await fwd.WaitForAsync(stored.Count);
+        Assert.Equal(
+            stored.OrderBy(e => e.Id, StringComparer.Ordinal),
+            fwd.Entries.OrderBy(e => e.Id, StringComparer.Ordinal));
     }
 
     [Fact]

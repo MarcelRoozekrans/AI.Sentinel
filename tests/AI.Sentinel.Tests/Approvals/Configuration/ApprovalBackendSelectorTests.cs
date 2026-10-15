@@ -45,7 +45,7 @@ public class ApprovalBackendSelectorTests
         var tools = new Dictionary<string, ApprovalToolConfig>(StringComparer.Ordinal)
         {
             ["delete_database"] = new("DBA", GrantMinutes: 30, RequireJustification: null),
-            ["deploy_*"]        = new("DeployApprover", GrantMinutes: null, RequireJustification: false),
+            ["deploy_*"] = new("DeployApprover", GrantMinutes: null, RequireJustification: false),
         };
         var opts = new SentinelOptions();
 

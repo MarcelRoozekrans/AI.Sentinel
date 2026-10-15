@@ -63,7 +63,7 @@ public class SentinelChatClientHardeningTests
         var inner = new RecordingChatClient();
         var client = BuildClient(inner, prefix: "HARDEN");
         var sysMsg = new ChatMessage(ChatRole.System, "You are helpful.");
-        var input  = new List<ChatMessage> { sysMsg, new(ChatRole.User, "hello") };
+        var input = new List<ChatMessage> { sysMsg, new(ChatRole.User, "hello") };
 
         await client.GetResponseAsync(input, default, TestContext.Current.CancellationToken);
 
@@ -109,8 +109,8 @@ public class SentinelChatClientHardeningTests
         var services = new ServiceCollection();
         services.AddAISentinel(opts =>
         {
-            opts.OnCritical         = onCritical;
-            opts.SystemPrefix       = prefix;
+            opts.OnCritical = onCritical;
+            opts.SystemPrefix = prefix;
             // Provide a fake embedding generator so semantic detectors (e.g. PromptInjectionDetector)
             // actually run — without one they all return Clean.
             opts.EmbeddingGenerator = new FakeEmbeddingGenerator();

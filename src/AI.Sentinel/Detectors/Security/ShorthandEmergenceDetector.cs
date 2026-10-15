@@ -8,12 +8,12 @@ namespace AI.Sentinel.Detectors.Security;
 public sealed class ShorthandEmergenceDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
     private static readonly DetectorId _id = new("SEC-30");
-    public override DetectorId Id       => _id;
+    public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
     // Original regex-based detector could only return Medium or Low.
     // Cap severity so migration to SemanticDetectorBase preserves the original contract.
-    protected override Severity HighSeverity   => Severity.Medium;
+    protected override Severity HighSeverity => Severity.Medium;
     protected override Severity MediumSeverity => Severity.Low;
 
     protected override string[] HighExamples =>

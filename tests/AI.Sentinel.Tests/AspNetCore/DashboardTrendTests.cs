@@ -65,11 +65,11 @@ public class DashboardTrendTests
 
     private static AuditEntry NewEntry(string detectorId, string summary, Severity severity) =>
         new(
-            Id:           Guid.NewGuid().ToString("N"),
-            Timestamp:    DateTimeOffset.UtcNow,
-            Hash:         "deadbeef00000000",
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: "deadbeef00000000",
             PreviousHash: null,
-            Severity:     severity,
-            DetectorId:   detectorId,
-            Summary:      summary);
+            Severity: severity,
+            DetectorId: detectorId,
+            Summary: summary);
 }

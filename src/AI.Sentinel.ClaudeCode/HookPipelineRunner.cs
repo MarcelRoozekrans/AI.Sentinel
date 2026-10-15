@@ -1,6 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
 
 namespace AI.Sentinel.ClaudeCode;
 
@@ -16,10 +17,20 @@ namespace AI.Sentinel.ClaudeCode;
 /// </remarks>
 public static class HookPipelineRunner
 {
+    /// <summary>Scans <paramref name="messages"/> prompt-only and maps the result to a hook decision.</summary>
+    /// <param name="provider">Service provider with AI.Sentinel registered.</param>
+    /// <param name="config">Severity-to-decision mapping and verbosity.</param>
+    /// <param name="messages">The messages mapped from the hook payload.</param>
+    /// <param name="sessionId">The raw session id string from the hook input, recorded on the audit entries.
+    /// <see langword="null"/>, empty or whitespace means none, and a fresh id is minted for the call.
+    /// The pipeline itself takes the <see cref="SessionId"/> domain type; this method converts.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Allow when nothing was detected, otherwise the decision for the detected severity.</returns>
     public static async Task<HookOutput> RunAsync(
         IServiceProvider provider,
         HookConfig config,
         IReadOnlyList<ChatMessage> messages,
+        string? sessionId,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(provider);
@@ -29,7 +40,8 @@ public static class HookPipelineRunner
         // Build a pipeline bound to an unused inner client — ScanMessagesAsync
         // never invokes it, so the client shape is irrelevant.
         var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
-        var error = await pipeline.ScanMessagesAsync(messages, null, ct).ConfigureAwait(false);
+        var error = await pipeline.ScanMessagesAsync(
+            messages, null, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), ct).ConfigureAwait(false);
 
         if (error is SentinelError.ThreatDetected t)
         {

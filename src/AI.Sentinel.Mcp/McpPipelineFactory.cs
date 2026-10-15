@@ -42,16 +42,18 @@ internal static class McpPipelineFactory
         out IAuditStore auditStore,
         out string? inertSemanticWarning,
         IEmbeddingCache? exampleEmbeddingCache = null,
-        Action<string>? detectorFailureSink = null)
+        Action<string>? detectorFailureSink = null,
+        IAuditStore? suppliedStore = null,
+        IReadOnlyList<IAuditForwarder>? forwarders = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
         var options = new SentinelOptions
         {
-            OnCritical         = MapDecision(config.OnCritical),
-            OnHigh             = MapDecision(config.OnHigh),
-            OnMedium           = MapDecision(config.OnMedium),
-            OnLow              = MapDecision(config.OnLow),
+            OnCritical = MapDecision(config.OnCritical),
+            OnHigh = MapDecision(config.OnHigh),
+            OnMedium = MapDecision(config.OnMedium),
+            OnLow = MapDecision(config.OnLow),
             EmbeddingGenerator = embeddingGenerator,
             ExampleEmbeddingCache = exampleEmbeddingCache,
             OnDetectorFailure = detectorFailureSink,
@@ -60,28 +62,40 @@ internal static class McpPipelineFactory
         var detectors = preset switch
         {
             McpDetectorPreset.All => BuildAllDetectors(options),
-            _                     => BuildSecurityDetectors(options),
+            _ => BuildSecurityDetectors(options),
         };
 
         inertSemanticWarning = ServiceCollectionExtensions.DescribeInertSemanticDetection(options, detectors);
 
-        var ringBuffer = new RingBufferAuditStore(capacity: 1024);
-        auditStore = ringBuffer;
+        // A supplied store (the CLI's shared local audit file) replaces the in-memory ring buffer.
+        var store = suppliedStore ?? new RingBufferAuditStore(capacity: 1024);
+        auditStore = store;
 
-        return new SentinelPipeline(
-            innerClient:        UnusedChatClient.Instance,
-            pipeline:           new DetectionPipeline(detectors, configurations: null, escalationClient: null,
-                                    logger: null, onDetectorFailure: detectorFailureSink),
-            auditStore:         ringBuffer,
-            interventionEngine: new InterventionEngine(options, mediator: null),
-            options:            options);
+        return Assemble(options, detectors, store, detectorFailureSink, forwarders);
     }
+
+    /// <summary>Wires the detectors, store and options into a pipeline. Split out so a test can supply its own detectors.</summary>
+    internal static SentinelPipeline Assemble(
+        SentinelOptions options,
+        IEnumerable<IDetector> detectors,
+        IAuditStore store,
+        Action<string>? detectorFailureSink = null,
+        IReadOnlyList<IAuditForwarder>? forwarders = null)
+        => new(
+            innerClient: UnusedChatClient.Instance,
+            pipeline: new DetectionPipeline(detectors, configurations: null, escalationClient: null,
+                                    logger: null, onDetectorFailure: detectorFailureSink,
+                                    redactByDefault: options.RedactByDefault),
+            auditStore: store,
+            interventionEngine: new InterventionEngine(options, mediator: null),
+            options: options,
+            forwarders: forwarders);
 
     internal static SentinelAction MapDecision(HookDecision decision) => decision switch
     {
         HookDecision.Block => SentinelAction.Quarantine,
-        HookDecision.Warn  => SentinelAction.Alert,
-        _                  => SentinelAction.PassThrough,
+        HookDecision.Warn => SentinelAction.Alert,
+        _ => SentinelAction.PassThrough,
     };
 
     // 13 semantic security detectors — mirrors

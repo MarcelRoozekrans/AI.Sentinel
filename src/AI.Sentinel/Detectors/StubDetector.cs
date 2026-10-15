@@ -18,7 +18,7 @@ public abstract class StubDetector : IDetector
 
     protected StubDetector(string id, DetectorCategory category)
     {
-        _id    = new DetectorId(id);
+        _id = new DetectorId(id);
         _clean = DetectionResult.Clean(_id);
         Category = category;
     }

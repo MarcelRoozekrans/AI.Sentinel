@@ -61,7 +61,7 @@ public class HttpTransportTests
     {
         var d = McpProxy.ParseHttpHeaders("Authorization=Bearer xyz;X-Tenant=acme");
         Assert.Equal("Bearer xyz", d["Authorization"]);
-        Assert.Equal("acme",        d["X-Tenant"]);
+        Assert.Equal("acme", d["X-Tenant"]);
         Assert.Equal(2, d.Count);
     }
 
@@ -70,7 +70,7 @@ public class HttpTransportTests
     {
         var d = McpProxy.ParseHttpHeaders(" Authorization = Bearer xyz ; X-Tenant = acme ");
         Assert.Equal("Bearer xyz", d["Authorization"]);
-        Assert.Equal("acme",        d["X-Tenant"]);
+        Assert.Equal("acme", d["X-Tenant"]);
     }
 
     [Fact]
@@ -80,7 +80,7 @@ public class HttpTransportTests
         var d = McpProxy.ParseHttpHeaders("Authorization=Bearer xyz;malformed;X-Tenant=acme");
         Assert.Equal(2, d.Count);
         Assert.Equal("Bearer xyz", d["Authorization"]);
-        Assert.Equal("acme",        d["X-Tenant"]);
+        Assert.Equal("acme", d["X-Tenant"]);
     }
 
     [Fact]
