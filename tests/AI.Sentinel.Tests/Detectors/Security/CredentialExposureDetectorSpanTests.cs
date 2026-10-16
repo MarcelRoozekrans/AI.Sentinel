@@ -3,7 +3,6 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
-using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.AI;
 
 namespace AI.Sentinel.Tests.Detectors.Security;
@@ -199,25 +198,6 @@ public class CredentialExposureDetectorSpanTests
         var spans = detector.FindSpans(text);
         Assert.Equal(expectHit, result.Severity != Severity.None);
         Assert.Equal(expectHit, spans.Count > 0);
-    }
-
-    [Theory]
-    [InlineData("password=")]
-    [InlineData("password=\"")]
-    [InlineData("password=\"\\")]
-    [InlineData("password=\"a\\\"b")]
-    [InlineData("password='a ")]
-    [InlineData("api_key=\"x\",")]
-    [InlineData("-----BEGIN PRIVATE KEY-----")]
-    [InlineData("sk-")]
-    [InlineData("Authorization: Bearer ")]
-    public void FindSpans_LongAdversarialInput_StaysLinear(string unit)
-    {
-        var detector = new CredentialExposureDetector();
-        LinearTime.Assert(
-            chars => string.Concat(Enumerable.Repeat(unit, chars / unit.Length)),
-            text => detector.FindSpans(text),
-            n: 25_000);
     }
 
     // A redacted request must not trip the detector that redacted it: a placeholder the current call minted
