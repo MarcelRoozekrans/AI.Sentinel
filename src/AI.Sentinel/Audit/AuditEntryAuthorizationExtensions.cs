@@ -67,8 +67,10 @@ public static class AuditEntryAuthorizationExtensions
             PreviousHash: null,
             Severity: Severity.High,
             DetectorId: AuthorizationDenyDetectorId,
-            Summary: summary,
-            PolicyCode: policyCode,
-            SessionId: session.Value);
+            Summary: summary)
+        {
+            PolicyCode = policyCode,
+            SessionId = session.Value,
+        };
     }
 }

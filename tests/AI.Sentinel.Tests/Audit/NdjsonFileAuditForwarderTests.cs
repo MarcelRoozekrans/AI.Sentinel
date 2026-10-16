@@ -146,8 +146,10 @@ public class NdjsonFileAuditForwarderTests : IDisposable
             PreviousHash: null,
             Severity: Severity.High,
             DetectorId: "AUTHZ-DENY",
-            Summary: "denied",
-            PolicyCode: "tenant_inactive");
+            Summary: "denied")
+        {
+            PolicyCode = "tenant_inactive",
+        };
 
         await using (var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath }))
         {

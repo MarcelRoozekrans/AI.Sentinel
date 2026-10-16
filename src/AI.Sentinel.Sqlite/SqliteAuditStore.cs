@@ -252,7 +252,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         var sessionId = reader.IsDBNull(8) ? null : reader.GetString(8);
         var source = reader.IsDBNull(9) ? null : reader.GetString(9);
         var ts = new DateTimeOffset(tsTicks, TimeSpan.Zero);
-        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary, policyCode, sessionId, source);
+        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary) { PolicyCode = policyCode, SessionId = sessionId, Source = source };
     }
 
     private void SweepRetention()

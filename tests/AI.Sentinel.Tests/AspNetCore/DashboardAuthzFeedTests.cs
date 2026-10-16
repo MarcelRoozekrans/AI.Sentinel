@@ -195,6 +195,8 @@ public class DashboardAuthzFeedTests
             PreviousHash: null,
             Severity: Severity.High,
             DetectorId: detectorId,
-            Summary: summary,
-            PolicyCode: policyCode);
+            Summary: summary)
+        {
+            PolicyCode = policyCode,
+        };
 }

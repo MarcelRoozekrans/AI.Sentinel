@@ -13,12 +13,14 @@ AI.Sentinel uses a five-level severity scale and aggregates per-detector severit
 public enum Severity
 {
     None = 0,    // detector ran, no threat — DetectionResult.IsClean == true
-    Low,
-    Medium,
-    High,
-    Critical,
+    Low = 1,
+    Medium = 2,
+    High = 3,
+    Critical = 4,
 }
 ```
+
+The numeric values are fixed. They feed the audit hash chain and the SQLite store keeps them as integers, so they never change.
 
 | Severity   | Use when                                                                |
 |------------|-------------------------------------------------------------------------|

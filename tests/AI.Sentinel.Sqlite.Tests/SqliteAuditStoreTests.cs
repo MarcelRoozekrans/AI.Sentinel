@@ -55,7 +55,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
     }
 
     private static Task<AuditChainVerification> VerifyAsync(SqliteAuditStore store) =>
-        AuditHashChain.VerifyAsync(store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), CancellationToken.None), CancellationToken.None).AsTask();
+        AuditHashChain.VerifyAsync(store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, CancellationToken.None), CancellationToken.None).AsTask();
 
     [Fact]
     public async Task Append_ReturnsTheEntryExactlyAsQueryReadsItBack()
@@ -135,7 +135,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
         await store.AppendAsync(Make("e3", severity: Severity.Critical, detectorId: "SEC-02"), CancellationToken.None);
 
         var results = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(MinSeverity: Severity.High), CancellationToken.None))
+        await foreach (var e in store.QueryAsync(new AuditQuery { MinSeverity = Severity.High }, CancellationToken.None))
         {
             results.Add(e);
         }
@@ -157,7 +157,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
         await Task.WhenAll(tasks);
 
         var results = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 1000), CancellationToken.None))
+        await foreach (var e in store.QueryAsync(new AuditQuery { PageSize = 1000 }, CancellationToken.None))
         {
             results.Add(e);
         }
@@ -249,7 +249,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
             $"sweep should bring file at-or-under cap; after={afterSize} cap={capBytes}");
 
         var remaining = new List<AuditEntry>();
-        await foreach (var e in capped.QueryAsync(new AuditQuery(PageSize: 10_000), CancellationToken.None))
+        await foreach (var e in capped.QueryAsync(new AuditQuery { PageSize = 10_000 }, CancellationToken.None))
         {
             remaining.Add(e);
         }
@@ -320,7 +320,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
         var after = UsedBytes();
         Assert.True(after <= cap, $"used bytes should be at or under the cap; after={after} cap={cap}");
         var remaining = new List<AuditEntry>();
-        await foreach (var e in capped.QueryAsync(new AuditQuery(PageSize: 10_000), CancellationToken.None))
+        await foreach (var e in capped.QueryAsync(new AuditQuery { PageSize = 10_000 }, CancellationToken.None))
         {
             remaining.Add(e);
         }
@@ -345,7 +345,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
         });
 
         var count = 0;
-        await foreach (var _ in store.QueryAsync(new AuditQuery(PageSize: 1000), CancellationToken.None))
+        await foreach (var _ in store.QueryAsync(new AuditQuery { PageSize = 1000 }, CancellationToken.None))
         {
             count++;
         }
@@ -366,7 +366,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
         });
 
         var count = 0;
-        await foreach (var _ in store.QueryAsync(new AuditQuery(PageSize: 10_000), CancellationToken.None))
+        await foreach (var _ in store.QueryAsync(new AuditQuery { PageSize = 10_000 }, CancellationToken.None))
         {
             count++;
         }
@@ -501,7 +501,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
         await store.RunRetentionForTestingAsync(CancellationToken.None);
 
         var count = 0;
-        await foreach (var _ in store.QueryAsync(new AuditQuery(PageSize: 1000), CancellationToken.None))
+        await foreach (var _ in store.QueryAsync(new AuditQuery { PageSize = 1000 }, CancellationToken.None))
         {
             count++;
         }

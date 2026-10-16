@@ -29,9 +29,9 @@ internal static class HookAuditTestSupport
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = databasePath });
         var ct = TestContext.Current.CancellationToken;
         var entries = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), ct))
+        await foreach (var e in store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct))
             entries.Add(e);
-        var verification = await AuditHashChain.VerifyAsync(store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), ct), ct);
+        var verification = await AuditHashChain.VerifyAsync(store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct), ct);
         return (entries, verification.IsIntact);
     }
 }

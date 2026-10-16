@@ -221,7 +221,7 @@ public async Task PromptInjection_FiresInCi()
     });
 
     var entries = await auditStore.QueryAsync(
-        new AuditQuery(MinSeverity: Severity.Medium),
+        new AuditQuery { MinSeverity = Severity.Medium },
         CancellationToken.None).ToListAsync();
 
     Assert.Contains(entries, e => e.DetectorId == "SEC-01");

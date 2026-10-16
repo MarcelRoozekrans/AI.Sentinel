@@ -42,9 +42,11 @@ public sealed class SqliteAuditStoreSessionRoundtripTests : IDisposable
             PreviousHash: null,
             Severity: Severity.High,
             DetectorId: "AUTHZ-DENY",
-            Summary: "denied",
-            PolicyCode: "policy_denied",
-            SessionId: "sess-roundtrip");
+            Summary: "denied")
+        {
+            PolicyCode = "policy_denied",
+            SessionId = "sess-roundtrip",
+        };
 
         await store.AppendAsync(entry, CancellationToken.None);
 
@@ -72,7 +74,7 @@ public sealed class SqliteAuditStoreSessionRoundtripTests : IDisposable
         await store.AppendAsync(NewEntry("e-null", null), CancellationToken.None);
 
         var results = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(SessionId: sessionA), CancellationToken.None))
+        await foreach (var e in store.QueryAsync(new AuditQuery { SessionId = sessionA }, CancellationToken.None))
             results.Add(e);
 
         Assert.Equal(2, results.Count);
@@ -89,7 +91,7 @@ public sealed class SqliteAuditStoreSessionRoundtripTests : IDisposable
         await store.AppendAsync(NewEntry("e-none", null), CancellationToken.None);
 
         var results = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(Source: "MCP"), CancellationToken.None))
+        await foreach (var e in store.QueryAsync(new AuditQuery { Source = "MCP" }, CancellationToken.None))
             results.Add(e);
 
         Assert.Equal("e-mcp", Assert.Single(results).Id);
@@ -103,9 +105,10 @@ public sealed class SqliteAuditStoreSessionRoundtripTests : IDisposable
             PreviousHash: null,
             Severity: Severity.Medium,
             DetectorId: "SEC-01",
-            Summary: "test",
-            PolicyCode: null,
-            SessionId: sessionId);
+            Summary: "test")
+        {
+            SessionId = sessionId,
+        };
 
     [Fact]
     public async Task AppendAndQuery_WithNullSessionId_RoundtripsNull()
@@ -119,9 +122,7 @@ public sealed class SqliteAuditStoreSessionRoundtripTests : IDisposable
             PreviousHash: null,
             Severity: Severity.High,
             DetectorId: "PromptInjection",
-            Summary: "detection",
-            PolicyCode: null,
-            SessionId: null);
+            Summary: "detection");
 
         await store.AppendAsync(entry, CancellationToken.None);
 
