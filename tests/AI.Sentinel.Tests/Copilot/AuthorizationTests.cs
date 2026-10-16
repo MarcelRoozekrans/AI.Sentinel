@@ -49,7 +49,7 @@ public class AuthorizationTests
         var provider = services.BuildServiceProvider();
         var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig { CallerContextProvider = _ => new TestSecurityContext("bob") }, guard);
 
-        await adapter.HandleAsync(CopilotHookEvent.PreToolUse, new CopilotHookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null), TestContext.Current.CancellationToken);
+        await adapter.HandleAsync(CopilotHookEvent.PreToolUse, new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement }, TestContext.Current.CancellationToken);
 
         var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
             e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
@@ -67,7 +67,7 @@ public class AuthorizationTests
             CallerContextProvider = _ => new TestSecurityContext("bob"),
         };
         var adapter = BuildAdapter(opts, config);
-        var input = new CopilotHookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement };
 
         var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
@@ -97,7 +97,7 @@ public class AuthorizationTests
         var guard = new ExplicitDenyGuard("TenantActive", "Tenant 'acme' is in evicted state", "tenant_inactive");
         var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
 
-        var input = new CopilotHookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement };
         var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);
@@ -123,7 +123,7 @@ public class AuthorizationTests
             CallerContextProvider = _ => new TestSecurityContext("alice", "admin"),
         };
         var adapter = BuildAdapter(opts, config);
-        var input = new CopilotHookInput("s1", null, "Bash", JsonDocument.Parse("""{"command":"ls"}""").RootElement, null);
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"ls"}""").RootElement };
 
         var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
@@ -139,7 +139,7 @@ public class AuthorizationTests
         opts.RequireToolPolicy("Bash", "admin-only");
         var config = new CopilotHookConfig(); // no provider -> AnonymousSecurityContext
         var adapter = BuildAdapter(opts, config);
-        var input = new CopilotHookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement };
 
         var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
@@ -164,7 +164,7 @@ public class AuthorizationTests
         var guard = new RequireApprovalGuard("approval:Bash", "req-xyz", "https://approve.example/req-xyz");
         var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
 
-        var input = new CopilotHookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement };
         var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);

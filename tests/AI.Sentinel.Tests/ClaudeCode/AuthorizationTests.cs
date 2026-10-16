@@ -49,7 +49,7 @@ public class AuthorizationTests
         var provider = services.BuildServiceProvider();
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig { CallerContextProvider = _ => new TestSecurityContext("bob") }, guard);
 
-        await adapter.HandleAsync(HookEvent.PreToolUse, new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null), TestContext.Current.CancellationToken);
+        await adapter.HandleAsync(HookEvent.PreToolUse, new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement }, TestContext.Current.CancellationToken);
 
         var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
             e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
@@ -67,7 +67,7 @@ public class AuthorizationTests
             CallerContextProvider = _ => new TestSecurityContext("bob"),
         };
         var adapter = BuildAdapter(opts, config);
-        var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement };
 
         var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
@@ -98,7 +98,7 @@ public class AuthorizationTests
         var guard = new ExplicitDenyGuard("TenantActive", "Tenant 'acme' is in evicted state", "tenant_inactive");
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
 
-        var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement };
         var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);
@@ -124,7 +124,7 @@ public class AuthorizationTests
             CallerContextProvider = _ => new TestSecurityContext("alice", "admin"),
         };
         var adapter = BuildAdapter(opts, config);
-        var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("""{"command":"ls"}""").RootElement, null);
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"ls"}""").RootElement };
 
         var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
@@ -140,7 +140,7 @@ public class AuthorizationTests
         opts.RequireToolPolicy("Bash", "admin-only");
         var config = new HookConfig(); // no provider -> AnonymousSecurityContext
         var adapter = BuildAdapter(opts, config);
-        var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement };
 
         var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
@@ -166,7 +166,7 @@ public class AuthorizationTests
         var guard = new RequireApprovalGuard("approval:Bash", "req-abc", "https://approve.example/req-abc");
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
 
-        var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement };
         var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);
@@ -206,7 +206,7 @@ public class AuthorizationTests
         var guard = new RequireApprovalGuard("approval:Bash", "req-abc", "https://approve.example/req-abc");
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
 
-        var input = new HookInput("s1", null, "Bash", JsonDocument.Parse("{}").RootElement, null);
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("{}").RootElement };
         var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, output.Decision);

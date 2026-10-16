@@ -10,12 +10,13 @@ namespace AI.Sentinel.Tests.Mcp;
 
 public class McpPipelineFactoryTests
 {
-    private static HookConfig BuildConfig() => new(
-        OnCritical: HookDecision.Block,
-        OnHigh: HookDecision.Block,
-        OnMedium: HookDecision.Block,
-        OnLow: HookDecision.Block,
-        Verbose: false);
+    private static HookConfig BuildConfig() => new()
+    {
+        OnCritical = HookDecision.Block,
+        OnHigh = HookDecision.Block,
+        OnMedium = HookDecision.Block,
+        OnLow = HookDecision.Block,
+    };
 
     [Fact]
     public void Create_SecurityPreset_ProducesPipeline()

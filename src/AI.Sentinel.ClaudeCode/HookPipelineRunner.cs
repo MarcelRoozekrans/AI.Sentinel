@@ -47,13 +47,13 @@ public static class HookPipelineRunner
         {
             var decision = HookSeverityMapper.Map(t.Result.Severity, config);
             var reason = $"{t.Result.DetectorId.Value} {t.Result.Severity}: {t.Result.Reason}";
-            return new HookOutput(decision, reason);
+            return new HookOutput { Decision = decision, Reason = reason };
         }
 
         // RateLimitExceeded and any other non-ThreatDetected error are not exposed
         // to hooks today — treat as Allow. Hook invocations don't honor rate limits
         // (they're not real LLM calls), so this path should be unreachable in practice.
-        return new HookOutput(HookDecision.Allow, null);
+        return new HookOutput { Decision = HookDecision.Allow };
     }
 
     // IChatClient satisfying BuildSentinelPipeline's signature. Never invoked.

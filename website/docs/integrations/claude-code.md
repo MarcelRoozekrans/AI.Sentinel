@@ -141,8 +141,7 @@ For custom audit destinations or richer integration, reference the `AI.Sentinel.
 using AI.Sentinel.ClaudeCode;
 
 var adapter = new HookAdapter(provider, HookConfig.FromEnvironment(env));
-var input = new HookInput(
-    SessionId: "sess-42", Prompt: "hello", ToolName: null, ToolInput: null, ToolResponse: null);
+var input = new HookInput { SessionId = "sess-42", Prompt = "hello" };
 HookOutput output = await adapter.HandleAsync(HookEvent.UserPromptSubmit, input, ct);
 // output.Decision is Allow, Warn or Block; output.Reason explains a Warn or Block.
 ```
