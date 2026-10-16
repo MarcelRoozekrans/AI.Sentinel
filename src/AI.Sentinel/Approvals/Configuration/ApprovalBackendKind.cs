@@ -2,7 +2,7 @@ namespace AI.Sentinel.Approvals.Configuration;
 
 /// <summary>The approval-store backend selected by an <see cref="ApprovalConfig"/>. CLIs
 /// dispatch to the appropriate <c>AddSentinel*ApprovalStore</c> extension based on this.</summary>
-public enum ApprovalBackendKind
+internal enum ApprovalBackendKind
 {
     /// <summary>No approval store (config.Backend = "none"). Bindings with ApprovalSpec
     /// will throw at first authorize call — useful for dry-run / linting scenarios.</summary>

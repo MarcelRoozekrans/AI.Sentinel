@@ -9,7 +9,7 @@ namespace AI.Sentinel.Approvals;
 /// tells the operator how to find the pending request and what URL to approve at, so
 /// they can grant the approval out of band and retry the call.
 /// </summary>
-public static class ApprovalReceipt
+internal static class ApprovalReceipt
 {
     /// <summary>Formats a deny-with-receipt message for stateless CLI hosts.</summary>
     public static string Format(string toolName, AuthorizationDecision.RequireApprovalDecision r)

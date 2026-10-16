@@ -99,11 +99,12 @@ Many ZeroAlloc packages are already wired into the core library. The items below
 - `ZeroAlloc.Resilience.RateLimiter` powers per-session rate limiting in `SentinelPipeline`
 - `ZeroAlloc.Inject` `[Singleton(As = typeof(IDetector), AllowMultiple = true)]` on every detector drives compile-time DI registration
 
+**Dropped:** typed `SessionId` / `AgentId` as `readonly record struct` — it would break every consumer that stores, compares or serializes the ids, for a boxing gain too small to justify that.
+
 **Remaining integration opportunities:**
 
 | Feature | ZeroAlloc Package | Description |
 |---|---|---|
-| **Typed `SessionId` / `AgentId`** | `ZeroAlloc.ValueObjects` `[TypedId]` | Replace current `sealed partial class` `SessionId` / `AgentId` wrappers with source-generated `readonly record struct` typed IDs — zero boxing on hot paths, EF Core and JSON converters included |
 | **FSM-modeled agent action sequences** | `ZeroAlloc.StateMachine` | Power `ExcessiveAgencyDetector` (SEC-21, not yet implemented) with a source-generated FSM — declare allowed tool-call sequences as states/transitions; any deviation triggers a detection |
 | **NDJSON export mapping** | `ZeroAlloc.Mapping` | Generate `AuditEntry → ExportDto` mapping with `[Map<AuditEntry, AuditExportDto>]` — used by the future dashboard NDJSON export endpoint, zero reflection |
 | **Mediator authorization for prompts** | `ZeroAlloc.Mediator.Authorization` | Gate prompt dispatch on caller-declared policies via `[Authorize("policy")]` on the mediator request — enforces access control at the model boundary |

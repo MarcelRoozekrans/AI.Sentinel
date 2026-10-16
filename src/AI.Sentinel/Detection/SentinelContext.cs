@@ -9,16 +9,16 @@ public sealed class SentinelContext(
     AgentId ReceiverId,
     SessionId SessionId,
     IReadOnlyList<ChatMessage> Messages,
-    IReadOnlyList<AuditEntry> History,
-    string? LlmId = null,
-    string? systemPrompt = null)
+    IReadOnlyList<AuditEntry> History)
 {
     public AgentId SenderId { get; } = SenderId;
     public AgentId ReceiverId { get; } = ReceiverId;
     public SessionId SessionId { get; } = SessionId;
     public IReadOnlyList<ChatMessage> Messages { get; } = Messages;
     public IReadOnlyList<AuditEntry> History { get; } = History;
-    public string? LlmId { get; } = LlmId;
+
+    /// <summary>The identifier of the model the call targets, when known.</summary>
+    public string? LlmId { get; init; }
 
     /// <summary>The conversation's system prompt, when one was supplied.</summary>
     /// <remarks>
@@ -26,7 +26,7 @@ public sealed class SentinelContext(
     /// response leg scans only the generated message, so without this the prompt is unavailable
     /// exactly where a leak would appear.
     /// </remarks>
-    public string? SystemPrompt { get; } = systemPrompt;
+    public string? SystemPrompt { get; init; }
 
     private static readonly IReadOnlySet<string> NoPlaceholders = new HashSet<string>(StringComparer.Ordinal);
 

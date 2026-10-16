@@ -28,12 +28,12 @@ namespace AI.Sentinel.Mcp;
 /// <c>prompts/get</c>, and <c>resources/read</c> are pre/post-scanned by
 /// <see cref="ToolCallInterceptor"/>, <see cref="PromptGetInterceptor"/>,
 /// and <see cref="ResourceReadInterceptor"/> respectively; list/template
-/// metadata calls forward verbatim. When an <see cref="IToolCallGuard"/>
-/// is supplied via the <paramref name="guard"/> parameter on <see cref="RunAsync"/>,
-/// an authorization gate runs before the detection pipeline on every
-/// <c>tools/call</c>.
+/// metadata calls forward verbatim. When <see cref="RunAsync"/> is given an
+/// <see cref="IToolCallGuard"/>, an authorization gate runs before the detection
+/// pipeline on every <c>tools/call</c>.
+/// Internal: the <c>sentinel-mcp</c> CLI is the supported entry point.
 /// </remarks>
-public static class McpProxy
+internal static class McpProxy
 {
     /// <summary>Runs the proxy until <paramref name="ct"/> is cancelled or the host transport closes.</summary>
     /// <param name="hostTransport">Transport facing the MCP host (typically stdio).</param>
@@ -48,7 +48,7 @@ public static class McpProxy
     /// <param name="callerResolver">Optional resolver mapping the inbound request to an <see cref="ISecurityContext"/>. Defaults to <see cref="EnvironmentSecurityContext.FromEnvironment"/>.</param>
     /// <param name="auditStore">Optional store for audit entries; defaults to an in-memory ring buffer. The caller owns and disposes it.</param>
     /// <param name="forwarders">Optional forwarders that mirror every audit entry. The caller owns them.</param>
-    public static Task RunAsync(
+    internal static Task RunAsync(
         ITransport hostTransport,
         IClientTransport targetTransport,
         HookConfig config,
@@ -374,7 +374,7 @@ public static class McpProxy
     /// <see cref="StdioClientTransport"/> launching <paramref name="target"/> with <paramref name="arguments"/>.
     /// Emits a <c>transport_init</c> log line on stderr.
     /// </summary>
-    public static IClientTransport CreateClientTransport(string target, IList<string>? arguments = null)
+    internal static IClientTransport CreateClientTransport(string target, IList<string>? arguments = null)
     {
         ArgumentNullException.ThrowIfNull(target);
 

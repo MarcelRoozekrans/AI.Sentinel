@@ -57,7 +57,7 @@ public class AuditStoreBenchmarks
     }
 
     [Benchmark(Baseline = true, Description = "AppendAsync single-threaded")]
-    public ValueTask AppendAsync_Sequential() =>
+    public ValueTask<AuditEntry> AppendAsync_Sequential() =>
         _store.AppendAsync(_entry, CancellationToken.None);
 
     [Benchmark(Description = "AppendAsync 8 concurrent")]

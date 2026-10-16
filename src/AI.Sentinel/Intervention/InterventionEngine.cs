@@ -4,12 +4,27 @@ using Microsoft.Extensions.Logging;
 
 namespace AI.Sentinel.Intervention;
 
-public sealed class InterventionEngine(
-    SentinelOptions options,
-    IMediator? mediator,
-    ILogger<InterventionEngine>? logger = null)
+/// <summary>
+/// Applies the configured action to a detection result and publishes the matching notifications.
+/// Built by <c>AddAISentinel</c>; consumers do not construct or call it directly.
+/// </summary>
+internal sealed class InterventionEngine
 {
-    public void Apply(
+    private readonly SentinelOptions options;
+    private readonly IMediator? mediator;
+    private readonly ILogger<InterventionEngine>? logger;
+
+    internal InterventionEngine(
+        SentinelOptions options,
+        IMediator? mediator,
+        ILogger<InterventionEngine>? logger = null)
+    {
+        this.options = options;
+        this.mediator = mediator;
+        this.logger = logger;
+    }
+
+    internal void Apply(
         PipelineResult result,
         SessionId? sessionId = null,
         AgentId? sender = null,
@@ -54,7 +69,7 @@ public sealed class InterventionEngine(
     /// <param name="sessionId">Session of the call.</param>
     /// <param name="countsByType">Number of redacted occurrences per entity type.</param>
     /// <param name="summary">Counts-only summary, for example <c>Redacted 1 EMAIL</c>.</param>
-    public void PublishRedaction(SessionId sessionId, IReadOnlyDictionary<string, int> countsByType, string summary)
+    internal void PublishRedaction(SessionId sessionId, IReadOnlyDictionary<string, int> countsByType, string summary)
     {
         ArgumentNullException.ThrowIfNull(sessionId);
         ArgumentNullException.ThrowIfNull(countsByType);
