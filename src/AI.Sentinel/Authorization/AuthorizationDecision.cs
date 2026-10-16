@@ -3,6 +3,9 @@ namespace AI.Sentinel.Authorization;
 /// <summary>Result of a tool-call authorization check. Closed hierarchy — see nested records.</summary>
 public abstract record AuthorizationDecision
 {
+    /// <summary>Closes the hierarchy: only the nested cases derive from it, so a new case is an additive change.</summary>
+    private protected AuthorizationDecision() { }
+
     /// <summary>Decision permitting the call.</summary>
     public sealed record AllowDecision : AuthorizationDecision;
 

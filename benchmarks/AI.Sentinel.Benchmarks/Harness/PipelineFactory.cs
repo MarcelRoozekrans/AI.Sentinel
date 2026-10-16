@@ -38,7 +38,8 @@ internal static class PipelineFactory
                 new HumanTrustManipulationDetector(options), // SEC-22
                 new ShorthandEmergenceDetector(options),     // SEC-30
             ],
-            configurations: null, escalationClient: null);
+            configurations: null,
+            escalationClient: null);
 
     /// <summary>
     /// Full pipeline with all available detectors across Security, Hallucination,
@@ -98,5 +99,6 @@ internal static class PipelineFactory
                 new SemanticRepetitionDetector(options), // OPS-12
                 new SycophancyDetector(options),         // OPS-14
             ],
-            configurations: null, escalationClient: null);
+            configurations: null,
+            escalationClient: null);
 }

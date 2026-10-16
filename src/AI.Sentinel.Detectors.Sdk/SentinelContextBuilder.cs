@@ -92,5 +92,5 @@ public sealed class SentinelContextBuilder
 
     /// <summary>Builds an immutable <see cref="SentinelContext"/> from the configured values.</summary>
     public SentinelContext Build()
-        => new(_sender, _receiver, _session, _messages.ToArray(), _history.ToArray(), _llmId);
+        => new(_sender, _receiver, _session, _messages.ToArray(), _history.ToArray()) { LlmId = _llmId };
 }

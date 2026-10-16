@@ -11,7 +11,7 @@ namespace AI.Sentinel.Approvals.Configuration;
 /// This type lives in core and never references backend-specific packages directly. CLIs
 /// import the EntraPim / Sqlite packages and switch on the returned <see cref="ApprovalBackendKind"/>.
 /// </remarks>
-public static class ApprovalBackendSelector
+internal static class ApprovalBackendSelector
 {
     /// <summary>
     /// Adds <c>opts.RequireApproval(toolPattern, ...)</c> bindings for every entry in

@@ -34,7 +34,7 @@ public sealed class SentinelPipeline
     /// <param name="options">Sentinel configuration (rate limits, thresholds, hardening prefix, etc.).</param>
     /// <param name="alertSink">Optional alert sink invoked fire-and-forget when an action escalates to <c>Quarantine</c> or <c>Alert</c>.</param>
     /// <param name="forwarders">Optional audit forwarders that mirror every audit entry to external systems fire-and-forget. Default empty.</param>
-    public SentinelPipeline(
+    internal SentinelPipeline(
         IChatClient innerClient,
         IDetectionPipeline pipeline,
         IAuditStore auditStore,
@@ -454,9 +454,10 @@ public sealed class SentinelPipeline
         Exemptions exemptions = default)
     {
         var ctx = exemptions.Minted is null
-            ? new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt)
-            : new SentinelContext(sender, receiver, sessionId, msgs, [], systemPrompt: systemPrompt)
+            ? new SentinelContext(sender, receiver, sessionId, msgs, []) { SystemPrompt = systemPrompt }
+            : new SentinelContext(sender, receiver, sessionId, msgs, [])
             {
+                SystemPrompt = systemPrompt,
                 RedactionPlaceholders = exemptions.Minted,
                 RequestPlaceholders = exemptions.Request ?? NoStrings,
                 RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,

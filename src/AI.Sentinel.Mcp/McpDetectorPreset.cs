@@ -1,7 +1,7 @@
 namespace AI.Sentinel.Mcp;
 
 /// <summary>Detector preset for the MCP proxy pipeline.</summary>
-public enum McpDetectorPreset
+internal enum McpDetectorPreset
 {
     /// <summary>
     /// 9 regex/pattern-based security detectors. Default. Low-false-positive on

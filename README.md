@@ -349,8 +349,8 @@ turn) is treated as history and is not checked or audited again. Calls without a
 | Surface | Caller resolution default | Deny semantics |
 |---|---|---|
 | In-process | `IServiceProvider.GetService<ISecurityContext>()` → Anonymous | throw `ToolCallAuthorizationException` |
-| Claude Code | `HookConfig.CallerContextProvider` → Anonymous | `HookOutput(Block, reason)` |
-| Copilot | `CopilotHookConfig.CallerContextProvider` → Anonymous | `HookOutput(Block, reason)` |
+| Claude Code | `HookConfig.CallerContextProvider` → Anonymous | `HookOutput { Decision = Block, Reason = reason }` |
+| Copilot | `CopilotHookConfig.CallerContextProvider` → Anonymous | `HookOutput { Decision = Block, Reason = reason }` |
 | MCP proxy | DI provider → `SENTINEL_MCP_CALLER_ID/_ROLES` env → Anonymous | `McpProtocolException(InvalidRequest, reason)` |
 
 Default behaviour: if no policies are registered, every call is allowed (drop-in upgrade).

@@ -14,7 +14,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
     private readonly Action<string>? _onDetectorFailure;
     private readonly bool _redactByDefault;
 
-    public DetectionPipeline(
+    internal DetectionPipeline(
         IEnumerable<IDetector> detectors,
         IReadOnlyDictionary<Type, DetectorConfiguration>? configurations,
         IChatClient? escalationClient,

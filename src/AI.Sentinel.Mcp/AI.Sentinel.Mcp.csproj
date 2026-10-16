@@ -28,5 +28,8 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>AI.Sentinel.Benchmarks</_Parameter1>
     </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>AI.Sentinel.Mcp.Cli</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>

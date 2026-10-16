@@ -18,12 +18,13 @@ namespace AI.Sentinel.Tests.Mcp;
 [Collection("NonParallel")]
 public class McpProxyTests
 {
-    private static HookConfig DefaultConfig() => new(
-        OnCritical: HookDecision.Block,
-        OnHigh: HookDecision.Block,
-        OnMedium: HookDecision.Block,
-        OnLow: HookDecision.Block,
-        Verbose: false);
+    private static HookConfig DefaultConfig() => new()
+    {
+        OnCritical = HookDecision.Block,
+        OnHigh = HookDecision.Block,
+        OnMedium = HookDecision.Block,
+        OnLow = HookDecision.Block,
+    };
 
     [Fact]
     public async Task ForwardsToolsList_FromProxyClient_ToFakeTarget()
