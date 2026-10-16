@@ -34,6 +34,6 @@
     <PackageReference Include="ZeroAlloc.Resilience" Version="3.3.*" />
     <PackageReference Include="ZeroAlloc.Serialisation" Version="2.8.1" />
     <PackageReference Include="ZeroAlloc.Telemetry" Version="1.12.2" />
-    <PackageReference Include="ZeroAlloc.Authorization" Version="2.1.5" />
+    <PackageReference Include="ZeroAlloc.Authorization" Version="2.1.6" />
   </ItemGroup>
 </Project>
