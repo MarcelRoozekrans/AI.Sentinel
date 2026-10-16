@@ -4,6 +4,9 @@ namespace AI.Sentinel.Approvals;
 /// always returns one of the three concrete subclasses.</summary>
 public abstract record ApprovalState
 {
+    /// <summary>Closes the hierarchy: only the nested cases derive from it, so a new case is an additive change.</summary>
+    private protected ApprovalState() { }
+
     /// <summary>An approval is currently active. The grant expires at <paramref name="ExpiresAt"/>.</summary>
     public sealed record Active(DateTimeOffset ExpiresAt) : ApprovalState;
 

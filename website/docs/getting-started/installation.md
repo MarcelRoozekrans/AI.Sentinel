@@ -76,7 +76,7 @@ dotnet tool install -g AI.Sentinel.Copilot.Cli      # GitHub Copilot hook adapte
 | `AI.Sentinel.Sqlite` | ✓ | ✓ |
 | `AI.Sentinel.AzureSentinel` | ✓ | ✓ |
 | `AI.Sentinel.OpenTelemetry` | ✓ | ✓ |
-| `AI.Sentinel.Mcp` | ✓ | ✓ |
+| `AI.Sentinel.Mcp` (library behind the `sentinel-mcp` CLI; no public embedding API) | ✓ | ✓ |
 | `AI.Sentinel.ClaudeCode` | ✓ | ✓ |
 | `AI.Sentinel.Copilot` | ✓ | ✓ |
 | CLIs (`*.Cli`) | ✓ | — (single-TFM tool) |
@@ -88,7 +88,7 @@ CLIs ship as `dotnet tool` packages targeting net8.0 specifically. Library packa
 Once `AI.Sentinel` is installed and `AddAISentinel()` is called, these services are wired into DI as singletons:
 
 - `IDetectionPipeline` — runs the 56 detectors in parallel per call
-- `InterventionEngine` — applies the configured `OnCritical`/`OnHigh`/`OnMedium`/`OnLow` action
+- the intervention engine (internal) — applies the configured `OnCritical`/`OnHigh`/`OnMedium`/`OnLow` action
 - `IAuditStore` — `RingBufferAuditStore` (in-memory, bounded by `opts.AuditCapacity`, default 10,000)
 - `IAlertSink` — `NullAlertSink` unless `opts.AlertWebhook` is set
 - `IToolCallGuard` — `DefaultToolCallGuard` (allow-by-default unless you wire policies)

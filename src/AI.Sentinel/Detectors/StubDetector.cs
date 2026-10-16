@@ -11,7 +11,7 @@ namespace AI.Sentinel.Detectors;
 /// none. The combination was unreachable, so the promise could never be met by any configuration.
 /// Escalation refines a finding; it cannot create one.
 /// </remarks>
-public abstract class StubDetector : IDetector
+internal abstract class StubDetector : IDetector
 {
     private readonly DetectorId _id;
     private readonly DetectionResult _clean;

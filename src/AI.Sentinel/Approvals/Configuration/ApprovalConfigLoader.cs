@@ -7,7 +7,7 @@ namespace AI.Sentinel.Approvals.Configuration;
 /// <c>${ENV_VAR}</c> placeholders against the process environment so config files can
 /// safely commit to source control without baking in tenant IDs or other deployment-specific
 /// values.</summary>
-public static class ApprovalConfigLoader
+internal static class ApprovalConfigLoader
 {
     private static readonly Regex EnvPlaceholder = new(@"\$\{(?<var>[A-Z_][A-Z0-9_]*)\}",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture,

@@ -9,7 +9,7 @@ namespace AI.Sentinel.Mcp.Logging;
 /// Centralised stderr logger for the MCP proxy. Supports key=value (default)
 /// and NDJSON output (opt-in via <c>SENTINEL_MCP_LOG_JSON=1</c>).
 /// </summary>
-public static class StderrLogger
+internal static class StderrLogger
 {
     private static bool UseJson => string.Equals(
         Environment.GetEnvironmentVariable("SENTINEL_MCP_LOG_JSON"),

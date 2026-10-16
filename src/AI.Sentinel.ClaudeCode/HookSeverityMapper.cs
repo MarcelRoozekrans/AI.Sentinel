@@ -2,7 +2,7 @@ using AI.Sentinel.Detection;
 
 namespace AI.Sentinel.ClaudeCode;
 
-public static class HookSeverityMapper
+internal static class HookSeverityMapper
 {
     public static HookDecision Map(Severity severity, HookConfig config)
     {

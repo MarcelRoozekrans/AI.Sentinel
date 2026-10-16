@@ -183,7 +183,7 @@ The proxy doesn't currently SIGKILL the subprocess on grace expiry — `StdioCli
 
 ## Programmatic use
 
-The underlying `AI.Sentinel.Mcp` library exposes the proxy machinery as public types. Reference it directly to embed AI.Sentinel scanning into a custom MCP host (a wrapper that routes MCP calls through Sentinel without using the CLI).
+The `sentinel-mcp` CLI is the supported entry point. The `AI.Sentinel.Mcp` package is the library the CLI is built on; its proxy machinery is internal, and embedding the proxy in a custom MCP host is not a supported public API in 3.0. To put Sentinel in front of an MCP server, run `sentinel-mcp` as the server command your host launches.
 
 ## When to use this vs. the hook adapters
 

@@ -7,6 +7,9 @@ namespace AI.Sentinel;
 /// <summary>Represents an error produced by the AI.Sentinel pipeline.</summary>
 public abstract record SentinelError
 {
+    /// <summary>Closes the hierarchy: only the nested cases derive from it, so a new case is an additive change.</summary>
+    private protected SentinelError() { }
+
     /// <summary>Indicates a threat was detected and an action was taken.</summary>
     /// <param name="Result">The highest-severity detection that triggered this error.</param>
     /// <param name="Action">The action taken in response to the detection.</param>

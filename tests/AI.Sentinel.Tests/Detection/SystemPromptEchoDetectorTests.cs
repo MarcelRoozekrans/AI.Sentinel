@@ -31,7 +31,10 @@ public class SystemPromptEchoDetectorTests
 
         return new SentinelContext(
             new AgentId("a"), new AgentId("b"), SessionId.New(),
-            list, new List<AuditEntry>(), systemPrompt: systemPrompt);
+            list, new List<AuditEntry>())
+        {
+            SystemPrompt = systemPrompt,
+        };
     }
 
     private static async Task<DetectionResult> AnalyzeAsync(SentinelContext ctx) =>

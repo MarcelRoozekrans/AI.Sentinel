@@ -8,16 +8,26 @@ using ZeroAlloc.Results.Extensions;
 
 namespace AI.Sentinel;
 
-public sealed class SentinelChatClient(
-    IChatClient innerClient,
-    IDetectionPipeline pipeline,
-    IAuditStore auditStore,
-    InterventionEngine interventionEngine,
-    SentinelOptions options,
-    IAlertSink? alertSink = null,
-    IEnumerable<IAuditForwarder>? forwarders = null) : DelegatingChatClient(innerClient)
+/// <summary>
+/// The <see cref="IChatClient"/> that <c>UseAISentinel</c> inserts into a chat pipeline. It runs every call
+/// through a <see cref="SentinelPipeline"/> and throws when that pipeline returns an error.
+/// </summary>
+public sealed class SentinelChatClient : DelegatingChatClient
 {
-    private readonly SentinelPipeline _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options, alertSink, forwarders);
+    private readonly SentinelPipeline _sentinel;
+
+    internal SentinelChatClient(
+        IChatClient innerClient,
+        IDetectionPipeline pipeline,
+        IAuditStore auditStore,
+        InterventionEngine interventionEngine,
+        SentinelOptions options,
+        IAlertSink? alertSink = null,
+        IEnumerable<IAuditForwarder>? forwarders = null)
+        : base(innerClient)
+    {
+        _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options, alertSink, forwarders);
+    }
 
     public override async Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,

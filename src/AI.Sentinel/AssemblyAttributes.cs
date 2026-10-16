@@ -8,9 +8,8 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("AI.Sentinel.Copilot")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Mcp")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Sqlite.Tests")]
+[assembly: InternalsVisibleTo("AI.Sentinel.ClaudeCode.Cli")]
+[assembly: InternalsVisibleTo("AI.Sentinel.Copilot.Cli")]
+[assembly: InternalsVisibleTo("AI.Sentinel.Mcp.Cli")]
+[assembly: InternalsVisibleTo("AI.Sentinel.Benchmarks")]
 
-[assembly: TypeForwardedTo(typeof(ZeroAlloc.Authorization.ISecurityContext))]
-[assembly: TypeForwardedTo(typeof(ZeroAlloc.Authorization.IAuthorizationPolicy))]
-[assembly: TypeForwardedTo(typeof(ZeroAlloc.Authorization.RequirePolicyAttribute))]
-[assembly: TypeForwardedTo(typeof(ZeroAlloc.Authorization.PolicyAttribute))]
-[assembly: TypeForwardedTo(typeof(ZeroAlloc.Authorization.AnonymousSecurityContext))]
