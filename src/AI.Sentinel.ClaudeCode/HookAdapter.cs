@@ -91,7 +91,7 @@ public sealed class HookAdapter
                         await _audit.AppendAndForwardAsync(approvalEntry, _forwarders, ct).ConfigureAwait(false);
                     }
 
-                    return new HookOutput(HookDecision.Block, ApprovalReceipt.Format(input.ToolName, r));
+                    return new HookOutput { Decision = HookDecision.Block, Reason = ApprovalReceipt.Format(input.ToolName, r) };
                 }
 
                 var deny = decision as AuthorizationDecision.DenyDecision;  // defensive `??` below — see AuthorizationChatClient.AuditDenyAsync
@@ -115,7 +115,7 @@ public sealed class HookAdapter
                 }
 
                 var reason = $"Authorization denied [{denyCode}] by policy '{policyName}': {denyReason}";
-                return new HookOutput(HookDecision.Block, reason);
+                return new HookOutput { Decision = HookDecision.Block, Reason = reason };
             }
         }
 

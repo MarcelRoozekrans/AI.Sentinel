@@ -22,12 +22,13 @@ namespace AI.Sentinel.Tests.Mcp;
 [Collection("NonParallel")] // FakeMcpServer + proxy share Console.Error / env state.
 public class ConcurrencyAndAdversarialTests
 {
-    private static HookConfig DefaultConfig() => new(
-        OnCritical: HookDecision.Block,
-        OnHigh: HookDecision.Block,
-        OnMedium: HookDecision.Block,
-        OnLow: HookDecision.Block,
-        Verbose: false);
+    private static HookConfig DefaultConfig() => new()
+    {
+        OnCritical = HookDecision.Block,
+        OnHigh = HookDecision.Block,
+        OnMedium = HookDecision.Block,
+        OnLow = HookDecision.Block,
+    };
 
     [Fact]
     public async Task ConcurrentToolCalls_AllScanned()

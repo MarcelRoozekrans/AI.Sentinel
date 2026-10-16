@@ -90,8 +90,8 @@ Each surface signals deny in its native way:
 | Surface | Caller resolution | Deny semantics |
 |---|---|---|
 | In-process middleware | `IServiceProvider.GetService<ISecurityContext>()` → Anonymous | throws `ToolCallAuthorizationException` |
-| Claude Code hook | `HookConfig.CallerContextProvider` → Anonymous | `HookOutput(Block, reason)` (exit code 2) |
-| Copilot hook | `CopilotHookConfig.CallerContextProvider` → Anonymous | `HookOutput(Block, reason)` (exit code 2) |
+| Claude Code hook | `HookConfig.CallerContextProvider` → Anonymous | `HookOutput { Decision = Block, Reason = reason }` (exit code 2) |
+| Copilot hook | `CopilotHookConfig.CallerContextProvider` → Anonymous | `HookOutput { Decision = Block, Reason = reason }` (exit code 2) |
 | MCP proxy | DI provider → `SENTINEL_MCP_CALLER_ID/_ROLES` env → Anonymous | `McpProtocolException(InvalidRequest, reason)` |
 
 The same policy implementation works on all four surfaces — write the policy once, AI.Sentinel handles surface-specific signaling.

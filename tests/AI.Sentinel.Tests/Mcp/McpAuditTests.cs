@@ -23,12 +23,13 @@ public class McpAuditTests : McpAuditOffFixtureBase
 {
     private const string NdjsonVar = "SENTINEL_MCP_AUDIT_NDJSON";
 
-    private static HookConfig Config() => new(
-        OnCritical: HookDecision.Block,
-        OnHigh: HookDecision.Block,
-        OnMedium: HookDecision.Block,
-        OnLow: HookDecision.Block,
-        Verbose: false);
+    private static HookConfig Config() => new()
+    {
+        OnCritical = HookDecision.Block,
+        OnHigh = HookDecision.Block,
+        OnMedium = HookDecision.Block,
+        OnLow = HookDecision.Block,
+    };
 
     [Fact]
     public async Task Factory_UsesTheSuppliedStoreAndForwarders()
