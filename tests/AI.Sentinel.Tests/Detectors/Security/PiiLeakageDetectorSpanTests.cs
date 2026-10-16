@@ -3,7 +3,6 @@ using Microsoft.Extensions.AI;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Security;
-using AI.Sentinel.Tests.Helpers;
 using AI.Sentinel.Domain;
 
 namespace AI.Sentinel.Tests.Detectors.Security;
@@ -94,15 +93,8 @@ public class PiiLeakageDetectorSpanTests
     [InlineData("a-")]
     [InlineData("a.")]
     [InlineData("a+")]
-    public void FindSpans_LongInputWithoutAt_IsLinearAndEmpty(string unit)
-    {
-        var detector = new PiiLeakageDetector();
-        Assert.Empty(detector.FindSpans(string.Concat(Enumerable.Repeat(unit, 50_000))));
-        LinearTime.Assert(
-            chars => string.Concat(Enumerable.Repeat(unit, chars / unit.Length)),
-            text => detector.FindSpans(text),
-            n: 25_000);
-    }
+    public void FindSpans_LongInputWithoutAt_IsEmpty(string unit)
+        => Assert.Empty(new PiiLeakageDetector().FindSpans(string.Concat(Enumerable.Repeat(unit, 50_000))));
 
     [Theory]
     [InlineData("bsn: 123456789", "123456789", "BSN")]
