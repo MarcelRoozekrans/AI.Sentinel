@@ -11,3 +11,6 @@ obj/
 # Node tooling (scripts/capture-screenshots.mjs uses Playwright)
 node_modules/
 scripts/package-lock.json
+
+# Screenshots and page snapshots the Playwright MCP server writes into the working directory.
+.playwright-mcp/
