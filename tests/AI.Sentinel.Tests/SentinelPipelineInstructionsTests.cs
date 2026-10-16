@@ -9,7 +9,8 @@ using Xunit;
 
 namespace AI.Sentinel.Tests;
 
-// ChatOptions.Instructions reaches the model as a system prompt, so the detectors must judge it too.
+// ChatOptions.Instructions reaches the model as a system prompt, so the detectors must judge it too; the
+// options also name the model the detectors see as SentinelContext.LlmId.
 public class SentinelPipelineInstructionsTests
 {
     private sealed class CapturingDetector : IDetector
@@ -124,6 +125,49 @@ public class SentinelPipelineInstructionsTests
         var sent = Assert.Single(model.Messages);
         Assert.Equal(ChatRole.User, sent.Role);
         Assert.Equal("Be terse.", model.Options?.Instructions);
+    }
+
+    // LlmId: the model the call targets, from ChatOptions.ModelId, on both scan legs.
+    [Fact]
+    public async Task GetResponse_ModelId_IsTheContextLlmId_OnBothLegs()
+    {
+        var capture = new CapturingDetector();
+        _ = await Build([capture]).GetResponseResultAsync(
+            [new ChatMessage(ChatRole.User, "Hello")], new ChatOptions { ModelId = "gpt-test" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, capture.Seen.Count);
+        Assert.All(capture.Seen, ctx => Assert.Equal("gpt-test", ctx.LlmId));
+    }
+
+    [Fact]
+    public async Task GetResponseStreaming_ModelId_IsTheContextLlmId_OnBothLegs()
+    {
+        var capture = new CapturingDetector();
+        _ = await Build([capture]).GetStreamingResultAsync(
+            [new ChatMessage(ChatRole.User, "Hello")], new ChatOptions { ModelId = "gpt-test" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, capture.Seen.Count);
+        Assert.All(capture.Seen, ctx => Assert.Equal("gpt-test", ctx.LlmId));
+    }
+
+    [Fact]
+    public async Task ScanMessages_ModelId_IsTheContextLlmId()
+    {
+        var capture = new CapturingDetector();
+        _ = await Build([capture]).ScanMessagesAsync(
+            [new ChatMessage(ChatRole.User, "Hello")], new ChatOptions { ModelId = "gpt-test" }, ct: TestContext.Current.CancellationToken);
+
+        Assert.Equal("gpt-test", Assert.Single(capture.Seen).LlmId);
+    }
+
+    [Fact]
+    public async Task NoModelId_LeavesLlmIdNull()
+    {
+        var capture = new CapturingDetector();
+        _ = await Build([capture]).GetResponseResultAsync(
+            [new ChatMessage(ChatRole.User, "Hello")], null, TestContext.Current.CancellationToken);
+
+        Assert.All(capture.Seen, ctx => Assert.Null(ctx.LlmId));
     }
 
     private sealed class RecordingClient : IChatClient

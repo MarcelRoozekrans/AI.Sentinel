@@ -48,7 +48,7 @@ Every pass gets a `SentinelContext` carrying:
 - **`SenderId` / `ReceiverId`** — `AgentId` value objects. Defaults: `"user"` → `"assistant"`.
 - **`SessionId`** — stable across the two passes of a single chat call, and across a conversation's calls when the caller names the conversation: the string under `"sentinel.session_id"` (`SentinelPipeline.SessionIdKey`) in `ChatOptions.AdditionalProperties`, else `ChatOptions.ConversationId`. Without either, each call gets its own id. The hook CLIs and the MCP proxy use the agent's own session id.
 - **`Messages`** — the prompt or response messages being scanned.
-- **`History`** — previous `AuditEntry` records from the same session, available to detectors that span turns (`HAL-07 IntraSessionContradiction`, `OPS-13 PersonaDrift`, etc.).
+- **`History`** — reserved for previous `AuditEntry` records from the same session. The pipeline passes an empty list today, so no built-in detector relies on it; [#387](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/387) tracks filling it. The Detectors SDK's `SentinelContextBuilder` can set it for tests.
 - **`LlmId`** — optional model identifier passed via `ChatOptions.ModelId`.
 
 Detectors read from this context and emit `DetectionResult`s.
@@ -57,13 +57,11 @@ Detectors read from this context and emit `DetectionResult`s.
 
 Pass 1 (prompt scan) sees:
 - The user's incoming `Messages`
-- The session's `History`
 - Whatever the host added (system prompt, tool messages, retrieved documents)
 - `ChatOptions.Instructions`, as a leading system message. Providers send it to the model as a system prompt, so the detectors judge it, and the system prompt that SEC-32 compares against includes it
 
 Pass 2 (response scan) sees:
 - The LLM's response message(s) appended to `Messages`
-- The same `History` (audit entries from pass 1 are added before pass 2)
 - The same `SessionId`, `SenderId` (now reversed — `"assistant"` → `"user"` direction), `LlmId`
 
 Detectors don't know which pass they're in — they just see the messages. This means a detector like `SEC-23 PiiLeakage` works equivalently on inbound prompts and outbound responses.

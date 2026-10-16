@@ -155,7 +155,7 @@ public sealed class SentinelPipeline
         // The request holds this call's placeholders and those of any enclosing Sentinel call; none is a value.
         var promptError = await ScanAsync(scanned, sessionId,
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
-            new Exemptions(RedactionScope.ExemptPlaceholders(session, parent))).ConfigureAwait(false);
+            new Exemptions(RedactionScope.ExemptPlaceholders(session, parent)), chatOptions?.ModelId).ConfigureAwait(false);
         if (promptError is not null)
             return (default, promptError);
 
@@ -222,7 +222,7 @@ public sealed class SentinelPipeline
             request.SentPlaceholders,
             RedactorIds(request.Redactors));
         return await ScanAsync(responseMessages, sessionId,
-            options.DefaultReceiverId, options.DefaultSenderId, ct, request.SystemPrompt, exempt).ConfigureAwait(false);
+            options.DefaultReceiverId, options.DefaultSenderId, ct, request.SystemPrompt, exempt, request.Options?.ModelId).ConfigureAwait(false);
     }
 
     /// <summary>Restores the redacted values in <paramref name="response"/> when this call redacted anything and
@@ -395,7 +395,7 @@ public sealed class SentinelPipeline
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var (scanned, systemPrompt) = WithInstructions(messageList, chatOptions?.Instructions);
         return await ScanAsync(scanned, sessionId ?? SessionIdFor(chatOptions),
-            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt).ConfigureAwait(false);
+            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, llmId: chatOptions?.ModelId).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -451,13 +451,15 @@ public sealed class SentinelPipeline
         AgentId receiver,
         CancellationToken ct,
         string? systemPrompt = null,
-        Exemptions exemptions = default)
+        Exemptions exemptions = default,
+        string? llmId = null)
     {
         var ctx = exemptions.Minted is null
-            ? new SentinelContext(sender, receiver, sessionId, msgs, []) { SystemPrompt = systemPrompt }
+            ? new SentinelContext(sender, receiver, sessionId, msgs, []) { SystemPrompt = systemPrompt, LlmId = llmId }
             : new SentinelContext(sender, receiver, sessionId, msgs, [])
             {
                 SystemPrompt = systemPrompt,
+                LlmId = llmId,
                 RedactionPlaceholders = exemptions.Minted,
                 RequestPlaceholders = exemptions.Request ?? NoStrings,
                 RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,
