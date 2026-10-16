@@ -944,7 +944,7 @@ await foreach (var entry in store.QueryAsync(new AuditQuery
     PageSize    = 100
 }, CancellationToken.None))
 {
-    Console.WriteLine($"{entry.Timestamp:HH:mm:ss} [{entry.Severity}] {entry.DetectorId}: {entry.Reason}");
+    Console.WriteLine($"{entry.Timestamp:HH:mm:ss} [{entry.Severity}] {entry.DetectorId}: {entry.Summary}");
 }
 ```
 

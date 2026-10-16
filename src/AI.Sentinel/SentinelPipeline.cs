@@ -595,8 +595,10 @@ public sealed class SentinelPipeline
                 detection.DetectorId.Value,
                 detection.ActionOverride == SentinelAction.Redact
                     ? detection.Reason + "; not redacted"
-                    : detection.Reason,
-                SessionId: sessionId.Value);
+                    : detection.Reason)
+            {
+                SessionId = sessionId.Value,
+            };
             await auditStore.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
         }
     }

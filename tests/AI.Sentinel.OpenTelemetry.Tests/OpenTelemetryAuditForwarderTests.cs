@@ -159,8 +159,10 @@ public sealed class OpenTelemetryAuditForwarderTests
             PreviousHash: null,
             Severity: Severity.High,
             DetectorId: "AUTHZ-DENY",
-            Summary: "denied",
-            PolicyCode: "tenant_inactive");
+            Summary: "denied")
+        {
+            PolicyCode = "tenant_inactive",
+        };
         await f.SendAsync(new[] { entry }, TestContext.Current.CancellationToken);
         loggerFactory.Dispose();
 

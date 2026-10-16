@@ -107,7 +107,7 @@ public static class DashboardCommand
             store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = dbPath });
 
             var verification = await AuditHashChain.VerifyAsync(
-                store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), ct), ct).ConfigureAwait(false);
+                store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct), ct).ConfigureAwait(false);
 
             app = BuildApp(store, port);
 

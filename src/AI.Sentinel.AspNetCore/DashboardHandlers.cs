@@ -67,7 +67,7 @@ internal static class DashboardHandlers
         var source = (string?)ctx.Request.Query["source"];
 
         var entries = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 50, Reverse: true, SessionId: session, Source: source), ctx.RequestAborted).ConfigureAwait(false))
+        await foreach (var e in store.QueryAsync(new AuditQuery { PageSize = 50, Reverse = true, SessionId = session, Source = source }, ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
         var filtered = FilterAuditEntries(entries, filter, q, session, source).ToList();
@@ -235,7 +235,7 @@ internal static class DashboardHandlers
 
         var buckets = new (int count, int maxSev)[BucketCount];
         await foreach (var e in store.QueryAsync(
-            new AuditQuery(From: windowStart, PageSize: 10000),
+            new AuditQuery { From = windowStart, PageSize = 10000 },
             ctx.RequestAborted).ConfigureAwait(false))
         {
             if (e.Timestamp < windowStart || IsRedaction(e)) continue;
@@ -323,12 +323,12 @@ internal static class DashboardHandlers
 
         var store = ctx.RequestServices.GetRequiredService<IAuditStore>();
         var entries = new List<AuditEntry>();
-        // Reverse: true → store returns newest-first. With PageSize: ExportPageCap we get the
+        // Reverse = true → store returns newest-first. With PageSize = ExportPageCap we get the
         // most recent entries instead of the oldest (which would silently omit all recent
         // activity on long-running stores). Session is pushed down to the store so an
         // old-session export can't be silently emptied by newer entries filling the cap.
         await foreach (var e in store.QueryAsync(
-            new AuditQuery(PageSize: ExportPageCap, Reverse: true, SessionId: session, Source: source),
+            new AuditQuery { PageSize = ExportPageCap, Reverse = true, SessionId = session, Source = source },
             ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 

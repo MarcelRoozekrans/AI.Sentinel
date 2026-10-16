@@ -47,7 +47,7 @@ public class RingBufferAuditStoreTests
         await store.AppendAsync(new AuditEntry("4", DateTimeOffset.UtcNow, "h4", null, Severity.Critical, "SEC-02", "crit"), CancellationToken.None);
 
         var results = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(MinSeverity: Severity.High), CancellationToken.None))
+        await foreach (var e in store.QueryAsync(new AuditQuery { MinSeverity = Severity.High }, CancellationToken.None))
             results.Add(e);
 
         Assert.Equal(2, results.Count);
@@ -65,7 +65,7 @@ public class RingBufferAuditStoreTests
 
         var results = new List<AuditEntry>();
         await foreach (var e in store.QueryAsync(
-            new AuditQuery(From: now.AddMinutes(-30), To: now.AddMinutes(30)), CancellationToken.None))
+            new AuditQuery { From = now.AddMinutes(-30), To = now.AddMinutes(30) }, CancellationToken.None))
             results.Add(e);
 
         Assert.Single(results);
@@ -78,7 +78,7 @@ public class RingBufferAuditStoreTests
     private static async Task<List<AuditEntry>> AllAsync(IAuditStore store)
     {
         var results = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), CancellationToken.None))
+        await foreach (var e in store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, CancellationToken.None))
             results.Add(e);
         return results;
     }
@@ -127,7 +127,7 @@ public class RingBufferAuditStoreTests
         await Task.WhenAll(Enumerable.Range(0, 200).Select(i =>
             store.AppendAsync(Unlinked($"e{i}"), CancellationToken.None).AsTask()));
 
-        var result = await AuditHashChain.VerifyAsync(store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), CancellationToken.None), CancellationToken.None);
+        var result = await AuditHashChain.VerifyAsync(store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, CancellationToken.None), CancellationToken.None);
         Assert.True(result.IsIntact);
         Assert.Equal(200, result.EntriesChecked);
         Assert.Null(result.AnchorHash);
@@ -141,7 +141,7 @@ public class RingBufferAuditStoreTests
         for (var i = 0; i < 5; i++)
             appended.Add(await store.AppendAsync(Unlinked($"e{i}"), CancellationToken.None));
 
-        var result = await AuditHashChain.VerifyAsync(store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), CancellationToken.None), CancellationToken.None);
+        var result = await AuditHashChain.VerifyAsync(store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, CancellationToken.None), CancellationToken.None);
 
         Assert.True(result.IsIntact);
         Assert.Equal(3, result.EntriesChecked);
@@ -152,12 +152,12 @@ public class RingBufferAuditStoreTests
     public async Task Query_Source_FiltersIgnoringCase()
     {
         var store = new RingBufferAuditStore(capacity: 100);
-        await store.AppendAsync(new AuditEntry("1", DateTimeOffset.UtcNow, "h1", null, Severity.Low, "OPS-01", "a", Source: "mcp"), CancellationToken.None);
-        await store.AppendAsync(new AuditEntry("2", DateTimeOffset.UtcNow, "h2", null, Severity.Low, "OPS-01", "b", Source: "copilot"), CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("1", DateTimeOffset.UtcNow, "h1", null, Severity.Low, "OPS-01", "a") { Source = "mcp" }, CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("2", DateTimeOffset.UtcNow, "h2", null, Severity.Low, "OPS-01", "b") { Source = "copilot" }, CancellationToken.None);
         await store.AppendAsync(new AuditEntry("3", DateTimeOffset.UtcNow, "h3", null, Severity.Low, "OPS-01", "c"), CancellationToken.None);
 
         var results = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(Source: "MCP"), CancellationToken.None))
+        await foreach (var e in store.QueryAsync(new AuditQuery { Source = "MCP" }, CancellationToken.None))
             results.Add(e);
 
         Assert.Equal("1", Assert.Single(results).Id);

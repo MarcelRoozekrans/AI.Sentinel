@@ -226,7 +226,7 @@ public class DashboardCommandTests : IDisposable
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = db });
         var ids = new List<string>();
         string? lastHash = null;
-        await foreach (var entry in store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), TestContext.Current.CancellationToken))
+        await foreach (var entry in store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, TestContext.Current.CancellationToken))
         {
             ids.Add(entry.Id);
             lastHash = entry.Hash;

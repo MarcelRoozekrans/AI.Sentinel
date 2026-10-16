@@ -89,7 +89,7 @@ To verify a database file:
 ```csharp
 var sqlite = sp.GetRequiredService<IAuditStore>();
 var result = await AuditHashChain.VerifyAsync(
-    sqlite.QueryAsync(new AuditQuery(PageSize: int.MaxValue), ct), ct);
+    sqlite.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct), ct);
 
 if (!result.IsIntact)
     throw new InvalidOperationException($"Audit chain broken at entry {result.FirstBrokenEntryId}");

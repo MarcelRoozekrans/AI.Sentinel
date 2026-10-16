@@ -29,11 +29,15 @@ public sealed record AuditEntry(
     string? PreviousHash,       // set by the store: null for the first entry, otherwise the previous entry's Hash
     Severity Severity,
     string DetectorId,
-    string Summary,
-    string? PolicyCode = null,  // AUTHZ-DENY entries only
-    string? SessionId = null,
-    string? Source = null);   // the tool that wrote the entry; null for in-process apps
+    string Summary)
+{
+    public string? PolicyCode { get; init; }  // AUTHZ-DENY entries only
+    public string? SessionId { get; init; }
+    public string? Source { get; init; }      // the tool that wrote the entry; null for in-process apps
+}
 ```
+
+The seven constructor parameters are required. The optional fields are init properties: `new AuditEntry(id, now, string.Empty, null, Severity.High, "SEC-01", summary) { SessionId = sessionId }`.
 
 `Source` names the tool that wrote the entry. `AuditSources` holds the values: `AuditSources.ClaudeCode` (`claude-code`), `AuditSources.Copilot` (`copilot`) and `AuditSources.Mcp` (`mcp`). The CLIs set it; an in-process app leaves it `null`. It is covered by the hash chain, so changing it breaks the link. The hook CLIs and the MCP proxy record to a durable SQLite file by default; an in-process app still defaults to the in-memory ring buffer.
 
@@ -43,7 +47,7 @@ The store links every entry it appends into a SHA-256 hash chain ([`AuditHashCha
 
 ```csharp
 var result = await AuditHashChain.VerifyAsync(
-    store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), ct), ct);
+    store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct), ct);
 
 if (!result.IsIntact)
     Console.WriteLine($"Chain broken at entry {result.FirstBrokenEntryId} after {result.EntriesChecked} good entries");
@@ -56,7 +60,7 @@ Verification starts from the oldest entry still present. When the ring buffer ha
 The `AI.Sentinel.Cli` `verify` subcommand (planned) will do this for offline NDJSON exports.
 
 :::note Upgrading from 2.x
-Entries written before 3.0 are not chained, so a store that holds them fails verification at its first old entry. Verify from the upgrade onward with `new AuditQuery(From: upgradedAt, PageSize: int.MaxValue)`, where `upgradedAt` is when the upgraded process started. For entries timestamped by AI.Sentinel, every old entry was written before that and every new one after; entries a caller backdated can fall on the wrong side. The first new entry's `PreviousHash` is the last old entry's hash and becomes the anchor.
+Entries written before 3.0 are not chained, so a store that holds them fails verification at its first old entry. Verify from the upgrade onward with `new AuditQuery { From = upgradedAt, PageSize = int.MaxValue }`, where `upgradedAt` is when the upgraded process started. For entries timestamped by AI.Sentinel, every old entry was written before that and every new one after; entries a caller backdated can fall on the wrong side. The first new entry's `PreviousHash` is the last old entry's hash and becomes the anchor.
 
 The SQLite store migrates to schema v4 on first open. Detection entries written before 3.0 had `policy_code` set to `policy_denied` by a column default; the migration clears it, so only `AUTHZ-DENY` entries carry a policy code.
 :::
@@ -110,21 +114,24 @@ See [SQLite audit store](../audit-forwarders/sqlite) for retention tuning, multi
 `AuditQuery` filters:
 
 ```csharp
-public sealed record AuditQuery(
-    Severity? MinSeverity = null,
-    DateTimeOffset? From = null,
-    DateTimeOffset? To = null,
-    int PageSize = 200,
-    bool Reverse = false,       // newest first
-    string? SessionId = null,
-    string? Source = null);     // only entries from this tool; both stores filter on it
+public sealed record AuditQuery
+{
+    public Severity? MinSeverity { get; init; }
+    public DateTimeOffset? From { get; init; }
+    public DateTimeOffset? To { get; init; }
+    public int PageSize { get; init; } = 200;
+    public bool Reverse { get; init; }          // newest first
+    public string? SessionId { get; init; }
+    public string? Source { get; init; }        // only entries from this tool; both stores filter on it
+}
 ```
+
+Set only the filters you need with an object initializer.
 
 ```csharp
 // Stream every High+ entry from the last hour
 await foreach (var entry in store.QueryAsync(
-    new AuditQuery(MinSeverity: Severity.High,
-                   From: DateTimeOffset.UtcNow.AddHours(-1)),
+    new AuditQuery { MinSeverity = Severity.High, From = DateTimeOffset.UtcNow.AddHours(-1) },
     ct))
 {
     Console.WriteLine($"{entry.Timestamp:o} {entry.DetectorId} {entry.Severity} — {entry.Summary}");

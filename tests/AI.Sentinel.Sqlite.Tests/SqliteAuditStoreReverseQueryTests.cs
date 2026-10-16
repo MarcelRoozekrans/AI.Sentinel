@@ -41,16 +41,14 @@ public sealed class SqliteAuditStoreReverseQueryTests : IDisposable
                 PreviousHash: null,
                 Severity: Severity.Medium,
                 DetectorId: "SEC-01",
-                Summary: $"entry {i}",
-                PolicyCode: null,
-                SessionId: null);
+                Summary: $"entry {i}");
             await store.AppendAsync(entry, CancellationToken.None);
         }
 
         // Without Reverse: would get the OLDEST 10 (e00-e09) — the bug we're fixing.
         // With Reverse: should get the NEWEST 10 (e02-e11).
         var results = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: 10, Reverse: true), CancellationToken.None))
+        await foreach (var e in store.QueryAsync(new AuditQuery { PageSize = 10, Reverse = true }, CancellationToken.None))
             results.Add(e);
 
         Assert.Equal(10, results.Count);

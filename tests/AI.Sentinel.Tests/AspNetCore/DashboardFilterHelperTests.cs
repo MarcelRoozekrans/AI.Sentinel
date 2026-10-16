@@ -43,9 +43,10 @@ public class DashboardFilterHelperTests
             PreviousHash: null,
             Severity: Severity.Medium,
             DetectorId: detectorId,
-            Summary: summary,
-            PolicyCode: null,
-            SessionId: sessionId);
+            Summary: summary)
+        {
+            SessionId = sessionId,
+        };
 
     [Fact]
     public void FilterAuditEntries_NoFilters_ReturnsAll()
@@ -117,9 +118,7 @@ public class DashboardFilterHelperTests
             PreviousHash: null,
             Severity: Severity.Medium,
             DetectorId: "SEC-01",
-            Summary: "x",
-            PolicyCode: null,
-            SessionId: null);
+            Summary: "x");
         var combined = entries.Concat(new[] { nullSessionEntry }).ToList();
         var result = DashboardHandlers.FilterAuditEntries(combined, category: null, q: null, session: "sess-A", source: null).ToList();
         Assert.Equal(2, result.Count);

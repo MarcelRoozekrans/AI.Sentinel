@@ -34,7 +34,7 @@ public sealed class LocalAuditTests : IDisposable
     private static async Task<List<AuditEntry>> ReadAllAsync(IAuditStore store)
     {
         var results = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), TestContext.Current.CancellationToken))
+        await foreach (var e in store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, TestContext.Current.CancellationToken))
         {
             results.Add(e);
         }
@@ -170,7 +170,7 @@ public sealed class LocalAuditTests : IDisposable
         Assert.Equal(2, entries.Count);
         Assert.All(entries, e => Assert.Equal("mcp", e.Source));
         var verification = await AuditHashChain.VerifyAsync(
-            session.Store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), TestContext.Current.CancellationToken),
+            session.Store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, TestContext.Current.CancellationToken),
             TestContext.Current.CancellationToken);
         Assert.True(verification.IsIntact);
         Assert.Equal(2, verification.EntriesChecked);

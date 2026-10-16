@@ -32,9 +32,11 @@ public static class AuditEntryRedactionExtensions
             PreviousHash: null,
             Severity: Severity.None,
             DetectorId: detectorId,
-            Summary: Summarize(counts),
-            PolicyCode: RedactedPolicyCode,
-            SessionId: sessionId);
+            Summary: Summarize(counts))
+        {
+            PolicyCode = RedactedPolicyCode,
+            SessionId = sessionId,
+        };
     }
 
     /// <summary><c>Redacted 1 EMAIL, 1 IBAN</c>: counts per type, types in ordinal order.</summary>

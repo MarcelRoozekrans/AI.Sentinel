@@ -180,7 +180,9 @@ public class DashboardSourceTests
             PreviousHash: null,
             Severity: Severity.High,
             DetectorId: detectorId,
-            Summary: summary,
-            SessionId: sessionId,
-            Source: source);
+            Summary: summary)
+        {
+            SessionId = sessionId,
+            Source = source,
+        };
 }

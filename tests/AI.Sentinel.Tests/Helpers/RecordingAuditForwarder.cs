@@ -30,7 +30,7 @@ public sealed class RecordingAuditForwarder : IAuditForwarder
     public static async Task<IReadOnlyList<AuditEntry>> ReadAllAsync(IAuditStore store)
     {
         var entries = new List<AuditEntry>();
-        await foreach (var e in store.QueryAsync(new AuditQuery(PageSize: int.MaxValue), CancellationToken.None).ConfigureAwait(false))
+        await foreach (var e in store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, CancellationToken.None).ConfigureAwait(false))
             entries.Add(e);
         return entries;
     }
