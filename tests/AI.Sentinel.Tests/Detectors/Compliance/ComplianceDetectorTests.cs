@@ -153,6 +153,8 @@ public class ComplianceDetectorTests
         await store.AppendAsync(Detection("HAL-08"), ct);
         await store.AppendAsync(AuditEntryRedactionExtensions.Redaction(
             "CMP-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "session-1"), ct);
+        await store.AppendAsync(Informational("CMP-03", AuditEntryKinds.DisclosedPolicyCode), ct);
+        await store.AppendAsync(Informational("CMP-04", AuditEntryKinds.ApprovedPolicyCode), ct);
         var client = host.GetTestClient();
 
         var feed = await client.GetStringAsync("/sentinel/api/feed?filter=compliance", ct);
@@ -161,6 +163,8 @@ public class ComplianceDetectorTests
         Assert.Equal(1, Regex.Count(feed, "<tr class=", RegexOptions.None, TimeSpan.FromSeconds(1)));
         Assert.Contains("CMP-02", feed, StringComparison.Ordinal);
         Assert.DoesNotContain("badge redacted", feed, StringComparison.Ordinal);
+        Assert.DoesNotContain("badge disclosed", feed, StringComparison.Ordinal);
+        Assert.DoesNotContain("badge approval", feed, StringComparison.Ordinal);
         Assert.Contains("data-filter=\"compliance\"", page, StringComparison.Ordinal);
         Assert.True(DashboardHandlers.IsInCategory("CMP-04", "compliance"));
         Assert.False(DashboardHandlers.IsInCategory("SEC-01", "compliance"));
@@ -266,6 +270,13 @@ public class ComplianceDetectorTests
     private static AuditEntry Detection(string detectorId) =>
         new(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, "h", null, Severity.High, detectorId,
             "Semantic match — high-severity threat pattern");
+
+    /// <summary>An informational row, such as a disclosure or an approval decision, that carries a CMP- id.</summary>
+    private static AuditEntry Informational(string detectorId, string policyCode) =>
+        new(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, "h", null, Severity.None, detectorId, "informational")
+        {
+            PolicyCode = policyCode,
+        };
 
     private static async Task<List<AuditEntry>> ReadAllAsync(IAuditStore store)
     {
