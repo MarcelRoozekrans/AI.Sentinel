@@ -75,4 +75,42 @@ public class TransparencyOptionsTests
 
         Assert.Contains("Transparency.Notice", ex.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void Enabled_UndefinedNoticeMode_Throws()
+    {
+        var services = new ServiceCollection();
+
+        var ex = Assert.Throws<ArgumentException>(() => services.AddAISentinel(o =>
+        {
+            o.Transparency.Enabled = true;
+            o.Transparency.NoticeMode = (TransparencyNoticeMode)3;
+        }));
+
+        Assert.Contains("Transparency.NoticeMode", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NamedPipeline_Enabled_UndefinedNoticeMode_Throws()
+    {
+        var services = new ServiceCollection();
+
+        var ex = Assert.Throws<ArgumentException>(() => services.AddAISentinel("named", o =>
+        {
+            o.Transparency.Enabled = true;
+            o.Transparency.NoticeMode = (TransparencyNoticeMode)3;
+        }));
+
+        Assert.Contains("Transparency.NoticeMode", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Disabled_UndefinedNoticeMode_IsAllowed()
+    {
+        var services = new ServiceCollection();
+
+        var ex = Record.Exception(() => services.AddAISentinel(o => o.Transparency.NoticeMode = (TransparencyNoticeMode)3));
+
+        Assert.Null(ex);
+    }
 }
