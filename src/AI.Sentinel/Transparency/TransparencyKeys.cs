@@ -5,7 +5,9 @@ namespace AI.Sentinel.Transparency;
 /// <see cref="Microsoft.Extensions.AI.ChatResponse.AdditionalProperties"/>. A value the inner client already set is
 /// kept, except for <see cref="Generated"/>. A streamed reply carries the mark on the first update without a message
 /// id, which <c>ToChatResponse</c> merges into the response; when every update has a message id, on the first update,
-/// which <c>ToChatResponse</c> merges into that update's message.
+/// which <c>ToChatResponse</c> merges into that update's message. That first message can be an intermediate tool-call
+/// message rather than the one holding the disclosed text, so look for the keys on the response first, then on its
+/// messages.
 /// </summary>
 public static class TransparencyKeys
 {

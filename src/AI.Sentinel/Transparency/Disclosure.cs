@@ -142,6 +142,8 @@ internal sealed class Disclosure
     /// Discloses a streamed reply by the rules of <see cref="TryDisclose(ChatResponse, SessionId, string?, out AuditEntry?, bool)"/>.
     /// The mark goes on the first update without a message id, whose properties <c>ToChatResponse</c> merges into the
     /// response it builds, or on the first update when every update has a message id; its message then carries it.
+    /// That first message can be an intermediate tool-call message rather than the one holding the disclosed text,
+    /// so consumers look for the keys on the response first, then on its messages.
     /// A key the inner client set in the same scope is kept, except for <see cref="TransparencyKeys.Generated"/>,
     /// which is set wherever it appears in that scope so that no later update undoes it.
     /// The notice is a new leading <see cref="TextContent"/> in the first update with text of the last assistant
