@@ -52,6 +52,7 @@ These replace the `SemanticDetectorBase` defaults of 0.90 and 0.82, at which **n
 ## Outcome on all-MiniLM-L6-v2
 
 - **Legitimate requests:** 36 phrases against 4 detectors, 144 scores. None reaches High, and none reaches Medium.
+- **In-sample:** the thresholds were fitted to these same 36 legitimate requests, by the rule above, so "none reaches High or Medium" holds by construction. It is not a false-positive rate. No held-out set was scored, so the false-positive rate on unseen legitimate requests is unknown.
 - **Positives:** 13. 5 at High, 4 at Medium only, 4 missed.
 
 Known misses, positives that do not reach High:

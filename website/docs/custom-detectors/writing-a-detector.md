@@ -18,12 +18,14 @@ public interface IDetector
     DetectorId Id { get; }
     DetectorCategory Category { get; }
     ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct);
+    bool EnabledByDefault => true;   // default interface member; override to ship an opt-in detector
 }
 ```
 
 - **`Id`** — a `DetectorId` value object wrapping a string. Used in audit entries, dashboard, and `Configure<T>` lookup.
 - **`Category`** — `Security`, `Hallucination`, `Operational`, or `Compliance`. Drives dashboard filtering and severity guidance.
 - **`AnalyzeAsync`** — return `DetectionResult.Clean(Id)` for "no threat" or `DetectionResult.WithSeverity(Id, severity, reason)` for a firing detection.
+- **`EnabledByDefault`** — optional. Return `false` to ship an opt-in detector: it is registered but the pipeline skips it until an operator sets `opts.Configure<T>(c => c.Enabled = true)`, as the [Art. 5 compliance detectors](../detectors/compliance) do. A `SemanticDetectorBase` subclass overrides `public override bool EnabledByDefault => false;`.
 
 ## Rule-based example
 
@@ -88,7 +90,7 @@ The base class:
 3. Computes cosine similarity against each bucket's reference vectors.
 4. Returns `Severity.High` if any High vector is &ge; `HighThreshold` (default `0.90`), `Medium` &ge; `0.82`, `Low` &ge; `0.75`. Otherwise Clean.
 
-Override the threshold properties (`HighThreshold`/`MediumThreshold`/`LowThreshold`) to tighten or loosen sensitivity per detector.
+Override the threshold properties (`HighThreshold`/`MediumThreshold`/`LowThreshold`) to set your detector's built-in sensitivity. Operators can change High and Medium without subclassing, with `opts.Configure<MyDetector>(c => { c.HighThreshold = 0.85f; c.MediumThreshold = 0.78f; })`; this works for your `SemanticDetectorBase` subclass as for the built-in detectors. `LowThreshold` can only be changed by overriding it.
 
 **Set `EmbeddingGenerator` before constructing the detector** — `SemanticDetectorBase` captures it in its constructor and won't observe later changes.
 

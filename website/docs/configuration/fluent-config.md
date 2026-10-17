@@ -21,7 +21,7 @@ public sealed class DetectorConfiguration
 }
 ```
 
-> **3.0 breaking change:** `Enabled` is now `bool?`, where `null` means the detector's own default. Source that reads it as a `bool` needs updating. A binary built against 2.x that calls the old `set_Enabled(bool)` fails with `MissingMethodException` at runtime until it is recompiled against 3.0.
+> **3.0 breaking change:** `Enabled` is now `bool?`, where `null` means the detector's own default. Source that reads it as a `bool` needs updating, and an untouched configuration now reads `null` where 2.x read `true`, so a check on it must decide what `null` means; `cfg.Enabled ?? detector.EnabledByDefault` is what the pipeline uses. A binary built against 2.x that writes or reads `Enabled`, through the old `set_Enabled(bool)` or `get_Enabled()`, fails with `MissingMethodException` at runtime until it is recompiled against 3.0.
 
 | Knob | Effect |
 |---|---|

@@ -57,7 +57,7 @@ The built-in thresholds were set from an [evaluation against a real embedding mo
 | CMP-03 | 0.65 | 0.55 |
 | CMP-04 | 0.47 | 0.46 |
 
-On that model, no legitimate request reached High or Medium, and 5 of 13 paraphrased prohibited requests reached High, 4 more reached Medium and 4 were missed. CMP-03 is the weakest: a legitimate face-dataset bias audit scores closer to its examples than its positives do, so it reports Medium at most on the evaluated phrases.
+On that model, no legitimate request reached High or Medium, and 5 of 13 paraphrased prohibited requests reached High, 4 more reached Medium and 4 were missed. The first result is in-sample: the thresholds were fitted to the same 36 legitimate requests, so it holds by construction and is not a measured false-positive rate. The false-positive rate on legitimate requests outside the set is unknown. CMP-03 is the weakest: a legitimate face-dataset bias audit scores closer to its examples than its positives do, so it reports Medium at most on the evaluated phrases.
 
 The thresholds are model-dependent. Other models use a different similarity scale: on `BAAI/bge-base-en-v1.5`, the same thresholds put more than half of the legitimate requests' scores at High. With another embedding model, set the thresholds for that model:
 
@@ -92,7 +92,7 @@ A strong match is `High`, and a stock `AddAISentinel()` install maps `High` to `
 opts.Configure<SensitiveBiometricCategorisationDetector>(c => c.Action = SentinelAction.Quarantine);
 ```
 
-The hook CLIs and the MCP proxy map other detectors' `High` findings through `SENTINEL_HOOK_ON_HIGH`, which defaults to `Block`. They give these four detectors the `Alert` action instead, so a compliance finding is audited and surfaced as a warning: `sentinel-hook` and `sentinel-copilot-hook` exit 0 with the reason on stderr, and the MCP proxy forwards the call. In the hook CLIs, mapping the finding's severity to `Allow` still suppresses the warning; the audit entry is written either way.
+The hook CLIs and the MCP proxy map other detectors' `High` findings through `SENTINEL_HOOK_ON_HIGH`, which defaults to `Block`. They give these four detectors the `Alert` action instead, at `Medium` as well as `High`, so a compliance finding of either severity is audited and surfaced as a warning: `sentinel-hook` and `sentinel-copilot-hook` exit 0 with the reason on stderr, and the MCP proxy forwards the call. In the hook CLIs, mapping the finding's severity to `Allow` still suppresses the warning; the audit entry is written either way.
 
 ## Both legs
 

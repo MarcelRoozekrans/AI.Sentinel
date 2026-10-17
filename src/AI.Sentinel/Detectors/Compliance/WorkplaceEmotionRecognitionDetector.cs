@@ -7,8 +7,10 @@ namespace AI.Sentinel.Detectors.Compliance;
 /// <summary>CMP-02: requests to infer the emotions of employees or students from their face, voice or other
 /// biometric data, the workplace and education emotion recognition the EU AI Act prohibits in Art. 5(1)(f).</summary>
 /// <remarks>Opt-in: off unless enabled. Semantic only: it returns <c>Clean</c> until <see cref="SentinelOptions.EmbeddingGenerator"/> is
-/// set. A strong match is <see cref="Severity.High"/>, so the default action is Alert, not a block; a weaker
-/// match is <see cref="Severity.Medium"/>, which is logged.</remarks>
+/// set. In an <c>AddAISentinel()</c> app a strong match is <see cref="Severity.High"/>, so the default action is
+/// Alert, not a block, and a weaker match is <see cref="Severity.Medium"/>, which is logged. The hook CLIs and the
+/// MCP proxy give both severities the Alert action: the hooks warn, unless <c>SENTINEL_HOOK_ON_*</c> maps the
+/// severity to Allow, and the proxy forwards the call with an audit entry.</remarks>
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed class WorkplaceEmotionRecognitionDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {

@@ -28,7 +28,7 @@ function HeroBanner() {
 const features = [
   {
     title: '60 detectors out of the box',
-    description: 'Prompt injection, jailbreaks, PII / credential leakage, hallucinated citations, repetition loops — security, hallucination, operational and EU AI Act Art. 5 coverage from day one.',
+    description: 'Prompt injection, jailbreaks, PII / credential leakage, hallucinated citations, repetition loops — security, hallucination and operational coverage from day one, plus opt-in EU AI Act Art. 5 detectors.',
   },
   {
     title: 'Drop-in IChatClient middleware',
