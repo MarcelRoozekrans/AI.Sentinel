@@ -12,7 +12,9 @@ AI.Sentinel ships with **60 built-in detectors** across four categories:
 | [**Security**](./security) | 32 | Prompt injection, jailbreaks, PII / credential leakage, covert channels, indirect injection, RAG poisoning |
 | [**Hallucination**](./hallucination) | 9 | Phantom citations, fabricated authorities, contradictions, stale knowledge, confidence decay |
 | [**Operational**](./operational) | 15 | Repetition loops, blank responses, truncated output, language switches, persona drift, sycophancy |
-| [**Compliance**](./compliance) | 4 | Requests for practices the EU AI Act prohibits in Art. 5: social scoring, emotion recognition at work or school, sensitive biometric categorisation, crime prediction from profiling |
+| [**Compliance**](./compliance) | 4 | Requests for practices the EU AI Act prohibits in Art. 5: social scoring, emotion recognition at work or school, sensitive biometric categorisation, crime prediction from profiling. **Off by default**; enable with `opts.EnableComplianceDetectors()` |
+
+The 56 Security, Hallucination and Operational detectors run by default; the 4 Compliance detectors are opt-in.
 
 ## Detector modes
 

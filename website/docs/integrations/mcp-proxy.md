@@ -90,6 +90,7 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 | `SENTINEL_HOOK_ON_LOW` | `Allow` | Action for Low |
 | `SENTINEL_HOOK_VERBOSE` | `false` | Stderr diagnostic per call |
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | Suppress the inert-semantic-detection warning |
+| `SENTINEL_HOOK_COMPLIANCE` | `off` | Fallback for `SENTINEL_MCP_COMPLIANCE` |
 | `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
 | `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
 | `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |
@@ -100,7 +101,8 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SENTINEL_MCP_DETECTORS` | `security` | `security` (13 security detectors plus the 4 Art. 5 compliance detectors — recommended for MCP) or `all` (every detector — higher false-positive rate on structured tool data) |
+| `SENTINEL_MCP_DETECTORS` | `security` | `security` (13 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on` — recommended for MCP) or `all` (every detector — higher false-positive rate on structured tool data) |
+| `SENTINEL_MCP_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](../detectors/compliance), which are off by default; `off` / `0` / `false` / `no` keeps them off. Unset, falls back to `SENTINEL_HOOK_COMPLIANCE`. Thresholds are code-only |
 | `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Truncation cap on tool-result text passed to the detector pipeline. Counts UTF-8 bytes (v1.1+). Full content still forwarded to the host. |
 | `SENTINEL_MCP_SCAN_MIMES` (v1.1) | `text/,application/json,application/xml,application/yaml` | MIME allowlist for `resources/read` scanning. Comma-separated. Trailing `/` matches any subtype. Resources outside the allowlist forward verbatim. |
 | `SENTINEL_MCP_HTTP_HEADERS` (v1.1) | (none) | `key=value;key=value` headers applied to every HTTP-transport request. For static-token auth (`Authorization=Bearer xyz`). Malformed pairs skipped silently. |
@@ -109,7 +111,7 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 
 ## Detector profiles
 
-`SENTINEL_MCP_DETECTORS=security` (default) runs the security detectors that work well on structured MCP tool data, plus the four Art. 5 compliance detectors:
+`SENTINEL_MCP_DETECTORS=security` (default) runs the security detectors that work well on structured MCP tool data, plus the four Art. 5 compliance detectors when `SENTINEL_MCP_COMPLIANCE=on`:
 
 - `SEC-01` PromptInjection
 - `SEC-02` CredentialExposure
@@ -126,7 +128,7 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 - `SEC-30` ShorthandEmergence
 - `CMP-01` to `CMP-04`, the [compliance detectors](../detectors/compliance)
 
-Only `SEC-02` and `SEC-19` and the rule layers of `SEC-01` and `SEC-05` fire without an embedding generator; the rest are semantic and need `SENTINEL_EMBEDDING_ENDPOINT`. The compliance detectors carry the `Alert` action, so a compliance finding is written to the audit log and the call forwards, as with `Warn`, whatever `SENTINEL_HOOK_ON_HIGH` says. Every other detector follows the `SENTINEL_HOOK_ON_*` mapping.
+Only `SEC-02` and `SEC-19` and the rule layers of `SEC-01` and `SEC-05` fire without an embedding generator; the rest are semantic and need `SENTINEL_EMBEDDING_ENDPOINT`. The compliance detectors are off unless `SENTINEL_MCP_COMPLIANCE=on`. When on, they carry the `Alert` action, so a compliance finding is written to the audit log and the call forwards, as with `Warn`, whatever `SENTINEL_HOOK_ON_HIGH` says. Every other detector follows the `SENTINEL_HOOK_ON_*` mapping.
 
 `SENTINEL_MCP_DETECTORS=all` runs every detector including operational and hallucination — useful in some adversarial-testing scenarios but generates false positives on structured JSON tool calls (`OPS-04 PlaceholderText` may flag an "Insert here" string in a code-completion result).
 

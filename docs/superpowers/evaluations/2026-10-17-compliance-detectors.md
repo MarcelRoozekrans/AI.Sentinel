@@ -13,7 +13,7 @@ The unit tests run these detectors on `FakeEmbeddingGenerator`, which compares c
 
 Both run locally through ONNX Runtime, with the Hugging Face ONNX export and `vocab.txt` and the `BertTokenizer` from Microsoft.ML.Tokenizers. A hosted model, such as OpenAI's `text-embedding-3-small`, was not reachable from the build environment, so it is not evaluated.
 
-**The thresholds are model-dependent.** Similarity scales differ between models: on bge-base, unrelated sentences already score around 0.5, and the MiniLM-tuned thresholds fire on almost everything (see its results below). A deployment on another model should re-run this evaluation on that model.
+**The thresholds are model-dependent.** Similarity scales differ between models: on bge-base, unrelated sentences already score around 0.5, and the MiniLM-tuned thresholds fire on almost everything (see its results below). A deployment on another model should re-run this evaluation on that model and set `HighThreshold` and `MediumThreshold` from it; see the conclusion.
 
 Pipeline check: the MiniLM run gives 0.755 for "A man is eating food." against "A man is eating a piece of bread.", the 0.7553 that the sentence-transformers documentation shows for that pair, so tokenisation and pooling match the reference implementation. The 0.000 for an unrelated pair is a negative cosine clamped by `MaxSimilarity`, which starts at 0, exactly as in the detector.
 
@@ -77,7 +77,13 @@ bge-base does not separate the sets better. Its whole scale is higher: the close
 
 - 13 positives and 36 legitimate requests are a small sample. The margins in the rule are there for that reason. They do not prove the false-positive rate on real traffic.
 - Each phrase is scored as a single message. `SemanticDetectorBase` embeds `ctx.TextContent`, the whole conversation joined, so in a longer conversation a request's similarity is diluted by the surrounding turns.
-- The detectors are sealed and the thresholds are fixed per detector, so a deployment on another model cannot apply that model's thresholds today.
+
+## Conclusion
+
+The evaluation shows the detectors can be useful on the model they were tuned on, with a clean result on the legitimate set and partial recall, and that the thresholds do not transfer between models. The maintainer's decision for 3.0 follows from that:
+
+- **Opt-in.** CMP-01 to CMP-04 are off by default. They run after `opts.EnableComplianceDetectors()`, `opts.Configure<T>(c => c.Enabled = true)`, or `SENTINEL_HOOK_COMPLIANCE=on` / `SENTINEL_MCP_COMPLIANCE=on` in the CLIs.
+- **Tunable.** `DetectorConfiguration.HighThreshold` and `MediumThreshold` override any semantic detector's built-in thresholds, per named pipeline. The built-in values are the MiniLM values above. A deployment on another model runs this tool on that model and sets the thresholds from the rule's column.
 
 ## Full results: all-MiniLM-L6-v2
 

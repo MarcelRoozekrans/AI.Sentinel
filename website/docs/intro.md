@@ -5,7 +5,7 @@ title: Introduction
 
 # Introduction
 
-**AI.Sentinel** is security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). It wraps any LLM client transparently, scans every prompt and response through 60 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+**AI.Sentinel** is security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). It wraps any LLM client transparently, scans every prompt and response through 56 detectors, plus 4 opt-in EU AI Act Art. 5 compliance detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
 ## The problem
 

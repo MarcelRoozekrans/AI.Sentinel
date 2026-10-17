@@ -18,6 +18,21 @@ Compliance detectors flag requests to use the model for a practice that Art. 5 o
 
 Not covered: subliminal or manipulative techniques, exploiting vulnerabilities, untargeted scraping of facial images, and real-time remote biometric identification. Those depend on how a system is built and deployed, not on what a user types, so a content detector cannot see them.
 
+## Off by default
+
+The four detectors do not run unless you enable them. They are semantic and their thresholds depend on the embedding model, so they are an informed opt-in, not a default.
+
+```csharp
+services.AddAISentinel(opts =>
+{
+    opts.EnableComplianceDetectors();                                        // all four
+    // or one at a time:
+    opts.Configure<SensitiveBiometricCategorisationDetector>(c => c.Enabled = true);
+});
+```
+
+In the CLIs, set `SENTINEL_HOOK_COMPLIANCE=on` for `sentinel-hook` and `sentinel-copilot-hook`, and `SENTINEL_MCP_COMPLIANCE=on` for `sentinel-mcp`. The MCP proxy falls back to `SENTINEL_HOOK_COMPLIANCE` when its own variable is unset. The CLIs take no threshold settings; they use the built-in thresholds.
+
 ## They need an embedding generator
 
 All four are semantic: each compares the message with example phrases by embedding similarity. With no `opts.EmbeddingGenerator` they return `Clean` on every scan, and AI.Sentinel warns at startup that semantic detection is off.
@@ -33,7 +48,7 @@ The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBE
 
 ## Thresholds are tuned on all-MiniLM-L6-v2
 
-The thresholds were set from an [evaluation against a real embedding model](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/superpowers/evaluations/2026-10-17-compliance-detectors.md), `sentence-transformers/all-MiniLM-L6-v2`. Each High threshold sits above every legitimate request in the evaluation set, including the exemptions Art. 5 itself makes, at the cost of recall:
+The built-in thresholds were set from an [evaluation against a real embedding model](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/superpowers/evaluations/2026-10-17-compliance-detectors.md), `sentence-transformers/all-MiniLM-L6-v2`. Each High threshold sits above every legitimate request in the evaluation set, including the exemptions Art. 5 itself makes, at the cost of recall:
 
 | ID | High | Medium |
 |---|---|---|
@@ -44,7 +59,30 @@ The thresholds were set from an [evaluation against a real embedding model](http
 
 On that model, no legitimate request reached High or Medium, and 5 of 13 paraphrased prohibited requests reached High, 4 more reached Medium and 4 were missed. CMP-03 is the weakest: a legitimate face-dataset bias audit scores closer to its examples than its positives do, so it reports Medium at most on the evaluated phrases.
 
-The thresholds are model-dependent. Other models use a different similarity scale: on `BAAI/bge-base-en-v1.5`, the same thresholds put more than half of the legitimate requests' scores at High. If you use another embedding model, run the evaluation tool in `tools/AI.Sentinel.ComplianceEval` against it before you rely on these detectors.
+The thresholds are model-dependent. Other models use a different similarity scale: on `BAAI/bge-base-en-v1.5`, the same thresholds put more than half of the legitimate requests' scores at High. With another embedding model, set the thresholds for that model:
+
+```csharp
+opts.Configure<SocialScoringDetector>(c =>
+{
+    c.Enabled = true;
+    c.HighThreshold = 0.70f;
+    c.MediumThreshold = 0.65f;
+});
+```
+
+Both must be in (0, 1], and Medium must not exceed High. `AddAISentinel` rejects a pair that breaks this, and building the pipeline rejects an override that crosses the other, built-in value, so when you raise or lower one, set both. Each named pipeline can set its own.
+
+### Find the thresholds for your model
+
+`tools/AI.Sentinel.ComplianceEval` in the repository scores the evaluation phrases against the four detectors with a local ONNX model, and prints the thresholds its rule gives for that model in the last column of the summary:
+
+```bash
+git clone https://github.com/MarcelRoozekrans/AI.Sentinel
+cd AI.Sentinel
+dotnet run --project tools/AI.Sentinel.ComplianceEval -- --model bge-base-en-v1.5 --out results.md
+```
+
+`--model` is `all-MiniLM-L6-v2` (default) or `bge-base-en-v1.5`; the model is downloaded to `~/.cache/ai-sentinel/models/` on first run. For another model, add it to `EmbeddingModel.Known` in the tool, or replace `OnnxSentenceEmbeddingGenerator` with the `IEmbeddingGenerator` your application uses. The rule sets High 0.05 and Medium 0.02 above the closest legitimate request, so that no near-miss in the set is reported. The tool exits 1 when a legitimate request reaches High with the thresholds the detectors currently use.
 
 ## Default action: Alert
 
@@ -72,8 +110,4 @@ Embedding similarity measures how close a message is to the examples, not what t
 - a performance review based on work output;
 - research on recidivism statistics.
 
-Because the default action is `Alert`, a false positive costs a review, not a blocked user. Review the Compliance chip on the [dashboard](../getting-started/dashboard) before you raise any of these to `Quarantine`, and disable a detector that does not fit your domain:
-
-```csharp
-opts.Configure<WorkplaceEmotionRecognitionDetector>(c => c.Enabled = false);
-```
+Because the default action is `Alert`, a false positive costs a review, not a blocked user. Review the Compliance chip on the [dashboard](../getting-started/dashboard) before you raise any of these to `Quarantine`, and enable only the detectors that fit your domain: `EnableComplianceDetectors()` turns on all four, `Configure<T>(c => c.Enabled = true)` one.

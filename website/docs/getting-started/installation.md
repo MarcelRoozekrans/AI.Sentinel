@@ -14,7 +14,7 @@ That's it. No native dependencies, no out-of-process services, no databases unle
 
 ## Core install
 
-The minimum viable install — gets you the pipeline, all 60 detectors, the intervention engine, and the in-memory ring-buffer audit store:
+The minimum viable install — gets you the pipeline, all 60 detectors (56 on by default, 4 opt-in compliance detectors), the intervention engine, and the in-memory ring-buffer audit store:
 
 ```bash
 dotnet add package AI.Sentinel

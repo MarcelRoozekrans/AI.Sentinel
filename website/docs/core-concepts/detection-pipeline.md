@@ -21,7 +21,7 @@ The pipeline is invoked **once per pass** — twice per `IChatClient.GetResponse
 ## Internal flow
 
 ```
-1. Filter — skip detectors disabled via Configure<T>(c => c.Enabled = false)
+1. Filter — skip detectors disabled via Configure<T>(c => c.Enabled = false), and opt-in detectors not enabled
 2. Dispatch — invoke every remaining detector's AnalyzeAsync(ctx, ct) in parallel
 3. Fast path — if all ValueTasks completed synchronously, harvest results directly
 4. Slow path — otherwise Task.WhenAll over the AsTask() projections
@@ -32,7 +32,7 @@ The pipeline is invoked **once per pass** — twice per `IChatClient.GetResponse
 
 ## Filter — skip-on-disabled
 
-`Configure<T>(c => c.Enabled = false)` is applied at construction time. Disabled detectors **never enter** the `_detectors` array — zero CPU cost. There's no per-call branch checking enabled-ness.
+`Configure<T>(c => c.Enabled = false)` is applied at construction time. Disabled detectors **never enter** the `_detectors` array — zero CPU cost. There's no per-call branch checking enabled-ness. The same applies to an opt-in detector, one whose `IDetector.EnabledByDefault` is `false`, until `Configure<T>(c => c.Enabled = true)` turns it on; the four Art. 5 compliance detectors are the opt-in ones.
 
 ```csharp
 opts.Configure<RepetitionLoopDetector>(c => c.Enabled = false);
