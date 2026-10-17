@@ -100,7 +100,7 @@ public class McpPipelineFactoryTests
     {
         var preset = allPreset ? McpDetectorPreset.All : McpDetectorPreset.Security;
         var ct = TestContext.Current.CancellationToken;
-        var pipeline = McpPipelineFactory.Create(new HookConfig(), preset, new ExactMatchEmbeddingGenerator(), out var audit);
+        var pipeline = McpPipelineFactory.Create(new HookConfig { EnableComplianceDetectors = true }, preset, new ExactMatchEmbeddingGenerator(), out var audit);
 
         var cmp = await pipeline.ScanMessagesAsync(
             [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "determine each person's race from their profile photo")],

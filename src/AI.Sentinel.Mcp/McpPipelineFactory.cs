@@ -59,7 +59,10 @@ internal static class McpPipelineFactory
             ExampleEmbeddingCache = exampleEmbeddingCache,
             OnDetectorFailure = detectorFailureSink,
         };
-        // Compliance findings forward with an audit entry, as Warn does, instead of following OnHigh.
+        // The compliance detectors are opt-in (SENTINEL_MCP_COMPLIANCE=on). When on, their findings forward
+        // with an audit entry, as Warn does, instead of following OnHigh.
+        if (config.EnableComplianceDetectors)
+            options.EnableComplianceDetectors();
         options.AlertOnComplianceFindings();
 
         var detectors = preset switch
@@ -103,7 +106,8 @@ internal static class McpPipelineFactory
 
     // 13 security detectors, mirroring
     // benchmarks/AI.Sentinel.Benchmarks/Harness/PipelineFactory.SecurityOnly(), plus the 4 Art. 5
-    // compliance detectors. Every preset that runs semantic security detectors also runs CMP-01..04.
+    // compliance detectors. Every preset includes CMP-01..04; they run only when SENTINEL_MCP_COMPLIANCE
+    // turns them on, because they are off by default.
     internal static IDetector[] BuildSecurityDetectors() => BuildSecurityDetectors(new SentinelOptions());
 
     internal static IDetector[] BuildSecurityDetectors(SentinelOptions options) =>

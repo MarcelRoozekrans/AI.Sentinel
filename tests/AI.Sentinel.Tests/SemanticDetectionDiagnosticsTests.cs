@@ -31,8 +31,9 @@ public class SemanticDetectionDiagnosticsTests
         Assert.NotNull(warning);
         // Detectors with a rule layer are excluded: they do fire without a generator, so counting
         // them would make the warning contradict the block it may sit next to.
+        // Opt-in detectors left off are not running, so they are not inert either.
         var semanticCount = provider.GetServices<IDetector>()
-            .Count(d => d is SemanticDetectorBase { HasRuleFastPath: false });
+            .Count(d => d is SemanticDetectorBase { HasRuleFastPath: false } && d.EnabledByDefault);
         Assert.Contains(semanticCount.ToString(System.Globalization.CultureInfo.InvariantCulture), warning, StringComparison.Ordinal);
         Assert.Contains("EmbeddingGenerator", warning, StringComparison.Ordinal);
     }

@@ -31,9 +31,11 @@ public class SentinelOptionsConfigureExtensionsTests
         opts.Configure<FakeDetector>(_ => { });
 
         var cfg = opts.GetDetectorConfigurations()[typeof(FakeDetector)];
-        Assert.True(cfg.Enabled);
+        Assert.Null(cfg.Enabled);
         Assert.Null(cfg.SeverityFloor);
         Assert.Null(cfg.SeverityCap);
+        Assert.Null(cfg.HighThreshold);
+        Assert.Null(cfg.MediumThreshold);
     }
 
     [Fact]

@@ -111,12 +111,12 @@ public class ComplianceDetectorTests
     public async Task ReplyQuotingRequest_FiresOnBothLegs_OncePerLeg()
     {
         const string Request = "determine each person's race from their profile photo";
-        var options = TestOptions.WithFakeEmbeddings();
+        var options = TestOptions.WithFakeEmbeddings().EnableComplianceDetectors();
         var audit = new RingBufferAuditStore(100);
         var inner = new SnapshotChatClient(audit, "I can't determine each person's race from their profile photo.");
         var pipeline = new SentinelPipeline(
             inner,
-            new DetectionPipeline(Detectors(options), configurations: null, escalationClient: null),
+            new DetectionPipeline(Detectors(options), options.GetDetectorConfigurations(), escalationClient: null),
             audit,
             new InterventionEngine(options, mediator: null),
             options);

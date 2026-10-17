@@ -33,18 +33,43 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         Assert.Equal(2, exit);
     }
 
-    // A compliance finding is High, which the hook maps to Block, but the CMP detectors carry
-    // Action = Alert here, so the hook warns: exit 0, reason on stderr.
+    // With SENTINEL_HOOK_COMPLIANCE=on, a compliance finding is High, which the hook maps to Block, but the
+    // CMP detectors carry Action = Alert here, so the hook warns: exit 0, reason on stderr.
     [Fact]
     public async Task Cli_ComplianceFinding_WarnsInsteadOfBlocking()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_COMPLIANCE", "on");
+        try
+        {
+            var stdin = new StringReader("""{"sessionId":"s","prompt":"determine each person's race from their profile photo"}""");
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+
+            var exit = await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr,
+                new ExactMatchEmbeddingGenerator());
+
+            Assert.Equal(0, exit);
+            Assert.Contains("CMP-03", stderr.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_COMPLIANCE", null);
+        }
+    }
+
+    // The compliance detectors are opt-in: without SENTINEL_HOOK_COMPLIANCE the same prompt is not flagged.
+    [Fact]
+    public async Task Cli_ComplianceDetectorsOffByDefault()
     {
         var stdin = new StringReader("""{"sessionId":"s","prompt":"determine each person's race from their profile photo"}""");
         var stdout = new StringWriter();
         var stderr = new StringWriter();
+
         var exit = await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr,
             new ExactMatchEmbeddingGenerator());
+
         Assert.Equal(0, exit);
-        Assert.Contains("CMP-03", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("CMP-", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

@@ -39,6 +39,11 @@ public abstract class SemanticDetectorBase : IDetector
     public abstract DetectorId Id { get; }
     public abstract DetectorCategory Category { get; }
 
+    /// <inheritdoc cref="IDetector.EnabledByDefault"/>
+    /// <remarks>Declared here, not left to the interface's default, so a subclass can override it: a class
+    /// member only implements an interface member for the class that lists the interface.</remarks>
+    public virtual bool EnabledByDefault => true;
+
     /// <summary>Representative phrases that indicate a high-severity threat.</summary>
     protected abstract string[] HighExamples { get; }
     /// <summary>Representative phrases that indicate a medium-severity threat.</summary>
@@ -56,6 +61,12 @@ public abstract class SemanticDetectorBase : IDetector
     protected virtual float HighThreshold => 0.90f;
     protected virtual float MediumThreshold => 0.82f;
     protected virtual float LowThreshold => 0.75f;
+
+    /// <summary>The High threshold <paramref name="configuration"/> sets, or this detector's built-in one.</summary>
+    internal float EffectiveHighThreshold(DetectorConfiguration? configuration) => configuration?.HighThreshold ?? HighThreshold;
+
+    /// <summary>The Medium threshold <paramref name="configuration"/> sets, or this detector's built-in one.</summary>
+    internal float EffectiveMediumThreshold(DetectorConfiguration? configuration) => configuration?.MediumThreshold ?? MediumThreshold;
 
     /// <summary>The High examples, for the offline threshold evaluation in <c>tools/AI.Sentinel.ComplianceEval</c>.</summary>
     internal string[] EvaluationHighExamples => HighExamples;
@@ -116,7 +127,14 @@ public abstract class SemanticDetectorBase : IDetector
         return newest.Role == ChatRole.User ? newest.Text ?? string.Empty : string.Empty;
     }
 
-    public async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+    public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+        AnalyzeAsync(ctx, configuration: null, ct);
+
+    /// <summary>Analyzes with the thresholds of the pipeline that runs this detector.</summary>
+    /// <remarks>One detector instance is shared by every named pipeline, so a pipeline's
+    /// <see cref="DetectorConfiguration.HighThreshold"/> and <see cref="DetectorConfiguration.MediumThreshold"/>
+    /// arrive with each call from <see cref="DetectionPipeline"/> instead of being stored on the detector.</remarks>
+    internal async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, DetectorConfiguration? configuration, CancellationToken ct)
     {
         var text = GetText(ctx);
         if (string.IsNullOrWhiteSpace(text))
@@ -140,9 +158,9 @@ public abstract class SemanticDetectorBase : IDetector
 
         var vector = await GetEmbeddingAsync(text, ct).ConfigureAwait(false);
 
-        if (_highVectors is { Length: > 0 } && MaxSimilarity(vector.Span, _highVectors) >= HighThreshold)
+        if (_highVectors is { Length: > 0 } && MaxSimilarity(vector.Span, _highVectors) >= EffectiveHighThreshold(configuration))
             return DetectionResult.WithSeverity(Id, HighSeverity, "Semantic match — high-severity threat pattern");
-        if (_mediumVectors is { Length: > 0 } && MaxSimilarity(vector.Span, _mediumVectors) >= MediumThreshold)
+        if (_mediumVectors is { Length: > 0 } && MaxSimilarity(vector.Span, _mediumVectors) >= EffectiveMediumThreshold(configuration))
             return DetectionResult.WithSeverity(Id, MediumSeverity, "Semantic match — medium-severity threat pattern");
         if (_lowVectors is { Length: > 0 } && MaxSimilarity(vector.Span, _lowVectors) >= LowThreshold)
             return DetectionResult.WithSeverity(Id, LowSeverity, "Semantic match — low-severity threat pattern");

@@ -4,9 +4,27 @@ namespace AI.Sentinel.Detection;
 /// <see cref="SentinelOptionsConfigureExtensions.Configure{T}"/>.</summary>
 public sealed class DetectorConfiguration
 {
-    /// <summary>When false, the pipeline skips invoking this detector entirely (zero CPU cost).
-    /// Disabled detectors contribute nothing to audit, intervention, or telemetry.</summary>
-    public bool Enabled { get; set; } = true;
+    /// <summary>Whether the pipeline runs this detector. <see langword="null"/> (default) uses the detector's
+    /// <see cref="IDetector.EnabledByDefault"/>: on for almost every detector, off for the opt-in Art. 5
+    /// compliance detectors. <see langword="false"/> skips the detector entirely (zero CPU cost): it contributes
+    /// nothing to audit, intervention, or telemetry. <see langword="true"/> runs an opt-in detector.</summary>
+    public bool? Enabled { get; set; }
+
+    /// <summary>Similarity at or above which a semantic detector reports its High severity. <see langword="null"/>
+    /// (default) uses the detector's built-in value. Honoured by every <see cref="SemanticDetectorBase"/>
+    /// detector; setting it on any other detector is rejected at <c>AddAISentinel</c>. Must be in (0, 1].</summary>
+    /// <remarks>Similarity scales differ between embedding models, so a threshold tuned on one model does not
+    /// carry over to another.</remarks>
+    public float? HighThreshold { get; set; }
+
+    /// <summary>Similarity at or above which a semantic detector reports its Medium severity. <see langword="null"/>
+    /// (default) uses the detector's built-in value. Must be in (0, 1] and not above the effective
+    /// <see cref="HighThreshold"/>.</summary>
+    public float? MediumThreshold { get; set; }
+
+    /// <summary>Whether <paramref name="detector"/> runs under <paramref name="configuration"/>.</summary>
+    internal static bool IsEnabled(IDetector detector, DetectorConfiguration? configuration) =>
+        configuration?.Enabled ?? detector.EnabledByDefault;
 
     /// <summary>Minimum severity for *firing* results. Clean results are unaffected.
     /// A detector returning Severity.Low with Floor = High is rewritten to High.</summary>

@@ -6,7 +6,7 @@ namespace AI.Sentinel.Detectors.Compliance;
 
 /// <summary>CMP-01: requests to score or classify people by their social behaviour or personal traits in a
 /// way that leads to worse treatment, the social scoring the EU AI Act prohibits in Art. 5(1)(c).</summary>
-/// <remarks>Semantic only: it returns <c>Clean</c> until <see cref="SentinelOptions.EmbeddingGenerator"/> is
+/// <remarks>Opt-in: off unless enabled. Semantic only: it returns <c>Clean</c> until <see cref="SentinelOptions.EmbeddingGenerator"/> is
 /// set. A strong match is <see cref="Severity.High"/>, so the default action is Alert, not a block; a weaker
 /// match is <see cref="Severity.Medium"/>, which is logged.</remarks>
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
@@ -16,11 +16,16 @@ public sealed class SocialScoringDetector(SentinelOptions options) : SemanticDet
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Compliance;
 
+    /// <summary>Off by default: runs only after <c>opts.EnableComplianceDetectors()</c> or
+    /// <c>opts.Configure&lt;T&gt;(c =&gt; c.Enabled = true)</c>.</summary>
+    public override bool EnabledByDefault => false;
+
     protected override Severity HighSeverity => Severity.High;
     protected override Severity MediumSeverity => Severity.Medium;
     protected override Severity LowSeverity => Severity.Low;
 
-    // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent. See
+    // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent, and DetectorConfiguration.HighThreshold and
+    // MediumThreshold override them per pipeline. See
     // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
     protected override float HighThreshold => 0.44f;
     protected override float MediumThreshold => 0.39f;

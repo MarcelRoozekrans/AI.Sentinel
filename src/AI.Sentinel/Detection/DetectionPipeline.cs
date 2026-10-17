@@ -33,9 +33,18 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 configurations.TryGetValue(d.GetType(), out cfg);
             }
 
-            if (cfg is not null && !cfg.Enabled)
+            if (!DetectorConfiguration.IsEnabled(d, cfg))
             {
-                continue;  // skip disabled detector entirely — zero CPU on the hot path
+                continue;  // skip disabled or not-opted-in detector entirely — zero CPU on the hot path
+            }
+
+            if (d is SemanticDetectorBase semantic
+                && semantic.EffectiveMediumThreshold(cfg) > semantic.EffectiveHighThreshold(cfg))
+            {
+                // AddAISentinel checks a pair that is set in full; only here, with the instance, is the
+                // built-in value known that fills in a threshold left unset.
+                throw new InvalidOperationException(
+                    $"AI.Sentinel: detector {d.GetType().Name} has MediumThreshold {semantic.EffectiveMediumThreshold(cfg)} above HighThreshold {semantic.EffectiveHighThreshold(cfg)}. Medium must not exceed High.");
             }
 
             if (cfg?.Action == SentinelAction.Redact && d is not IRedactingDetector)
@@ -87,7 +96,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         {
             // Start all detectors
             for (int i = 0; i < _detectors.Length; i++)
-                vTasks[i] = SafeAnalyzeAsync(_detectors[i], ctx, ct);
+                vTasks[i] = SafeAnalyzeAsync(_detectors[i], _configurations[i], ctx, ct);
 
             // Fast path: all completed synchronously (typical for rule-based detectors with cached clean results)
             if (AllCompletedSuccessfully(vTasks, _detectors.Length))
@@ -146,12 +155,19 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// than a block. The prompt would then proceed unscanned by <em>every</em> detector, including the
     /// rule-based ones that never needed the network. One control being unavailable must not disable
     /// the rest.
+    /// <para>
+    /// A semantic detector gets this pipeline's configuration with the call, so its threshold overrides
+    /// apply here and not in another named pipeline that shares the same detector instance.
+    /// </para>
     /// </remarks>
-    private async ValueTask<DetectionResult> SafeAnalyzeAsync(IDetector detector, SentinelContext ctx, CancellationToken ct)
+    private async ValueTask<DetectionResult> SafeAnalyzeAsync(
+        IDetector detector, DetectorConfiguration? configuration, SentinelContext ctx, CancellationToken ct)
     {
         try
         {
-            return await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
+            return detector is SemanticDetectorBase semantic
+                ? await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false)
+                : await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {

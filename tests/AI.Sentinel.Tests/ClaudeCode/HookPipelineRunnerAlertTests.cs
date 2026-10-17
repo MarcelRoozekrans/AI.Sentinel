@@ -20,6 +20,7 @@ public class HookPipelineRunnerAlertTests
             opts.OnHigh = SentinelAction.Quarantine;
             opts.OnMedium = SentinelAction.Quarantine;
             opts.OnLow = SentinelAction.Quarantine;
+            opts.EnableComplianceDetectors();
             opts.AlertOnComplianceFindings();
             opts.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         }).BuildServiceProvider();

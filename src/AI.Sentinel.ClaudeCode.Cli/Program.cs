@@ -71,7 +71,8 @@ public static class Program
         var audit = OpenAudit(out var auditProblems);
         await using var _audit = audit.ConfigureAwait(false);
 
-        var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), audit);
+        var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), audit,
+            enableComplianceDetectors: config.EnableComplianceDetectors);
         await using var _ = provider.ConfigureAwait(false);
 
         var adapter = new HookAdapter(provider, config);
@@ -218,7 +219,8 @@ public static class Program
         ApprovalConfig? approvalConfig,
         IEmbeddingCache? exampleEmbeddingCache = null,
         Action<string>? detectorFailureSink = null,
-        LocalAuditSession? audit = null)
+        LocalAuditSession? audit = null,
+        bool enableComplianceDetectors = false)
     {
         var services = new ServiceCollection();
         var backendKind = approvalConfig is null
@@ -243,7 +245,10 @@ public static class Program
             opts.OnHigh = SentinelAction.Quarantine;
             opts.OnMedium = SentinelAction.Quarantine;
             opts.OnLow = SentinelAction.Quarantine;
-            // Compliance findings warn instead of following the High-to-Block mapping.
+            // The compliance detectors are opt-in (SENTINEL_HOOK_COMPLIANCE=on). When on, their findings warn
+            // instead of following the High-to-Block mapping.
+            if (enableComplianceDetectors)
+                opts.EnableComplianceDetectors();
             opts.AlertOnComplianceFindings();
             opts.EmbeddingGenerator = embeddingGenerator;
             // Without this the hook re-embeds every detector's example phrases on every invocation.
