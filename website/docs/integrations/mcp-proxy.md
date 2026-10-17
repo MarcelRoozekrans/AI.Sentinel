@@ -126,7 +126,7 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 - `SEC-30` ShorthandEmergence
 - `CMP-01` to `CMP-04`, the [compliance detectors](../detectors/compliance)
 
-Only `SEC-02` and `SEC-19` and the rule layers of `SEC-01` and `SEC-05` fire without an embedding generator; the rest are semantic and need `SENTINEL_EMBEDDING_ENDPOINT`. A compliance finding is `High`, so `SENTINEL_HOOK_ON_HIGH`, which defaults to `Block`, decides what the proxy does with it.
+Only `SEC-02` and `SEC-19` and the rule layers of `SEC-01` and `SEC-05` fire without an embedding generator; the rest are semantic and need `SENTINEL_EMBEDDING_ENDPOINT`. The compliance detectors carry the `Alert` action, so a compliance finding is written to the audit log and the call forwards, as with `Warn`, whatever `SENTINEL_HOOK_ON_HIGH` says. Every other detector follows the `SENTINEL_HOOK_ON_*` mapping.
 
 `SENTINEL_MCP_DETECTORS=all` runs every detector including operational and hallucination — useful in some adversarial-testing scenarios but generates false positives on structured JSON tool calls (`OPS-04 PlaceholderText` may flag an "Insert here" string in a code-completion result).
 
