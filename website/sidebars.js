@@ -22,6 +22,7 @@ const sidebars = {
         'core-concepts/severity-model',
       ],
     },
+    'eu-ai-act',
     'redaction',
     'transparency',
     'compliance-report',
