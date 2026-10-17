@@ -62,6 +62,7 @@ public static class ServiceCollectionExtensions
         RejectRedactOnSeverityOptions(opts);
         RejectRedactOnNonRedactingDetectors(opts, nameof(configure));
         RejectInvalidTransparencyOptions(opts, nameof(configure));
+        RejectInvalidThresholds(opts, nameof(configure));
 
         // Auto-register InMemoryApprovalStore if any binding has an ApprovalSpec and the user
         // hasn't registered an IApprovalStore yet. Keeps the happy path zero-config.
@@ -149,11 +150,47 @@ public static class ServiceCollectionExtensions
     {
         foreach (var (type, cfg) in opts.GetDetectorConfigurations())
         {
-            if (cfg.Enabled && cfg.Action == SentinelAction.Redact && !typeof(IRedactingDetector).IsAssignableFrom(type))
+            if (cfg.Enabled != false && cfg.Action == SentinelAction.Redact && !typeof(IRedactingDetector).IsAssignableFrom(type))
             {
                 throw new ArgumentException(
                     $"AI.Sentinel: detector {type.Name} is configured with Action = Redact but does not implement IRedactingDetector. " +
                     "Only detectors that can locate their match can redact.",
+                    paramName);
+            }
+        }
+    }
+
+    // Thresholds are honoured only by semantic detectors; on any other detector they would silently do nothing.
+    // A threshold left unset takes the detector's built-in value, which only the instance knows, so a pair
+    // that mixes the two is checked again by DetectionPipeline when it is built.
+    private static void RejectInvalidThresholds(SentinelOptions opts, string paramName)
+    {
+        foreach (var (type, cfg) in opts.GetDetectorConfigurations())
+        {
+            if (cfg.HighThreshold is null && cfg.MediumThreshold is null) continue;
+
+            if (!typeof(SemanticDetectorBase).IsAssignableFrom(type))
+            {
+                throw new ArgumentException(
+                    $"AI.Sentinel: detector {type.Name} is configured with a HighThreshold or MediumThreshold but is not a semantic detector. " +
+                    "Only SemanticDetectorBase detectors use similarity thresholds.",
+                    paramName);
+            }
+
+            foreach (var (name, value) in new[] { ("HighThreshold", cfg.HighThreshold), ("MediumThreshold", cfg.MediumThreshold) })
+            {
+                if (value is { } v && !(v > 0f && v <= 1f))
+                {
+                    throw new ArgumentException(
+                        $"AI.Sentinel: detector {type.Name} has {name} {v}. A similarity threshold must be greater than 0 and at most 1.",
+                        paramName);
+                }
+            }
+
+            if (cfg.HighThreshold is { } high && cfg.MediumThreshold is { } medium && medium > high)
+            {
+                throw new ArgumentException(
+                    $"AI.Sentinel: detector {type.Name} has MediumThreshold {medium} above HighThreshold {high}. Medium must not exceed High.",
                     paramName);
             }
         }
@@ -340,13 +377,22 @@ public static class ServiceCollectionExtensions
             return null;
         }
 
-        var count = sp.GetServices<IDetector>().Count(d => d is SemanticDetectorBase { HasRuleFastPath: false });
+        var count = CountInertSemantic(opts, sp.GetServices<IDetector>());
         if (count == 0)
         {
             return null;
         }
 
         return InertSemanticMessage(count, pipelineName);
+    }
+
+    /// <summary>Semantic detectors without a rule layer that this pipeline would run: an opt-in detector left
+    /// off is not inert, it is simply not running.</summary>
+    private static int CountInertSemantic(SentinelOptions opts, IEnumerable<IDetector> detectors)
+    {
+        var configurations = opts.GetDetectorConfigurations();
+        return detectors.Count(d => d is SemanticDetectorBase { HasRuleFastPath: false }
+            && DetectorConfiguration.IsEnabled(d, configurations.GetValueOrDefault(d.GetType())));
     }
 
     private static string InertSemanticMessage(int count, string? pipelineName)
@@ -389,7 +435,7 @@ public static class ServiceCollectionExtensions
             return null;
         }
 
-        var count = detectors.Count(d => d is SemanticDetectorBase { HasRuleFastPath: false });
+        var count = CountInertSemantic(options, detectors);
         return count == 0 ? null : InertSemanticMessage(count, pipelineName: null);
     }
 

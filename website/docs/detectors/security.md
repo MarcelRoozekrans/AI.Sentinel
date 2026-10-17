@@ -49,7 +49,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 The severity each detector emits depends on what fires:
 
 - **Rule-based detectors** typically pin to one or two severities per pattern class. `PiiLeakageDetector` for example emits `Critical` for credit cards / SSNs, `High` for IBANs, `Medium` for emails+name, `Low` for phone numbers.
-- **Semantic detectors** emit `High` / `Medium` / `Low` based on cosine similarity against their reference example sets, with thresholds at 0.90 / 0.82 / 0.75 by default. Override by subclassing and setting `HighThreshold` / `MediumThreshold` / `LowThreshold` overrides.
+- **Semantic detectors** emit `High` / `Medium` / `Low` based on cosine similarity against their reference example sets, with thresholds at 0.90 / 0.82 / 0.75 by default. Set High and Medium per detector with `opts.Configure<T>(c => { c.HighThreshold = …; c.MediumThreshold = …; })`, see [fluent configuration](../configuration/fluent-config); `LowThreshold` changes only by subclassing.
 - **LLM-escalation detectors** start with a rule-based hit and ask a second-pass LLM classifier to confirm or downgrade the severity.
 
 ## Tuning specific detectors

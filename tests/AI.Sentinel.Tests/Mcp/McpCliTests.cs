@@ -138,4 +138,26 @@ public class McpCliTests : McpAuditOffFixtureBase
             File.Delete(configPath);
         }
     }
+
+    // SENTINEL_MCP_COMPLIANCE turns the opt-in compliance detectors on or off for the proxy; unset, it falls
+    // back to SENTINEL_HOOK_COMPLIANCE, as the severity settings fall back to SENTINEL_HOOK_ON_*.
+    [Theory]
+    [InlineData(null, null, false)]
+    [InlineData("on", null, true)]
+    [InlineData("off", null, false)]
+    [InlineData(null, "on", true)]
+    [InlineData("off", "on", false)]
+    [InlineData("banana", "on", true)]
+    public void ComplianceSwitch_EnablesTheComplianceDetectors(string? mcp, string? hook, bool expected)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["SENTINEL_MCP_COMPLIANCE"] = mcp,
+            ["SENTINEL_HOOK_COMPLIANCE"] = hook,
+        };
+
+        var config = ProxyCommand.ResolveHookConfig(["proxy", "--target", "x"], env);
+
+        Assert.Equal(expected, config.EnableComplianceDetectors);
+    }
 }

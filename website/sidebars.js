@@ -32,6 +32,7 @@ const sidebars = {
         'detectors/security',
         'detectors/hallucination',
         'detectors/operational',
+        'detectors/compliance',
       ],
     },
     {

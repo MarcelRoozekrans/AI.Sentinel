@@ -125,7 +125,19 @@ new DetectorTestBuilder()
     .ExpectDetection(Severity.High);
 ```
 
-`WithOptions` is **only effective with the factory overload** of `WithDetector<T>`. The parameterless `WithDetector<T>()` and instance `WithDetector(IDetector)` overloads don't see options changes — you'd pass options to the detector's constructor yourself in those cases.
+Options the detector reads in its constructor, such as `EmbeddingGenerator`, reach it **only through the factory overload** of `WithDetector<T>`. The parameterless `WithDetector<T>()` and instance `WithDetector(IDetector)` overloads don't see them — you'd pass options to the detector's constructor yourself in those cases.
+
+Thresholds set with `Configure<T>` apply to a `SemanticDetectorBase` detector from any overload, because the builder passes them with each call, as the pipeline does. A `MediumThreshold` above the effective `HighThreshold` throws `InvalidOperationException`:
+
+```csharp
+new DetectorTestBuilder()
+    .WithDetector<MyJailbreakDetector>(opts => new MyJailbreakDetector(opts))
+    .WithOptions(o => o.Configure<MyJailbreakDetector>(c => c.HighThreshold = 0.85f))
+    .WithPrompt("...")
+    .ExpectDetection(Severity.High);
+```
+
+The builder runs the detector even when its `EnabledByDefault` is `false` or `Configure<T>` sets `Enabled = false`: it tests the detector, not whether a pipeline would run it.
 
 ## Failure messages
 

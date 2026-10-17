@@ -16,12 +16,14 @@ namespace AI.Sentinel.Cli;
 public static class ForensicsPipelineFactory
 {
     /// <summary>Builds a service provider + pipeline wired for forensics replay using the supplied inner chat client.</summary>
+    /// <param name="enableComplianceDetectors">Runs the opt-in Art. 5 compliance detectors, CMP-01 to CMP-04.</param>
     /// <returns>The provider (for disposal) and the pipeline.</returns>
     public static (ServiceProvider Provider, SentinelPipeline Pipeline) Build(
         IChatClient innerClient,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
         IEmbeddingCache? exampleEmbeddingCache = null,
-        Action<string>? detectorFailureSink = null)
+        Action<string>? detectorFailureSink = null,
+        bool enableComplianceDetectors = false)
     {
         ArgumentNullException.ThrowIfNull(innerClient);
 
@@ -35,6 +37,9 @@ public static class ForensicsPipelineFactory
             opts.EmbeddingGenerator = embeddingGenerator;
             opts.ExampleEmbeddingCache = exampleEmbeddingCache;
             opts.OnDetectorFailure = detectorFailureSink;
+            // The Art. 5 compliance detectors are opt-in, so a scan runs them only when asked to.
+            if (enableComplianceDetectors)
+                opts.EnableComplianceDetectors();
         });
         var provider = services.BuildServiceProvider();
         var pipeline = provider.BuildSentinelPipeline(innerClient);

@@ -4,8 +4,10 @@ namespace AI.Sentinel.Tests.Helpers;
 
 /// <summary>
 /// Deterministic embedding generator for unit tests. Uses character bigram
-/// frequency vectors — identical strings score cosine 1.0, unrelated strings
-/// score near 0. No API keys or network required.
+/// frequency vectors hashed into 256 buckets: identical strings score cosine 1.0,
+/// but two unrelated short English sentences share enough bigrams to score around
+/// 0.5 to 0.75, so it cannot stand in for a detector whose threshold sits below that.
+/// No API keys or network required.
 /// </summary>
 public sealed class FakeEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
 {

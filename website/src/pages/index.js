@@ -27,8 +27,8 @@ function HeroBanner() {
 
 const features = [
   {
-    title: '55 detectors out of the box',
-    description: 'Prompt injection, jailbreaks, PII / credential leakage, hallucinated citations, repetition loops — security, hallucination, and operational coverage from day one.',
+    title: '60 detectors out of the box',
+    description: 'Prompt injection, jailbreaks, PII / credential leakage, hallucinated citations, repetition loops — security, hallucination and operational coverage from day one, plus opt-in EU AI Act Art. 5 detectors.',
   },
   {
     title: 'Drop-in IChatClient middleware',
@@ -140,7 +140,7 @@ function PackagesSection() {
           <div className="col col--4">
             <div className={styles.packageCard}>
               <h3>AI.Sentinel</h3>
-              <p>Core — pipeline, 55 detectors, intervention engine, audit store.</p>
+              <p>Core — pipeline, 60 detectors, intervention engine, audit store.</p>
             </div>
           </div>
           <div className="col col--4">

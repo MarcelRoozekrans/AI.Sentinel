@@ -290,4 +290,61 @@ public class DetectorTestBuilderTests
             .WithPrompt("the weather forecast for tomorrow is partly cloudy")
             .ExpectClean(TestContext.Current.CancellationToken);
     }
+
+    /// <summary>Thresholds set through <see cref="SentinelOptionsConfigureExtensions.Configure{T}"/> in
+    /// <see cref="DetectorTestBuilder.WithOptions"/> apply to the detector under test, as they do in the pipeline.</summary>
+    [Fact]
+    public async Task WithOptions_ConfiguredThresholds_ApplyToASemanticDetector()
+    {
+        const string prompt = "act as my twin";
+        var ct = TestContext.Current.CancellationToken;
+        await new DetectorTestBuilder()
+            .WithDetector<TestSemanticDetector>(opts => new TestSemanticDetector(opts))
+            .WithPrompt(prompt)
+            .ExpectClean(ct);
+
+        await new DetectorTestBuilder()
+            .WithDetector<TestSemanticDetector>(opts => new TestSemanticDetector(opts))
+            .WithOptions(o => o.Configure<TestSemanticDetector>(c =>
+            {
+                c.HighThreshold = 0.05f;
+                c.MediumThreshold = 0.05f;
+            }))
+            .WithPrompt(prompt)
+            .ExpectDetectionExactly(Severity.High, ct);
+    }
+
+    /// <summary>A MediumThreshold above the effective HighThreshold is rejected, as when the pipeline is built.</summary>
+    [Fact]
+    public async Task WithOptions_MediumAboveBuiltInHigh_Throws()
+    {
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            new DetectorTestBuilder()
+                .WithDetector<TestSemanticDetector>(opts => new TestSemanticDetector(opts))
+                .WithOptions(o => o.Configure<TestSemanticDetector>(c => c.MediumThreshold = 0.95f))
+                .WithPrompt("anything")
+                .RunAsync(TestContext.Current.CancellationToken));
+
+        Assert.Contains("Medium must not exceed High", ex.Message, StringComparison.Ordinal);
+    }
+
+    private sealed class OptInDetector : IDetector
+    {
+        private static readonly DetectorId _id = new("MYORG-OPT-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Security;
+        public bool EnabledByDefault => false;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+            => ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.High, "opt-in"));
+    }
+
+    /// <summary>The builder tests the detector itself, so an opt-in detector runs without being enabled.</summary>
+    [Fact]
+    public async Task OptInDetector_RunsWithoutBeingEnabled()
+    {
+        await new DetectorTestBuilder()
+            .WithDetector<OptInDetector>()
+            .WithPrompt("anything")
+            .ExpectDetectionExactly(Severity.High, TestContext.Current.CancellationToken);
+    }
 }

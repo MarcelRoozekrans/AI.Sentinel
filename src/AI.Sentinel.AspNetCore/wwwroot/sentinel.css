@@ -219,7 +219,7 @@ tr.audit-row-authz td:first-child {
   border-left: 0;
 }
 
-/* Filter chips (Security / Hallucination / Operational / Authorization) */
+/* Filter chips (Security / Hallucination / Operational / Compliance / Authorization) */
 .feed-chips {
   display: flex;
   gap: 0.4rem;
@@ -281,6 +281,7 @@ tr.audit-row-authz td:first-child {
 .feed-chip.chip-security.active      { border-color: #ef4444; color: #fca5a5; }
 .feed-chip.chip-hallucination.active { border-color: #eab308; color: #fde68a; }
 .feed-chip.chip-operational.active   { border-color: #38bdf8; color: #7dd3fc; }
+.feed-chip.chip-compliance.active    { border-color: #a855f7; color: #d8b4fe; }
 .feed-chip.chip-redacted.active      { border-color: #38bdf8; color: #7dd3fc; }
 .feed-chip.chip-disclosed.active     { border-color: #a78bfa; color: #c4b5fd; }
 .feed-chip.chip-approval.active      { border-color: #2dd4bf; color: #5eead4; }
@@ -480,5 +481,6 @@ tr.audit-row-authz td:first-child {
   .badge.approval { background: rgba(13,148,136,0.12); color: #0f766e; }
   .feed-chip.chip-disclosed.active { color: #6d28d9; }
   .feed-chip.chip-approval.active { color: #0f766e; }
+  .feed-chip.chip-compliance.active { color: #7e22ce; }
   .export-button { background: #f1f5f9; }
 }

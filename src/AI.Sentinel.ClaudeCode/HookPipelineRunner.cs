@@ -7,13 +7,18 @@ namespace AI.Sentinel.ClaudeCode;
 
 /// <summary>
 /// Vendor-agnostic pipeline runner for hook adapters. Takes the mapped
-/// <see cref="ChatMessage"/> list, runs it through AI.Sentinel using
-/// <see cref="SentinelPipeline.ScanMessagesAsync"/> (prompt-only — no inner
-/// LLM call), and returns a <see cref="HookOutput"/>.
+/// <see cref="ChatMessage"/> list, runs it through AI.Sentinel prompt-only, with no inner
+/// LLM call, and returns a <see cref="HookOutput"/>.
 /// </summary>
 /// <remarks>
+/// Each detection gets its own decision. One whose action is Quarantine maps through <see cref="HookConfig"/>
+/// by severity. One whose action is Alert surfaces as Warn, or as Allow when HookConfig maps its severity to
+/// Allow. One whose action is Log or PassThrough gives Allow. The hook answers the most restrictive of these
+/// decisions, and its reason names the detection behind it, the higher severity on a tie.
+/// <para>
 /// Public so that other vendor adapters (e.g. <c>AI.Sentinel.Copilot</c>)
 /// can call it after doing their own payload -> messages mapping.
+/// </para>
 /// </remarks>
 public static class HookPipelineRunner
 {
@@ -25,7 +30,7 @@ public static class HookPipelineRunner
     /// <see langword="null"/>, empty or whitespace means none, and a fresh id is minted for the call.
     /// The pipeline itself takes the <see cref="SessionId"/> domain type; this method converts.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>Allow when nothing was detected, otherwise the decision for the detected severity.</returns>
+    /// <returns>Allow when nothing was detected, otherwise the most restrictive per-detection decision.</returns>
     public static async Task<HookOutput> RunAsync(
         IServiceProvider provider,
         HookConfig config,
@@ -37,23 +42,58 @@ public static class HookPipelineRunner
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(messages);
 
-        // Build a pipeline bound to an unused inner client — ScanMessagesAsync
-        // never invokes it, so the client shape is irrelevant.
+        // Build a pipeline bound to an unused inner client — a prompt-only scan
+        // never invokes it, so the client shape is irrelevant. This scan returns every
+        // detection with its action, so the hook decides per detection.
         var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
-        var error = await pipeline.ScanMessagesAsync(
-            messages, null, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), ct).ConfigureAwait(false);
+        var findings = await pipeline.ScanMessagesForFindingsAsync(
+            messages, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), ct).ConfigureAwait(false);
 
-        if (error is SentinelError.ThreatDetected t)
+        // A clean scan, or one refused by the rate limit, allows. Hook invocations don't
+        // honor rate limits (they're not real LLM calls), so the latter is unreachable in practice.
+        return Decide(findings, config);
+    }
+
+    /// <summary>
+    /// The most restrictive per-detection decision, and on a tie the higher severity for the reason. Deciding per
+    /// detection, rather than mapping the most restrictive action's representative, keeps an Alert, such as a
+    /// compliance finding in the hook CLIs, from being lost when it co-fires with a Quarantine detection whose
+    /// severity HookConfig maps to Allow.
+    /// </summary>
+    internal static HookOutput Decide(IReadOnlyList<ScanFinding> findings, HookConfig config)
+    {
+        DetectionResult? reason = null;
+        var decision = HookDecision.Allow;
+        foreach (var finding in findings)
         {
-            var decision = HookSeverityMapper.Map(t.Result.Severity, config);
-            var reason = $"{t.Result.DetectorId.Value} {t.Result.Severity}: {t.Result.Reason}";
-            return new HookOutput { Decision = decision, Reason = reason };
+            if (DecisionFor(finding, config) is not { } candidate) continue;
+            if (reason is null || candidate > decision
+                || (candidate == decision && finding.Detection.Severity > reason.Severity))
+            {
+                decision = candidate;
+                reason = finding.Detection;
+            }
         }
 
-        // RateLimitExceeded and any other non-ThreatDetected error are not exposed
-        // to hooks today — treat as Allow. Hook invocations don't honor rate limits
-        // (they're not real LLM calls), so this path should be unreachable in practice.
-        return new HookOutput { Decision = HookDecision.Allow };
+        return reason is null
+            ? new HookOutput { Decision = HookDecision.Allow }
+            : new HookOutput { Decision = decision, Reason = $"{reason.DetectorId.Value} {reason.Severity}: {reason.Reason}" };
+    }
+
+    /// <summary>
+    /// Quarantine maps through <see cref="HookConfig"/> by severity. Alert warns, but never overrides an operator who
+    /// mapped its severity to Allow. Log and PassThrough allow without a reason, so they return
+    /// <see langword="null"/>.
+    /// </summary>
+    private static HookDecision? DecisionFor(ScanFinding finding, HookConfig config)
+    {
+        var mapped = HookSeverityMapper.Map(finding.Detection.Severity, config);
+        return finding.Action switch
+        {
+            SentinelAction.Quarantine => mapped,
+            SentinelAction.Alert => mapped < HookDecision.Warn ? mapped : HookDecision.Warn,
+            _ => null,
+        };
     }
 
     // IChatClient satisfying BuildSentinelPipeline's signature. Never invoked.

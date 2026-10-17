@@ -77,13 +77,13 @@ The clamp pass means audit entries reflect **policy-applied** severity, not raw 
 
 ## Where each detector falls
 
-Every detector has a typical severity range. Some pin to a single level (`SEC-23 PiiLeakage` emits `Critical` for credit cards, `Medium` for phone numbers — it's pattern-class-driven). Others span the whole range based on their semantic-similarity bucket (any `SemanticDetectorBase` subclass: `High` if a high-bucket example matches at >0.90 cosine, `Medium` at >0.82, `Low` at >0.75, otherwise `Clean`).
+Every detector has a typical severity range. Some pin to a single level (`SEC-23 PiiLeakage` emits `Critical` for credit cards, `Medium` for phone numbers — it's pattern-class-driven). Others span the whole range based on their semantic-similarity bucket (any `SemanticDetectorBase` subclass: `High` if a High example matches at or above the detector's `HighThreshold`, `Medium` at or above its `MediumThreshold`, `Low` at or above its `LowThreshold`, otherwise `Clean`). The base defaults are 0.90, 0.82 and 0.75; a detector can set its own, as the compliance detectors do, and `Configure<T>(c => c.HighThreshold = …)` overrides High and Medium per pipeline.
 
 | Detector type | Severity behavior |
 |---|---|
 | Rule-based, single pattern class | One severity per detector |
 | Rule-based, multi-pattern (e.g., PII) | Pattern-driven; different patterns emit different severities |
-| Semantic (`SemanticDetectorBase`) | Bucket-driven: `HighThreshold` (default 0.90) → High, `MediumThreshold` (0.82) → Medium, `LowThreshold` (0.75) → Low |
+| Semantic (`SemanticDetectorBase`) | Bucket-driven, cosine at or above: `HighThreshold` (base default 0.90) → High, `MediumThreshold` (0.82) → Medium, `LowThreshold` (0.75) → Low. Per detector; High and Medium overridable through `Configure<T>` |
 | LLM escalation | Initial rule-based hit, then LLM may downgrade or upgrade |
 
 See the [detector reference pages](../detectors/overview) for per-detector severity guidance.

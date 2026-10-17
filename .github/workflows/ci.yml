@@ -33,6 +33,11 @@ jobs:
       - name: Build
         run: dotnet build AI.Sentinel.slnx --no-restore -c Release
 
+      # The Art. 5 evaluation tool is outside the solution because running it downloads a model,
+      # but it reads AI.Sentinel internals, so build it to catch drift. Build only: nothing runs it here.
+      - name: Build compliance evaluation tool
+        run: dotnet build tools/AI.Sentinel.ComplianceEval/AI.Sentinel.ComplianceEval.csproj -c Release
+
       - name: Test
         # One Cobertura file per test app and target framework; Codecov merges them.
         run: dotnet test AI.Sentinel.slnx --no-build -c Release --verbosity normal --coverage --coverage-output-format cobertura --coverage-settings coverage.config.xml --results-directory TestResults

@@ -184,6 +184,7 @@ internal static class DashboardHandlers
         "security" => detectorId.StartsWith("SEC-", StringComparison.Ordinal),
         "hallucination" => detectorId.StartsWith("HAL-", StringComparison.Ordinal),
         "operational" => detectorId.StartsWith("OPS-", StringComparison.Ordinal),
+        "compliance" => detectorId.StartsWith("CMP-", StringComparison.Ordinal),
         "authorization" or "authz" => detectorId.StartsWith("AUTHZ-", StringComparison.Ordinal),  // 'authz' = legacy alias
         _ => true,
     };
@@ -206,7 +207,7 @@ internal static class DashboardHandlers
     }
 
     private static bool IsKnownCategory(string category) =>
-        category is "security" or "hallucination" or "operational" or "authorization" or "authz";
+        category is "security" or "hallucination" or "operational" or "compliance" or "authorization" or "authz";
 
     /// <summary>Single-source-of-truth filter pipeline used by /api/feed and /api/export.ndjson.
     /// /api/trend deliberately does NOT use this — it always renders the global trend (design D4).

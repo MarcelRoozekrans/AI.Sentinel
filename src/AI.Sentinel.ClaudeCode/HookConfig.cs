@@ -29,6 +29,10 @@ public sealed record HookConfig
     /// Set it only after accepting that SEC-01 and SEC-05 will not fire.</summary>
     public bool SuppressSemanticWarning { get; init; }
 
+    /// <summary>When true, the Art. 5 compliance detectors CMP-01 to CMP-04 run. They are off by default; when on,
+    /// a finding warns instead of following <see cref="OnHigh"/>. Set by <c>SENTINEL_HOOK_COMPLIANCE=on</c>.</summary>
+    public bool EnableComplianceDetectors { get; init; }
+
     /// <summary>
     /// Resolves the caller identity from the hook input. When <c>null</c> (the default),
     /// <see cref="AnonymousSecurityContext.Instance"/> is used for authorization checks.
@@ -46,11 +50,19 @@ public sealed record HookConfig
             OnLow = ParseDecision(env, "SENTINEL_HOOK_ON_LOW", HookDecision.Allow),
             Verbose = ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"),
             SuppressSemanticWarning = ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"),
+            EnableComplianceDetectors = ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE"),
         };
     }
 
     private static HookDecision ParseDecision(IReadOnlyDictionary<string, string?> env, string key, HookDecision fallback)
         => env.TryGetValue(key, out var v) && Enum.TryParse<HookDecision>(v, ignoreCase: true, out var d) ? d : fallback;
+
+    /// <summary>Reads an on/off switch: <c>on</c>, <c>1</c>, <c>true</c> or <c>yes</c> turn it on; anything else leaves it off.</summary>
+    private static bool ParseSwitch(IReadOnlyDictionary<string, string?> env, string key)
+    {
+        if (!env.TryGetValue(key, out var v) || string.IsNullOrEmpty(v)) return false;
+        return string.Equals(v, "on", StringComparison.OrdinalIgnoreCase) || ParseVerbose(env, key);
+    }
 
     private static bool ParseVerbose(IReadOnlyDictionary<string, string?> env, string key)
     {

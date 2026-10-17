@@ -2,6 +2,7 @@ using Microsoft.Extensions.AI;
 using AI.Sentinel.Audit;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Detectors.Compliance;
 using AI.Sentinel.Detectors.Hallucination;
 using AI.Sentinel.Detectors.Operational;
 using AI.Sentinel.Detectors.Security;
@@ -58,6 +59,11 @@ internal static class McpPipelineFactory
             ExampleEmbeddingCache = exampleEmbeddingCache,
             OnDetectorFailure = detectorFailureSink,
         };
+        // The compliance detectors are opt-in (SENTINEL_MCP_COMPLIANCE=on). When on, their findings forward
+        // with an audit entry, as Warn does, instead of following OnHigh.
+        if (config.EnableComplianceDetectors)
+            options.EnableComplianceDetectors();
+        options.AlertOnComplianceFindings();
 
         var detectors = preset switch
         {
@@ -83,7 +89,7 @@ internal static class McpPipelineFactory
         IReadOnlyList<IAuditForwarder>? forwarders = null)
         => new(
             innerClient: UnusedChatClient.Instance,
-            pipeline: new DetectionPipeline(detectors, configurations: null, escalationClient: null,
+            pipeline: new DetectionPipeline(detectors, options.GetDetectorConfigurations(), escalationClient: null,
                                     logger: null, onDetectorFailure: detectorFailureSink,
                                     redactByDefault: options.RedactByDefault),
             auditStore: store,
@@ -98,8 +104,10 @@ internal static class McpPipelineFactory
         _ => SentinelAction.PassThrough,
     };
 
-    // 13 semantic security detectors — mirrors
-    // benchmarks/AI.Sentinel.Benchmarks/Harness/PipelineFactory.SecurityOnly().
+    // 13 security detectors, mirroring
+    // benchmarks/AI.Sentinel.Benchmarks/Harness/PipelineFactory.SecurityOnly(), plus the 4 Art. 5
+    // compliance detectors. Every preset includes CMP-01..04; they run only when SENTINEL_MCP_COMPLIANCE
+    // turns them on, because they are off by default.
     internal static IDetector[] BuildSecurityDetectors() => BuildSecurityDetectors(new SentinelOptions());
 
     internal static IDetector[] BuildSecurityDetectors(SentinelOptions options) =>
@@ -117,9 +125,10 @@ internal static class McpPipelineFactory
         new ExcessiveAgencyDetector(options),  // SEC-21
         new HumanTrustManipulationDetector(options), // SEC-22
         new ShorthandEmergenceDetector(options),     // SEC-30
+        .. BuildComplianceSection(options),
     ];
 
-    // 56 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
+    // 60 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
     // source-gen. Keep these in sync whenever a new detector is decorated with
     // [Singleton(As = typeof(IDetector), AllowMultiple = true)]. The drift-
     // detection test BuildAllDetectors_CountMatchesRegisteredIDetectorCount
@@ -127,10 +136,20 @@ internal static class McpPipelineFactory
     internal static IDetector[] BuildAllDetectors() => BuildAllDetectors(new SentinelOptions());
 
     internal static IDetector[] BuildAllDetectors(SentinelOptions options) =>
-        [.. BuildSecuritySection(options), .. BuildQualitySection(options)];
+        [.. BuildSecuritySection(options), .. BuildQualitySection(options), .. BuildComplianceSection(options)];
 
-    /// <summary>Split from BuildAllDetectors only to stay inside the method-length limit; the two
-    /// halves together must still mirror every [Singleton] detector in the assembly.</summary>
+    /// <summary>The Art. 5 prohibited-practice detectors. Shared by both presets.</summary>
+    private static IDetector[] BuildComplianceSection(SentinelOptions options) =>
+    [
+        // Compliance (4)
+        new SocialScoringDetector(options),
+        new WorkplaceEmotionRecognitionDetector(options),
+        new SensitiveBiometricCategorisationDetector(options),
+        new ProfilingCrimePredictionDetector(options),
+    ];
+
+    /// <summary>Split from BuildAllDetectors only to stay inside the method-length limit; the sections
+    /// together must still mirror every [Singleton] detector in the assembly.</summary>
     private static IDetector[] BuildQualitySection(SentinelOptions options) =>
     [
         // Hallucination (9)

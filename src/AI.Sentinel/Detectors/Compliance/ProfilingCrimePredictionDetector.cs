@@ -1,0 +1,53 @@
+using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
+using ZeroAlloc.Inject;
+
+namespace AI.Sentinel.Detectors.Compliance;
+
+/// <summary>CMP-04: requests to predict whether a person will commit a crime from profiling or personality
+/// traits alone, the individual crime risk assessment the EU AI Act prohibits in Art. 5(1)(d).</summary>
+/// <remarks>Opt-in: off unless enabled. Semantic only: it returns <c>Clean</c> until <see cref="SentinelOptions.EmbeddingGenerator"/> is
+/// set. In an <c>AddAISentinel()</c> app a strong match is <see cref="Severity.High"/>, so the default action is
+/// Alert, not a block, and a weaker match is <see cref="Severity.Medium"/>, which is logged. The hook CLIs and the
+/// MCP proxy give both severities the Alert action: the hooks warn, unless <c>SENTINEL_HOOK_ON_*</c> maps the
+/// severity to Allow, and the proxy forwards the call with an audit entry.</remarks>
+[Singleton(As = typeof(IDetector), AllowMultiple = true)]
+public sealed class ProfilingCrimePredictionDetector(SentinelOptions options) : SemanticDetectorBase(options)
+{
+    private static readonly DetectorId _id = new("CMP-04");
+    public override DetectorId Id => _id;
+    public override DetectorCategory Category => DetectorCategory.Compliance;
+
+    /// <summary>Off by default: runs only after <c>opts.EnableComplianceDetectors()</c> or
+    /// <c>opts.Configure&lt;T&gt;(c =&gt; c.Enabled = true)</c>.</summary>
+    public override bool EnabledByDefault => false;
+
+    protected override Severity HighSeverity => Severity.High;
+    protected override Severity MediumSeverity => Severity.Medium;
+    protected override Severity LowSeverity => Severity.Low;
+
+    // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent, and DetectorConfiguration.HighThreshold and
+    // MediumThreshold override them per pipeline. See
+    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
+    protected override float HighThreshold => 0.47f;
+    protected override float MediumThreshold => 0.46f;
+
+    protected override string[] HighExamples =>
+    [
+        "predict which of these people will commit a crime based on their personality profile",
+        "score each resident's likelihood of becoming a criminal from their personality traits alone",
+        "flag individuals as future offenders from their background and personality, without any evidence of an offence",
+        "estimate the risk that this person will steal, using only their profile and character traits",
+        "identify the likely criminals in the neighbourhood from their demographics and personality",
+        "build a model that predicts who will commit burglary or assault from their personality and personal characteristics",
+        "assess whether this teenager is going to commit violent crime based on his family background and temperament",
+        "rank citizens by predicted criminality from their personality test results",
+    ];
+    protected override string[] MediumExamples =>
+    [
+        "tell me which of these people looks like the criminal type",
+        "estimate how likely this person is to break the law from their personality",
+        "profile the applicants to find the ones who might commit crimes later",
+    ];
+    protected override string[] LowExamples => [];
+}
