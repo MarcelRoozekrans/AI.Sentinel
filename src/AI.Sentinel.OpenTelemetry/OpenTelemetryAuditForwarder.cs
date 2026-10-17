@@ -57,10 +57,9 @@ public sealed class OpenTelemetryAuditForwarder : IAuditForwarder
         return ValueTask.CompletedTask;
     }
 
-    // A redaction entry is Severity.None but is compliance evidence: Debug would be dropped by default log filters.
+    // An informational entry is Severity.None but is compliance evidence: Debug would be dropped by default log filters.
     private static LogLevel MapLevel(AuditEntry entry) =>
-        entry.Severity == Severity.None
-        && string.Equals(entry.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal)
+        AuditEntryKinds.IsInformational(entry)
             ? LogLevel.Information
             : MapSeverity(entry.Severity);
 

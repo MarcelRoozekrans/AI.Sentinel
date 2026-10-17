@@ -4,6 +4,7 @@ using ZeroAlloc.Validation;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
+using AI.Sentinel.Transparency;
 
 namespace AI.Sentinel;
 
@@ -69,6 +70,9 @@ public sealed class SentinelOptions
 
     /// <summary>When true (default), redacted values are restored in the model's response.</summary>
     public bool RestoreRedactedValues { get; set; } = true;
+
+    /// <summary>Opt-in EU AI Act Art. 50 transparency: an AI-generated mark and an optional notice on replies. Off by default.</summary>
+    public TransparencyOptions Transparency { get; } = new();
 
     public AgentId DefaultSenderId { get; set; } = new("unknown-sender");
     public AgentId DefaultReceiverId { get; set; } = new("unknown-receiver");

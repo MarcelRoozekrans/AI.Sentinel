@@ -14,3 +14,6 @@ scripts/package-lock.json
 
 # Screenshots and page snapshots the Playwright MCP server writes into the working directory.
 .playwright-mcp/
+
+# Test results and coverage reports
+TestResults/

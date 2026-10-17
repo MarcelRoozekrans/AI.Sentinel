@@ -1,0 +1,22 @@
+# Codecov: coverage per PR. Pilot from 2026-10-16, so nothing blocks a merge yet:
+# both statuses are informational. Make patch a real check once the numbers settle.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        target: 80%
+        informational: true
+
+comment:
+  layout: "condensed_header, diff, files"
+  require_changes: true
+
+ignore:
+  - "tests/**"
+  - "benchmarks/**"
+  - "samples/**"
+  - "**/obj/**"
+  - "**/*.g.cs"
