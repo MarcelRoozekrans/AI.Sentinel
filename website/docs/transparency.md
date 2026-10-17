@@ -97,7 +97,7 @@ Sentinel remembers which sessions it has disclosed in the pipeline itself:
 
 ### History
 
-When the application keeps the conversation and sends it back, the notice Sentinel added is part of the earlier assistant messages. Sentinel removes it from the start of assistant messages **before scanning and sending**, so the model never sees it and does not learn to copy it. Your own messages are not changed, and user messages are never touched. The history you pass in is not modified; Sentinel works on copies.
+When the application keeps the conversation and sends it back, the notice Sentinel added is part of the earlier assistant messages. Sentinel removes it from the start of assistant messages **before scanning and sending**, so the model never sees it and does not learn to copy it. User messages are never changed. The history you pass in is not modified; Sentinel works on copies.
 
 Only the notice at the start of an assistant message is removed. The same words anywhere else in a message stay.
 
@@ -113,7 +113,7 @@ The first disclosure of a conversation is written to the audit store as one info
 | `SessionId` | The conversation's key |
 | `Summary` | `Disclosed: machine-readable mark and notice`, or `Disclosed: machine-readable mark` when no notice was added |
 
-A call without a session key has no conversation, so it writes an entry for every reply. Like [redactions](redaction.md) and approval decisions, the entry is evidence that something happened, not a detection: it is never counted as a threat. The dashboard shows it with its own **Disclosed** badge, and the **Disclosed** chip lists only these entries. If the entry cannot be written, the call fails with the exception and the reply is not delivered.
+A call without a session key has no conversation, so it writes an entry for every reply. Like [redactions](./redaction) and approval decisions, the entry is evidence that something happened, not a detection: it is never counted as a threat. The dashboard shows it with its own **Disclosed** badge, and the **Disclosed** chip lists only these entries. If the entry cannot be written, the call fails with the exception and the reply is not delivered.
 
 ## Named pipelines
 
@@ -121,7 +121,7 @@ Each named pipeline has its own options, so enable transparency on the pipelines
 
 ## Stacked layers
 
-If you stack two Sentinel layers, enabling transparency on both discloses the reply twice: a second mark and a second notice. Enable it in one layer.
+If you stack two Sentinel layers, enabling transparency on both gives the reply the notice twice and writes two `DISCLOSED` entries; the mark keeps the inner layer's values. Enable it in one layer.
 
 ## Scope
 
