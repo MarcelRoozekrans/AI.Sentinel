@@ -23,6 +23,7 @@ const sidebars = {
       ],
     },
     'redaction',
+    'transparency',
     {
       type: 'category',
       label: 'Detectors',
