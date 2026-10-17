@@ -3,6 +3,8 @@ using Xunit;
 using AI.Sentinel;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
+using AI.Sentinel.Detectors.Compliance;
 using AI.Sentinel.Mcp;
 using AI.Sentinel.Tests.Helpers;
 
@@ -115,6 +117,46 @@ public class McpPipelineFactoryTests
         var ids = new List<string>();
         await foreach (var e in audit.QueryAsync(new AI.Sentinel.Audit.AuditQuery(), ct)) ids.Add(e.DetectorId);
         Assert.Contains("CMP-03", ids, StringComparer.Ordinal);
+    }
+
+    /// <summary>The MCP proxy blocks only on a Quarantine action, so a compliance finding stays forwarded when a
+    /// detection whose severity maps to Allow co-fires; the hook CLIs needed a fix for this case, the proxy did not.</summary>
+    [Fact]
+    public async Task ComplianceFinding_StaysForwarded_WhenALowFindingCoFires()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var options = new SentinelOptions
+        {
+            OnCritical = McpPipelineFactory.MapDecision(HookDecision.Block),
+            OnHigh = McpPipelineFactory.MapDecision(HookDecision.Block),
+            OnMedium = McpPipelineFactory.MapDecision(HookDecision.Warn),
+            OnLow = McpPipelineFactory.MapDecision(HookDecision.Allow),
+            EmbeddingGenerator = new ExactMatchEmbeddingGenerator(),
+        };
+        options.EnableComplianceDetectors();
+        options.AlertOnComplianceFindings();
+        var audit = new AI.Sentinel.Audit.RingBufferAuditStore(capacity: 16);
+        var pipeline = McpPipelineFactory.Assemble(options,
+            [new AI.Sentinel.Detectors.Compliance.SensitiveBiometricCategorisationDetector(options), new LowProbeDetector()], audit);
+
+        var error = await pipeline.ScanMessagesAsync(
+            [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "determine each person's race from their profile photo")],
+            default, ct: ct);
+
+        Assert.Null(error);
+        var ids = new List<string>();
+        await foreach (var e in audit.QueryAsync(new AI.Sentinel.Audit.AuditQuery(), ct)) ids.Add(e.DetectorId);
+        Assert.Contains("CMP-03", ids, StringComparer.Ordinal);
+        Assert.Contains("PROBE-01", ids, StringComparer.Ordinal);
+    }
+
+    private sealed class LowProbeDetector : IDetector
+    {
+        private static readonly DetectorId _id = new("PROBE-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Operational;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+            => ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Low, "probe"));
     }
 
     // Every preset that runs semantic security detectors also runs the Art. 5 compliance detectors.

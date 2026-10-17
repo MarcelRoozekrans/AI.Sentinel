@@ -458,24 +458,29 @@ public sealed class SentinelPipeline
         ChatOptions? chatOptions = null,
         SessionId? sessionId = null,
         CancellationToken ct = default)
-        => ScanMessagesCoreAsync(messages, chatOptions, sessionId, reportAlerts: false, ct);
+        => ScanMessagesCoreAsync(messages, chatOptions, sessionId, findings: null, ct);
 
-    /// <summary>As <see cref="ScanMessagesAsync"/>, but a scan whose most restrictive action is
-    /// <see cref="SentinelAction.Alert"/> also returns <see cref="SentinelError.ThreatDetected"/>, with that action.</summary>
-    /// <remarks>For a host with no response to gate, such as a hook, which must tell the user about an alert
-    /// itself. <see cref="ScanMessagesAsync"/> returns <see langword="null"/> for an alert, because its callers
-    /// treat any <see cref="SentinelError.ThreatDetected"/> as a block.</remarks>
-    internal ValueTask<SentinelError?> ScanMessagesReportingAlertsAsync(
+    /// <summary>As <see cref="ScanMessagesAsync"/>, but returns every detection of the scan with its effective
+    /// action, so a host with no response to gate, such as a hook, can decide per detection.</summary>
+    /// <remarks>Audit, alerts and interventions run as for <see cref="ScanMessagesAsync"/>. A clean scan, or one
+    /// refused by the rate limit, returns an empty list. <see cref="ScanMessagesAsync"/> reports only the most
+    /// restrictive action's representative, which loses a weaker-ranked detection a hook still has to surface,
+    /// such as an Alert that co-fires with a Quarantine detection the hook maps to Allow.</remarks>
+    internal async ValueTask<IReadOnlyList<ScanFinding>> ScanMessagesForFindingsAsync(
         IEnumerable<ChatMessage> messages,
         SessionId? sessionId,
         CancellationToken ct)
-        => ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, reportAlerts: true, ct);
+    {
+        var findings = new List<ScanFinding>();
+        await ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings, ct).ConfigureAwait(false);
+        return findings;
+    }
 
     private async ValueTask<SentinelError?> ScanMessagesCoreAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions,
         SessionId? sessionId,
-        bool reportAlerts,
+        List<ScanFinding>? findings,
         CancellationToken ct)
     {
         var rateError = CheckRateLimit(chatOptions);
@@ -485,7 +490,7 @@ public sealed class SentinelPipeline
         var (scanned, systemPrompt) = WithInstructions(messageList, chatOptions?.Instructions);
         return await ScanAsync(scanned, sessionId ?? SessionIdFor(chatOptions),
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, llmId: chatOptions?.ModelId,
-            reportAlerts: reportAlerts).ConfigureAwait(false);
+            findings: findings).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -546,7 +551,7 @@ public sealed class SentinelPipeline
         string? systemPrompt = null,
         Exemptions exemptions = default,
         string? llmId = null,
-        bool reportAlerts = false)
+        List<ScanFinding>? findings = null)
     {
         var ctx = BuildContext(msgs, sessionId, sender, receiver, systemPrompt, in exemptions, llmId);
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
@@ -570,6 +575,12 @@ public sealed class SentinelPipeline
                 { "detector", d.DetectorId.Value }
             };
             SentinelMetrics.Threats.Add(1, tags);
+        }
+
+        if (findings is not null)
+        {
+            foreach (var d in pipelineResult.Detections)
+                findings.Add(new ScanFinding(d, options.EffectiveAction(d)));
         }
 
         var action = SentinelActionRanking.MostRestrictive(pipelineResult.Detections.Select(options.EffectiveAction));
@@ -596,9 +607,7 @@ public sealed class SentinelPipeline
             return new SentinelError.ThreatDetected(top, action, sessionId);
         }
 
-        return reportAlerts && action == SentinelAction.Alert
-            ? new SentinelError.ThreatDetected(Representative(pipelineResult, action), action, sessionId)
-            : null;
+        return null;
     }
 
     private static SentinelContext BuildContext(
