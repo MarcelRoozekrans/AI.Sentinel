@@ -38,7 +38,7 @@ jobs:
         run: dotnet test AI.Sentinel.slnx --no-build -c Release --verbosity normal --coverage --coverage-output-format cobertura --coverage-settings coverage.config.xml --results-directory TestResults
 
       - name: Upload coverage to Codecov
-        if: ${ !cancelled() }
+        if: '!cancelled()'
         uses: codecov/codecov-action@v5
         with:
           use_oidc: true
