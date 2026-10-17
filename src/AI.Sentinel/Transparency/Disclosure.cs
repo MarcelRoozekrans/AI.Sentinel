@@ -145,6 +145,17 @@ internal sealed class Disclosure
         return (notice, first ? Disclosed(session, notice is not null, now) : null);
     }
 
+    /// <summary>
+    /// Forgets the disclosure <paramref name="entry"/> recorded, when it could not be written: the reply that
+    /// carried it never reached the caller, so the session's next reply is disclosed as its first. Only the claim
+    /// that produced this entry is removed; a later reply's claim is kept.
+    /// </summary>
+    public void Retract(AuditEntry entry)
+    {
+        if (entry.SessionId is { } session)
+            _sessions.TryRemove(new KeyValuePair<string, long>(session, entry.Timestamp.ToUnixTimeMilliseconds()));
+    }
+
     private static ChatMessage? LastAssistantText(IList<ChatMessage> messages)
     {
         for (var i = messages.Count - 1; i >= 0; i--)

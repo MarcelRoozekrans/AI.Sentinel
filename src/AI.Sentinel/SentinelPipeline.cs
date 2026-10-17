@@ -135,12 +135,23 @@ public sealed class SentinelPipeline
     /// <summary>
     /// Marks the reply and adds the notice after the scan and the restore, so detectors never judge it and it is
     /// never taken for model output. The session's DISCLOSED entry is written with <see cref="CancellationToken.None"/>:
-    /// the reply is being returned, so the evidence of its disclosure must be recorded.
+    /// the reply is being returned, so the evidence of its disclosure must be recorded. When the write fails the
+    /// exception reaches the caller and the reply is not delivered, so the session's claim is rolled back.
     /// </summary>
     private async ValueTask DiscloseAsync(ChatResponse response, SessionId sessionId, bool callerSession, string? requestModelId)
     {
-        if (_disclosure.TryDisclose(response, sessionId, requestModelId, out var entry, remember: callerSession) && entry is not null)
+        if (!_disclosure.TryDisclose(response, sessionId, requestModelId, out var entry, remember: callerSession) || entry is null)
+            return;
+
+        try
+        {
             await auditStore.AppendAndForwardAsync(entry, _forwarders, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            _disclosure.Retract(entry);
+            throw;
+        }
     }
 
     /// <summary>A request after its redaction and prompt scan, ready to send.</summary>

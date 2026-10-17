@@ -75,6 +75,47 @@ public class DisclosurePipelineTests
         }
     }
 
+    /// <summary>An audit store whose first DISCLOSED append throws.</summary>
+    private sealed class ThrowsOnFirstDisclosedStore : IAuditStore
+    {
+        private int _thrown;
+
+        public RingBufferAuditStore Inner { get; } = new(100);
+
+        public ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
+        {
+            if (string.Equals(entry.PolicyCode, AuditEntryKinds.DisclosedPolicyCode, StringComparison.Ordinal)
+                && Interlocked.Exchange(ref _thrown, 1) == 0)
+            {
+                throw new InvalidOperationException("audit store unavailable");
+            }
+            return Inner.AppendAsync(entry, ct);
+        }
+
+        public IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct) => Inner.QueryAsync(query, ct);
+    }
+
+    /// <summary>Redacts every "SECRET" and finds nothing to flag.</summary>
+    private sealed class SecretRedactor : IRedactingDetector
+    {
+        public DetectorId Id { get; } = new("TEST-SECRET");
+
+        public DetectorCategory Category => DetectorCategory.Security;
+
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(DetectionResult.Clean(Id));
+
+        public IReadOnlyList<RedactionSpan> FindSpans(string text)
+        {
+            var spans = new List<RedactionSpan>();
+            for (var i = text.IndexOf("SECRET", StringComparison.Ordinal); i >= 0; i = text.IndexOf("SECRET", i + 6, StringComparison.Ordinal))
+            {
+                spans.Add(new RedactionSpan(i, 6, "SECRET"));
+            }
+            return spans;
+        }
+    }
+
     private sealed record Harness(SentinelPipeline Pipeline, FakeModel Model, RingBufferAuditStore Audit, RecordingDetector Detector, ManualClock Clock);
 
     private static readonly DateTimeOffset Start = new(2026, 10, 17, 12, 0, 0, TimeSpan.Zero);
@@ -503,5 +544,56 @@ public class DisclosurePipelineTests
         }
 
         Assert.Equal(1, disclosure.TrackedSessions);
+    }
+
+    [Fact]
+    public async Task AuditAppendFails_ClaimRolledBack_NextReplyStillDisclosed()
+    {
+        var opts = new SentinelOptions();
+        opts.Transparency.Enabled = true;
+        var model = FakeModel.Text("Hi.");
+        var audit = new ThrowsOnFirstDisclosedStore();
+        var pipeline = new SentinelPipeline(model, new DetectionPipeline([], null, null), audit,
+            new InterventionEngine(opts, null), opts, timeProvider: new ManualClock(Start));
+        var ct = TestContext.Current.CancellationToken;
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await pipeline.GetResponseResultAsync([new ChatMessage(ChatRole.User, "Hi")], Session("s1"), ct));
+        var next = await pipeline.GetResponseResultAsync([new ChatMessage(ChatRole.User, "Hi")], Session("s1"), ct);
+
+        Assert.Equal(NoticeText + "Hi.", next.Value.Text);
+        var entry = Assert.Single(await DisclosedAsync(audit.Inner));
+        Assert.Equal("s1", entry.SessionId);
+        Assert.Equal(1, pipeline.Disclosure.TrackedSessions);
+    }
+
+    [Fact]
+    public async Task RestoreFails_NoMarkNoNoticeNoEntry()
+    {
+        // The reply names this call's placeholder and the value it stands for as two keys of one tool argument, so
+        // restoring it makes them identical and the restore fails.
+        var model = new FakeModel(sent =>
+        {
+            var placeholder = System.Text.RegularExpressions.Regex.Match(sent[^1].Text, @"\[SECRET_[^\]]+\]", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1)).Value;
+            Assert.NotEmpty(placeholder);
+            var payload = new Dictionary<string, object?>(StringComparer.Ordinal) { [placeholder] = "a", ["SECRET"] = "b" };
+            return new ChatResponse(new ChatMessage(ChatRole.Assistant,
+                [new TextContent("Hi."), new FunctionCallContent("c1", "Send", new Dictionary<string, object?>(StringComparer.Ordinal) { ["payload"] = payload })]));
+        });
+        var opts = new SentinelOptions();
+        opts.Transparency.Enabled = true;
+        var audit = new RingBufferAuditStore(100);
+        var pipeline = new SentinelPipeline(model, new DetectionPipeline([new SecretRedactor()], null, null), audit,
+            new InterventionEngine(opts, null), opts, timeProvider: new ManualClock(Start));
+
+        var result = await pipeline.GetResponseResultAsync([new ChatMessage(ChatRole.User, "my SECRET")], Session("s1"), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsFailure);
+        Assert.IsType<SentinelError.PipelineFailure>(result.Error);
+        var raw = model.LastResponse!;
+        Assert.Null(raw.AdditionalProperties?.GetValueOrDefault(TransparencyKeys.Generated));
+        Assert.Equal(0, NoticeCount(raw));
+        Assert.Empty(await DisclosedAsync(audit));
+        Assert.Equal(0, pipeline.Disclosure.TrackedSessions);
     }
 }
