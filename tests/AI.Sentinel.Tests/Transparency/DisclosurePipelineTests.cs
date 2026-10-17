@@ -405,6 +405,68 @@ public class DisclosurePipelineTests
         Assert.Single(await DisclosedAsync(h.Audit));
     }
 
+    // Sentinel inside function invocation: each round trip is its own Sentinel call, and each one with assistant
+    // text is a disclosed reply.
+    private static (IChatClient Client, FakeModel Model, RingBufferAuditStore Audit) BuildInsideFunctionInvocation()
+    {
+        var calls = 0;
+        var model = new FakeModel(_ => ++calls % 2 == 1
+            ? new ChatResponse(new ChatMessage(ChatRole.Assistant, [new TextContent("Let me check."), new FunctionCallContent($"c{calls}", "Lookup")]))
+            : new ChatResponse(new ChatMessage(ChatRole.Assistant, "It is sunny.")));
+        var audit = new RingBufferAuditStore(100);
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.Transparency.Enabled = true);
+        services.AddSingleton<IAuditStore>(audit);
+        var client = new ChatClientBuilder(model).UseFunctionInvocation().UseAISentinel().Build(services.BuildServiceProvider());
+        return (client, model, audit);
+    }
+
+    private static ChatOptions WithLookup(ChatOptions options)
+    {
+        options.Tools = [AIFunctionFactory.Create(() => "sunny", "Lookup")];
+        return options;
+    }
+
+    [Fact]
+    public async Task FunctionInvocationInside_WithSessionKey_OneNoticeOneEntry_HistoryStripped()
+    {
+        var (client, model, audit) = BuildInsideFunctionInvocation();
+        using var _ = client;
+
+        var response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "Weather?")], WithLookup(Session("s1")), TestContext.Current.CancellationToken);
+
+        var assistants = response.Messages.Where(m => m.Role == ChatRole.Assistant).ToList();
+        Assert.Equal(2, assistants.Count);
+        Assert.True(HasNotice(assistants[0]));
+        Assert.False(HasNotice(assistants[1]));
+        Assert.Equal(1, NoticeCount(response));
+        var entry = Assert.Single(await DisclosedAsync(audit));
+        Assert.Equal("s1", entry.SessionId);
+
+        Assert.Equal(2, model.Received.Count);
+        var roundTrip2History = model.Received[1].Where(m => m.Role == ChatRole.Assistant).ToList();
+        var earlier = Assert.Single(roundTrip2History);
+        Assert.False(HasNotice(earlier));
+        Assert.Equal("Let me check.", earlier.Text);
+    }
+
+    [Fact]
+    public async Task FunctionInvocationInside_WithoutSessionKey_EachRoundTripWithTextDisclosed()
+    {
+        // Pins the documented behaviour: without a session key each round trip is its own conversation.
+        var (client, model, audit) = BuildInsideFunctionInvocation();
+        using var _ = client;
+
+        var response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "Weather?")], WithLookup(new ChatOptions()), TestContext.Current.CancellationToken);
+
+        var assistants = response.Messages.Where(m => m.Role == ChatRole.Assistant).ToList();
+        Assert.Equal(2, assistants.Count);
+        Assert.True(HasNotice(assistants[0]));
+        Assert.True(HasNotice(assistants[1]));
+        Assert.Equal(2, (await DisclosedAsync(audit)).Count);
+        Assert.DoesNotContain(model.Received[1], HasNotice);
+    }
+
     [Fact]
     public async Task QuarantinedReply_NothingAdded()
     {

@@ -7,6 +7,7 @@ using AI.Sentinel.Intervention;
 using AI.Sentinel.Tests.Helpers;
 using AI.Sentinel.Transparency;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using ZeroAlloc.Results;
 
@@ -368,6 +369,38 @@ public class DisclosureStreamingTests
         Assert.Null(inner[2].AdditionalProperties);
         Assert.Equal("Hel", inner[0].Text);
         Assert.Single(inner[0].Contents);
+    }
+
+    [Fact]
+    public async Task Streaming_FunctionInvocationInside_WithSessionKey_OneNoticeOneEntry_HistoryStripped()
+    {
+        var calls = 0;
+        var model = new StreamModel(_ => ++calls == 1
+            ? [new ChatResponseUpdate(ChatRole.Assistant, "Let me check."), new ChatResponseUpdate(null, [new FunctionCallContent("c1", "Lookup")])]
+            : Chunks("It is ", "sunny."));
+        var audit = new RingBufferAuditStore(100);
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.Transparency.Enabled = true);
+        services.AddSingleton<IAuditStore>(audit);
+        using var client = new ChatClientBuilder(model).UseFunctionInvocation().UseAISentinel().Build(services.BuildServiceProvider());
+        var options = Session("s1");
+        options.Tools = [AIFunctionFactory.Create(() => "sunny", "Lookup")];
+
+        var updates = new List<ChatResponseUpdate>();
+        await foreach (var update in client.GetStreamingResponseAsync([new ChatMessage(ChatRole.User, "Weather?")], options, TestContext.Current.CancellationToken))
+            updates.Add(update);
+
+        Assert.Equal(1, NoticeCount(updates));
+        var noticed = Assert.Single(updates, u => u.Contents.Any(IsNotice));
+        Assert.Equal(NoticeText + "Let me check.", noticed.Text);
+        Assert.Equal(NoticeText + "Let me check.It is sunny.", TextOf(updates));
+        var entry = Assert.Single(await DisclosedAsync(audit));
+        Assert.Equal("s1", entry.SessionId);
+
+        Assert.Equal(2, model.Received.Count);
+        var earlier = Assert.Single(model.Received[1], m => m.Role == ChatRole.Assistant);
+        Assert.Equal("Let me check.", earlier.Text);
+        Assert.DoesNotContain(model.Received[1], m => m.Text.Contains(Notice, StringComparison.Ordinal));
     }
 
     [Fact]
