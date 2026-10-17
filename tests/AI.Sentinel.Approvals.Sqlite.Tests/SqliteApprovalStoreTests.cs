@@ -178,7 +178,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task DeniedStates_CarryTheRequestId()
+    public async Task SettledStates_CarryTheRequestId()
     {
         var ct = TestContext.Current.CancellationToken;
         var time = new ManualTime(DateTimeOffset.Parse("2026-10-17T10:00:00Z", CultureInfo.InvariantCulture));
@@ -193,6 +193,10 @@ public sealed class SqliteApprovalStoreTests : IDisposable
 
         var granted = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec(grant: TimeSpan.FromMinutes(1)), MakeCtx(), ct);
         await store.ApproveAsync(granted.RequestId, "approver", null, ct);
+        var active = Assert.IsType<ApprovalState.Active>(await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec(grant: TimeSpan.FromMinutes(1)), MakeCtx(), ct));
+        Assert.Equal(granted.RequestId, active.RequestId);
+        var waitedActive = Assert.IsType<ApprovalState.Active>(await store.WaitForDecisionAsync(granted.RequestId, TimeSpan.Zero, ct));
+        Assert.Equal(granted.RequestId, waitedActive.RequestId);
         time.Now += TimeSpan.FromMinutes(2);
         var expired = Assert.IsType<ApprovalState.Denied>(await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec(grant: TimeSpan.FromMinutes(1)), MakeCtx(), ct));
         Assert.Equal("expired", expired.Reason);

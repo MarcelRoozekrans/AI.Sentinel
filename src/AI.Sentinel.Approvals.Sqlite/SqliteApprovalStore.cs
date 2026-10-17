@@ -358,7 +358,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
                 var expiresAt = approvedAt + TimeSpan.FromTicks(grantDurationTicks);
                 if (expiresAt > now)
                 {
-                    return new ApprovalState.Active(expiresAt);
+                    return new ApprovalState.Active(expiresAt) { RequestId = id };
                 }
             }
             return new ApprovalState.Denied("expired", now) { RequestId = id };

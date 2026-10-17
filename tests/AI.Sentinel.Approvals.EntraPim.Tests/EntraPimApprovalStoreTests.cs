@@ -139,6 +139,37 @@ public class EntraPimApprovalStoreTests
         Assert.Empty(fake.CreateCalls);
     }
 
+    [Fact]
+    public async Task EnsureRequest_ActiveSchedule_CarriesTheRequestThatCreatedIt()
+    {
+        var fake = MakeFake();
+        fake.ActiveAssignments[(AlicePrincipalId, DbAdminRoleId)] =
+            new RoleScheduleSnapshot("Provisioned", DateTimeOffset.UtcNow.AddMinutes(10), RequestId: "req-pim-777");
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+
+        Assert.Equal("req-pim-777", Assert.IsType<ApprovalState.Active>(state).RequestId);
+    }
+
+    [Fact]
+    public async Task WaitForDecision_Provisioned_CarriesTheRequestId()
+    {
+        var fake = MakeFake();
+        const string ReqId = "req-poll-9";
+        fake.StatusSequences[ReqId] = new Queue<RoleRequestSnapshot>(new[]
+        {
+            new RoleRequestSnapshot("Provisioned", null, AlicePrincipalId, DbAdminRoleId),
+        });
+        fake.ActiveAssignments[(AlicePrincipalId, DbAdminRoleId)] =
+            new RoleScheduleSnapshot("Provisioned", DateTimeOffset.UtcNow.AddMinutes(15));
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(ReqId, Assert.IsType<ApprovalState.Active>(state).RequestId);
+    }
+
     // ---------------------------------------------------------------------
     // 2. EnsureRequest_NoEligibility_ReturnsDenied
     // ---------------------------------------------------------------------

@@ -57,6 +57,30 @@ public class MicrosoftGraphRoleClientWireTests
         Assert.Equal("PT15M", expiration.GetProperty("duration").GetString());
     }
 
+    [Fact]
+    public async Task GetActiveAssignment_ReadsTheCreatingRequestFromCreatedUsing()
+    {
+        // Graph names the schedule request that created an activated assignment in createdUsing. A hook
+        // process that never saw the request open records the PIM approval under this id.
+        var handler = new CapturingHandler(
+            _ => Task.CompletedTask,
+            """
+            {"value":[{"id":"sched-1","status":"Provisioned","createdUsing":"req-pim-123",
+              "scheduleInfo":{"startDateTime":"2026-10-17T10:00:00Z",
+                "expiration":{"type":"afterDateTime","endDateTime":"2026-10-17T10:15:00Z"}}}]}
+            """);
+        using var http = new HttpClient(handler);
+        using var adapter = new HttpClientRequestAdapter(new AnonymousAuthenticationProvider(), httpClient: http);
+        var client = new MicrosoftGraphRoleClient(new GraphServiceClient(adapter));
+
+        var snapshot = await client.GetActiveAssignmentAsync(
+            "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000099",
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(snapshot);
+        Assert.Equal("req-pim-123", snapshot!.RequestId);
+    }
+
     /// <summary>
     /// Spins up an in-memory Graph SDK pipeline pointed at a capturing HTTP handler,
     /// invokes <see cref="MicrosoftGraphRoleClient.CreateActivationRequestAsync"/>,
@@ -101,10 +125,14 @@ public class MicrosoftGraphRoleClientWireTests
     private sealed class CapturingHandler : HttpMessageHandler
     {
         private readonly Func<HttpRequestMessage, Task> _capture;
+        private readonly string _responseJson;
 
-        public CapturingHandler(Func<HttpRequestMessage, Task> capture)
+        public CapturingHandler(
+            Func<HttpRequestMessage, Task> capture,
+            string responseJson = "{\"id\":\"req-stub-id\",\"status\":\"PendingApproval\"}")
         {
             _capture = capture;
+            _responseJson = responseJson;
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -122,7 +150,7 @@ public class MicrosoftGraphRoleClientWireTests
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    "{\"id\":\"req-stub-id\",\"status\":\"PendingApproval\"}",
+                    _responseJson,
                     Encoding.UTF8,
                     "application/json"),
             };

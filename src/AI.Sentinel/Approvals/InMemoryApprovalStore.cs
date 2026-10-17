@@ -144,7 +144,7 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
         return e.Status switch
         {
             EntryStatus.Active when e.ApprovedAt is { } a && a + e.GrantDuration > now
-                => new ApprovalState.Active(a + e.GrantDuration),
+                => new ApprovalState.Active(a + e.GrantDuration) { RequestId = e.RequestId },
             EntryStatus.Active
                 => new ApprovalState.Denied("expired", now) { RequestId = e.RequestId },
             EntryStatus.Denied

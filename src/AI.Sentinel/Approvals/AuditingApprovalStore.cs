@@ -59,6 +59,19 @@ internal class AuditingApprovalStore : IApprovalStore
                 Remember(key, p.RequestId);
                 break;
 
+            case ApprovalState.Active a when Admin is null:
+                // A store whose decisions are made elsewhere, such as Entra PIM, reports the grant here to a hook or a
+                // fail-fast proxy that never waits. The store's id wins; the remembered one covers stores without it.
+                var grantedId = a.RequestId
+                    ?? (Memory.RequestIdByCallerPolicy.TryGetValue(key, out var rememberedGrant) ? rememberedGrant : null);
+                if (grantedId is not null && Memory.Settled.TryAdd(grantedId, 0))
+                {
+                    Memory.Requests.TryRemove(grantedId, out _);
+                    await WriteAsync(AuditEntryKinds.ApprovedPolicyCode, spec.PolicyName, context.ToolName, grantedId)
+                        .ConfigureAwait(false);
+                }
+                break;
+
             case ApprovalState.Denied d:
                 // The stores forget a settled request when they report it, so a grant reported expired is reported once.
                 // The store's own id wins; the remembered one covers stores that do not set it.
@@ -67,6 +80,12 @@ internal class AuditingApprovalStore : IApprovalStore
                 if (requestId is not null)
                 {
                     Memory.Requests.TryRemove(requestId, out _);
+                    if (Admin is not null)
+                    {
+                        // Settled only guards ApproveAsync and DenyAsync against writing twice; the store has now
+                        // forgotten the request, so neither can settle it again.
+                        Memory.Settled.TryRemove(requestId, out _);
+                    }
                 }
                 if (string.Equals(d.Reason, ExpiredReason, StringComparison.Ordinal))
                 {
@@ -84,22 +103,34 @@ internal class AuditingApprovalStore : IApprovalStore
 
         if (state is ApprovalState.Pending)
         {
-            // Still pending at the deadline. A wait the caller cancelled did not time out.
+            // Still pending at the deadline. A wait the caller cancelled did not time out. The request stays open,
+            // so what this process remembers of it is kept.
             if (!ct.IsCancellationRequested)
             {
-                await WriteForAsync(AuditEntryKinds.TimedOutPolicyCode, requestId, ct).ConfigureAwait(false);
+                var info = await LookUpAsync(requestId, ct).ConfigureAwait(false);
+                await WriteAsync(AuditEntryKinds.TimedOutPolicyCode, info.PolicyName, info.ToolName, requestId).ConfigureAwait(false);
             }
             return state;
         }
 
         // A store with an admin surface reports here what ApproveAsync or DenyAsync already recorded.
-        if (Admin is null && Memory.Settled.TryAdd(requestId, 0))
+        if (Admin is null)
         {
-            var code = state is ApprovalState.Active ? AuditEntryKinds.ApprovedPolicyCode : AuditEntryKinds.DeniedPolicyCode;
-            // A denial names its request when the store sets it; the waited-for id covers stores that do not.
-            var settledId = (state as ApprovalState.Denied)?.RequestId ?? requestId;
-            await WriteForAsync(code, settledId, ct).ConfigureAwait(false);
-            Memory.Requests.TryRemove(requestId, out _);
+            // The remembered row is keyed by the id this process waited on; the entry names the store's id, which is
+            // the same one for every built-in store.
+            var settledId = state switch
+            {
+                ApprovalState.Active a => a.RequestId,
+                ApprovalState.Denied d => d.RequestId,
+                _ => null,
+            } ?? requestId;
+            if (Memory.Settled.TryAdd(settledId, 0))
+            {
+                var info = await LookUpAsync(requestId, ct).ConfigureAwait(false);
+                Memory.Requests.TryRemove(requestId, out _);
+                var code = state is ApprovalState.Active ? AuditEntryKinds.ApprovedPolicyCode : AuditEntryKinds.DeniedPolicyCode;
+                await WriteAsync(code, info.PolicyName, info.ToolName, settledId).ConfigureAwait(false);
+            }
         }
         return state;
     }
@@ -122,17 +153,38 @@ internal class AuditingApprovalStore : IApprovalStore
         }
     }
 
-    /// <summary>Writes the decision of <paramref name="requestId"/> with the policy and tool this process saw it opened with.</summary>
-    private async ValueTask WriteForAsync(string policyCode, string requestId, CancellationToken ct)
+    /// <summary>The policy and tool this process saw <paramref name="requestId"/> opened with, read from the store's
+    /// pending list when this process never saw it, and <c>unknown</c> when neither knows it.</summary>
+    private async ValueTask<ApprovalAuditMemory.RequestInfo> LookUpAsync(string requestId, CancellationToken ct)
     {
-        if (!Memory.Requests.TryGetValue(requestId, out var info))
+        if (Memory.Requests.TryGetValue(requestId, out var info))
         {
-            var pending = await FindPendingAsync(requestId, ct).ConfigureAwait(false);
-            info = pending is null
-                ? new ApprovalAuditMemory.RequestInfo(Unknown, Unknown)
-                : new ApprovalAuditMemory.RequestInfo(pending.PolicyName, pending.ToolName);
+            return info;
         }
-        await WriteAsync(policyCode, info.PolicyName, info.ToolName, requestId).ConfigureAwait(false);
+        var pending = await FindPendingAsync(requestId, ct).ConfigureAwait(false);
+        return pending is null
+            ? new ApprovalAuditMemory.RequestInfo(Unknown, Unknown)
+            : new ApprovalAuditMemory.RequestInfo(pending.PolicyName, pending.ToolName);
+    }
+
+    /// <summary>
+    /// The state of <paramref name="requestId"/> right now, read without waiting, or <see langword="null"/> when the
+    /// read fails. Uses <see cref="CancellationToken.None"/>: the decision has been taken, and recording it must not
+    /// depend on the caller's token.
+    /// </summary>
+    private protected async ValueTask<ApprovalState?> ReadStateAsync(string requestId)
+    {
+        try
+        {
+            return await _inner.WaitForDecisionAsync(requestId, TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // Auditing must never fail the decision; the failure is logged.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            _logger?.LogError(ex, "Could not read the state of approval request {RequestId} for the audit log.", requestId);
+            return null;
+        }
     }
 
     /// <summary>

@@ -8,7 +8,16 @@ public abstract record ApprovalState
     private protected ApprovalState() { }
 
     /// <summary>An approval is currently active. The grant expires at <paramref name="ExpiresAt"/>.</summary>
-    public sealed record Active(DateTimeOffset ExpiresAt) : ApprovalState;
+    public sealed record Active(DateTimeOffset ExpiresAt) : ApprovalState
+    {
+        /// <summary>
+        /// The request whose approval granted this access, when the store knows it. The built-in stores set it whenever
+        /// they know the id: in-memory and SQLite on every grant they return, Entra PIM from the request it waited on or
+        /// the request that created the active assignment. It is <see langword="null"/> for stores that do not set it.
+        /// Approval decisions in the audit log are recorded under this id.
+        /// </summary>
+        public string? RequestId { get; init; }
+    }
 
     /// <summary>An approval is pending. The caller should wait or fail-with-receipt.</summary>
     public sealed record Pending(string RequestId, string ApprovalUrl, DateTimeOffset RequestedAt) : ApprovalState;

@@ -148,6 +148,8 @@ Set `SENTINEL_MCP_LOG_JSON=1` for NDJSON output (one log record per line) — ea
 
 The proxy records findings, authorization denials and approval holds to `ai-sentinel/audit.db` under the per-user data folder by default, with `Source` set to `mcp`. Allowed calls are not recorded. The file is shared with `sentinel-hook` and `sentinel-copilot-hook`. All entries from one proxy run share one session id. On Linux and macOS the directory is created `0700` and the files `0600`.
 
+Approval decisions the proxy observes, such as an approval wait that times out or a grant that expires, are recorded in the same file. The proxy opens the audit file before it reads `SENTINEL_APPROVAL_CONFIG`, so a malformed approval config also creates the audit file before the proxy exits with code 1.
+
 | Variable | Default | Purpose |
 |---|---|---|
 | `SENTINEL_MCP_AUDIT_SQLITE` | `<data folder>/ai-sentinel/audit.db` | A database path, or `off` (any case) for the in-memory ring buffer |

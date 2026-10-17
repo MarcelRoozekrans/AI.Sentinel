@@ -103,6 +103,40 @@ public class ApprovalAuditingTests
     }
 
     [Fact]
+    public async Task DenyThenApprove_WritesExactlyOneDenied()
+    {
+        var (store, audit) = Wrap(new InMemoryApprovalStore());
+        var requestId = await EnsurePendingAsync(store);
+        var admin = (IApprovalAdmin)store;
+
+        await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct);
+        await admin.ApproveAsync(requestId, ApproverId, null, Ct);
+
+        var entry = Assert.Single(audit.Entries);
+        AssertDecision(entry, AuditEntryKinds.DeniedPolicyCode, "Denied", requestId);
+    }
+
+    [Fact]
+    public async Task ConcurrentApproveAndDeny_WritesOneEntryMatchingTheFinalState()
+    {
+        var inner = new InMemoryApprovalStore();
+        var (store, audit) = Wrap(new RacingAdminStore(inner));
+        var requestId = await EnsurePendingAsync(store);
+        var admin = (IApprovalAdmin)store;
+
+        await Task.WhenAll(
+            Task.Run(async () => await admin.ApproveAsync(requestId, ApproverId, null, Ct), Ct),
+            Task.Run(async () => await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct), Ct));
+
+        var final = await inner.WaitForDecisionAsync(requestId, TimeSpan.Zero, Ct);
+        var entry = Assert.Single(audit.Entries);
+        if (final is ApprovalState.Active)
+            AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", requestId);
+        else
+            AssertDecision(entry, AuditEntryKinds.DeniedPolicyCode, "Denied", requestId);
+    }
+
+    [Fact]
     public async Task ExpiredGrantObserved_WritesOneExpiredEntry()
     {
         var time = new ManualTime(DateTimeOffset.Parse("2026-10-17T10:00:00Z", System.Globalization.CultureInfo.InvariantCulture));
@@ -203,6 +237,53 @@ public class ApprovalAuditingTests
 
         var entry = Assert.Single(audit.Entries);
         AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", requestId);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ActiveObservedOnEnsure_WritesApprovedOnce()
+    {
+        // A hook or fail-fast proxy never waits: it sees the grant on its next EnsureRequestAsync.
+        var inner = new ExternalStore();
+        var (store, audit) = Wrap(inner);
+        var requestId = await EnsurePendingAsync(store);
+        inner.EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5));
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+        var entry = Assert.Single(audit.Entries);
+
+        // A later wait on the same request observes the same grant and writes nothing more.
+        inner.Next = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5));
+        await store.WaitForDecisionAsync(requestId, TimeSpan.FromSeconds(1), Ct);
+        Assert.Single(audit.Entries);
+        AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", requestId);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ActiveObservedOnEnsure_InAFreshProcess_UsesTheStoreRequestId()
+    {
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var (store, audit) = Wrap(inner);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        var entry = Assert.Single(audit.Entries);
+        AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9");
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ActiveWithoutAnyKnownRequestId_WritesNothing()
+    {
+        var inner = new ExternalStore { EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) };
+        var (store, audit) = Wrap(inner);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        Assert.Empty(audit.Entries);
     }
 
     [Fact]
@@ -373,13 +454,55 @@ public class ApprovalAuditingTests
     {
         public ApprovalState? Next { get; set; }
 
+        /// <summary>What <see cref="EnsureRequestAsync"/> returns; a pending request when null.</summary>
+        public ApprovalState? EnsureNext { get; set; }
+
         public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
-            ValueTask.FromResult<ApprovalState>(new ApprovalState.Pending("pim-req-1", "https://pim/req", DateTimeOffset.UtcNow));
+            ValueTask.FromResult(EnsureNext ?? new ApprovalState.Pending("pim-req-1", "https://pim/req", DateTimeOffset.UtcNow));
 
         public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
             ValueTask.FromResult(ct.IsCancellationRequested || Next is null
                 ? new ApprovalState.Pending(requestId, "https://pim/req", DateTimeOffset.UtcNow)
                 : Next);
+    }
+
+    /// <summary>
+    /// An admin store whose approve and deny both wait until the other has started, so each has already read the
+    /// request as pending before either reaches the inner store.
+    /// </summary>
+    private sealed class RacingAdminStore(InMemoryApprovalStore inner) : IApprovalStore, IApprovalAdmin
+    {
+        private readonly TaskCompletionSource _bothArrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrived;
+
+        public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
+            inner.EnsureRequestAsync(caller, spec, context, ct);
+
+        public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
+            inner.WaitForDecisionAsync(requestId, timeout, ct);
+
+        public async ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
+        {
+            await ArriveAsync();
+            await inner.ApproveAsync(requestId, approverId, note, ct);
+        }
+
+        public async ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
+        {
+            await ArriveAsync();
+            await inner.DenyAsync(requestId, approverId, reason, ct);
+        }
+
+        public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => inner.ListPendingAsync(ct);
+
+        private Task ArriveAsync()
+        {
+            if (Interlocked.Increment(ref _arrived) == 2)
+            {
+                _bothArrived.SetResult();
+            }
+            return _bothArrived.Task;
+        }
     }
 
     private sealed class RecordingAuditStore : IAuditStore
