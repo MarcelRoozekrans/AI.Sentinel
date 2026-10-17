@@ -28,8 +28,8 @@ internal static class DashboardHandlers
         await foreach (var e in store.QueryAsync(new AuditQuery(), ctx.RequestAborted).ConfigureAwait(false))
             entries.Add(e);
 
-        // Redactions are informational evidence, not threats: they stay out of every tile.
-        entries.RemoveAll(IsRedaction);
+        // Informational entries are evidence, not threats: they stay out of every tile.
+        entries.RemoveAll(AuditEntryKinds.IsInformational);
 
         ctx.Response.ContentType = "text/html";
         var html = $"""
@@ -101,9 +101,7 @@ internal static class DashboardHandlers
     private static void RenderFeedRow(StringBuilder sb, AuditEntry e)
     {
         var reason = e.Summary.Length > 60 ? e.Summary[..60] + "\u2026" : e.Summary;
-        var isRedaction = IsRedaction(e);
-        var severityLower = isRedaction ? "redacted" : e.Severity.ToString().ToLowerInvariant();
-        var severityLabel = isRedaction ? "Redacted" : e.Severity.ToString();
+        var (severityLower, severityLabel) = BadgeFor(e);
         var ts = e.Timestamp.ToString("HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
         var hashPrefix = e.Hash[..Math.Min(8, e.Hash.Length)];
         var isAuthz = string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal);
@@ -165,10 +163,17 @@ internal static class DashboardHandlers
         sb.AppendLine("</td>");
     }
 
-    /// <summary>True for the informational audit entry written when a detector redacted values
-    /// instead of reporting a threat. A fallback detection keeps its real severity and is not one.</summary>
-    private static bool IsRedaction(AuditEntry e) =>
-        string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal);
+    /// <summary>Badge css class and label of a feed row: the informational kind, or the severity for a detection.</summary>
+    private static (string Css, string Label) BadgeFor(AuditEntry e)
+    {
+        if (AuditEntryKinds.IsRedaction(e))
+            return ("redacted", "Redacted");
+        if (AuditEntryKinds.IsDisclosure(e))
+            return ("disclosed", "Disclosed");
+        if (AuditEntryKinds.IsApproval(e))
+            return ("approval", "Approval");
+        return (e.Severity.ToString().ToLowerInvariant(), e.Severity.ToString());
+    }
 
     /// <summary>Maps a category name from a chip filter (e.g. "security", "hallucination") to the
     /// matching DetectorId prefix. Unknown / empty / null category returns true (no filtering).</summary>
@@ -181,16 +186,21 @@ internal static class DashboardHandlers
         _ => true,
     };
 
-    /// <summary>True when <paramref name="e"/> belongs under the chip <paramref name="category"/>. The Redacted chip
-    /// lists only redactions; a category chip lists only detections, so a redaction never appears under Security
-    /// even though its detector id starts with SEC-. An unknown category filters nothing.</summary>
+    /// <summary>True when <paramref name="e"/> belongs under the chip <paramref name="category"/>. The Redacted,
+    /// Disclosed and Approvals chips list only their own kind of informational entry; a category chip lists only
+    /// detections, so an informational entry never appears under Security even though a redaction's detector id
+    /// starts with SEC-. An unknown category filters nothing.</summary>
     private static bool MatchesChip(AuditEntry e, string category)
     {
         if (string.Equals(category, "redacted", StringComparison.Ordinal))
-            return IsRedaction(e);
+            return AuditEntryKinds.IsRedaction(e);
+        if (string.Equals(category, "disclosed", StringComparison.Ordinal))
+            return AuditEntryKinds.IsDisclosure(e);
+        if (string.Equals(category, "approval", StringComparison.Ordinal))
+            return AuditEntryKinds.IsApproval(e);
         if (!IsKnownCategory(category))
             return true;
-        return !IsRedaction(e) && IsInCategory(e.DetectorId, category);
+        return !AuditEntryKinds.IsInformational(e) && IsInCategory(e.DetectorId, category);
     }
 
     private static bool IsKnownCategory(string category) =>
@@ -238,7 +248,7 @@ internal static class DashboardHandlers
             new AuditQuery { From = windowStart, PageSize = 10000 },
             ctx.RequestAborted).ConfigureAwait(false))
         {
-            if (e.Timestamp < windowStart || IsRedaction(e)) continue;
+            if (e.Timestamp < windowStart || AuditEntryKinds.IsInformational(e)) continue;
             var idx = (int)((e.Timestamp - windowStart).TotalMilliseconds / bucketMs);
             if (idx < 0 || idx >= BucketCount) continue;
             buckets[idx].count++;
@@ -396,8 +406,8 @@ internal static class DashboardHandlers
         var result = new List<ThreatRiskScore>(entries.Count);
         for (int i = 0; i < entries.Count; i++)
         {
-            // A redaction scores 0 and would dilute the average of real detections.
-            if (IsRedaction(entries[i])) continue;
+            // An informational entry scores 0 and would dilute the average of real detections.
+            if (AuditEntryKinds.IsInformational(entries[i])) continue;
             result.Add(new ThreatRiskScore(entries[i].Severity switch
             {
                 Severity.Critical => 100,

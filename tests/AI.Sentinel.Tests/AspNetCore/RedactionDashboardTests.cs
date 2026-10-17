@@ -146,4 +146,86 @@ public class RedactionDashboardTests
 
         Assert.DoesNotContain("badge redacted", html, StringComparison.Ordinal);
     }
+
+    private static AuditEntry Informational(string detectorId, string code) =>
+        new(Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, "deadbeef00000000", null, Severity.None, detectorId, "info")
+        {
+            PolicyCode = code,
+        };
+
+    private static AuditEntry Disclosure() =>
+        Informational(AuditEntryKinds.TransparencyDetectorId, AuditEntryKinds.DisclosedPolicyCode);
+
+    private static AuditEntry Approval(string code) =>
+        Informational(AuditEntryKinds.ApprovalDetectorId, code);
+
+    [Fact]
+    public async Task DisclosedAndApprovalEntries_NotCountedInTilesTrendOrScore()
+    {
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(Threat(Severity.High), CancellationToken.None);
+        var statsBefore = await GetAsync(host, "/sentinel/api/stats");
+        var trendBefore = await GetAsync(host, "/sentinel/api/trend");
+
+        await store.AppendAsync(Disclosure(), CancellationToken.None);
+        await store.AppendAsync(Approval(AuditEntryKinds.ApprovedPolicyCode), CancellationToken.None);
+        await store.AppendAsync(Approval(AuditEntryKinds.TimedOutPolicyCode), CancellationToken.None);
+
+        Assert.Equal(statsBefore, await GetAsync(host, "/sentinel/api/stats"));
+        Assert.Equal(trendBefore, await GetAsync(host, "/sentinel/api/trend"));
+
+        var threats = new List<AuditEntry> { Threat(Severity.High) };
+        var withInfo = new List<AuditEntry>(threats) { Disclosure(), Approval(AuditEntryKinds.DeniedPolicyCode) };
+        Assert.Equal(
+            ThreatRiskScore.Aggregate(DashboardHandlers.BuildScoreInputs(threats)),
+            ThreatRiskScore.Aggregate(DashboardHandlers.BuildScoreInputs(withInfo)));
+    }
+
+    [Fact]
+    public async Task DisclosedChip_ListsOnlyDisclosures()
+    {
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(Disclosure(), CancellationToken.None);
+        await store.AppendAsync(Approval(AuditEntryKinds.ApprovedPolicyCode), CancellationToken.None);
+        await store.AppendAsync(Redaction(), CancellationToken.None);
+        await store.AppendAsync(Threat(Severity.High), CancellationToken.None);
+
+        var html = await GetAsync(host, "/sentinel/api/feed?filter=disclosed");
+
+        Assert.Equal(1, Regex.Count(html, "<tr class=", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        Assert.Contains("badge disclosed", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ApprovalChip_ListsOnlyApprovalDecisions()
+    {
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(Approval(AuditEntryKinds.ApprovedPolicyCode), CancellationToken.None);
+        await store.AppendAsync(Approval(AuditEntryKinds.ExpiredPolicyCode), CancellationToken.None);
+        await store.AppendAsync(Disclosure(), CancellationToken.None);
+        await store.AppendAsync(Redaction(), CancellationToken.None);
+
+        var html = await GetAsync(host, "/sentinel/api/feed?filter=approval");
+
+        Assert.Equal(2, Regex.Count(html, "<tr class=", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        Assert.Equal(2, Regex.Count(html, "badge approval", RegexOptions.None, TimeSpan.FromSeconds(1)));
+    }
+
+    [Theory]
+    [InlineData("security")]
+    [InlineData("operational")]
+    public async Task CategoryChip_ExcludesDisclosureAndApprovalEntries(string filter)
+    {
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(Informational("SEC-23", AuditEntryKinds.DisclosedPolicyCode), CancellationToken.None);
+        await store.AppendAsync(Informational("OPS-01", AuditEntryKinds.ApprovedPolicyCode), CancellationToken.None);
+
+        var html = await GetAsync(host, "/sentinel/api/feed?filter=" + filter);
+
+        Assert.Equal(0, Regex.Count(html, "<tr class=\"severity-", RegexOptions.None, TimeSpan.FromSeconds(1)));
+    }
 }
