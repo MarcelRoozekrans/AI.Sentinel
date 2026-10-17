@@ -217,9 +217,11 @@ public static class ReportCommand
             return (default, default, InvalidDate("--to", toText));
         }
 
-        var from = to.UtcTicks - DateTimeOffset.MinValue.UtcTicks < TimeSpan.FromDays(DefaultPeriodDays).Ticks
+        // Step back in UTC: AddDays works on the clock time, which a negative offset puts below the UTC instant.
+        var toUtc = to.ToUniversalTime();
+        var from = toUtc.UtcTicks < TimeSpan.FromDays(DefaultPeriodDays).Ticks
             ? DateTimeOffset.MinValue
-            : to.AddDays(-DefaultPeriodDays);
+            : toUtc.AddDays(-DefaultPeriodDays);
         if (fromText is not null && !TryParseInstant(fromText, endOfDay: false, out from))
         {
             return (default, default, InvalidDate("--from", fromText));

@@ -325,6 +325,17 @@ public sealed class ReportCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task ToWithANegativeOffsetEarlyInYearOne_DefaultFromStepsBackInUtc()
+    {
+        var db = await SeedAsync([]);
+
+        // 30 days before 0001-01-31T03:00Z; stepping back on the clock time would fall before year 1.
+        var report = await RunJsonAsync("--db", db, "--to", "0001-01-30T22:00:00-05:00");
+
+        Assert.Equal(new DateTimeOffset(1, 1, 1, 3, 0, 0, TimeSpan.Zero), report.From);
+    }
+
+    [Fact]
     public async Task DefaultPeriod_IsTheLast30Days()
     {
         var db = await SeedAsync([
