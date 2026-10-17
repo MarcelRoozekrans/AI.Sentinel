@@ -40,12 +40,16 @@ public static class HookPipelineRunner
         // Build a pipeline bound to an unused inner client — ScanMessagesAsync
         // never invokes it, so the client shape is irrelevant.
         var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
-        var error = await pipeline.ScanMessagesAsync(
-            messages, null, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), ct).ConfigureAwait(false);
+        var error = await pipeline.ScanMessagesReportingAlertsAsync(
+            messages, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), ct).ConfigureAwait(false);
 
         if (error is SentinelError.ThreatDetected t)
         {
             var decision = HookSeverityMapper.Map(t.Result.Severity, config);
+            // A detection whose action is Alert, such as a compliance finding in the hook CLIs, warns rather
+            // than blocks, but never overrides an operator who mapped its severity to Allow.
+            if (t.Action == SentinelAction.Alert && decision == HookDecision.Block)
+                decision = HookDecision.Warn;
             var reason = $"{t.Result.DetectorId.Value} {t.Result.Severity}: {t.Result.Reason}";
             return new HookOutput { Decision = decision, Reason = reason };
         }

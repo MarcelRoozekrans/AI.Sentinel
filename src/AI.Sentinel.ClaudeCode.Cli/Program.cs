@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Detectors.Compliance;
 using AI.Sentinel.Embeddings;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Configuration;
@@ -242,6 +243,8 @@ public static class Program
             opts.OnHigh = SentinelAction.Quarantine;
             opts.OnMedium = SentinelAction.Quarantine;
             opts.OnLow = SentinelAction.Quarantine;
+            // Compliance findings warn instead of following the High-to-Block mapping.
+            opts.AlertOnComplianceFindings();
             opts.EmbeddingGenerator = embeddingGenerator;
             // Without this the hook re-embeds every detector's example phrases on every invocation.
             opts.ExampleEmbeddingCache = exampleEmbeddingCache;

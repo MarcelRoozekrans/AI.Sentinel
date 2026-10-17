@@ -59,6 +59,8 @@ internal static class McpPipelineFactory
             ExampleEmbeddingCache = exampleEmbeddingCache,
             OnDetectorFailure = detectorFailureSink,
         };
+        // Compliance findings forward with an audit entry, as Warn does, instead of following OnHigh.
+        options.AlertOnComplianceFindings();
 
         var detectors = preset switch
         {
@@ -84,7 +86,7 @@ internal static class McpPipelineFactory
         IReadOnlyList<IAuditForwarder>? forwarders = null)
         => new(
             innerClient: UnusedChatClient.Instance,
-            pipeline: new DetectionPipeline(detectors, configurations: null, escalationClient: null,
+            pipeline: new DetectionPipeline(detectors, options.GetDetectorConfigurations(), escalationClient: null,
                                     logger: null, onDetectorFailure: detectorFailureSink,
                                     redactByDefault: options.RedactByDefault),
             auditStore: store,
