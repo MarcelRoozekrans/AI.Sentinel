@@ -61,7 +61,9 @@ internal class AuditingApprovalStore : IApprovalStore
 
             case ApprovalState.Denied d:
                 // The stores forget a settled request when they report it, so a grant reported expired is reported once.
-                Memory.RequestIdByCallerPolicy.TryRemove(key, out var requestId);
+                // The store's own id wins; the remembered one covers stores that do not set it.
+                Memory.RequestIdByCallerPolicy.TryRemove(key, out var remembered);
+                var requestId = d.RequestId ?? remembered;
                 if (requestId is not null)
                 {
                     Memory.Requests.TryRemove(requestId, out _);
@@ -94,7 +96,9 @@ internal class AuditingApprovalStore : IApprovalStore
         if (Admin is null && Memory.Settled.TryAdd(requestId, 0))
         {
             var code = state is ApprovalState.Active ? AuditEntryKinds.ApprovedPolicyCode : AuditEntryKinds.DeniedPolicyCode;
-            await WriteForAsync(code, requestId, ct).ConfigureAwait(false);
+            // A denial names its request when the store sets it; the waited-for id covers stores that do not.
+            var settledId = (state as ApprovalState.Denied)?.RequestId ?? requestId;
+            await WriteForAsync(code, settledId, ct).ConfigureAwait(false);
             Memory.Requests.TryRemove(requestId, out _);
         }
         return state;

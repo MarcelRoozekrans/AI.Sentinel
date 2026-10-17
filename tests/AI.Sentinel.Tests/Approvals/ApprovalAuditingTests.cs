@@ -122,6 +122,58 @@ public class ApprovalAuditingTests
     }
 
     [Fact]
+    public async Task ExpiryObservedByAProcessThatNeverSawTheRequest_InMemory_WritesTheRealRequestId()
+    {
+        var time = new ManualTime(DateTimeOffset.Parse("2026-10-17T10:00:00Z", System.Globalization.CultureInfo.InvariantCulture));
+        var inner = new InMemoryApprovalStore(time);
+        // Opened and approved straight on the inner store, so the audit wrapper never remembers the id.
+        var pending = await inner.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(TimeSpan.FromMinutes(1)), MakeCtx(), Ct);
+        var requestId = Assert.IsType<ApprovalState.Pending>(pending).RequestId;
+        await inner.ApproveAsync(requestId, ApproverId, null, Ct);
+        time.Now += TimeSpan.FromMinutes(2);
+        var (store, audit) = Wrap(inner);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(TimeSpan.FromMinutes(1)), MakeCtx(), Ct);
+
+        var entry = Assert.Single(audit.Entries);
+        AssertDecision(entry, AuditEntryKinds.ExpiredPolicyCode, "Expired", requestId);
+    }
+
+    [Fact]
+    public async Task ExpiryObservedByAFreshSqliteStoreOverTheSameFile_WritesTheRealRequestId()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"approvals-audit-{Guid.NewGuid():N}.db");
+        var time = new ManualTime(DateTimeOffset.Parse("2026-10-17T10:00:00Z", System.Globalization.CultureInfo.InvariantCulture));
+        try
+        {
+            string requestId;
+            await using (var first = new AI.Sentinel.Approvals.Sqlite.SqliteApprovalStore(
+                new AI.Sentinel.Approvals.Sqlite.SqliteApprovalStoreOptions { DatabasePath = dbPath }, time))
+            {
+                var (firstView, _) = Wrap(first);
+                requestId = await EnsurePendingAsync(firstView, TimeSpan.FromMinutes(1));
+                await ((IApprovalAdmin)firstView).ApproveAsync(requestId, ApproverId, null, Ct);
+            }
+            time.Now += TimeSpan.FromMinutes(2);
+
+            // A later hook process: a new store over the same file, with nothing remembered.
+            await using var second = new AI.Sentinel.Approvals.Sqlite.SqliteApprovalStore(
+                new AI.Sentinel.Approvals.Sqlite.SqliteApprovalStoreOptions { DatabasePath = dbPath }, time);
+            var (store, audit) = Wrap(second);
+            var state = await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(TimeSpan.FromMinutes(1)), MakeCtx(), Ct);
+
+            Assert.Equal("expired", Assert.IsType<ApprovalState.Denied>(state).Reason);
+            var entry = Assert.Single(audit.Entries);
+            AssertDecision(entry, AuditEntryKinds.ExpiredPolicyCode, "Expired", requestId);
+        }
+        finally
+        {
+            foreach (var path in new[] { dbPath, dbPath + "-wal", dbPath + "-shm" })
+                if (File.Exists(path)) File.Delete(path);
+        }
+    }
+
+    [Fact]
     public async Task WaitTimesOut_WritesTimedOutEntry()
     {
         var (store, audit) = Wrap(new InMemoryApprovalStore());
