@@ -50,6 +50,14 @@ public sealed class ReportCommandTests : IDisposable
         Assert.Contains("- Tool calls held for approval: 1", stdout, StringComparison.Ordinal);
         Assert.Contains("intact", stdout, StringComparison.Ordinal);
         Assert.DoesNotContain(ComplianceReport.Art5NoDetectionsNote, stdout, StringComparison.Ordinal);
+        foreach (var note in new[]
+        {
+            ComplianceReport.Art12NoEntriesNote, ComplianceReport.Art14NothingRecordedNote, ComplianceReport.Art10NoRedactionsNote,
+            ComplianceReport.Art50NoDisclosuresNote, ComplianceReport.Art15NoDetectionsNote,
+        })
+        {
+            Assert.DoesNotContain(note, stdout, StringComparison.Ordinal);
+        }
     }
 
     [Fact]
@@ -188,6 +196,11 @@ public sealed class ReportCommandTests : IDisposable
                 var report = JsonSerializer.Deserialize(output, ComplianceReportJsonContext.Default.ComplianceReport)!;
                 Assert.Equal(0, report.Art12.EntriesInPeriod);
                 Assert.Equal(ComplianceReport.Art5NoDetectionsNote, report.Art5.Note);
+                Assert.Equal(ComplianceReport.Art12NoEntriesNote, report.Art12.Note);
+                Assert.Equal(ComplianceReport.Art14NothingRecordedNote, report.Art14.Note);
+                Assert.Equal(ComplianceReport.Art10NoRedactionsNote, report.Art10.Note);
+                Assert.Equal(ComplianceReport.Art50NoDisclosuresNote, report.Art50.Note);
+                Assert.Equal(ComplianceReport.Art15NoDetectionsNote, report.Art15.Note);
                 continue;
             }
 
@@ -197,6 +210,14 @@ public sealed class ReportCommandTests : IDisposable
             Assert.Contains("No disclosures recorded", output, StringComparison.Ordinal);
             Assert.Contains("No detections recorded", output, StringComparison.Ordinal);
             Assert.Contains(ComplianceReport.Art5NoDetectionsNote, output, StringComparison.Ordinal);
+            foreach (var note in new[]
+            {
+                ComplianceReport.Art12NoEntriesNote, ComplianceReport.Art14NothingRecordedNote, ComplianceReport.Art10NoRedactionsNote,
+                ComplianceReport.Art50NoDisclosuresNote, ComplianceReport.Art15NoDetectionsNote,
+            })
+            {
+                Assert.Contains(note, output, StringComparison.Ordinal);
+            }
         }
     }
 

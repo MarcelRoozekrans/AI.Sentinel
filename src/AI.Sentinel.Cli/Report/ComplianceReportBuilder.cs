@@ -42,6 +42,8 @@ internal static class ComplianceReportBuilder
             tally.Add(entry);
         }
 
+        var approvals = tally.ApprovalCounts();
+        var art15 = Detections(tally.Art15);
         return new ComplianceReport(
             Schema: 1,
             From: from,
@@ -56,14 +58,30 @@ internal static class ComplianceReportBuilder
                 chain.AnchorHash is not null,
                 ComplianceReport.ChainNote,
                 tally.EntriesInPeriod,
-                Sorted(tally.BySource)),
-            Art14: new ComplianceReport.Art14Section(tally.Denials, tally.Holds, tally.ApprovalCounts()),
-            Art10: new ComplianceReport.Art10Section(Sorted(tally.Redactions), tally.Fallbacks),
-            Art50: new ComplianceReport.Art50Section(tally.DisclosedTotal),
+                Sorted(tally.BySource),
+                NoteWhen(tally.EntriesInPeriod == 0, ComplianceReport.Art12NoEntriesNote)),
+            Art14: new ComplianceReport.Art14Section(
+                tally.Denials,
+                tally.Holds,
+                approvals,
+                NoteWhen(tally.Denials == 0 && tally.Holds == 0 && approvals.Count == 0, ComplianceReport.Art14NothingRecordedNote)),
+            Art10: new ComplianceReport.Art10Section(
+                Sorted(tally.Redactions),
+                tally.Fallbacks,
+                NoteWhen(tally.Redactions.Count == 0, ComplianceReport.Art10NoRedactionsNote)),
+            Art50: new ComplianceReport.Art50Section(
+                tally.DisclosedTotal,
+                NoteWhen(tally.DisclosedTotal == 0, ComplianceReport.Art50NoDisclosuresNote)),
             Art5: new ComplianceReport.Art5Section(
-                tally.Art5.Count > 0, tally.Art5.Count > 0 ? null : ComplianceReport.Art5NoDetectionsNote, Detections(tally.Art5)),
-            Art15: new ComplianceReport.Art15Section(Detections(tally.Art15), TopDetectors(tally.Art15)));
+                tally.Art5.Count > 0, NoteWhen(tally.Art5.Count == 0, ComplianceReport.Art5NoDetectionsNote), Detections(tally.Art5)),
+            Art15: new ComplianceReport.Art15Section(
+                art15,
+                TopDetectors(tally.Art15),
+                NoteWhen(art15.Count == 0, ComplianceReport.Art15NoDetectionsNote)));
     }
+
+    /// <summary>The note that says why a section is empty, or null when it is not.</summary>
+    private static string? NoteWhen(bool empty, string note) => empty ? note : null;
 
     private static Dictionary<string, int> Sorted(Dictionary<string, int> source)
     {

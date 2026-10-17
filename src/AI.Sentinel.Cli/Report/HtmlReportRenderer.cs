@@ -77,6 +77,7 @@ internal static class HtmlReportRenderer
         Paragraph(html, "note", art12.ChainNote);
         SubHeading(html, T.EntriesBySource);
         Counts(html, T.Source, T.Entries, art12.EntriesBySource, T.NoEntries);
+        Note(html, art12.Note);
     }
 
     private static void Art14(StringBuilder html, ComplianceReport.Art14Section art14)
@@ -88,6 +89,7 @@ internal static class HtmlReportRenderer
         html.AppendLine("</table>");
         SubHeading(html, T.ApprovalDecisions);
         Counts(html, T.Outcome, T.Requests, art14.ApprovalRequestsByOutcome, T.NoApprovals);
+        Note(html, art14.Note);
     }
 
     private static void Art10(StringBuilder html, ComplianceReport.Art10Section art10)
@@ -95,6 +97,7 @@ internal static class HtmlReportRenderer
         Heading(html, T.Art10Title);
         SubHeading(html, T.RedactionsByType);
         Counts(html, T.EntityType, T.Redacted, art10.RedactionsByType, T.NoRedactions);
+        Note(html, art10.Note);
         Paragraph(html, "note", T.FallbackLine(art10.FallbackEntries));
     }
 
@@ -104,6 +107,7 @@ internal static class HtmlReportRenderer
         if (art50.DisclosedSessions == 0)
         {
             Paragraph(html, "empty", T.NoDisclosures);
+            Note(html, art50.Note);
             return;
         }
         html.AppendLine("<table>");
@@ -128,6 +132,7 @@ internal static class HtmlReportRenderer
         if (art15.Detections.Count == 0)
         {
             Paragraph(html, "empty", T.NoDetections);
+            Note(html, art15.Note);
             return;
         }
         Detections(html, art15.Detections);
@@ -174,6 +179,15 @@ internal static class HtmlReportRenderer
     /// <summary>A header row; <paramref name="valueHtml"/> must already be encoded.</summary>
     private static void Row(StringBuilder html, string label, string valueHtml) =>
         html.Append("<tr><th>").Append(E(label)).Append("</th><td>").Append(valueHtml).AppendLine("</td></tr>");
+
+    /// <summary>The note that says why a section is empty, when there is one.</summary>
+    private static void Note(StringBuilder html, string? note)
+    {
+        if (note is not null)
+        {
+            Paragraph(html, "note", note);
+        }
+    }
 
     private static void Paragraph(StringBuilder html, string cssClass, string text) =>
         html.Append("<p class=\"").Append(cssClass).Append("\">").Append(E(text)).AppendLine("</p>");

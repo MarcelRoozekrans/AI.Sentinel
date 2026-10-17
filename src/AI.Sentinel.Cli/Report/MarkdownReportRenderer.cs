@@ -39,6 +39,7 @@ internal static class MarkdownReportRenderer
         md.AppendLine(Escape(art12.ChainNote)).AppendLine();
         SubHeading(md, T.EntriesBySource);
         Counts(md, T.Source, T.Entries, art12.EntriesBySource, T.NoEntries);
+        Note(md, art12.Note);
     }
 
     private static void Art14(StringBuilder md, ComplianceReport.Art14Section art14)
@@ -48,6 +49,7 @@ internal static class MarkdownReportRenderer
         md.Append("- ").Append(T.ApprovalHolds).Append(": ").AppendLine(T.Number(art14.ApprovalHolds)).AppendLine();
         SubHeading(md, T.ApprovalDecisions);
         Counts(md, T.Outcome, T.Requests, art14.ApprovalRequestsByOutcome, T.NoApprovals);
+        Note(md, art14.Note);
     }
 
     private static void Art10(StringBuilder md, ComplianceReport.Art10Section art10)
@@ -55,6 +57,7 @@ internal static class MarkdownReportRenderer
         Heading(md, T.Art10Title);
         SubHeading(md, T.RedactionsByType);
         Counts(md, T.EntityType, T.Redacted, art10.RedactionsByType, T.NoRedactions);
+        Note(md, art10.Note);
         md.AppendLine(Escape(T.FallbackLine(art10.FallbackEntries))).AppendLine();
     }
 
@@ -64,6 +67,7 @@ internal static class MarkdownReportRenderer
         if (art50.DisclosedSessions == 0)
         {
             md.AppendLine(T.NoDisclosures).AppendLine();
+            Note(md, art50.Note);
             return;
         }
         md.Append("- ").Append(T.ConversationsDisclosed).Append(": ").AppendLine(T.Number(art50.DisclosedSessions)).AppendLine();
@@ -86,6 +90,7 @@ internal static class MarkdownReportRenderer
         if (art15.Detections.Count == 0)
         {
             md.AppendLine(T.NoDetections).AppendLine();
+            Note(md, art15.Note);
             return;
         }
         Detections(md, art15.Detections);
@@ -123,6 +128,15 @@ internal static class MarkdownReportRenderer
             md.Append("| ").Append(Escape(key)).Append(" | ").Append(T.Number(count)).AppendLine(" |");
         }
         md.AppendLine();
+    }
+
+    /// <summary>The note that says why a section is empty, when there is one.</summary>
+    private static void Note(StringBuilder md, string? note)
+    {
+        if (note is not null)
+        {
+            md.AppendLine(Escape(note)).AppendLine();
+        }
     }
 
     private static void Row(StringBuilder md, string label, string value) =>

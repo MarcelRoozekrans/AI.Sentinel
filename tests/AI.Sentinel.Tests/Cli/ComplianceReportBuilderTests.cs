@@ -237,6 +237,55 @@ public class ComplianceReportBuilderTests
             report.Art5.Note);
         Assert.Empty(report.Art15.Detections);
         Assert.Empty(report.Art15.TopDetectors);
+        Assert.Equal(ComplianceReport.Art12NoEntriesNote, report.Art12.Note);
+        Assert.Equal(ComplianceReport.Art14NothingRecordedNote, report.Art14.Note);
+        Assert.Equal(ComplianceReport.Art10NoRedactionsNote, report.Art10.Note);
+        Assert.Equal(ComplianceReport.Art50NoDisclosuresNote, report.Art50.Note);
+        Assert.Equal(ComplianceReport.Art15NoDetectionsNote, report.Art15.Note);
+    }
+
+    [Fact]
+    public async Task SectionWithData_HasNoEmptyNote()
+    {
+        using var store = new RingBufferAuditStore();
+        await Seed(store,
+            Entry(Severity.Low, "SEC-01", "x"),
+            AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "s1")
+                with { Timestamp = Now.AddDays(-1) },
+            Entry(Severity.None, AuditEntryKinds.TransparencyDetectorId, "Disclosed", AuditEntryKinds.DisclosedPolicyCode, "s1"));
+
+        var report = await BuildAsync(store);
+
+        Assert.Null(report.Art12.Note);
+        Assert.Null(report.Art10.Note);
+        Assert.Null(report.Art50.Note);
+        Assert.Null(report.Art15.Note);
+        Assert.Equal(ComplianceReport.Art14NothingRecordedNote, report.Art14.Note);
+    }
+
+    [Theory]
+    [InlineData(1, 0, false)]
+    [InlineData(0, 1, false)]
+    [InlineData(0, 0, true)]
+    public async Task Art14_Note_OnlyWhenNothingWasRecorded(int denials, int holds, bool approval)
+    {
+        using var store = new RingBufferAuditStore();
+        for (var i = 0; i < denials; i++)
+        {
+            await Seed(store, Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "d", SentinelDenyCodes.PolicyDenied));
+        }
+        for (var i = 0; i < holds; i++)
+        {
+            await Seed(store, Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "h", SentinelDenyCodes.ApprovalRequired));
+        }
+        if (approval)
+        {
+            await Seed(store, Entry(Severity.None, AuditEntryKinds.ApprovalDetectorId, "Approved: policy p, tool t, request r1", AuditEntryKinds.ApprovedPolicyCode));
+        }
+
+        var report = await BuildAsync(store);
+
+        Assert.Null(report.Art14.Note);
     }
 
     [Fact]
