@@ -900,6 +900,125 @@ public class RedactionPipelineTests
         }
     }
 
+    // --- The inner client's response is never mutated ---
+
+    private static IChatClient BuildOverResponses(Func<IList<ChatMessage>, ChatResponse> respond)
+    {
+        var sc = new ServiceCollection();
+        sc.AddAISentinel(_ => { });
+        sc.AddSingleton<IAuditStore>(new RingBufferAuditStore());
+        sc.AddSingleton<AI.Sentinel.Intervention.IMediator>(new RecordingMediator([]));
+        return new ChatClientBuilder(new ResponseModel(respond)).UseAISentinel().Build(sc.BuildServiceProvider());
+    }
+
+    private static string TokenIn(IList<ChatMessage> sent)
+    {
+        var match = Regex.Match(sent[sent.Count - 1].Text, @"\[EMAIL_\d+_[A-Za-z0-9]+\]",
+            RegexOptions.None, TimeSpan.FromSeconds(1));
+        Assert.True(match.Success);
+        return match.Value;
+    }
+
+    [Fact]
+    public async Task RestoredReply_InnerResponseKeepsPlaceholders()
+    {
+        ChatResponse? innerResponse = null;
+        string? token = null;
+        var client = BuildOverResponses(sent =>
+        {
+            token = TokenIn(sent);
+            return innerResponse = new ChatResponse(new ChatMessage(ChatRole.Assistant, "Mailed " + token));
+        });
+
+        var response = await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, $"Mail {Email} please")], null, TestContext.Current.CancellationToken);
+
+        Assert.Equal($"Mailed {Email}", response.Text);
+        Assert.NotSame(innerResponse, response);
+        Assert.NotSame(innerResponse!.Messages, response.Messages);
+        Assert.Equal("Mailed " + token, innerResponse.Text);
+        Assert.DoesNotContain(Email, innerResponse.Text, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RestoredReply_KeepsResponseMetadata()
+    {
+        var created = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
+        var usage = new UsageDetails { InputTokenCount = 7, OutputTokenCount = 9, TotalTokenCount = 16 };
+        var raw = new object();
+        AdditionalPropertiesDictionary? innerProperties = null;
+        var client = BuildOverResponses(sent => new ChatResponse(new ChatMessage(ChatRole.Assistant, "Mailed " + TokenIn(sent)))
+        {
+            ResponseId = "resp-1",
+            ConversationId = "conv-1",
+            ModelId = "model-x",
+            CreatedAt = created,
+            FinishReason = ChatFinishReason.Length,
+            Usage = usage,
+            RawRepresentation = raw,
+            AdditionalProperties = innerProperties = new AdditionalPropertiesDictionary { ["k"] = "v" },
+        });
+
+        var response = await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, $"Mail {Email} please")], null, TestContext.Current.CancellationToken);
+
+        Assert.Equal($"Mailed {Email}", response.Text);
+        Assert.Equal("resp-1", response.ResponseId);
+        Assert.Equal("conv-1", response.ConversationId);
+        Assert.Equal("model-x", response.ModelId);
+        Assert.Equal(created, response.CreatedAt);
+        Assert.Equal(ChatFinishReason.Length, response.FinishReason);
+        Assert.Same(usage, response.Usage);
+        Assert.Same(raw, response.RawRepresentation);
+        Assert.Equal("v", response.AdditionalProperties!["k"]);
+        Assert.NotSame(innerProperties, response.AdditionalProperties);
+    }
+
+    [Fact]
+    public async Task SameInnerInstanceTwice_InnerKeepsFirstCallsPlaceholder()
+    {
+        ChatResponse? cached = null;
+        var client = BuildOverResponses(sent => cached ??= new ChatResponse(new ChatMessage(ChatRole.Assistant, "Mailed " + TokenIn(sent))));
+
+        var first = await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, $"Mail {Email} please")], null, TestContext.Current.CancellationToken);
+        var placeholderText = cached!.Text;
+        Assert.True(Regex.IsMatch(placeholderText, @"^Mailed \[EMAIL_\d+_[A-Za-z0-9]+\]$", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        var second = await client.GetResponseAsync(
+            [new ChatMessage(ChatRole.User, $"Mail {Email} please")], null, TestContext.Current.CancellationToken);
+
+        // Each call mints its own tag, so the token the cache holds from the first call is a foreign literal
+        // in the second: it stays as it is and the real value is not served from the mutated cache.
+        Assert.Equal($"Mailed {Email}", first.Text);
+        Assert.Equal(placeholderText, second.Text);
+        Assert.Equal(placeholderText, cached.Text);
+        Assert.DoesNotContain(Email, cached.Text, StringComparison.Ordinal);
+    }
+
+    private sealed class ResponseModel(Func<IList<ChatMessage>, ChatResponse> respond) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+            => Task.FromResult(respond(messages.ToList()));
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.CompletedTask;
+            var response = respond(messages.ToList());
+            foreach (var update in response.ToChatResponseUpdates())
+            {
+                yield return update;
+            }
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose()
+        {
+        }
+    }
+
     internal sealed class RecordingModel(Func<IList<ChatMessage>, ChatMessage> reply) : IChatClient
     {
         private readonly List<string> _seen = new();

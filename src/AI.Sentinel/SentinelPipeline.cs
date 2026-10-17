@@ -122,10 +122,19 @@ public sealed class SentinelPipeline
         if (responseError is not null)
             return Result<ChatResponse, SentinelError>.Failure(responseError);
 
-        var restored = RestoreResponse(scope, response, static (session, r) =>
+        // The inner client owns its response, and a caching client below Sentinel may hand out the same
+        // instance again, so the restore goes into a copy and the inner response keeps its placeholders.
+        var restored = RestoreResponse(scope, response, static (session, r) => new ChatResponse(session.Restore(r.Messages))
         {
-            r.Messages = session.Restore(r.Messages);
-            return r;
+            ResponseId = r.ResponseId,
+            ConversationId = r.ConversationId,
+            ModelId = r.ModelId,
+            CreatedAt = r.CreatedAt,
+            FinishReason = r.FinishReason,
+            Usage = r.Usage,
+            ContinuationToken = r.ContinuationToken,
+            RawRepresentation = r.RawRepresentation,
+            AdditionalProperties = r.AdditionalProperties is null ? null : new AdditionalPropertiesDictionary(r.AdditionalProperties),
         });
         if (restored.IsFailure)
             return restored;
