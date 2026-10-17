@@ -62,7 +62,7 @@ A streamed reply is marked too. The keys go on the first update that has no `Mes
 
 ## The notice
 
-The notice is added as leading text of the **last assistant message that has visible text**, after the scans and after redacted values are restored. Detectors never judge it, and it is never taken for model output.
+The notice is added as leading text of the **last assistant message that has visible text**, after the scans and after redacted values are restored. The layer's own detectors never judge it, and it is never taken for model output. An outer Sentinel layer is the exception, see [Stacked layers](#stacked-layers).
 
 - A reply that only calls tools has no visible text and is not disclosed. The reply that follows the tool results is.
 - A quarantined reply, a reply for which the inner client failed, and a reply whose redacted values could not be restored are not disclosed. The caller gets an error, not an answer.
@@ -95,6 +95,10 @@ Sentinel remembers which sessions it has disclosed in the pipeline itself:
 - A multi-instance deployment tracks per instance, so a conversation that moves between instances can see the notice once on each.
 - A session is forgotten after `SessionIdleTimeout` (one hour by default), and the next reply starts the conversation again.
 
+### Function invocation
+
+With Sentinel outside `UseFunctionInvocation`, the whole tool loop is one Sentinel call, and the answer gets one notice. With Sentinel inside it, as in `builder.UseFunctionInvocation().UseAISentinel()`, each round trip to the model is its own Sentinel call, and each round trip that returns assistant text is a disclosed reply. A model that says "Let me check." before calling a tool and then gives the answer has two replies. Pass `sentinel.session_id` or `ConversationId` to get one notice and one `DISCLOSED` entry per conversation; without a session key each of those round trips gets the notice and writes an entry.
+
 ### History
 
 When the application keeps the conversation and sends it back, the notice Sentinel added is part of the earlier assistant messages. Sentinel removes it from the start of assistant messages **before scanning and sending**, so the model never sees it and does not learn to copy it. User messages are never changed. The history you pass in is not modified; Sentinel works on copies.
@@ -121,7 +125,7 @@ Each named pipeline has its own options, so enable transparency on the pipelines
 
 ## Stacked layers
 
-If you stack two Sentinel layers, enabling transparency on both gives the reply the notice twice and writes two `DISCLOSED` entries; the mark keeps the inner layer's values. Enable it in one layer.
+If you stack two Sentinel layers, enabling transparency on both gives the reply the notice twice and writes two `DISCLOSED` entries; the mark keeps the inner layer's values. The outer layer's detectors scan the reply as the inner layer returns it, so they see the inner layer's notice. Enable transparency in one layer, preferably the outer one, so that every layer's detectors judge the reply without the notice.
 
 ## Scope
 
