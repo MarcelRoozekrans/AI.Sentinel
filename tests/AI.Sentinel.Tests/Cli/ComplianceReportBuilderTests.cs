@@ -64,7 +64,7 @@ public class ComplianceReportBuilderTests
     [Fact]
     public async Task Art12_BrokenChain_FirstBrokenId()
     {
-        var good = new RingBufferAuditStore();
+        using var good = new RingBufferAuditStore();
         var first = await good.AppendAsync(Entry(Severity.Low, "SEC-01", "a"), Ct);
         var second = await good.AppendAsync(Entry(Severity.Low, "SEC-01", "b"), Ct);
         var tampered = second with { Summary = "edited" };
@@ -75,7 +75,6 @@ public class ComplianceReportBuilderTests
         Assert.False(report.Art12.ChainIntact);
         Assert.Equal(second.Id, report.Art12.FirstBrokenEntryId);
         Assert.Equal(1, report.Art12.EntriesChecked);
-        good.Dispose();
     }
 
     [Fact]
@@ -137,6 +136,19 @@ public class ComplianceReportBuilderTests
     }
 
     [Fact]
+    public async Task Art50_DisclosureWithoutSession_CountsOncePerEntry()
+    {
+        using var store = new RingBufferAuditStore();
+        AuditEntry Disclosed(string? s) =>
+            Entry(Severity.None, AuditEntryKinds.TransparencyDetectorId, "Disclosed: machine-readable mark", AuditEntryKinds.DisclosedPolicyCode, s);
+        await Seed(store, Disclosed(null), Disclosed(null), Disclosed("s1"));
+
+        var report = await BuildAsync(store);
+
+        Assert.Equal(3, report.Art50.DisclosedSessions);
+    }
+
+    [Fact]
     public async Task Art5_CmpDetectionsSeparatedFromArt15()
     {
         using var store = new RingBufferAuditStore();
@@ -152,6 +164,7 @@ public class ComplianceReportBuilderTests
         var report = await BuildAsync(store);
 
         Assert.True(report.Art5.AnyDetections);
+        Assert.Null(report.Art5.Note);
         Assert.Equal(2, report.Art5.Detections.Count);
         Assert.Contains(report.Art5.Detections, d => d is { DetectorId: "CMP-01", Severity: Severity.High, Count: 2 });
         Assert.DoesNotContain(report.Art15.Detections, d => d.DetectorId.StartsWith("CMP-", StringComparison.Ordinal));
@@ -205,10 +218,13 @@ public class ComplianceReportBuilderTests
     {
         using var store = new RingBufferAuditStore();
         await Seed(store,
-            Entry(Severity.High, "SEC-01", "SECRET-SUMMARY-TEXT", session: "SESSION-ABC", source: "CALLER-XYZ"),
+            Entry(Severity.High, "SEC-01", "SECRET-SUMMARY-TEXT", session: "SESSION-ABC"),
+            Entry(Severity.High, "SEC-02", "SECRET-SUMMARY-TEXT; not redacted", session: "SESSION-ABC"),
+            Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "SECRET-SUMMARY-TEXT", "policy-x", "SESSION-ABC"),
+            AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "SESSION-ABC"),
             Entry(Severity.High, "CMP-01", "SECRET-SUMMARY-TEXT", session: "SESSION-ABC"),
             Entry(Severity.None, AuditEntryKinds.TransparencyDetectorId, "Disclosed: SECRET-SUMMARY-TEXT", AuditEntryKinds.DisclosedPolicyCode, "SESSION-ABC"),
-            Entry(Severity.None, AuditEntryKinds.ApprovalDetectorId, "Approved: policy SECRET-SUMMARY-TEXT, tool t, request r1", AuditEntryKinds.ApprovedPolicyCode, "SESSION-ABC"));
+            Entry(Severity.None, AuditEntryKinds.ApprovalDetectorId, "Approved: policy SECRET-SUMMARY-TEXT, tool t, request REQ-SECRET-1", AuditEntryKinds.ApprovedPolicyCode, "SESSION-ABC"));
 
         var report = await BuildAsync(store);
 
@@ -219,6 +235,7 @@ public class ComplianceReportBuilderTests
         {
             Assert.DoesNotContain("SECRET-SUMMARY-TEXT", s, StringComparison.Ordinal);
             Assert.DoesNotContain("SESSION-ABC", s, StringComparison.Ordinal);
+            Assert.DoesNotContain("REQ-SECRET-1", s, StringComparison.Ordinal);
         }
     }
 

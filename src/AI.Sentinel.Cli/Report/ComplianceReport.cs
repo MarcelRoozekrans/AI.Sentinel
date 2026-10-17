@@ -8,7 +8,7 @@ namespace AI.Sentinel.Cli.Report;
 /// </summary>
 /// <param name="Schema">Version of the JSON shape.</param>
 /// <param name="From">Start of the period.</param>
-/// <param name="To">End of the period.</param>
+/// <param name="To">End of the period, inclusive, compared as a UTC instant.</param>
 /// <param name="GeneratedAt">When the report was built.</param>
 /// <param name="AuditFilePath">The audit file the report was read from.</param>
 /// <param name="Disclaimer">What the report is and is not.</param>
@@ -84,7 +84,7 @@ internal sealed record ComplianceReport(
 
     /// <summary>Data minimisation.</summary>
     /// <param name="RedactionsByType">Redacted occurrences per entity type.</param>
-    /// <param name="FallbackEntries">Detections that wanted redaction and could not redact.</param>
+    /// <param name="FallbackEntries">Detections that wanted redaction and could not redact. These entries are also counted in Art15, or in Art5 for a CMP- detector.</param>
     internal sealed record Art10Section(IReadOnlyDictionary<string, int> RedactionsByType, int FallbackEntries);
 
     /// <summary>Transparency.</summary>
@@ -93,9 +93,9 @@ internal sealed record ComplianceReport(
 
     /// <summary>Prohibited practices.</summary>
     /// <param name="AnyDetections">True when at least one CMP- detection was recorded.</param>
-    /// <param name="Note">What an empty section does and does not mean.</param>
+    /// <param name="Note">What an empty section does and does not mean; null when there are detections.</param>
     /// <param name="Detections">Detections per detector and severity.</param>
-    internal sealed record Art5Section(bool AnyDetections, string Note, IReadOnlyList<DetectionCount> Detections);
+    internal sealed record Art5Section(bool AnyDetections, string? Note, IReadOnlyList<DetectionCount> Detections);
 
     /// <summary>Accuracy and robustness.</summary>
     /// <param name="Detections">Detections per detector and severity.</param>

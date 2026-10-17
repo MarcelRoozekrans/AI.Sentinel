@@ -11,5 +11,6 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("AI.Sentinel.ClaudeCode.Cli")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Copilot.Cli")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Mcp.Cli")]
+[assembly: InternalsVisibleTo("AI.Sentinel.Cli")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Benchmarks")]
 

@@ -58,9 +58,9 @@ internal static class ComplianceReportBuilder
                 Sorted(tally.BySource)),
             Art14: new ComplianceReport.Art14Section(tally.Denials, tally.ApprovalCounts()),
             Art10: new ComplianceReport.Art10Section(Sorted(tally.Redactions), tally.Fallbacks),
-            Art50: new ComplianceReport.Art50Section(tally.DisclosedSessions.Count),
+            Art50: new ComplianceReport.Art50Section(tally.DisclosedTotal),
             Art5: new ComplianceReport.Art5Section(
-                tally.Art5.Count > 0, ComplianceReport.Art5NoDetectionsNote, Detections(tally.Art5)),
+                tally.Art5.Count > 0, tally.Art5.Count > 0 ? null : ComplianceReport.Art5NoDetectionsNote, Detections(tally.Art5)),
             Art15: new ComplianceReport.Art15Section(Detections(tally.Art15), TopDetectors(tally.Art15)));
     }
 
@@ -123,16 +123,10 @@ internal static class ComplianceReportBuilder
         internal Dictionary<string, int> BySource { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, int> Redactions { get; } = new(StringComparer.Ordinal);
         internal HashSet<string> DisclosedSessions { get; } = new(StringComparer.Ordinal);
+        internal int AnonymousDisclosures { get; private set; }
+        internal int DisclosedTotal => DisclosedSessions.Count + AnonymousDisclosures;
         internal Dictionary<(string Detector, Severity Severity), int> Art5 { get; } = [];
         internal Dictionary<(string Detector, Severity Severity), int> Art15 { get; } = [];
-
-        private static bool IsCode(AuditEntry entry, string code) =>
-            AuditEntryKinds.IsInformational(entry) && string.Equals(entry.PolicyCode, code, StringComparison.Ordinal);
-
-        private static bool IsApproval(AuditEntry entry) =>
-            AuditEntryKinds.IsInformational(entry)
-            && entry.PolicyCode is AuditEntryKinds.ApprovedPolicyCode or AuditEntryKinds.DeniedPolicyCode
-                or AuditEntryKinds.ExpiredPolicyCode or AuditEntryKinds.TimedOutPolicyCode;
 
         internal void Add(AuditEntry entry)
         {
@@ -144,16 +138,23 @@ internal static class ComplianceReportBuilder
             {
                 Denials++;
             }
-            else if (IsCode(entry, AuditEntryRedactionExtensions.RedactedPolicyCode))
+            else if (AuditEntryKinds.IsRedaction(entry))
             {
                 CountRedactions(entry.Summary);
             }
-            else if (IsCode(entry, AuditEntryKinds.DisclosedPolicyCode))
+            else if (AuditEntryKinds.IsDisclosure(entry))
             {
                 // A disclosure without a session cannot be told apart from another, so each one counts as its own.
-                DisclosedSessions.Add(entry.SessionId ?? "\0" + DisclosedSessions.Count.ToString(CultureInfo.InvariantCulture));
+                if (entry.SessionId is null)
+                {
+                    AnonymousDisclosures++;
+                }
+                else
+                {
+                    DisclosedSessions.Add(entry.SessionId);
+                }
             }
-            else if (IsApproval(entry))
+            else if (AuditEntryKinds.IsApproval(entry))
             {
                 CountApproval(entry);
             }
