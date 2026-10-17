@@ -67,6 +67,17 @@ For CLIs (where source-edits aren't an option), use a [config file](/docs/approv
 
 Policies and approval requests see the real argument values, not [redaction](/docs/redaction) placeholders, so an approver can judge the actual call.
 
+## Writing your own store
+
+A custom backend implements `IApprovalStore`, and `IApprovalAdmin` as well when approvers decide in the [dashboard panel](/docs/approvals/dashboard). Set `RequestId` on every `ApprovalState.Active` and `ApprovalState.Denied` you return whenever the store knows the request, as the built-in stores do. [Approval decisions](#audit-trail) in the audit log are recorded under that id.
+
+For a store that implements `IApprovalAdmin`, AI.Sentinel records `ApproveAsync` and `DenyAsync` itself, from the request id they are called with. For a store without it, whose decisions are made elsewhere as with Entra PIM, AI.Sentinel records what the store returns:
+
+- **A `Denied` without a `RequestId` is not recorded as a decision.** AI.Sentinel treats it as a denial that belongs to no request, such as a backend error while polling, so a real denial returned without an id is missing from the audit log.
+- **An `Active` without a `RequestId`** is recorded under the id this process waited on or saw pending. A process that saw neither, such as a hook invocation after an earlier one opened the request, records no `APPROVED` entry.
+
+For either kind of store, an expired grant is returned as a `Denied` with the reason `"expired"` and recorded as `EXPIRED`. Without a `RequestId` that entry names the request this process remembers for the caller and policy, or `unknown`.
+
 ## Next steps
 
 - Pick a backend: [in-memory](/docs/approvals/in-memory), [SQLite](/docs/approvals/sqlite), or [Entra PIM](/docs/approvals/entra-pim).

@@ -21,17 +21,19 @@ It scans both directions on every call. If something looks wrong it can quaranti
 
 ## Packages
 
-AI.Sentinel ships as 13 focused NuGet packages so you only take dependencies you need:
+AI.Sentinel ships as 15 focused NuGet packages so you only take dependencies you need:
 
 | Package | Purpose |
 |---|---|
 | `AI.Sentinel` | Core — pipeline, 60 detectors, intervention engine, audit store |
 | `AI.Sentinel.Detectors.Sdk` | SDK for writing and testing custom detectors — `SentinelContextBuilder`, `FakeEmbeddingGenerator`, `DetectorTestBuilder` |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
-| `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
+| `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI, `sentinel dashboard` to browse the audit file the hooks and the MCP proxy write, and [`sentinel report`](./compliance-report) for a compliance report from it |
 | `AI.Sentinel.Sqlite` | Persistent `SqliteAuditStore` with hash-chain integrity |
 | `AI.Sentinel.AzureSentinel` | `AzureSentinelAuditForwarder` to Azure Monitor Logs Ingestion API |
 | `AI.Sentinel.OpenTelemetry` | `OpenTelemetryAuditForwarder` — vendor-neutral via OTel collector |
+| `AI.Sentinel.Approvals.Sqlite` | SQLite-backed `IApprovalStore` — persistent approval state across CLI invocations and process restarts |
+| `AI.Sentinel.Approvals.EntraPim` | Entra PIM-backed `IApprovalStore` — delegates approval requests to Entra Privileged Identity Management via Microsoft Graph |
 | `AI.Sentinel.Mcp` / `.Mcp.Cli` | Stdio MCP proxy that scans `tools/call` + `prompts/get` for any MCP-speaking host |
 | `AI.Sentinel.ClaudeCode` / `.ClaudeCode.Cli` | Native hook adapter for Claude Code's `settings.json` hooks |
 | `AI.Sentinel.Copilot` / `.Copilot.Cli` | Native hook adapter for GitHub Copilot's `hooks.json` |
@@ -43,3 +45,7 @@ AI.Sentinel ships as 13 focused NuGet packages so you only take dependencies you
 - **[Architecture](./core-concepts/architecture)** — how prompt and response scans flow through the pipeline
 - **[Detector reference](./detectors/overview)** — what the 60 built-in detectors look for
 - **[Custom detectors](./custom-detectors/sdk-overview)** — write and unit-test your own
+- **[EU AI Act](./eu-ai-act)** — what AI.Sentinel provides per article, what is on by default, and the limits
+- **[Redaction](./redaction)** — keep personal data and secrets away from the model
+- **[Transparency](./transparency)** — mark replies as AI-generated and add a notice (Art. 50)
+- **[Compliance report](./compliance-report)** — `sentinel report` turns the audit file into evidence per article

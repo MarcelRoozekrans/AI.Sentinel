@@ -50,6 +50,18 @@ const features = [
     title: 'Audit forwarders',
     description: 'NDJSON file, SQLite, Azure Sentinel, OpenTelemetry — pick one or several. Hash-chained audit ensures tampering is detectable.',
   },
+  {
+    title: 'Redaction by default',
+    description: 'Personal data and secrets in a prompt are replaced with placeholders before the model sees them, and put back in the reply. The in-process client redacts; a redaction is audited, never counted as a threat.',
+  },
+  {
+    title: 'Art. 50 transparency',
+    description: 'Opt-in: mark every reply as AI-generated in ChatResponse.AdditionalProperties and add a notice once per conversation or on every reply. Each first disclosure is audited.',
+  },
+  {
+    title: 'EU AI Act compliance report',
+    description: 'sentinel report turns the audit file into totals per article as Markdown, HTML or JSON. Evidence to support an assessment, not a statement of compliance.',
+  },
 ];
 
 function Feature({title, description}) {
@@ -135,7 +147,7 @@ function PackagesSection() {
   return (
     <section className={styles.packages}>
       <div className="container">
-        <h2 style={{textAlign: 'center', marginBottom: '2rem'}}>13 packages, one ecosystem</h2>
+        <h2 style={{textAlign: 'center', marginBottom: '2rem'}}>15 packages, one ecosystem</h2>
         <div className="row">
           <div className="col col--4">
             <div className={styles.packageCard}>

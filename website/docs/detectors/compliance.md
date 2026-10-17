@@ -33,6 +33,16 @@ services.AddAISentinel(opts =>
 
 In the CLIs, set `SENTINEL_HOOK_COMPLIANCE=on` for `sentinel-hook` and `sentinel-copilot-hook`, and `SENTINEL_MCP_COMPLIANCE=on` for `sentinel-mcp`. The MCP proxy falls back to `SENTINEL_HOOK_COMPLIANCE` when its own variable is unset. The CLIs take no threshold settings; they use the built-in thresholds.
 
+### Replaying with `sentinel scan`
+
+`sentinel scan` in the [`AI.Sentinel.Cli`](https://www.nuget.org/packages/AI.Sentinel.Cli) tool replays a saved conversation through the detector pipeline. It leaves the four detectors off too, so `--expect CMP-03` fails unless the scan runs them. Pass `--compliance`, or set `SENTINEL_HOOK_COMPLIANCE=on`, the same switch the hook CLIs use, so a scan reproduces their findings:
+
+```
+sentinel scan conversation.json --compliance --expect CMP-03
+```
+
+Like the hooks, the scan needs `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` for these detectors to fire.
+
 ## They need an embedding generator
 
 All four are semantic: each compares the message with example phrases by embedding similarity. With no `opts.EmbeddingGenerator` they return `Clean` on every scan, and AI.Sentinel warns at startup that semantic detection is off.
