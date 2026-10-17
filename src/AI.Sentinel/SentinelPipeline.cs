@@ -135,7 +135,8 @@ public sealed class SentinelPipeline
 
     /// <summary>
     /// Marks the reply and adds the notice after the scan and the restore, so detectors never judge it and it is
-    /// never taken for model output. Returns the response to deliver; the inner client's response is not mutated.
+    /// never taken for model output. Returns the response to deliver: disclosure works on a copy and never changes
+    /// the response it is given.
     /// </summary>
     private async ValueTask<ChatResponse> DiscloseAsync(ChatResponse response, SessionId sessionId, bool callerSession, string? requestModelId)
     {

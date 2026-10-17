@@ -119,8 +119,8 @@ internal sealed class Disclosure
     /// <param name="session">The call's session.</param>
     /// <param name="requestModelId">The requested model, used when the response does not name one.</param>
     /// <param name="disclosed">The response to return: a copy with the mark and the notice, its properties, message
-    /// list and changed message copied too. <paramref name="response"/> is not mutated, so an inner client that
-    /// hands out the same instance twice gets each reply disclosed once.</param>
+    /// list and changed message copied too. Disclosure never changes <paramref name="response"/>, so disclosing the
+    /// same instance twice adds the mark and the notice to each copy once.</param>
     /// <param name="entry">The entry to append, or <see langword="null"/> when the session was already disclosed.</param>
     /// <param name="remember">False for a one-off session minted for this call: it is disclosed as new and not
     /// remembered, since no later call can share it.</param>
