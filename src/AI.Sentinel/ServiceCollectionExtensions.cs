@@ -8,6 +8,7 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Intervention;
+using AI.Sentinel.Transparency;
 using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel;
@@ -106,7 +107,7 @@ public static class ServiceCollectionExtensions
     private static void RejectEmptyTransparencyNotice(SentinelOptions opts, string paramName)
     {
         var t = opts.Transparency;
-        if (t.Enabled && t.NoticeMode != Transparency.TransparencyNoticeMode.Never && string.IsNullOrWhiteSpace(t.Notice))
+        if (t.Enabled && t.NoticeMode != TransparencyNoticeMode.Never && string.IsNullOrWhiteSpace(t.Notice))
         {
             throw new ArgumentException(
                 "SentinelOptions.Transparency.Notice cannot be empty while Transparency is enabled and NoticeMode is not Never. " +

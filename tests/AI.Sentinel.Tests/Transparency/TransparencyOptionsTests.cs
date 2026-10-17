@@ -37,11 +37,42 @@ public class TransparencyOptionsTests
     {
         var services = new ServiceCollection();
 
-        services.AddAISentinel(o =>
+        var ex = Record.Exception(() => services.AddAISentinel(o =>
         {
             o.Transparency.Enabled = true;
             o.Transparency.Notice = "";
             o.Transparency.NoticeMode = TransparencyNoticeMode.Never;
-        });
+        }));
+
+        Assert.Null(ex);
+    }
+
+    [Fact]
+    public void EnabledWithEmptyNotice_ModeEveryReply_Throws()
+    {
+        var services = new ServiceCollection();
+
+        var ex = Assert.Throws<ArgumentException>(() => services.AddAISentinel(o =>
+        {
+            o.Transparency.Enabled = true;
+            o.Transparency.Notice = "";
+            o.Transparency.NoticeMode = TransparencyNoticeMode.EveryReply;
+        }));
+
+        Assert.Contains("Transparency.Notice", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NamedPipeline_EnabledWithEmptyNotice_Throws()
+    {
+        var services = new ServiceCollection();
+
+        var ex = Assert.Throws<ArgumentException>(() => services.AddAISentinel("named", o =>
+        {
+            o.Transparency.Enabled = true;
+            o.Transparency.Notice = "";
+        }));
+
+        Assert.Contains("Transparency.Notice", ex.Message, StringComparison.Ordinal);
     }
 }
