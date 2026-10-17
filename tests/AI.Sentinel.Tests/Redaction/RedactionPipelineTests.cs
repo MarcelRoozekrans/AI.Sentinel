@@ -935,7 +935,8 @@ public class RedactionPipelineTests
 
         Assert.Equal($"Mailed {Email}", response.Text);
         Assert.NotSame(innerResponse, response);
-        Assert.Equal("Mailed " + token, innerResponse!.Text);
+        Assert.NotSame(innerResponse!.Messages, response.Messages);
+        Assert.Equal("Mailed " + token, innerResponse.Text);
         Assert.DoesNotContain(Email, innerResponse.Text, StringComparison.Ordinal);
     }
 
@@ -945,6 +946,7 @@ public class RedactionPipelineTests
         var created = new DateTimeOffset(2026, 1, 2, 3, 4, 5, TimeSpan.Zero);
         var usage = new UsageDetails { InputTokenCount = 7, OutputTokenCount = 9, TotalTokenCount = 16 };
         var raw = new object();
+        AdditionalPropertiesDictionary? innerProperties = null;
         var client = BuildOverResponses(sent => new ChatResponse(new ChatMessage(ChatRole.Assistant, "Mailed " + TokenIn(sent)))
         {
             ResponseId = "resp-1",
@@ -954,7 +956,7 @@ public class RedactionPipelineTests
             FinishReason = ChatFinishReason.Length,
             Usage = usage,
             RawRepresentation = raw,
-            AdditionalProperties = new AdditionalPropertiesDictionary { ["k"] = "v" },
+            AdditionalProperties = innerProperties = new AdditionalPropertiesDictionary { ["k"] = "v" },
         });
 
         var response = await client.GetResponseAsync(
@@ -969,10 +971,11 @@ public class RedactionPipelineTests
         Assert.Same(usage, response.Usage);
         Assert.Same(raw, response.RawRepresentation);
         Assert.Equal("v", response.AdditionalProperties!["k"]);
+        Assert.NotSame(innerProperties, response.AdditionalProperties);
     }
 
     [Fact]
-    public async Task SameInnerInstanceTwice_EachCallRestoresCorrectly()
+    public async Task SameInnerInstanceTwice_InnerKeepsFirstCallsPlaceholder()
     {
         ChatResponse? cached = null;
         var client = BuildOverResponses(sent => cached ??= new ChatResponse(new ChatMessage(ChatRole.Assistant, "Mailed " + TokenIn(sent))));
@@ -980,6 +983,7 @@ public class RedactionPipelineTests
         var first = await client.GetResponseAsync(
             [new ChatMessage(ChatRole.User, $"Mail {Email} please")], null, TestContext.Current.CancellationToken);
         var placeholderText = cached!.Text;
+        Assert.True(Regex.IsMatch(placeholderText, @"^Mailed \[EMAIL_\d+_[A-Za-z0-9]+\]$", RegexOptions.None, TimeSpan.FromSeconds(1)));
         var second = await client.GetResponseAsync(
             [new ChatMessage(ChatRole.User, $"Mail {Email} please")], null, TestContext.Current.CancellationToken);
 
