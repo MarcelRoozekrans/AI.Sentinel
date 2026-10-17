@@ -26,6 +26,9 @@ public class ComplianceReportBuilderTests
             Source = source,
         };
 
+    /// <summary>The entry dated inside the period; the factories stamp the real clock.</summary>
+    private static AuditEntry InPeriod(AuditEntry entry) => entry with { Timestamp = Now.AddDays(-1) };
+
     private static async Task<ComplianceReport> BuildAsync(RingBufferAuditStore store) =>
         await ComplianceReportBuilder.BuildAsync(store, From, Now, "/data/audit.db", new FixedTime(Now), Ct);
 
@@ -86,7 +89,7 @@ public class ComplianceReportBuilderTests
         using var store = new RingBufferAuditStore();
         // Seeded through the real writer, so the parser is pinned to the summary shape it reads.
         AuditEntry Approval(string code, string id) =>
-            ApprovalStoreAuditing.Decision(code, "p", "t", id) with { Timestamp = Now.AddDays(-1) };
+            InPeriod(ApprovalStoreAuditing.Decision(code, "p", "t", id));
         await Seed(store,
             Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "denied", "policy-x"),
             Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "denied", "policy-x"),
@@ -116,10 +119,9 @@ public class ComplianceReportBuilderTests
         // approval_required code. A request held three times and then approved is not three denials.
         using var store = new RingBufferAuditStore();
         AuditEntry Deny(string code) =>
-            AuditEntryAuthorizationExtensions.AuthorizationDeny(
+            InPeriod(AuditEntryAuthorizationExtensions.AuthorizationDeny(
                 new AgentId("user"), new AgentId("assistant"), SessionId.New(), "alice",
-                new HashSet<string>(StringComparer.Ordinal), "delete_database", "p", "held", code)
-            with { Timestamp = Now.AddDays(-1) };
+                new HashSet<string>(StringComparer.Ordinal), "delete_database", "p", "held", code));
         await Seed(store,
             Deny(SentinelDenyCodes.ApprovalRequired),
             Deny(SentinelDenyCodes.ApprovalRequired),
@@ -141,7 +143,7 @@ public class ComplianceReportBuilderTests
         // Policy and tool names that contain the marker still read back as the request the writer wrote.
         using var store = new RingBufferAuditStore();
         AuditEntry Approved(string policy, string tool, string id) =>
-            ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, policy, tool, id) with { Timestamp = Now.AddDays(-1) };
+            InPeriod(ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, policy, tool, id));
         await Seed(store,
             Approved("policy, request x", "tool", requestId),
             Approved("other", "tool, request y", requestId),
@@ -272,8 +274,7 @@ public class ComplianceReportBuilderTests
         using var store = new RingBufferAuditStore();
         await Seed(store,
             Entry(Severity.Low, "SEC-01", "x"),
-            AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "s1")
-                with { Timestamp = Now.AddDays(-1) },
+            InPeriod(AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "s1")),
             Entry(Severity.None, AuditEntryKinds.TransparencyDetectorId, "Disclosed", AuditEntryKinds.DisclosedPolicyCode, "s1"));
 
         var report = await BuildAsync(store);
@@ -302,7 +303,7 @@ public class ComplianceReportBuilderTests
         }
         if (approval)
         {
-            await Seed(store, ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, "p", "t", "r1") with { Timestamp = Now.AddDays(-1) });
+            await Seed(store, InPeriod(ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, "p", "t", "r1")));
         }
 
         var report = await BuildAsync(store);
@@ -321,8 +322,7 @@ public class ComplianceReportBuilderTests
             AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "SESSION-ABC"),
             Entry(Severity.High, "CMP-01", "SECRET-SUMMARY-TEXT", session: "SESSION-ABC"),
             Entry(Severity.None, AuditEntryKinds.TransparencyDetectorId, "Disclosed: SECRET-SUMMARY-TEXT", AuditEntryKinds.DisclosedPolicyCode, "SESSION-ABC"),
-            ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, "SECRET-SUMMARY-TEXT", "t", "REQ-SECRET-1")
-                with { Timestamp = Now.AddDays(-1), SessionId = "SESSION-ABC" });
+            InPeriod(ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, "SECRET-SUMMARY-TEXT", "t", "REQ-SECRET-1")) with { SessionId = "SESSION-ABC" });
 
         var report = await BuildAsync(store);
 
