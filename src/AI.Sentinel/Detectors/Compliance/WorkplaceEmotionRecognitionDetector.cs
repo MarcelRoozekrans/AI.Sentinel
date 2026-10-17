@@ -7,7 +7,8 @@ namespace AI.Sentinel.Detectors.Compliance;
 /// <summary>CMP-02: requests to infer the emotions of employees or students from their face, voice or other
 /// biometric data, the workplace and education emotion recognition the EU AI Act prohibits in Art. 5(1)(f).</summary>
 /// <remarks>Semantic only: it returns <c>Clean</c> until <see cref="SentinelOptions.EmbeddingGenerator"/> is
-/// set. A finding is <see cref="Severity.High"/>, so the default action is Alert, not a block.</remarks>
+/// set. A strong match is <see cref="Severity.High"/>, so the default action is Alert, not a block; a weaker
+/// match is <see cref="Severity.Medium"/>, which is logged.</remarks>
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed class WorkplaceEmotionRecognitionDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {

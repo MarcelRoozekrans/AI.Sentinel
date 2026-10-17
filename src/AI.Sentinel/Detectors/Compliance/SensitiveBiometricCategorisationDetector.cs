@@ -8,7 +8,8 @@ namespace AI.Sentinel.Detectors.Compliance;
 /// orientation from photos, voice or other biometric data, the biometric categorisation the EU AI Act
 /// prohibits in Art. 5(1)(g).</summary>
 /// <remarks>Semantic only: it returns <c>Clean</c> until <see cref="SentinelOptions.EmbeddingGenerator"/> is
-/// set. A finding is <see cref="Severity.High"/>, so the default action is Alert, not a block.</remarks>
+/// set. A strong match is <see cref="Severity.High"/>, so the default action is Alert, not a block; a weaker
+/// match is <see cref="Severity.Medium"/>, which is logged.</remarks>
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed class SensitiveBiometricCategorisationDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
