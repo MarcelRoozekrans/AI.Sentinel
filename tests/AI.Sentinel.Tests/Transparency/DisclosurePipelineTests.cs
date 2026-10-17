@@ -321,6 +321,27 @@ public class DisclosurePipelineTests
     }
 
     [Fact]
+    public async Task SharedInnerResponse_NotMutated_EachReplyDisclosedOnce()
+    {
+        var shared = new ChatResponse(new ChatMessage(ChatRole.Assistant, "Hi."));
+        var h = Build(new FakeModel(_ => shared), o => o.Transparency.NoticeMode = TransparencyNoticeMode.EveryReply);
+
+        var first = await AskAsync(h, Session("s1"));
+        h.Clock.Now = Start.AddMinutes(1);
+        var second = await AskAsync(h, Session("s1"));
+
+        Assert.Equal(1, NoticeCount(first));
+        Assert.Equal(1, NoticeCount(second));
+        Assert.Equal(NoticeText + "Hi.", second.Text);
+        Assert.Equal("2026-10-17T12:00:00.0000000Z", first.AdditionalProperties![TransparencyKeys.GeneratedAt]);
+        Assert.Equal("2026-10-17T12:01:00.0000000Z", second.AdditionalProperties![TransparencyKeys.GeneratedAt]);
+        Assert.NotSame(shared, second);
+        Assert.Null(shared.AdditionalProperties);
+        var inner = Assert.Single(shared.Messages);
+        Assert.Equal("Hi.", Assert.Single(inner.Contents) is TextContent t ? t.Text : null);
+    }
+
+    [Fact]
     public async Task CustomNotice_IsUsed()
     {
         var h = Build(FakeModel.Text("Hi."), o => o.Transparency.Notice = "Bot reply.");
@@ -533,14 +554,14 @@ public class DisclosurePipelineTests
 
         for (var i = 0; i < 100; i++)
         {
-            disclosure.TryDisclose(new ChatResponse(new ChatMessage(ChatRole.Assistant, "Hi.")), new SessionId($"old-{i}"), null, out _);
+            disclosure.TryDisclose(new ChatResponse(new ChatMessage(ChatRole.Assistant, "Hi.")), new SessionId($"old-{i}"), null, out _, out _);
         }
         Assert.Equal(100, disclosure.TrackedSessions);
 
         clock.Now = Start.AddMinutes(30);
         for (var i = 0; i < 300; i++)
         {
-            disclosure.TryDisclose(new ChatResponse(new ChatMessage(ChatRole.Assistant, "Hi.")), new SessionId("current"), null, out _);
+            disclosure.TryDisclose(new ChatResponse(new ChatMessage(ChatRole.Assistant, "Hi.")), new SessionId("current"), null, out _, out _);
         }
 
         Assert.Equal(1, disclosure.TrackedSessions);

@@ -127,19 +127,21 @@ public sealed class SentinelPipeline
             r.Messages = session.Restore(r.Messages);
             return r;
         });
-        if (restored.IsSuccess)
-            await DiscloseAsync(restored.Value, sessionId, callerSession is not null, chatOptions?.ModelId).ConfigureAwait(false);
-        return restored;
+        if (restored.IsFailure)
+            return restored;
+        return Result<ChatResponse, SentinelError>.Success(
+            await DiscloseAsync(restored.Value, sessionId, callerSession is not null, chatOptions?.ModelId).ConfigureAwait(false));
     }
 
     /// <summary>
     /// Marks the reply and adds the notice after the scan and the restore, so detectors never judge it and it is
-    /// never taken for model output.
+    /// never taken for model output. Returns the response to deliver; the inner client's response is not mutated.
     /// </summary>
-    private async ValueTask DiscloseAsync(ChatResponse response, SessionId sessionId, bool callerSession, string? requestModelId)
+    private async ValueTask<ChatResponse> DiscloseAsync(ChatResponse response, SessionId sessionId, bool callerSession, string? requestModelId)
     {
-        if (_disclosure.TryDisclose(response, sessionId, requestModelId, out var entry, remember: callerSession) && entry is not null)
+        if (_disclosure.TryDisclose(response, sessionId, requestModelId, out var disclosed, out var entry, remember: callerSession) && entry is not null)
             await AppendDisclosedAsync(entry).ConfigureAwait(false);
+        return disclosed;
     }
 
     /// <summary>The streaming counterpart of <see cref="DiscloseAsync(ChatResponse, SessionId, bool, string?)"/>;

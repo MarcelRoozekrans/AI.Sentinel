@@ -118,28 +118,57 @@ internal sealed class Disclosure
     /// <param name="response">The reply, after the response scan and redaction restore.</param>
     /// <param name="session">The call's session.</param>
     /// <param name="requestModelId">The requested model, used when the response does not name one.</param>
+    /// <param name="disclosed">The response to return: a copy with the mark and the notice, its properties, message
+    /// list and changed message copied too. <paramref name="response"/> is not mutated, so an inner client that
+    /// hands out the same instance twice gets each reply disclosed once.</param>
     /// <param name="entry">The entry to append, or <see langword="null"/> when the session was already disclosed.</param>
     /// <param name="remember">False for a one-off session minted for this call: it is disclosed as new and not
     /// remembered, since no later call can share it.</param>
     /// <returns>True when the response was marked.</returns>
-    public bool TryDisclose(ChatResponse response, SessionId session, string? requestModelId, out AuditEntry? entry, bool remember = true)
+    public bool TryDisclose(
+        ChatResponse response,
+        SessionId session,
+        string? requestModelId,
+        out ChatResponse disclosed,
+        out AuditEntry? entry,
+        bool remember = true)
     {
+        disclosed = response;
         entry = null;
         if (!Enabled || LastAssistantText(response.Messages) is not { } target)
             return false;
 
         var now = _time.GetUtcNow();
-        Mark(response.AdditionalProperties ??= [], string.IsNullOrWhiteSpace(response.ModelId) ? requestModelId : response.ModelId, now);
+        var properties = response.AdditionalProperties is { } inner ? new AdditionalPropertiesDictionary(inner) : [];
+        Mark(properties, string.IsNullOrWhiteSpace(response.ModelId) ? requestModelId : response.ModelId, now);
 
-        var (notice, disclosed) = Decide(session, remember, now);
+        var messages = new List<ChatMessage>(response.Messages);
+        var (notice, first) = Decide(session, remember, now);
         if (notice is not null)
-            target.Contents = [new TextContent(notice), .. target.Contents];
-        entry = disclosed;
+        {
+            var message = messages[target].Clone();
+            message.Contents = [new TextContent(notice), .. messages[target].Contents];
+            messages[target] = message;
+        }
+
+        disclosed = new ChatResponse(messages)
+        {
+            ResponseId = response.ResponseId,
+            ConversationId = response.ConversationId,
+            ModelId = response.ModelId,
+            CreatedAt = response.CreatedAt,
+            FinishReason = response.FinishReason,
+            Usage = response.Usage,
+            ContinuationToken = response.ContinuationToken,
+            RawRepresentation = response.RawRepresentation,
+            AdditionalProperties = properties,
+        };
+        entry = first;
         return true;
     }
 
     /// <summary>
-    /// Discloses a streamed reply by the rules of <see cref="TryDisclose(ChatResponse, SessionId, string?, out AuditEntry?, bool)"/>.
+    /// Discloses a streamed reply by the rules of <see cref="TryDisclose(ChatResponse, SessionId, string?, out ChatResponse, out AuditEntry?, bool)"/>.
     /// The mark goes on the first update without a message id, whose properties <c>ToChatResponse</c> merges into the
     /// response it builds, or on the first update when every update has a message id; its message then carries it.
     /// That first message can be an intermediate tool-call message rather than the one holding the disclosed text,
@@ -346,12 +375,12 @@ internal sealed class Disclosure
             _sessions.TryRemove(new KeyValuePair<string, long>(session, entry.Timestamp.ToUnixTimeMilliseconds()));
     }
 
-    private static ChatMessage? LastAssistantText(IList<ChatMessage> messages)
+    private static int? LastAssistantText(IList<ChatMessage> messages)
     {
         for (var i = messages.Count - 1; i >= 0; i--)
         {
             if (messages[i].Role == ChatRole.Assistant && !string.IsNullOrWhiteSpace(messages[i].Text))
-                return messages[i];
+                return i;
         }
         return null;
     }
