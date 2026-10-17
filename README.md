@@ -3,6 +3,7 @@
 # AI.Sentinel
 
 [![CI](https://github.com/MarcelRoozekrans/AI.Sentinel/actions/workflows/ci.yml/badge.svg)](https://github.com/MarcelRoozekrans/AI.Sentinel/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/MarcelRoozekrans/AI.Sentinel/graph/badge.svg)](https://codecov.io/gh/MarcelRoozekrans/AI.Sentinel)
 [![NuGet](https://img.shields.io/nuget/v/AI.Sentinel.svg?label=AI.Sentinel)](https://www.nuget.org/packages/AI.Sentinel)
 [![Downloads](https://img.shields.io/nuget/dt/AI.Sentinel.svg)](https://www.nuget.org/packages/AI.Sentinel)
 [![License: MIT](https://img.shields.io/github/license/MarcelRoozekrans/AI.Sentinel.svg?color=blue)](LICENSE)
