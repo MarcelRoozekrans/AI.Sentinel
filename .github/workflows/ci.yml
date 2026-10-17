@@ -43,4 +43,5 @@ jobs:
         with:
           use_oidc: true
           files: "TestResults/**/*.cobertura.xml"
+          disable_search: true   # only the files above, not every *.xml the search finds
           fail_ci_if_error: false
