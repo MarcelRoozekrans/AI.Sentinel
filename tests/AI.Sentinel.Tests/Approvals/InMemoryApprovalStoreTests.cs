@@ -134,4 +134,39 @@ public class InMemoryApprovalStoreTests
         Assert.Single(pending);
         Assert.Equal("p2", pending[0].PolicyName);
     }
+
+    [Fact]
+    public async Task SettledStates_CarryTheRequestId()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var time = new ManualTime(DateTimeOffset.Parse("2026-10-17T10:00:00Z", System.Globalization.CultureInfo.InvariantCulture));
+        var store = new InMemoryApprovalStore(time);
+
+        var denied = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller("a"), MakeSpec(), MakeCtx(), ct);
+        await store.DenyAsync(denied.RequestId, "approver", "no", ct);
+        var waited = Assert.IsType<ApprovalState.Denied>(await store.WaitForDecisionAsync(denied.RequestId, TimeSpan.Zero, ct));
+        Assert.Equal(denied.RequestId, waited.RequestId);
+        var observed = Assert.IsType<ApprovalState.Denied>(await store.EnsureRequestAsync(MakeCaller("a"), MakeSpec(), MakeCtx(), ct));
+        Assert.Equal(denied.RequestId, observed.RequestId);
+
+        var granted = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec(grant: TimeSpan.FromMinutes(1)), MakeCtx(), ct);
+        await store.ApproveAsync(granted.RequestId, "approver", null, ct);
+        var active = Assert.IsType<ApprovalState.Active>(await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec(grant: TimeSpan.FromMinutes(1)), MakeCtx(), ct));
+        Assert.Equal(granted.RequestId, active.RequestId);
+        var waitedActive = Assert.IsType<ApprovalState.Active>(await store.WaitForDecisionAsync(granted.RequestId, TimeSpan.Zero, ct));
+        Assert.Equal(granted.RequestId, waitedActive.RequestId);
+        time.Now += TimeSpan.FromMinutes(2);
+        var expired = Assert.IsType<ApprovalState.Denied>(await store.EnsureRequestAsync(MakeCaller("b"), MakeSpec(grant: TimeSpan.FromMinutes(1)), MakeCtx(), ct));
+        Assert.Equal("expired", expired.Reason);
+        Assert.Equal(granted.RequestId, expired.RequestId);
+
+        var unknown = Assert.IsType<ApprovalState.Denied>(await store.WaitForDecisionAsync("req-missing", TimeSpan.Zero, ct));
+        Assert.Equal("req-missing", unknown.RequestId);
+    }
+
+    private sealed class ManualTime(DateTimeOffset start) : TimeProvider
+    {
+        public DateTimeOffset Now { get; set; } = start;
+        public override DateTimeOffset GetUtcNow() => Now;
+    }
 }

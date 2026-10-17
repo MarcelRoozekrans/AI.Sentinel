@@ -468,7 +468,7 @@ internal static class DashboardHandlers
     /// </summary>
     public static async Task ListApprovalsAsync(HttpContext ctx)
     {
-        var store = ctx.RequestServices.GetService<IApprovalStore>();
+        var store = ApprovalStoreAuditing.Resolve(ctx.RequestServices);
         if (store is null)
         {
             ctx.Response.ContentType = "text/html";
@@ -537,7 +537,7 @@ internal static class DashboardHandlers
             return;
         }
 
-        var store = ctx.RequestServices.GetService<IApprovalStore>();
+        var store = ApprovalStoreAuditing.Resolve(ctx.RequestServices);
         if (store is not IApprovalAdmin admin)
         {
             ctx.Response.StatusCode = 404;
@@ -575,7 +575,7 @@ internal static class DashboardHandlers
             return;
         }
 
-        var store = ctx.RequestServices.GetService<IApprovalStore>();
+        var store = ApprovalStoreAuditing.Resolve(ctx.RequestServices);
         if (store is not IApprovalAdmin admin)
         {
             ctx.Response.StatusCode = 404;

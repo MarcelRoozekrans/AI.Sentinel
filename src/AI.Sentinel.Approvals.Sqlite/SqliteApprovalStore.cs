@@ -176,7 +176,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
             var current = await ReadStateAsync(requestId, ct).ConfigureAwait(false);
             if (current is null)
             {
-                return new ApprovalState.Denied("unknown request", _time.GetUtcNow());
+                return new ApprovalState.Denied("unknown request", _time.GetUtcNow()) { RequestId = requestId };
             }
             if (current is ApprovalState.Active or ApprovalState.Denied)
             {
@@ -358,17 +358,17 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
                 var expiresAt = approvedAt + TimeSpan.FromTicks(grantDurationTicks);
                 if (expiresAt > now)
                 {
-                    return new ApprovalState.Active(expiresAt);
+                    return new ApprovalState.Active(expiresAt) { RequestId = id };
                 }
             }
-            return new ApprovalState.Denied("expired", now);
+            return new ApprovalState.Denied("expired", now) { RequestId = id };
         }
         if (string.Equals(status, "Denied", StringComparison.Ordinal))
         {
             var deniedAt = hasDeniedAt
                 ? new DateTimeOffset(deniedAtTicks, TimeSpan.Zero)
                 : now;
-            return new ApprovalState.Denied(denyReason ?? "denied", deniedAt);
+            return new ApprovalState.Denied(denyReason ?? "denied", deniedAt) { RequestId = id };
         }
         return new ApprovalState.Pending(id, $"sentinel://approve/{id}", requestedAt);
     }

@@ -1,8 +1,10 @@
 using Xunit;
 using AI.Sentinel.Tests.Helpers;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.EntraPim;
 using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Mcp.Cli;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace AI.Sentinel.Tests.Mcp;
 
@@ -89,7 +91,9 @@ public class McpCliTests : McpAuditOffFixtureBase
             try
             {
                 Assert.False(configError);
-                Assert.IsType<SqliteApprovalStore>(store);
+                // The proxy gets the registered store wrapped, so approval decisions reach the audit log.
+                Assert.IsType<SqliteApprovalStore>(provider!.GetService<IApprovalStore>());
+                Assert.IsType<AuditingApprovalAdminStore>(store);
                 Assert.True(File.Exists(dbPath), "SqliteApprovalStore should have created the database file.");
             }
             finally
@@ -125,7 +129,8 @@ public class McpCliTests : McpAuditOffFixtureBase
             try
             {
                 Assert.False(configError);
-                Assert.IsType<EntraPimApprovalStore>(store);
+                Assert.IsType<EntraPimApprovalStore>(provider!.GetService<IApprovalStore>());
+                Assert.IsType<AuditingApprovalStore>(store);
             }
             finally
             {
@@ -137,6 +142,58 @@ public class McpCliTests : McpAuditOffFixtureBase
             Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
             File.Delete(configPath);
         }
+    }
+
+    [Fact]
+    public async Task BuildAuthorizationStack_WithAuditStore_WritesApprovalDecisionsToIt()
+    {
+        var configPath = Path.Combine(Path.GetTempPath(), $"approval-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(configPath, """
+            {
+                "backend": "in-memory",
+                "tools": { "Bash": { "role": "DBA" } }
+            }
+            """, TestContext.Current.CancellationToken);
+        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
+        try
+        {
+            using var auditStore = new AI.Sentinel.Audit.RingBufferAuditStore();
+            var (provider, _, store, _, configError) =
+                await ProxyCommand.BuildAuthorizationStackAsync(new StringWriter(), auditStore, []);
+            try
+            {
+                Assert.False(configError);
+                Assert.Same(auditStore, provider!.GetService<AI.Sentinel.Audit.IAuditStore>());
+
+                var pending = await store!.EnsureRequestAsync(
+                    new Caller(), new ApprovalSpec { PolicyName = "DBA" },
+                    new ApprovalContext("Bash", default, null), TestContext.Current.CancellationToken);
+                var requestId = Assert.IsType<ApprovalState.Pending>(pending).RequestId;
+                await store.WaitForDecisionAsync(requestId, TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken);
+
+                var entries = new List<AI.Sentinel.Audit.AuditEntry>();
+                await foreach (var e in auditStore.QueryAsync(new AI.Sentinel.Audit.AuditQuery(), TestContext.Current.CancellationToken))
+                    entries.Add(e);
+                var entry = Assert.Single(entries);
+                Assert.Equal(AI.Sentinel.Audit.AuditEntryKinds.TimedOutPolicyCode, entry.PolicyCode);
+            }
+            finally
+            {
+                if (provider is not null) await provider.DisposeAsync();
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
+            File.Delete(configPath);
+        }
+    }
+
+    private sealed class Caller : ZeroAlloc.Authorization.ISecurityContext
+    {
+        public string Id => "caller";
+        public IReadOnlySet<string> Roles { get; } = new HashSet<string>(StringComparer.Ordinal);
+        public IReadOnlyDictionary<string, string> Claims { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
     }
 
     // SENTINEL_MCP_COMPLIANCE turns the opt-in compliance detectors on or off for the proxy; unset, it falls

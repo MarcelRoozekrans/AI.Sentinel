@@ -1,6 +1,8 @@
 using System.Collections.Concurrent;
 using AI.Sentinel.Approvals;
+using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using ZeroAlloc.Authorization;
 
@@ -95,9 +97,14 @@ public class EntraPimApprovalStoreTests
         // status without worrying about the polling cadence draining the queue.
         private readonly Dictionary<string, RoleRequestSnapshot> _stickyLast = new(StringComparer.Ordinal);
 
+        /// <summary>Errors the next status reads throw, one per read, before any status is returned.</summary>
+        public ConcurrentQueue<Exception> StatusErrors { get; } = new();
+
         public ValueTask<RoleRequestSnapshot> GetRequestStatusAsync(string requestId, CancellationToken ct)
         {
             Interlocked.Increment(ref GetStatusCount);
+            if (StatusErrors.TryDequeue(out var error))
+                throw error;
             if (StatusSequences.TryGetValue(requestId, out var q) && q.Count > 0)
             {
                 var next = q.Dequeue();
@@ -137,6 +144,37 @@ public class EntraPimApprovalStoreTests
         // Eligibility check should have been skipped — there's already an active schedule.
         Assert.Equal(0, fake.IsEligibleCount);
         Assert.Empty(fake.CreateCalls);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_ActiveSchedule_CarriesTheRequestThatCreatedIt()
+    {
+        var fake = MakeFake();
+        fake.ActiveAssignments[(AlicePrincipalId, DbAdminRoleId)] =
+            new RoleScheduleSnapshot("Provisioned", DateTimeOffset.UtcNow.AddMinutes(10), RequestId: "req-pim-777");
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+
+        Assert.Equal("req-pim-777", Assert.IsType<ApprovalState.Active>(state).RequestId);
+    }
+
+    [Fact]
+    public async Task WaitForDecision_Provisioned_CarriesTheRequestId()
+    {
+        var fake = MakeFake();
+        const string ReqId = "req-poll-9";
+        fake.StatusSequences[ReqId] = new Queue<RoleRequestSnapshot>(new[]
+        {
+            new RoleRequestSnapshot("Provisioned", null, AlicePrincipalId, DbAdminRoleId),
+        });
+        fake.ActiveAssignments[(AlicePrincipalId, DbAdminRoleId)] =
+            new RoleScheduleSnapshot("Provisioned", DateTimeOffset.UtcNow.AddMinutes(15));
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(ReqId, Assert.IsType<ApprovalState.Active>(state).RequestId);
     }
 
     // ---------------------------------------------------------------------
@@ -297,6 +335,61 @@ public class EntraPimApprovalStoreTests
 
         var denied = Assert.IsType<ApprovalState.Denied>(state);
         Assert.Contains("policy violation", denied.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(ReqId, denied.RequestId);
+    }
+
+    [Fact]
+    public async Task WaitForDecision_GraphError_DeniedBelongsToNoRequest()
+    {
+        var fake = MakeFake();
+        fake.StatusErrors.Enqueue(new HttpRequestException("forbidden", null, System.Net.HttpStatusCode.Forbidden));
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.WaitForDecisionAsync("req-err", TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken);
+
+        Assert.Null(Assert.IsType<ApprovalState.Denied>(state).RequestId);
+    }
+
+    [Fact]
+    public async Task Audited_GraphErrorDuringWait_WritesNothing_LaterApprovalWritesApproved()
+    {
+        // A Graph error is not a human decision: the wait reports it as a Denied without a request id, and the
+        // approval PIM grants afterwards must still be recorded.
+        var fake = MakeFake();
+        fake.Eligible.Add((AlicePrincipalId, DbAdminRoleId));
+        fake.RequestIdSequence.Enqueue("req-pim-err");
+        fake.StatusSequences["req-pim-err"] = new Queue<RoleRequestSnapshot>(new[]
+        {
+            new RoleRequestSnapshot("Provisioned", null),
+        });
+        fake.StatusErrors.Enqueue(new HttpRequestException("forbidden", null, System.Net.HttpStatusCode.Forbidden));
+        using var audit = new RingBufferAuditStore();
+        var services = new ServiceCollection();
+        services.AddSingleton<IApprovalStore>(new EntraPimApprovalStore(fake, MakeOptions()));
+        services.AddSingleton<IAuditStore>(audit);
+        using var sp = services.BuildServiceProvider();
+        var store = ApprovalStoreAuditing.Resolve(sp)!;
+        var ct = TestContext.Current.CancellationToken;
+
+        var pending = Assert.IsType<ApprovalState.Pending>(
+            await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx("needed"), ct));
+        var failed = await store.WaitForDecisionAsync(pending.RequestId, TimeSpan.FromSeconds(2), ct);
+        Assert.IsType<ApprovalState.Denied>(failed);
+        Assert.Empty(await ReadAllAsync(audit, ct));
+
+        var granted = await store.WaitForDecisionAsync(pending.RequestId, TimeSpan.FromSeconds(2), ct);
+        Assert.IsType<ApprovalState.Active>(granted);
+        var entry = Assert.Single(await ReadAllAsync(audit, ct));
+        Assert.Equal(AuditEntryKinds.ApprovedPolicyCode, entry.PolicyCode);
+        Assert.EndsWith(", request req-pim-err", entry.Summary, StringComparison.Ordinal);
+    }
+
+    private static async Task<List<AuditEntry>> ReadAllAsync(IAuditStore audit, CancellationToken ct)
+    {
+        var list = new List<AuditEntry>();
+        await foreach (var e in audit.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct))
+            list.Add(e);
+        return list;
     }
 
     // ---------------------------------------------------------------------

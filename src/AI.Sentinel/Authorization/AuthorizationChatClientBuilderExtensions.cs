@@ -27,7 +27,7 @@ public static class AuthorizationChatClientBuilderExtensions
             var guard = sp.GetRequiredService<IToolCallGuard>();
             var audit = sp.GetService<IAuditStore>();
             var forwarders = AuditForwarding.Snapshot(sp.GetServices<IAuditForwarder>());
-            var approvalStore = sp.GetService<IApprovalStore>();
+            var approvalStore = ApprovalStoreAuditing.Resolve(sp);
             Func<ISecurityContext> callerProvider = () =>
                 sp.GetService<ISecurityContext>() ?? AnonymousSecurityContext.Instance;
             return new AuthorizationChatClient(inner, guard, callerProvider, audit, approvalStore, forwarders);

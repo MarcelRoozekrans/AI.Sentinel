@@ -26,6 +26,15 @@ Some tool calls are too consequential to gate behind allow/deny alone — `delet
    - **Hook CLIs** (`sentinel-hook`, `sentinel-copilot-hook`): emits a deny-with-receipt, the user approves out-of-band and retries the prompt.
    - **MCP proxy**: wait-and-block when `SENTINEL_MCP_APPROVAL_WAIT_SEC` is set; fail-fast otherwise.
 
+## Audit trail
+
+When an `IAuditStore` is registered, every approval decision is written to the hash-chained audit log as an informational entry with policy code `APPROVED`, `DENIED`, `EXPIRED` or `TIMED_OUT`. The entry names the policy, the tool and the request id, and never the arguments, the approver's note or any caller or approver id. AI.Sentinel's own surfaces record these decisions: the tool-call guard, `UseToolCallAuthorization`, the dashboard panel and the MCP proxy. A decision taken through an `IApprovalStore` or `IApprovalAdmin` that your code resolves straight from DI, as the ConsoleDemo sample's `/approve-demo` does, is not audited, and there is no public way yet to resolve an audited store.
+
+With Entra PIM the decision is made in PIM, so AI.Sentinel records only what it observes:
+
+- **Denials**: a PIM denial is recorded only by a process that waits for the decision, such as the in-process chat client or the MCP proxy with `SENTINEL_MCP_APPROVAL_WAIT_SEC` set. The hook CLIs and the fail-fast MCP proxy never wait, so they never observe a denial: the caller's next attempt simply opens a new request. A Graph error while waiting is not a decision and is not recorded.
+- **Approvals in the hook CLIs**: each hook invocation is a new process that remembers nothing, so while a PIM grant is active every gated tool call appends another `APPROVED` entry for the same request. The [compliance report](/docs/compliance-report) counts each request once per outcome, so its totals are not inflated, but the number of `APPROVED` entries in the audit log is.
+
 ## The three backends
 
 | Backend | Persistence | Approver experience | Best for |

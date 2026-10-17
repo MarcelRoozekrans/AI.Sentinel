@@ -19,6 +19,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     private readonly SqliteConnection _connection;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly Timer? _retentionTimer;
+    private readonly bool _readOnly;
     private bool _disposed;
 
     public SqliteAuditStore(SqliteAuditStoreOptions options)
@@ -81,6 +82,112 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Opens an existing audit file read-only, for tools that only report on it. The file is never
+    /// created, migrated, trimmed or appended to, though SQLite may create its -wal and -shm coordination files next
+    /// to it. The open fails with a <see cref="SqliteException"/>
+    /// when the file is missing or is not a SQLite database, and with an
+    /// <see cref="InvalidOperationException"/> when it does not hold the current audit schema.
+    /// </summary>
+    /// <param name="databasePath">Path to the audit SQLite file.</param>
+    internal static SqliteAuditStore OpenReadOnly(string databasePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        return new SqliteAuditStore(databasePath);
+    }
+
+    private SqliteAuditStore(string databasePath)
+    {
+        _options = new SqliteAuditStoreOptions { DatabasePath = databasePath };
+        _readOnly = true;
+        _connection = OpenReadOnlyConnection(databasePath, _options.BusyTimeout);
+    }
+
+    // SQLite error codes that a read-only open of a WAL file hits when it cannot create the -wal and -shm
+    // coordination files, for example in a read-only directory or on read-only media.
+    private const int SqliteReadOnly = 8;
+    private const int SqliteCantOpen = 14;
+
+    /// <summary>
+    /// Opens the file with Mode=ReadOnly, which never creates it and never changes it. SQLite may still create the
+    /// -wal and -shm coordination files next to a WAL file. Where it cannot, the open is retried once as immutable,
+    /// which SQLite documents for read-only media: no coordination files and no locks. It is not retried while a
+    /// non-empty -wal file exists, because an immutable open would not see the entries in it.
+    /// </summary>
+    private static SqliteConnection OpenReadOnlyConnection(string databasePath, TimeSpan busyTimeout)
+    {
+        try
+        {
+            return OpenVerified(databasePath, busyTimeout, immutable: false);
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode is SqliteReadOnly or SqliteCantOpen
+            && File.Exists(databasePath) && !HasPendingWal(databasePath))
+        {
+            return OpenVerified(databasePath, busyTimeout, immutable: true);
+        }
+    }
+
+    /// <summary>
+    /// True when a non-empty -wal file holds committed entries the main file lacks. An immutable open ignores the WAL,
+    /// so it would read a stale file; the original error is reported instead.
+    /// </summary>
+    private static bool HasPendingWal(string databasePath)
+    {
+        var wal = new FileInfo(databasePath + "-wal");
+        return wal.Exists && wal.Length > 0;
+    }
+
+    /// <summary>A SQLite URI filename for the file with immutable=1. The characters a URI gives meaning to are escaped.</summary>
+    private static string ImmutableUri(string databasePath)
+    {
+        var path = Path.GetFullPath(databasePath).Replace('\\', '/')
+            .Replace("%", "%25", StringComparison.Ordinal)
+            .Replace("?", "%3f", StringComparison.Ordinal)
+            .Replace("#", "%23", StringComparison.Ordinal);
+        return (path.StartsWith('/') ? "file://" : "file:///") + path + "?immutable=1";
+    }
+
+    private static SqliteConnection OpenVerified(string databasePath, TimeSpan busyTimeout, bool immutable)
+    {
+        var csb = new SqliteConnectionStringBuilder
+        {
+            // Microsoft.Data.Sqlite opens with SQLITE_OPEN_URI, so a file: URI carries the immutable parameter.
+            DataSource = immutable ? ImmutableUri(databasePath) : databasePath,
+            Pooling = false,
+            Mode = SqliteOpenMode.ReadOnly,
+            DefaultTimeout = (int)Math.Max(1, Math.Ceiling(busyTimeout.TotalSeconds)),
+        };
+        var connection = new SqliteConnection(csb.ToString());
+        try
+        {
+            connection.Open();
+            var version = SqliteSchema.GetVersionAsync(connection, CancellationToken.None).GetAwaiter().GetResult();
+            if (version < 1)
+            {
+                throw new InvalidOperationException("The file holds no AI.Sentinel audit schema.");
+            }
+            if (version < SqliteSchema.CurrentVersion)
+            {
+                throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                    $"The audit schema is version {version}, older than version {SqliteSchema.CurrentVersion}. Open the file once with a current AI.Sentinel writer to upgrade it."));
+            }
+            return connection;
+        }
+        catch
+        {
+            connection.Dispose();
+            throw;
+        }
+    }
+
+    private void ThrowIfReadOnly()
+    {
+        if (_readOnly)
+        {
+            throw new InvalidOperationException("This audit store was opened read-only.");
+        }
+    }
+
     private static void ValidateBusyTimeout(TimeSpan busyTimeout)
     {
         if (busyTimeout < TimeSpan.Zero || busyTimeout.TotalSeconds > int.MaxValue)
@@ -115,6 +222,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(entry);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ThrowIfReadOnly();
 
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try

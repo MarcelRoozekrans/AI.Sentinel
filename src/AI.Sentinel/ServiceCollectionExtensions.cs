@@ -243,7 +243,7 @@ public static class ServiceCollectionExtensions
 
         EmitAuthorizationStartupWarnings(opts, bindings, policyByName, hasSecurityContext, pipelineLogger);
 
-        var approvalStore = sp.GetService<IApprovalStore>();
+        var approvalStore = ApprovalStoreAuditing.Resolve(sp);
         return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, approvalStore, logger);
     }
 

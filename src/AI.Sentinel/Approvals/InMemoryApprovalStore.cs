@@ -86,7 +86,7 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
         if (!_byRequestId.TryGetValue(requestId, out var entry))
-            return new ApprovalState.Denied("unknown request", _time.GetUtcNow());
+            return new ApprovalState.Denied("unknown request", _time.GetUtcNow()) { RequestId = requestId };
         if (entry.Status != EntryStatus.Pending) return StateOf(entry);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -144,11 +144,11 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
         return e.Status switch
         {
             EntryStatus.Active when e.ApprovedAt is { } a && a + e.GrantDuration > now
-                => new ApprovalState.Active(a + e.GrantDuration),
+                => new ApprovalState.Active(a + e.GrantDuration) { RequestId = e.RequestId },
             EntryStatus.Active
-                => new ApprovalState.Denied("expired", now),
+                => new ApprovalState.Denied("expired", now) { RequestId = e.RequestId },
             EntryStatus.Denied
-                => new ApprovalState.Denied(e.DenyReason ?? "denied", e.DeniedAt ?? now),
+                => new ApprovalState.Denied(e.DenyReason ?? "denied", e.DeniedAt ?? now) { RequestId = e.RequestId },
             _ => new ApprovalState.Pending(e.RequestId, $"sentinel://approve/{e.RequestId}", e.RequestedAt),
         };
     }

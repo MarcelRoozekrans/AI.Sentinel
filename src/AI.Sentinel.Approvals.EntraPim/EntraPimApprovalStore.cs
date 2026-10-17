@@ -95,7 +95,7 @@ public sealed class EntraPimApprovalStore : IApprovalStore
             // 1. Active grant?
             var schedule = await _graph.GetActiveAssignmentAsync(principalId, roleId, ct).ConfigureAwait(false);
             if (schedule is not null && IsActiveScheduleStatus(schedule.Status) && schedule.ExpiresAt is { } exp)
-                return new ApprovalState.Active(exp);
+                return new ApprovalState.Active(exp) { RequestId = schedule.RequestId };
 
             // 2. Eligible?
             var eligible = await _graph.IsEligibleAsync(principalId, roleId, ct).ConfigureAwait(false);
@@ -204,10 +204,10 @@ public sealed class EntraPimApprovalStore : IApprovalStore
             {
                 var expires = await TryResolveScheduleExpiryAsync(snap.PrincipalId!, snap.RoleId!, ct)
                     .ConfigureAwait(false);
-                return new ApprovalState.Active(expires);
+                return new ApprovalState.Active(expires) { RequestId = requestId };
             }
             // No identifiers on the snapshot → fallback (race during schedule provisioning).
-            return new ApprovalState.Active(now + FallbackGrantDuration);
+            return new ApprovalState.Active(now + FallbackGrantDuration) { RequestId = requestId };
         }
 
         if (IsPendingStatus(status))
@@ -218,7 +218,7 @@ public sealed class EntraPimApprovalStore : IApprovalStore
             var reason = !string.IsNullOrWhiteSpace(snap.FailureReason)
                 ? snap.FailureReason!
                 : $"PIM request status: {status}";
-            return new ApprovalState.Denied(reason, now);
+            return new ApprovalState.Denied(reason, now) { RequestId = requestId };
         }
 
         // Unknown status → treat as pending (avoid false denials on a status PIM later adds).

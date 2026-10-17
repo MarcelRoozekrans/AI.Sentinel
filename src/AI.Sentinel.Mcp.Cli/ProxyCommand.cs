@@ -49,24 +49,29 @@ internal static class ProxyCommand
         var preset = ParsePreset(envVars);
         var maxScanBytes = ParseMaxScanBytes(envVars);
 
-        // Optional approval-config wiring. When SENTINEL_APPROVAL_CONFIG is set, build a guard +
-        // approval store so the MCP proxy can gate tool calls behind PIM-style approvals. The
-        // SENTINEL_MCP_APPROVAL_WAIT_SEC env var (positive integer) opts into wait-and-block; without
-        // it the proxy fails fast with the receipt embedded in the JSON-RPC error. Provider owns
-        // the SqliteApprovalStore connection / EntraPim Graph client and must be disposed on
-        // shutdown so SQLite WAL/SHM are flushed cleanly.
-        var (provider, guard, approvalStore, approvalWait, configError) = await BuildAuthorizationStackAsync(stderr).ConfigureAwait(false);
-        if (configError) return 1;
-
         // Every proxy process records to the shared local audit file unless SENTINEL_MCP_AUDIT_SQLITE=off.
         // Opening never throws; problems are reported on stderr, which is not model-facing here.
         var settingsProblems = new List<string>();
         var settings = LocalAudit.ReadSettings(envVars, "SENTINEL_MCP_", LocalAudit.DefaultDatabasePath(), settingsProblems);
         // Later problems are reported the moment they are recorded, so a killed proxy still reports them.
         var audit = LocalAudit.Open(settings, AuditSources.Mcp, problem => ReportProblem(problem, stderr));
+        ServiceProvider? provider = null;
         try
         {
             await ReportProblemsAsync(settingsProblems, stderr).ConfigureAwait(false);
+
+            // Optional approval-config wiring. When SENTINEL_APPROVAL_CONFIG is set, build a guard +
+            // approval store so the MCP proxy can gate tool calls behind PIM-style approvals. The
+            // SENTINEL_MCP_APPROVAL_WAIT_SEC env var (positive integer) opts into wait-and-block; without
+            // it the proxy fails fast with the receipt embedded in the JSON-RPC error. Provider owns
+            // the SqliteApprovalStore connection / EntraPim Graph client and must be disposed on
+            // shutdown so SQLite WAL/SHM are flushed cleanly. The stack writes approval decisions to
+            // the same audit file as the proxy, so the audit session is opened first.
+            var (stackProvider, guard, approvalStore, approvalWait, configError) =
+                await BuildAuthorizationStackAsync(stderr, audit.Store, audit.Forwarders).ConfigureAwait(false);
+            provider = stackProvider;
+            if (configError) return 1;
+
             return await RunProxyAsync(
                 targetCommand, targetArgs, config, preset, maxScanBytes,
                 stderr, ct, guard, approvalStore, approvalWait, audit, transportFactory).ConfigureAwait(false);
@@ -229,9 +234,14 @@ internal static class ProxyCommand
     /// so the caller can dispose it on shutdown (otherwise SQLite WAL/SHM aren't flushed). Returns
     /// <c>(null, null, null, null, false)</c> when no approval config is configured (the legacy
     /// no-authz path) and <c>configError=true</c> when the config is malformed or asks for a
-    /// backend not bundled in this build.
+    /// backend not bundled in this build. The returned store is wrapped so its approval decisions
+    /// are written to <paramref name="auditStore"/> when one is given.
     /// </summary>
-    internal static async Task<(ServiceProvider? Provider, IToolCallGuard? Guard, IApprovalStore? Store, TimeSpan? Wait, bool ConfigError)> BuildAuthorizationStackAsync(TextWriter stderr)
+    /// <param name="stderr">Receives config load errors.</param>
+    /// <param name="auditStore">The proxy's audit store; null keeps AddAISentinel's in-memory audit store.</param>
+    /// <param name="forwarders">The proxy's audit forwarders, registered with <paramref name="auditStore"/>.</param>
+    internal static async Task<(ServiceProvider? Provider, IToolCallGuard? Guard, IApprovalStore? Store, TimeSpan? Wait, bool ConfigError)> BuildAuthorizationStackAsync(
+        TextWriter stderr, IAuditStore? auditStore = null, IReadOnlyList<IAuditForwarder>? forwarders = null)
     {
         var path = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
         if (string.IsNullOrWhiteSpace(path)) return (null, null, null, null, false);
@@ -268,9 +278,18 @@ internal static class ProxyCommand
 
         services.AddAISentinel(opts => ApprovalBackendSelector.Configure(opts, approvalConfig));
 
+        // Last registration wins for IAuditStore, so these go after AddAISentinel's in-memory default.
+        // Without them the approval decisions the stack observes would land in that throwaway store.
+        if (auditStore is not null)
+        {
+            services.AddSingleton(auditStore);
+            foreach (var forwarder in forwarders ?? [])
+                services.AddSingleton(forwarder);
+        }
+
         var provider = services.BuildServiceProvider();
         var guard = provider.GetService<IToolCallGuard>();
-        var store = provider.GetService<IApprovalStore>();
+        var store = ApprovalStoreAuditing.Resolve(provider);
 
         TimeSpan? wait = null;
         var rawWait = Environment.GetEnvironmentVariable("SENTINEL_MCP_APPROVAL_WAIT_SEC");

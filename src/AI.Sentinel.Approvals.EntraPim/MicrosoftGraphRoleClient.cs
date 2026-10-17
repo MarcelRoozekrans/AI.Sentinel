@@ -103,7 +103,8 @@ internal sealed class MicrosoftGraphRoleClient : IGraphRoleClient
 
         var status = first.Status ?? string.Empty;
         var expiresAt = ResolveScheduleExpiry(first.ScheduleInfo);
-        return new RoleScheduleSnapshot(status, expiresAt);
+        // createdUsing names the schedule request that created this assignment.
+        return new RoleScheduleSnapshot(status, expiresAt, first.CreatedUsing);
     }
 
     /// <inheritdoc/>

@@ -24,6 +24,7 @@ const sidebars = {
     },
     'redaction',
     'transparency',
+    'compliance-report',
     {
       type: 'category',
       label: 'Detectors',
