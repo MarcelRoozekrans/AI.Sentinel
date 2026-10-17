@@ -21,6 +21,8 @@ public sealed class DetectorConfiguration
 }
 ```
 
+> **3.0 breaking change:** `Enabled` is now `bool?`, where `null` means the detector's own default. Source that reads it as a `bool` needs updating. A binary built against 2.x that calls the old `set_Enabled(bool)` fails with `MissingMethodException` at runtime until it is recompiled against 3.0.
+
 | Knob | Effect |
 |---|---|
 | `Enabled = false` | Pipeline skips invoking this detector entirely. Zero CPU cost — disabled detectors never enter the `_detectors` array at construction time. |

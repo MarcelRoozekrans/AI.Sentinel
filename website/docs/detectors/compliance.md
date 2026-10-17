@@ -82,7 +82,7 @@ cd AI.Sentinel
 dotnet run --project tools/AI.Sentinel.ComplianceEval -- --model bge-base-en-v1.5 --out results.md
 ```
 
-`--model` is `all-MiniLM-L6-v2` (default) or `bge-base-en-v1.5`; the model is downloaded to `~/.cache/ai-sentinel/models/` on first run. For another model, add it to `EmbeddingModel.Known` in the tool, or replace `OnnxSentenceEmbeddingGenerator` with the `IEmbeddingGenerator` your application uses. The rule sets High 0.05 and Medium 0.02 above the closest legitimate request, so that no near-miss in the set is reported. The tool exits 1 when a legitimate request reaches High with the thresholds the detectors currently use.
+`--model` is `all-MiniLM-L6-v2` (default) or `bge-base-en-v1.5`; the model is downloaded on first run to `~/.cache/ai-sentinel/models/`, from a pinned Hugging Face commit whose SHA-256 the tool checks. For another model, add it to `EmbeddingModel.Known` in the tool, or replace `OnnxSentenceEmbeddingGenerator` with the `IEmbeddingGenerator` your application uses. The rule sets High 0.05 and Medium 0.02 above the closest legitimate request, so that no near-miss in the set is reported. The tool exits 1 when a legitimate request reaches High with the thresholds the detectors currently use.
 
 ## Default action: Alert
 

@@ -87,7 +87,7 @@ CLIs ship as `dotnet tool` packages targeting net8.0 specifically. Library packa
 
 Once `AI.Sentinel` is installed and `AddAISentinel()` is called, these services are wired into DI as singletons:
 
-- `IDetectionPipeline` — runs the 60 detectors in parallel per call
+- `IDetectionPipeline` — runs the 56 default-on detectors in parallel per call, plus any opt-in compliance detectors you enable
 - the intervention engine (internal) — applies the configured `OnCritical`/`OnHigh`/`OnMedium`/`OnLow` action
 - `IAuditStore` — `RingBufferAuditStore` (in-memory, bounded by `opts.AuditCapacity`, default 10,000)
 - `IAlertSink` — `NullAlertSink` unless `opts.AlertWebhook` is set

@@ -19,7 +19,7 @@ Pipeline check: the MiniLM run gives 0.755 for "A man is eating food." against "
 
 ## Method
 
-`tools/AI.Sentinel.ComplianceEval` is a console project outside `AI.Sentinel.slnx` and outside `dotnet test`. It downloads the model to `~/.cache/ai-sentinel/models/<model>` on first run. No weights are committed.
+`tools/AI.Sentinel.ComplianceEval` is a console project outside `AI.Sentinel.slnx` and outside `dotnet test`. It downloads the model on first run to `~/.cache/ai-sentinel/models/<model>/<revision>`, from a pinned Hugging Face commit, `1110a243` for MiniLM and `a5beb1e3` for bge-base, and checks the SHA-256 of `model.onnx` on every run, so a re-run scores with the same weights as this document. No weights are committed.
 
 ```bash
 dotnet run --project tools/AI.Sentinel.ComplianceEval -- --model all-MiniLM-L6-v2 --out results.md

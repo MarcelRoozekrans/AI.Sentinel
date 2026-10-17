@@ -470,7 +470,7 @@ builder.Services.AddAISentinel(opts =>
     opts.OnLow      = SentinelAction.Log;
     // opts.OnLow   = SentinelAction.PassThrough;  // silent
 
-    // Optional: embedding provider for the 41 semantic detectors (language-agnostic detection)
+    // Optional: embedding provider for the 45 semantic detectors: 41 on by default, plus the 4 opt-in compliance detectors
     opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(...);
     // Optional: custom embedding cache (default: in-memory LRU, 1 024 entries)
     // options.EmbeddingCache = new MyRedisEmbeddingCache(...);
@@ -676,7 +676,10 @@ sentinel scan conversation.json
   [--expect <detectorId>]                         # repeatable, e.g. --expect SEC-01
   [--min-severity <Low|Medium|High|Critical>]
   [--baseline <prior-result.json>]                # diff against a prior run
+  [--compliance]                                  # also run the opt-in Art. 5 compliance detectors
 ```
+
+The Art. 5 compliance detectors `CMP-01` to `CMP-04` are off by default, so `--expect CMP-03` fails unless the scan runs them: pass `--compliance`, or set `SENTINEL_HOOK_COMPLIANCE=on`, the switch the hook CLIs use. Like the hooks, they need `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL`.
 
 Exit codes: `0` scan completed (no failing assertions), `1` assertion failed or baseline regression, `2` I/O or parse error.
 
