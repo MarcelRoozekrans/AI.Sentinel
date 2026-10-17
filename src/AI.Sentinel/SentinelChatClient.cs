@@ -23,10 +23,11 @@ public sealed class SentinelChatClient : DelegatingChatClient
         InterventionEngine interventionEngine,
         SentinelOptions options,
         IAlertSink? alertSink = null,
-        IEnumerable<IAuditForwarder>? forwarders = null)
+        IEnumerable<IAuditForwarder>? forwarders = null,
+        string? pipelineName = null)
         : base(innerClient)
     {
-        _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options, alertSink, forwarders);
+        _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options, alertSink, forwarders, pipelineName);
     }
 
     public override async Task<ChatResponse> GetResponseAsync(

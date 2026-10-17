@@ -7,6 +7,7 @@ using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Redaction;
+using AI.Sentinel.Transparency;
 using ZeroAlloc.Resilience;
 using ZeroAlloc.Results;
 
@@ -24,6 +25,7 @@ public sealed class SentinelPipeline
     private readonly SentinelOptions options;
     private readonly IAlertSink? alertSink;
     private readonly IAuditForwarder[] _forwarders;
+    private readonly Disclosure _disclosure;
     private int _rateLimiterWriteCount;
 
     /// <summary>Creates the pipeline.</summary>
@@ -34,6 +36,8 @@ public sealed class SentinelPipeline
     /// <param name="options">Sentinel configuration (rate limits, thresholds, hardening prefix, etc.).</param>
     /// <param name="alertSink">Optional alert sink invoked fire-and-forget when an action escalates to <c>Quarantine</c> or <c>Alert</c>.</param>
     /// <param name="forwarders">Optional audit forwarders that mirror every audit entry to external systems fire-and-forget. Default empty.</param>
+    /// <param name="pipelineName">The named pipeline's name, recorded in the transparency mark; <see langword="null"/> for the default pipeline.</param>
+    /// <param name="timeProvider">Clock for the transparency mark and its idle-session eviction; defaults to <see cref="TimeProvider.System"/>.</param>
     internal SentinelPipeline(
         IChatClient innerClient,
         IDetectionPipeline pipeline,
@@ -41,7 +45,9 @@ public sealed class SentinelPipeline
         InterventionEngine interventionEngine,
         SentinelOptions options,
         IAlertSink? alertSink = null,
-        IEnumerable<IAuditForwarder>? forwarders = null)
+        IEnumerable<IAuditForwarder>? forwarders = null,
+        string? pipelineName = null,
+        TimeProvider? timeProvider = null)
     {
         this.innerClient = innerClient;
         this.pipeline = pipeline;
@@ -50,6 +56,7 @@ public sealed class SentinelPipeline
         this.options = options;
         this.alertSink = alertSink;
         _forwarders = AuditForwarding.Snapshot(forwarders);
+        _disclosure = new Disclosure(options, pipelineName, timeProvider ?? TimeProvider.System);
 
         // Tool calls the model makes run inside a FunctionInvokingChatClient below this pipeline, if there is
         // one; its hook restores their arguments and redacts their results for the current call.
@@ -58,6 +65,9 @@ public sealed class SentinelPipeline
 
     // EmbeddingGenerator not set — all SemanticDetectorBase subclasses return Clean.
     // Set SentinelOptions.EmbeddingGenerator to enable language-agnostic detection.
+
+    /// <summary>This pipeline's Art. 50 disclosure; exposed for tests.</summary>
+    internal Disclosure Disclosure => _disclosure;
 
     private sealed class RateLimiterEntry(RateLimiter limiter)
     {
@@ -81,13 +91,17 @@ public sealed class SentinelPipeline
     /// The other detectors judge the redacted request. The response is scanned as the model produced it and
     /// then, when <see cref="SentinelOptions.RestoreRedactedValues"/> is set, restored. The mapping lives only
     /// for this call. Any failure to redact fails the call closed: nothing is sent unredacted.
+    /// When <see cref="SentinelOptions.Transparency"/> is enabled, a successful reply with assistant text is then
+    /// marked as AI-generated, see <see cref="TransparencyKeys"/>, and may get the notice; the notice Sentinel added
+    /// to an earlier reply is removed from the history before it is scanned and sent.
     /// </remarks>
     public async ValueTask<Result<ChatResponse, SentinelError>> GetResponseResultAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions,
         CancellationToken ct)
     {
-        var sessionId = SessionIdFor(chatOptions);
+        var callerSession = CallerSessionIdFor(chatOptions);
+        var sessionId = callerSession ?? SessionId.New();
         var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, sessionId, ct).ConfigureAwait(false);
         if (requestError is not null)
             return Result<ChatResponse, SentinelError>.Failure(requestError);
@@ -108,11 +122,25 @@ public sealed class SentinelPipeline
         if (responseError is not null)
             return Result<ChatResponse, SentinelError>.Failure(responseError);
 
-        return RestoreResponse(scope, response, static (session, r) =>
+        var restored = RestoreResponse(scope, response, static (session, r) =>
         {
             r.Messages = session.Restore(r.Messages);
             return r;
         });
+        if (restored.IsSuccess)
+            await DiscloseAsync(restored.Value, sessionId, callerSession is not null, chatOptions?.ModelId).ConfigureAwait(false);
+        return restored;
+    }
+
+    /// <summary>
+    /// Marks the reply and adds the notice after the scan and the restore, so detectors never judge it and it is
+    /// never taken for model output. The session's DISCLOSED entry is written with <see cref="CancellationToken.None"/>:
+    /// the reply is being returned, so the evidence of its disclosure must be recorded.
+    /// </summary>
+    private async ValueTask DiscloseAsync(ChatResponse response, SessionId sessionId, bool callerSession, string? requestModelId)
+    {
+        if (_disclosure.TryDisclose(response, sessionId, requestModelId, out var entry, remember: callerSession) && entry is not null)
+            await auditStore.AppendAndForwardAsync(entry, _forwarders, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>A request after its redaction and prompt scan, ready to send.</summary>
@@ -140,7 +168,8 @@ public sealed class SentinelPipeline
         if (rateError is not null)
             return (default, rateError);
 
-        var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
+        // Sentinel's own notice on earlier replies is neither scanned nor sent to the model.
+        var messageList = _disclosure.StripNotice(messages as IReadOnlyList<ChatMessage> ?? messages.ToList());
 
         var parent = RedactionScope.Current;
         var redactors = pipeline.Redactors;
@@ -424,13 +453,16 @@ public sealed class SentinelPipeline
     /// <see cref="ChatOptions.AdditionalProperties"/>, else <see cref="ChatOptions.ConversationId"/>, else a new id.
     /// One conversation's calls then share a session in the audit log, the dashboard and alert de-duplication.
     /// </summary>
-    private static SessionId SessionIdFor(ChatOptions? chatOptions)
+    private static SessionId SessionIdFor(ChatOptions? chatOptions) => CallerSessionIdFor(chatOptions) ?? SessionId.New();
+
+    /// <summary>The session the caller named, or <see langword="null"/> when this call is its own session.</summary>
+    private static SessionId? CallerSessionIdFor(ChatOptions? chatOptions)
     {
         if (chatOptions?.AdditionalProperties?.GetValueOrDefault(SessionIdKey) is string key && !string.IsNullOrWhiteSpace(key))
             return new SessionId(key);
         if (!string.IsNullOrWhiteSpace(chatOptions?.ConversationId))
             return new SessionId(chatOptions.ConversationId);
-        return SessionId.New();
+        return null;
     }
 
     /// <summary>Returns the conversation's system prompt, if one was supplied.</summary>

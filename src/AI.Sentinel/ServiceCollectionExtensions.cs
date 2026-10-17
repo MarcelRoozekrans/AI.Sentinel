@@ -321,7 +321,8 @@ public static class ServiceCollectionExtensions
                 engine,
                 opts,
                 sp.GetRequiredService<IAlertSink>(),      // shared
-                sp.GetServices<IAuditForwarder>());       // shared
+                sp.GetServices<IAuditForwarder>(),        // shared
+                pipelineName: name);
         });
 
     /// <summary>Builds the "semantic detection is inert" warning, or <see langword="null"/> when it is active.</summary>
