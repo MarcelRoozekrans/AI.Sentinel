@@ -12,11 +12,18 @@ internal static class ComplianceDetectorDefaults
     /// <summary>Sets <see cref="DetectorConfiguration.Action"/> to <see cref="SentinelAction.Alert"/> on CMP-01 to CMP-04.</summary>
     internal static SentinelOptions AlertOnComplianceFindings(this SentinelOptions options)
     {
+        return options.ConfigureComplianceDetectors(Alert);
+    }
+
+    /// <summary>Applies <paramref name="configure"/> to each of CMP-01 to CMP-04: the one list of the compliance
+    /// detector types.</summary>
+    internal static SentinelOptions ConfigureComplianceDetectors(this SentinelOptions options, Action<DetectorConfiguration> configure)
+    {
         ArgumentNullException.ThrowIfNull(options);
-        options.Configure<SocialScoringDetector>(Alert);
-        options.Configure<WorkplaceEmotionRecognitionDetector>(Alert);
-        options.Configure<SensitiveBiometricCategorisationDetector>(Alert);
-        options.Configure<ProfilingCrimePredictionDetector>(Alert);
+        options.Configure<SocialScoringDetector>(configure);
+        options.Configure<WorkplaceEmotionRecognitionDetector>(configure);
+        options.Configure<SensitiveBiometricCategorisationDetector>(configure);
+        options.Configure<ProfilingCrimePredictionDetector>(configure);
         return options;
     }
 

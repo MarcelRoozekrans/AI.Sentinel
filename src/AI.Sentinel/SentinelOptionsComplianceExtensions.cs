@@ -13,11 +13,7 @@ public static class SentinelOptionsComplianceExtensions
     public static SentinelOptions EnableComplianceDetectors(this SentinelOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
-        options.Configure<SocialScoringDetector>(Enable);
-        options.Configure<WorkplaceEmotionRecognitionDetector>(Enable);
-        options.Configure<SensitiveBiometricCategorisationDetector>(Enable);
-        options.Configure<ProfilingCrimePredictionDetector>(Enable);
-        return options;
+        return options.ConfigureComplianceDetectors(Enable);
     }
 
     private static void Enable(Detection.DetectorConfiguration c) => c.Enabled = true;

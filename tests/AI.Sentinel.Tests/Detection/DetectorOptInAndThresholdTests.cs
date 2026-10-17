@@ -218,24 +218,32 @@ public class DetectorOptInAndThresholdTests
         Assert.Contains("TEST-PROBE", await FiredIds(provider.GetRequiredKeyedService<IDetectionPipeline>("strict"), ProbeDetector.Probe60), StringComparer.Ordinal);
     }
 
-    [Fact]
-    public async Task ThresholdOverride_AppliesToABuiltInSemanticDetector()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task ThresholdOverride_AppliesToABuiltInSemanticDetector(bool overridden, bool expectFired)
     {
-        // CMP-03 at High 0.95: an exact example still scores 1.0, so it still fires.
+        // The probe sits at cosine 0.6 from one CMP-03 High example and is orthogonal to the rest: below the
+        // built-in High of 0.65, so CMP-03 stays clean, and above an override of 0.55, so it fires.
         using var provider = new ServiceCollection()
             .AddAISentinel(o =>
             {
-                o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
+                o.EmbeddingGenerator = new OneProbeEmbeddingGenerator(CmpPrompt, cosine: 0.6f);
                 o.Configure<SensitiveBiometricCategorisationDetector>(c =>
                 {
                     c.Enabled = true;
-                    c.HighThreshold = 0.95f;
-                    c.MediumThreshold = 0.9f;
+                    if (overridden)
+                    {
+                        c.HighThreshold = 0.55f;
+                        c.MediumThreshold = 0.5f;
+                    }
                 });
             })
             .BuildServiceProvider();
 
-        Assert.Contains("CMP-03", await FiredIds(provider.GetRequiredService<IDetectionPipeline>(), CmpPrompt), StringComparer.Ordinal);
+        var fired = await FiredIds(provider.GetRequiredService<IDetectionPipeline>(), OneProbeEmbeddingGenerator.Probe);
+
+        Assert.Equal(expectFired, fired.Contains("CMP-03", StringComparer.Ordinal));
     }
 
     // ── Validation ───────────────────────────────────────────────────────────
@@ -332,6 +340,44 @@ public class DetectorOptInAndThresholdTests
             ProbeDetector.Probe70Medium => [0f, 0f, 0.7f, 0.71414284f],
             _ => [0f, 0f, 0f, 1f],
         };
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+        public void Dispose() { }
+    }
+
+    /// <summary>One-hot vectors per text, as <see cref="ExactMatchEmbeddingGenerator"/> gives, except that
+    /// <see cref="Probe"/> sits at a chosen cosine from one anchor text.</summary>
+    private sealed class OneProbeEmbeddingGenerator(string anchor, float cosine) : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        public const string Probe = "a probe at a chosen distance from one example";
+        private const int Dimensions = 1 << 16;
+
+        public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values, EmbeddingGenerationOptions? options = null, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(values.Select(v => new Embedding<float>(Vector(v)))));
+
+        private float[] Vector(string text)
+        {
+            var vec = new float[Dimensions];
+            if (string.Equals(text, Probe, StringComparison.Ordinal))
+            {
+                vec[Slot(anchor)] = cosine;
+                vec[Slot(Probe)] = MathF.Sqrt(1f - (cosine * cosine));
+            }
+            else
+            {
+                vec[Slot(text)] = 1f;
+            }
+
+            return vec;
+        }
+
+        private static int Slot(string text)
+        {
+            var hash = 2166136261u;
+            foreach (var c in text) hash = (hash ^ c) * 16777619u;
+            return (int)(hash % Dimensions);
+        }
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
         public void Dispose() { }
