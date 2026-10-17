@@ -107,6 +107,13 @@ public static class ReportCommand
         string db, DateTimeOffset from, DateTimeOffset to, string format, string? output,
         TimeProvider time, TextWriter stdout, TextWriter stderr, CancellationToken ct)
     {
+        if (output is not null && IsAuditFile(output, db))
+        {
+            await stderr.WriteLineAsync(
+                $"--output {output} is the audit file or one of its -wal and -shm files. Choose another path.").ConfigureAwait(false);
+            return 1;
+        }
+
         if (!File.Exists(db))
         {
             await stderr.WriteLineAsync($"Audit file not found: {db}").ConfigureAwait(false);
@@ -143,7 +150,7 @@ public static class ReportCommand
         {
             try
             {
-                await File.WriteAllTextAsync(output, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct).ConfigureAwait(false);
+                await WriteReplacingAsync(output, text, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
@@ -161,6 +168,47 @@ public static class ReportCommand
         return 0;
     }
 
+    /// <summary>True when <paramref name="output"/> names the audit file or one of its SQLite coordination files.</summary>
+    private static bool IsAuditFile(string output, string db)
+    {
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        var target = Path.GetFullPath(output);
+        var audit = Path.GetFullPath(db);
+        return string.Equals(target, audit, comparison)
+            || string.Equals(target, audit + "-wal", comparison)
+            || string.Equals(target, audit + "-shm", comparison);
+    }
+
+    /// <summary>
+    /// Writes to a temporary file next to <paramref name="output"/>, then moves it over the target, so a failed write
+    /// never leaves a truncated file behind. The temporary file is removed when anything fails.
+    /// </summary>
+    private static async Task WriteReplacingAsync(string output, string text, CancellationToken ct)
+    {
+        var target = Path.GetFullPath(output);
+        var temp = Path.Combine(
+            Path.GetDirectoryName(target)!, "." + Path.GetFileName(target) + "." + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            await File.WriteAllTextAsync(temp, text, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct).ConfigureAwait(false);
+            File.Move(temp, target, overwrite: true);
+        }
+        catch
+        {
+            try
+            {
+                File.Delete(temp);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // Best effort: the original failure is the one to report.
+            }
+            throw;
+        }
+    }
+
     private static (DateTimeOffset From, DateTimeOffset To, string? Error) ReadPeriod(string? fromText, string? toText, DateTimeOffset now)
     {
         var to = now;
@@ -169,7 +217,9 @@ public static class ReportCommand
             return (default, default, InvalidDate("--to", toText));
         }
 
-        var from = to.AddDays(-DefaultPeriodDays);
+        var from = to.UtcTicks - DateTimeOffset.MinValue.UtcTicks < TimeSpan.FromDays(DefaultPeriodDays).Ticks
+            ? DateTimeOffset.MinValue
+            : to.AddDays(-DefaultPeriodDays);
         if (fromText is not null && !TryParseInstant(fromText, endOfDay: false, out from))
         {
             return (default, default, InvalidDate("--from", fromText));

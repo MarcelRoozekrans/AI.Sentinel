@@ -47,6 +47,53 @@ public sealed class SqliteAuditStoreReadOnlyTests : IDisposable
     }
 
     [Fact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task OpenReadOnly_ReadOnlyDirectory_ReadsWithoutCreatingFiles()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix file modes only.");
+        // The name carries characters a URI filename gives meaning to, for the immutable retry.
+        var db = Path.Combine(_dir, "audit 50% #1?.db");
+        File.Move(await SeedAsync("SEC-01", "HAL-08"), db);
+        var mode = File.GetUnixFileMode(_dir);
+        File.SetUnixFileMode(_dir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            await using var store = SqliteAuditStore.OpenReadOnly(db);
+            var count = 0;
+            await foreach (var _ in store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, Ct))
+            {
+                count++;
+            }
+
+            Assert.Equal(2, count);
+            Assert.Equal([db], Directory.GetFiles(_dir));
+        }
+        finally
+        {
+            File.SetUnixFileMode(_dir, mode);
+        }
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task OpenReadOnly_ReadOnlyDirectoryWithPendingWal_ThrowsInsteadOfReadingStale()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix file modes only.");
+        var db = await SeedAsync("SEC-01");
+        await File.WriteAllBytesAsync(db + "-wal", new byte[64], Ct);
+        var mode = File.GetUnixFileMode(_dir);
+        File.SetUnixFileMode(_dir, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        try
+        {
+            Assert.Throws<SqliteException>(() => SqliteAuditStore.OpenReadOnly(db));
+        }
+        finally
+        {
+            File.SetUnixFileMode(_dir, mode);
+        }
+    }
+
+    [Fact]
     public async Task OpenReadOnly_Append_Throws()
     {
         var db = await SeedAsync("SEC-01");

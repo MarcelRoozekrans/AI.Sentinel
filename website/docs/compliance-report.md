@@ -26,7 +26,7 @@ sentinel report [--db <path>] [--from <date>] [--to <date>] [--format md|html|js
 | `--from` | 30 days before `--to` | Start of the period. |
 | `--to` | Now | End of the period, inclusive. |
 | `--format` | `md` | `md` for Markdown, `html` for one self-contained page, `json` for other tools. |
-| `--output` | Standard output | File to write the report to. |
+| `--output` | Standard output | File to write the report to. The report is written to a temporary file and then moved over the target, and the audit file and its `-wal` and `-shm` files are refused. |
 
 `--from` and `--to` take an ISO date such as `2026-10-01` or an ISO 8601 timestamp such as `2026-10-01T09:30:00+02:00`. A date is a UTC day: `--from 2026-10-01` starts at 00:00 UTC that day, and `--to 2026-10-31` runs to the end of 31 October UTC. A timestamp without an offset is read as UTC.
 
@@ -46,7 +46,7 @@ A scheduled job can alert on a non-zero code.
 
 ### Read-only
 
-The command opens the audit file read-only. It never creates a missing file, never upgrades an older schema, and never appends, trims or deletes entries. A file written by an older AI.Sentinel version must first be opened once by a current writer, such as a hook or your app, which upgrades its schema.
+The command opens the audit file read-only. It never creates a missing file, never upgrades an older schema, and never appends, trims or deletes entries: the audit file itself is never changed. SQLite may create its `-wal` and `-shm` coordination files next to it. Where it cannot, for example in a read-only directory or on read-only media, the command opens the file as immutable instead and creates nothing. A file written by an older AI.Sentinel version must first be opened once by a current writer, such as a hook or your app, which upgrades its schema.
 
 ## Sections
 

@@ -233,6 +233,95 @@ public sealed class ReportCommandTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.Equal(before, await HashAsync(db));
+        // The audit file itself never changes. A read-only WAL reader may leave SQLite's coordination files next to
+        // it; the -wal one stays empty because nothing was written.
+        var name = Path.GetFileName(db);
+        var files = Directory.GetFiles(_dir).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList();
+        Assert.Equal([name, name + "-shm", name + "-wal"], files);
+        Assert.Equal(0, new FileInfo(db + "-wal").Length);
+    }
+
+    [Fact]
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    public async Task ReadOnlyDirectory_Exit0_ProducesReport()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "Unix file modes only.");
+        var db = await SeedAsync(DefaultEntries());
+        var mode = File.GetUnixFileMode(_dir);
+        File.SetUnixFileMode(_dir, UnixFileMode.UserRead | UnixFileMode.UserExecute | UnixFileMode.GroupRead
+            | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        try
+        {
+            var (exit, stdout, stderr) = await RunAsync("--db", db);
+
+            Assert.True(exit == 0, stderr);
+            Assert.Contains("## Art. 15", stdout, StringComparison.Ordinal);
+            Assert.Contains("intact, 6 entries verified", stdout, StringComparison.Ordinal);
+            Assert.Equal([db], Directory.GetFiles(_dir));
+        }
+        finally
+        {
+            File.SetUnixFileMode(_dir, mode);
+        }
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("-wal")]
+    [InlineData("-shm")]
+    public async Task Output_OntoTheAuditFile_ExitCode1_FileUnchanged(string suffix)
+    {
+        var db = await SeedAsync(DefaultEntries());
+        var before = await HashAsync(db);
+        var output = Path.Combine(_dir, ".", Path.GetFileName(db) + suffix);
+
+        var (exit, stdout, stderr) = await RunAsync("--db", db, "--output", output);
+
+        Assert.Equal(1, exit);
+        Assert.Equal(string.Empty, stdout);
+        Assert.Contains("--output", stderr, StringComparison.Ordinal);
+        Assert.Equal(before, await HashAsync(db));
+    }
+
+    [Fact]
+    public async Task Output_ReplacesAnExistingFile_LeavesNoTempFile()
+    {
+        var db = await SeedAsync(DefaultEntries());
+        var outDir = Path.Combine(_dir, "out");
+        Directory.CreateDirectory(outDir);
+        var output = Path.Combine(outDir, "report.md");
+        await File.WriteAllTextAsync(output, new string('x', 100_000), Ct);
+
+        var (exit, _, _) = await RunAsync("--db", db, "--output", output);
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith("# AI.Sentinel compliance report", await File.ReadAllTextAsync(output, Ct), StringComparison.Ordinal);
+        Assert.Equal([output], Directory.GetFiles(outDir));
+    }
+
+    [Fact]
+    public async Task Output_MoveFails_ExitCode1_TempFileRemoved()
+    {
+        var db = await SeedAsync(DefaultEntries());
+        var outDir = Path.Combine(_dir, "out");
+        var output = Path.Combine(outDir, "report.md");
+        Directory.CreateDirectory(output);
+
+        var (exit, _, stderr) = await RunAsync("--db", db, "--output", output);
+
+        Assert.Equal(1, exit);
+        Assert.Contains(output, stderr, StringComparison.Ordinal);
+        Assert.Empty(Directory.GetFiles(outDir));
+    }
+
+    [Fact]
+    public async Task ToInTheFirstDaysOfYearOne_DefaultFromIsClamped()
+    {
+        var db = await SeedAsync([]);
+
+        var report = await RunJsonAsync("--db", db, "--to", "0001-01-10");
+
+        Assert.Equal(DateTimeOffset.MinValue, report.From);
     }
 
     [Fact]

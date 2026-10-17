@@ -281,7 +281,7 @@ Detectors run in these modes:
 
 AI.Sentinel provides runtime building blocks for several technical obligations of [Regulation (EU) 2024/1689](https://eur-lex.europa.eu/eli/reg/2024/1689/oj), the AI Act. It does not make a system compliant on its own. Classification, risk management, technical documentation, conformity assessment and registration stay with the provider and deployer, and most of these articles bind high-risk systems specifically.
 
-`sentinel report` turns the audit file into a [compliance report](https://marcelroozekrans.github.io/AI.Sentinel/docs/compliance-report) with totals per article below, as Markdown, HTML or JSON. It is evidence to support an assessment, not a statement of compliance; see [`sentinel report`](#sentinel-report-compliance-report-from-the-audit-file).
+`sentinel report` turns the audit file into a [compliance report](https://marcelroozekrans.github.io/AI.Sentinel/docs/compliance-report) with totals for the articles in the table below, as Markdown, HTML or JSON. It is evidence to support an assessment, not a statement of compliance; see [`sentinel report`](#sentinel-report-compliance-report-from-the-audit-file).
 
 | Article | Requirement | What AI.Sentinel provides | Active by default |
 |---|---|---|---|
