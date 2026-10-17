@@ -37,7 +37,7 @@ public sealed class HelloWorldDetector : IDetector
 ```
 
 **Detector ID convention.** Prefix your detector ID with a vendor/org tag to avoid
-collisions with future official detectors (which use `SEC-`, `HAL-`, `OPS-`, `AUTHZ-`).
+collisions with future official detectors (which use `SEC-`, `HAL-`, `OPS-`, `CMP-`, `AUTHZ-`).
 Examples: `ACME-01`, `MYORG-CUSTOM-01`.
 
 ## Registering it

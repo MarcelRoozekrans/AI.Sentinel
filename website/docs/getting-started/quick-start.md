@@ -65,7 +65,7 @@ Live audit feed, threat-risk gauge, detector hit stats. Served from embedded res
 
 ## Add semantic detection (optional)
 
-Many of the 56 built-in detectors are **semantic** — they use embedding cosine similarity. They're no-ops unless you configure an embedding generator:
+Many of the 60 built-in detectors are **semantic** — they use embedding cosine similarity. They're no-ops unless you configure an embedding generator:
 
 ```csharp
 builder.Services.AddAISentinel(opts =>
@@ -113,7 +113,7 @@ Open the dashboard at `http://localhost:5000/ai-sentinel`. You should see:
 ## Next steps
 
 - [Architecture](../core-concepts/architecture) — how the two-pass pipeline flows
-- [Detector reference](../detectors/overview) — what the 56 built-in detectors look for
+- [Detector reference](../detectors/overview) — what the 60 built-in detectors look for
 - [Tuning](../configuration/fluent-config) — disable noisy detectors, clamp severity output
 - [Custom detectors](../custom-detectors/sdk-overview) — write your own
 - [Named pipelines](../configuration/named-pipelines) — different configs per endpoint or environment

@@ -91,6 +91,16 @@ public class McpPipelineFactoryTests
         Assert.Equal(registeredCount, factoryCount);
     }
 
+    // Every preset that runs semantic security detectors also runs the Art. 5 compliance detectors.
+    [Fact]
+    public void BothPresets_IncludeTheComplianceDetectors()
+    {
+        string[] cmp = ["CMP-01", "CMP-02", "CMP-03", "CMP-04"];
+
+        Assert.Subset(McpPipelineFactory.BuildSecurityDetectors().Select(d => d.Id.Value).ToHashSet(StringComparer.Ordinal), cmp.ToHashSet(StringComparer.Ordinal));
+        Assert.Subset(McpPipelineFactory.BuildAllDetectors().Select(d => d.Id.Value).ToHashSet(StringComparer.Ordinal), cmp.ToHashSet(StringComparer.Ordinal));
+    }
+
     [Theory]
     [InlineData(HookDecision.Block, SentinelAction.Quarantine)]
     [InlineData(HookDecision.Warn, SentinelAction.Alert)]

@@ -10,9 +10,9 @@
 [![Docs](https://img.shields.io/badge/docs-marcelroozekrans.github.io-blue)](https://marcelroozekrans.github.io/AI.Sentinel/)
 [![Sponsor](https://img.shields.io/badge/sponsor-%E2%9D%A4-ec4899?logo=githubsponsors)](https://github.com/sponsors/MarcelRoozekrans)
 
-Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 56 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 60 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
-> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same 56 detectors, same audit trail, zero code changes in the host.
+> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same 60 detectors, same audit trail, zero code changes in the host.
 
 > **Approval workflows for high-stakes tool calls** (`delete_database`, `send_payment`, `rotate_secrets`) — pluggable backends include in-memory, SQLite (persists across CLI invocations), and **native Microsoft Entra PIM** (approvers act in the portal they already use). Operators approve/deny from the dashboard or the PIM portal; the conversation resumes when approval lands. See the [approvals docs](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview).
 
@@ -40,7 +40,7 @@ The embedded dashboard ships in `AI.Sentinel.AspNetCore`. Mount it on any ASP.NE
 
 | Package | Description |
 |---|---|
-| `AI.Sentinel` | Core — pipeline, 56 detectors, intervention engine, audit store |
+| `AI.Sentinel` | Core — pipeline, 60 detectors, intervention engine, audit store |
 | `AI.Sentinel.Detectors.Sdk` | SDK for writing and testing custom detectors — `SentinelContextBuilder`, `FakeEmbeddingGenerator`, worked examples |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI, and `sentinel dashboard` to browse the audit file the hooks and the MCP proxy write |
@@ -167,7 +167,7 @@ IChatClient.GetResponseAsync(messages)
 
 ---
 
-## Detectors (56)
+## Detectors (60)
 
 Detectors run in these modes:
 
@@ -177,7 +177,7 @@ Detectors run in these modes:
 - **LLM escalation** — not a detector type but a second pass: when `opts.EscalationClient` is set, a finding already at `Medium` or above is re-classified by an LLM. It upgrades or downgrades existing findings; it cannot create one.
 - **Stub** — a placeholder with no implementation; always returns `Clean`. Setting `opts.EscalationClient` does **not** activate it, because escalation only re-classifies findings a detector has already produced.
 
-> **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so the 39 detectors marked `Semantic ⚠️` return `Clean` on every scan. `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls, are the exception: their rule layer catches the unambiguous phrasings regardless, and only paraphrases need a generator. Set `opts.EmbeddingGenerator` to turn it on; AI.Sentinel warns at startup when it is missing. The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` — see [Enabling semantic detection in the CLIs](#enabling-semantic-detection-in-the-clis).
+> **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so the 43 detectors marked `Semantic ⚠️` return `Clean` on every scan. `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls, are the exception: their rule layer catches the unambiguous phrasings regardless, and only paraphrases need a generator. Set `opts.EmbeddingGenerator` to turn it on; AI.Sentinel warns at startup when it is missing. The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` — see [Enabling semantic detection in the CLIs](#enabling-semantic-detection-in-the-clis).
 
 ### Security (32)
 
@@ -250,6 +250,17 @@ Detectors run in these modes:
 | `OPS‑14` | Sycophancy | Semantic ⚠️ | Model reverses a stated position purely because the user pushed back — epistemic cowardice |
 | `OPS‑15` | WrongLanguage | Rule-based | Response language doesn't match the user's language (script/charset detection) |
 
+### Compliance (4)
+
+Requests to use the model for a practice Art. 5 of the [EU AI Act](#eu-ai-act-coverage) prohibits, on both the request and the reply. A finding is `High`, so the default action in an `AddAISentinel()` app is `Alert`, not a block. These detectors flag attempts; they do not decide whether a system is prohibited.
+
+| ID | Detector | Type | Detects |
+|---|---|---|---|
+| `CMP‑01` | SocialScoring | Semantic ⚠️ | Rating or classifying people by social behaviour or personal traits in a way that leads to worse treatment |
+| `CMP‑02` | WorkplaceEmotionRecognition | Semantic ⚠️ | Inferring the emotions of employees or students from their face, voice or other biometric data |
+| `CMP‑03` | SensitiveBiometricCategorisation | Semantic ⚠️ | Deducing race, religion, political views, trade union membership or sexual orientation from photos, voice or other biometric data |
+| `CMP‑04` | ProfilingCrimePrediction | Semantic ⚠️ | Predicting that a person will commit a crime from profiling or personality traits alone |
+
 > **Semantic detectors** are no-ops until `opts.EmbeddingGenerator` is configured. They use embedding cosine similarity and are language-agnostic — no LLM round-trip required.
 
 > **LLM escalation** re-classifies findings that are already `Medium` or above; set `opts.EscalationClient` to a cheap fast model (e.g. GPT-4o-mini) to enable it. It cannot make a `Stub` detector fire — a stub returns `Clean`, so there is nothing to escalate.
@@ -286,9 +297,9 @@ AI.Sentinel provides runtime building blocks for several technical obligations o
 | Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses and, by default, [redact](#redaction) them so they never reach the model; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors. They detect and keep the values away from the model, they do not make a system's training, validation and test data compliant |
 | Art. 12 | Record-keeping (automatic logging) | Every detection and authorization denial is written to `IAuditStore` and linked into a SHA-256 hash chain, so an edited, inserted or deleted entry is detectable with `AuditHashChain.VerifyAsync`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`, and the `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` CLIs use it by default, recording a `Source` on each entry; forwarders mirror it, chain hashes included, to NDJSON, Azure Sentinel or OpenTelemetry | ⚠️ partial: hash-chained. The hook CLIs and the MCP proxy record findings, denials and approval holds durably to a local SQLite file by default. An in-process app still defaults to the in-memory ring buffer, capped at `opts.AuditCapacity` entries and lost on restart, until it registers `AI.Sentinel.Sqlite` |
 | Art. 14 | Human oversight | [Tool-call authorization](#tool-call-authorization) and the [approval workflow](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview): `RequireApproval` holds a tool call until a person approves it in the dashboard or in Entra PIM (`AI.Sentinel.Approvals.Sqlite`, `AI.Sentinel.Approvals.EntraPim`). The dashboard shows detections live | ❌ none: every tool call is allowed until policies or approvals are configured |
-| Art. 15 | Accuracy, robustness and cybersecurity | The [56 detectors](#detectors-56), [OWASP LLM Top 10 coverage](#owasp-llm-top-10-2025-coverage) and [prompt hardening](#prompt-hardening-owasp-llm01--preventive) | ⚠️ partial: 15 rule-based detectors; the 39 semantic ones need an `EmbeddingGenerator` and `SystemPrefix` is opt-in |
+| Art. 15 | Accuracy, robustness and cybersecurity | The [56 Security, Hallucination and Operational detectors](#detectors-60), [OWASP LLM Top 10 coverage](#owasp-llm-top-10-2025-coverage) and [prompt hardening](#prompt-hardening-owasp-llm01--preventive) | ⚠️ partial: 15 rule-based detectors; the 39 semantic ones need an `EmbeddingGenerator` and `SystemPrefix` is opt-in |
 | Art. 50 | Transparency obligations | Opt-in [transparency](https://marcelroozekrans.github.io/AI.Sentinel/docs/transparency): `opts.Transparency.Enabled` marks each reply with `ai.generated`, `ai.model_id` and `ai.generated_at` in `ChatResponse.AdditionalProperties` and adds a configurable notice, once per conversation or on every reply. Each first disclosure of a conversation is written to the audit store as a `DISCLOSED` entry | ⚠️ partial: opt-in machine-readable mark and notice in the in-process client; the hook CLIs and MCP proxy are out of scope |
-| Art. 5 | Prohibited practices | Not covered yet ([#337](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/337)) | — |
+| Art. 5 | Prohibited practices | Four [Compliance detectors](#compliance-4) flag requests to use the model for social scoring (`CMP‑01`), emotion recognition at work or in education (`CMP‑02`), biometric categorisation of sensitive traits (`CMP‑03`) and predicting crime from profiling (`CMP‑04`), on both the request and the reply. A finding is `High`, so the default action in an `AddAISentinel()` app is `Alert`: it is logged and alerted, not blocked; `opts.Configure<T>(c => c.Action = SentinelAction.Quarantine)` blocks it. The hook CLIs and the MCP proxy apply `SENTINEL_HOOK_ON_HIGH`, which defaults to `Block`. Subliminal manipulation, exploiting vulnerabilities, untargeted facial-image scraping and real-time remote biometric identification are not covered | ❌ none: all four are semantic and need an `EmbeddingGenerator`. They flag attempts to use the model for these practices; they do not establish that a system is or is not prohibited |
 
 > **Active by default** means what a stock `AddAISentinel()` install does with no further configuration, as in the OWASP table above. The 15 rule-based detectors counted for Art. 15 are the 14 marked `Rule-based`, minus `SEC‑29 OutputSchema` (inactive without `opts.ExpectedResponseType`), plus the rule layers of `SEC‑01` and `SEC‑05`.
 
@@ -598,7 +609,7 @@ The dashboard shows:
 - **Threat Risk Score** — live ring gauge (0–100, SAFE / WATCH / ALERT / ISOLATE)
 - **Live event feed** — every detection with severity badge, detector ID, reason, and session-id drill-down link
 - **Severity trend chart** — 15-minute rolling sparkline, stroke colour modulates by max severity
-- **Category chips** — filter by `Security` / `Hallucination` / `Operational` / `Authorization` (DetectorId prefix)
+- **Category chips** — filter by `Security` / `Hallucination` / `Operational` / `Compliance` / `Authorization` (DetectorId prefix)
 - **Live free-text search** — case-insensitive substring match against the Reason column, 300 ms debounced
 - **Per-session timeline drill-down** — click any session id in the feed → URL gains `?session=<id>` → feed and export filter to that session, with a clearable pill above the table
 - **NDJSON export** — 📥 Export button downloads the current filtered view as NDJSON (`/api/export.ndjson` honors all active filters; `X-Sentinel-Truncated: true` header signals if the store cap was hit)
@@ -767,7 +778,7 @@ The proxy spawns the target command as a subprocess, intercepts `tools/call` and
 
 | Variable | Default | Values |
 |---|---|---|
-| `SENTINEL_MCP_DETECTORS` | `security` | `security` (9 regex security detectors) or `all` (every detector — higher false-positive rate on structured data) |
+| `SENTINEL_MCP_DETECTORS` | `security` | `security` (13 security detectors plus the 4 Art. 5 compliance detectors) or `all` (every detector — higher false-positive rate on structured data) |
 | `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Truncation cap on tool-result text passed to the detector pipeline. Counts UTF-8 bytes (see v1.1 note below). Full content still forwarded to the host. |
 
 #### MCP proxy v1.1

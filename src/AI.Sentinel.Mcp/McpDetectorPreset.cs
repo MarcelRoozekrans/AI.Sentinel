@@ -4,8 +4,8 @@ namespace AI.Sentinel.Mcp;
 internal enum McpDetectorPreset
 {
     /// <summary>
-    /// 9 regex/pattern-based security detectors. Default. Low-false-positive on
-    /// structured tool arguments and results.
+    /// 13 security detectors and the 4 Art. 5 compliance detectors. Default. Chosen for a low
+    /// false-positive rate on structured tool arguments and results.
     /// </summary>
     Security,
 

@@ -55,7 +55,7 @@ Each detector's `AnalyzeAsync` is a `ValueTask<DetectionResult>` — synchronous
 
 ## Fast path / slow path
 
-If every detector completed synchronously (typical for rule-based-only deployments), the pipeline harvests results directly without `Task.WhenAll` ceremony. This is the common case for the default 25 rule-based detectors when no embedding generator is configured.
+If every detector completed synchronously (typical for rule-based-only deployments), the pipeline harvests results directly without `Task.WhenAll` ceremony. This is the common case in a default install: with no embedding generator configured, the semantic detectors return `Clean` without awaiting anything, so every detector completes synchronously.
 
 If any detector returned an incomplete `ValueTask`, the pipeline projects to `Task[]` and `await Task.WhenAll(tasks)` — the slow path. Used whenever semantic or escalation detectors are active.
 

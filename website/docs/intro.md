@@ -5,7 +5,7 @@ title: Introduction
 
 # Introduction
 
-**AI.Sentinel** is security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). It wraps any LLM client transparently, scans every prompt and response through 56 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
+**AI.Sentinel** is security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). It wraps any LLM client transparently, scans every prompt and response through 60 detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
 ## The problem
 
@@ -25,7 +25,7 @@ AI.Sentinel ships as 13 focused NuGet packages so you only take dependencies you
 
 | Package | Purpose |
 |---|---|
-| `AI.Sentinel` | Core — pipeline, 56 detectors, intervention engine, audit store |
+| `AI.Sentinel` | Core — pipeline, 60 detectors, intervention engine, audit store |
 | `AI.Sentinel.Detectors.Sdk` | SDK for writing and testing custom detectors — `SentinelContextBuilder`, `FakeEmbeddingGenerator`, `DetectorTestBuilder` |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI |
@@ -41,5 +41,5 @@ AI.Sentinel ships as 13 focused NuGet packages so you only take dependencies you
 - **[Installation](./getting-started/installation)** — `dotnet add package AI.Sentinel`
 - **[Quick start](./getting-started/quick-start)** — `services.AddAISentinel(opts => ...)` + `.UseAISentinel()`
 - **[Architecture](./core-concepts/architecture)** — how prompt and response scans flow through the pipeline
-- **[Detector reference](./detectors/overview)** — what the 51 built-in detectors look for
+- **[Detector reference](./detectors/overview)** — what the 60 built-in detectors look for
 - **[Custom detectors](./custom-detectors/sdk-overview)** — write and unit-test your own

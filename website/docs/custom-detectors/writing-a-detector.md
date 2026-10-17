@@ -22,7 +22,7 @@ public interface IDetector
 ```
 
 - **`Id`** — a `DetectorId` value object wrapping a string. Used in audit entries, dashboard, and `Configure<T>` lookup.
-- **`Category`** — `Security`, `Hallucination`, or `Operational`. Drives dashboard filtering and severity guidance.
+- **`Category`** — `Security`, `Hallucination`, `Operational`, or `Compliance`. Drives dashboard filtering and severity guidance.
 - **`AnalyzeAsync`** — return `DetectionResult.Clean(Id)` for "no threat" or `DetectionResult.WithSeverity(Id, severity, reason)` for a firing detection.
 
 ## Rule-based example
@@ -51,11 +51,11 @@ public sealed class HelloWorldDetector : IDetector
 
 ## Detector ID convention
 
-**Prefix your detector ID with a vendor / org tag** to avoid collisions with future official detectors (which use `SEC-`, `HAL-`, `OPS-`).
+**Prefix your detector ID with a vendor / org tag** to avoid collisions with future official detectors (which use `SEC-`, `HAL-`, `OPS-`, `CMP-`).
 
 | Convention | Examples |
 |---|---|
-| Official | `SEC-01`, `HAL-04`, `OPS-13` |
+| Official | `SEC-01`, `HAL-04`, `OPS-13`, `CMP-02` |
 | Custom | `ACME-01`, `MYORG-CUSTOM-01`, `INTERNAL-PII-EXT-01` |
 
 A startup-warning analyzer for ID-prefix collisions is on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). Today, naming is convention-only.
@@ -104,7 +104,7 @@ services.AddAISentinel(opts =>
 });
 ```
 
-The detector registers as a singleton alongside the 55 built-in official detectors. The pipeline picks it up automatically — no extra wiring.
+The detector registers as a singleton alongside the 60 built-in official detectors. The pipeline picks it up automatically — no extra wiring.
 
 ## Severity guidance
 

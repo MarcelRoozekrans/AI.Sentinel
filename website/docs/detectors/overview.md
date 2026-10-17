@@ -5,13 +5,14 @@ title: Overview
 
 # Detector overview
 
-AI.Sentinel ships with **56 built-in detectors** across three categories:
+AI.Sentinel ships with **60 built-in detectors** across four categories:
 
 | Category | Count | Purpose |
 |---|---|---|
 | [**Security**](./security) | 32 | Prompt injection, jailbreaks, PII / credential leakage, covert channels, indirect injection, RAG poisoning |
 | [**Hallucination**](./hallucination) | 9 | Phantom citations, fabricated authorities, contradictions, stale knowledge, confidence decay |
 | [**Operational**](./operational) | 15 | Repetition loops, blank responses, truncated output, language switches, persona drift, sycophancy |
+| [**Compliance**](./compliance) | 4 | Requests for practices the EU AI Act prohibits in Art. 5: social scoring, emotion recognition at work or school, sensitive biometric categorisation, crime prediction from profiling |
 
 ## Detector modes
 
@@ -29,11 +30,12 @@ Each detector returns a `DetectionResult` carrying a `Severity` (`None`, `Low`, 
 
 ## Detector ID convention
 
-Built-in detectors use three prefixes:
+Built-in detectors use four prefixes:
 
 - `SEC-NN` — security
 - `HAL-NN` — hallucination
 - `OPS-NN` — operational
+- `CMP-NN` — compliance
 
 Custom detectors authored via [`opts.AddDetector<T>()`](../custom-detectors/sdk-overview) **must** use a different prefix to avoid collisions with future official detectors. Examples: `ACME-01`, `MYORG-CUSTOM-01`.
 
@@ -49,7 +51,8 @@ opts.Configure<RepetitionLoopDetector>(c => c.SeverityCap = Severity.Low);
 
 ## Where to next
 
-- [Security detectors](./security) — 31 detectors
+- [Security detectors](./security) — 32 detectors
 - [Hallucination detectors](./hallucination) — 9 detectors
 - [Operational detectors](./operational) — 15 detectors
+- [Compliance detectors](./compliance) — 4 detectors
 - [Writing a custom detector](../custom-detectors/writing-a-detector) — IDetector contract + the SDK

@@ -100,7 +100,7 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SENTINEL_MCP_DETECTORS` | `security` | `security` (9 regex security detectors — recommended for MCP) or `all` (every detector — higher false-positive rate on structured tool data) |
+| `SENTINEL_MCP_DETECTORS` | `security` | `security` (13 security detectors plus the 4 Art. 5 compliance detectors — recommended for MCP) or `all` (every detector — higher false-positive rate on structured tool data) |
 | `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Truncation cap on tool-result text passed to the detector pipeline. Counts UTF-8 bytes (v1.1+). Full content still forwarded to the host. |
 | `SENTINEL_MCP_SCAN_MIMES` (v1.1) | `text/,application/json,application/xml,application/yaml` | MIME allowlist for `resources/read` scanning. Comma-separated. Trailing `/` matches any subtype. Resources outside the allowlist forward verbatim. |
 | `SENTINEL_MCP_HTTP_HEADERS` (v1.1) | (none) | `key=value;key=value` headers applied to every HTTP-transport request. For static-token auth (`Authorization=Bearer xyz`). Malformed pairs skipped silently. |
@@ -109,17 +109,24 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 
 ## Detector profiles
 
-`SENTINEL_MCP_DETECTORS=security` (default) runs only the 9 regex-based security detectors that work well on structured MCP tool data:
+`SENTINEL_MCP_DETECTORS=security` (default) runs the security detectors that work well on structured MCP tool data, plus the four Art. 5 compliance detectors:
 
 - `SEC-01` PromptInjection
 - `SEC-02` CredentialExposure
+- `SEC-03` ToolPoisoning
 - `SEC-04` DataExfiltration
 - `SEC-05` Jailbreak
-- `SEC-23` PiiLeakage
-- `SEC-24` AdversarialUnicode
-- `SEC-25` CodeInjection
-- `SEC-26` PromptTemplateLeakage
-- `SEC-31` VectorRetrievalPoisoning (rule-based parts only)
+- `SEC-06` PrivilegeEscalation
+- `SEC-07` CovertChannel
+- `SEC-09` IndirectInjection
+- `SEC-10` AgentImpersonation
+- `SEC-19` ToolCallFrequency
+- `SEC-21` ExcessiveAgency
+- `SEC-22` HumanTrustManipulation
+- `SEC-30` ShorthandEmergence
+- `CMP-01` to `CMP-04`, the [compliance detectors](../detectors/compliance)
+
+Only `SEC-02` and `SEC-19` and the rule layers of `SEC-01` and `SEC-05` fire without an embedding generator; the rest are semantic and need `SENTINEL_EMBEDDING_ENDPOINT`. A compliance finding is `High`, so `SENTINEL_HOOK_ON_HIGH`, which defaults to `Block`, decides what the proxy does with it.
 
 `SENTINEL_MCP_DETECTORS=all` runs every detector including operational and hallucination — useful in some adversarial-testing scenarios but generates false positives on structured JSON tool calls (`OPS-04 PlaceholderText` may flag an "Insert here" string in a code-completion result).
 
