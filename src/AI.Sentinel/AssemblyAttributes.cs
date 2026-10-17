@@ -14,4 +14,6 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("AI.Sentinel.Mcp.Cli")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Cli")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Benchmarks")]
+[assembly: InternalsVisibleTo("AI.Sentinel.ComplianceEval")]
+[assembly: InternalsVisibleTo("AI.Sentinel.Detectors.Sdk")]
 

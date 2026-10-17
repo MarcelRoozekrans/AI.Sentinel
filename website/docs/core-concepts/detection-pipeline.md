@@ -21,7 +21,7 @@ The pipeline is invoked **once per pass** — twice per `IChatClient.GetResponse
 ## Internal flow
 
 ```
-1. Filter — skip detectors disabled via Configure<T>(c => c.Enabled = false)
+1. Filter — skip detectors disabled via Configure<T>(c => c.Enabled = false), and opt-in detectors not enabled
 2. Dispatch — invoke every remaining detector's AnalyzeAsync(ctx, ct) in parallel
 3. Fast path — if all ValueTasks completed synchronously, harvest results directly
 4. Slow path — otherwise Task.WhenAll over the AsTask() projections
@@ -32,7 +32,7 @@ The pipeline is invoked **once per pass** — twice per `IChatClient.GetResponse
 
 ## Filter — skip-on-disabled
 
-`Configure<T>(c => c.Enabled = false)` is applied at construction time. Disabled detectors **never enter** the `_detectors` array — zero CPU cost. There's no per-call branch checking enabled-ness.
+`Configure<T>(c => c.Enabled = false)` is applied at construction time. Disabled detectors **never enter** the `_detectors` array — zero CPU cost. There's no per-call branch checking enabled-ness. The same applies to an opt-in detector, one whose `IDetector.EnabledByDefault` is `false`, until `Configure<T>(c => c.Enabled = true)` turns it on; the four Art. 5 compliance detectors are the opt-in ones.
 
 ```csharp
 opts.Configure<RepetitionLoopDetector>(c => c.Enabled = false);
@@ -55,7 +55,7 @@ Each detector's `AnalyzeAsync` is a `ValueTask<DetectionResult>` — synchronous
 
 ## Fast path / slow path
 
-If every detector completed synchronously (typical for rule-based-only deployments), the pipeline harvests results directly without `Task.WhenAll` ceremony. This is the common case for the default 25 rule-based detectors when no embedding generator is configured.
+If every detector completed synchronously (typical for rule-based-only deployments), the pipeline harvests results directly without `Task.WhenAll` ceremony. This is the common case in a default install: with no embedding generator configured, the semantic detectors return `Clean` without awaiting anything, so every detector completes synchronously.
 
 If any detector returned an incomplete `ValueTask`, the pipeline projects to `Task[]` and `await Task.WhenAll(tasks)` — the slow path. Used whenever semantic or escalation detectors are active.
 

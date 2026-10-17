@@ -37,6 +37,7 @@ public static class ScanCommand
             Description = "Path to a prior ReplayResult JSON for regression comparison.",
         };
 
+        var complianceOpt = ComplianceOption();
         var cmd = new Command("scan", "Run the AI.Sentinel detector pipeline against a saved conversation.")
         {
             fileArg,
@@ -45,6 +46,7 @@ public static class ScanCommand
             expectOpt,
             minSevOpt,
             baselineOpt,
+            complianceOpt,
         };
 
         cmd.SetAction(async (parseResult, ct) =>
@@ -55,16 +57,22 @@ public static class ScanCommand
             var expected = parseResult.GetValue(expectOpt) ?? [];
             var minSev = parseResult.GetValue(minSevOpt);
             var baseline = parseResult.GetValue(baselineOpt);
+            var compliance = parseResult.GetValue(complianceOpt);
 
             var stdout = parseResult.InvocationConfiguration.Output;
             var stderr = parseResult.InvocationConfiguration.Error;
 
             return await RunAsync(file, format, output, stdout, stderr, ct,
-                expected, minSev, baseline).ConfigureAwait(false);
+                expected, minSev, baseline, enableComplianceDetectors: compliance).ConfigureAwait(false);
         });
 
         return cmd;
     }
+
+    private static Option<bool> ComplianceOption() => new("--compliance")
+    {
+        Description = "Also run the opt-in Art. 5 compliance detectors CMP-01 to CMP-04. SENTINEL_HOOK_COMPLIANCE=on does the same.",
+    };
 
     public static async Task<int> RunAsync(
         string file,
@@ -76,7 +84,8 @@ public static class ScanCommand
         IReadOnlyList<string>? expectedDetectors = null,
         Severity? minSeverity = null,
         string? baselinePath = null,
-        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
+        bool enableComplianceDetectors = false)
     {
         ArgumentNullException.ThrowIfNull(stdout);
         ArgumentNullException.ThrowIfNull(stderr);
@@ -91,7 +100,8 @@ public static class ScanCommand
 
             var (provider, pipeline) = ForensicsPipelineFactory.Build(
                 replayClient, embeddingGenerator ?? embeddings?.Generator, embeddings?.ExampleCache,
-                message => stderr.WriteLine(message));
+                message => stderr.WriteLine(message),
+                enableComplianceDetectors || ComplianceFromEnvironment());
             await using var _ = provider.ConfigureAwait(false);
 
             // No logging provider is registered here, so the library's ILogger warning reaches nobody.
@@ -163,6 +173,17 @@ public static class ScanCommand
         }
 
         return env;
+    }
+
+    /// <summary><c>SENTINEL_HOOK_COMPLIANCE</c>, the switch the hook CLIs use, so one setting turns the
+    /// compliance detectors on for the hooks and for a scan that reproduces their findings.</summary>
+    private static bool ComplianceFromEnvironment()
+    {
+        var v = Environment.GetEnvironmentVariable("SENTINEL_HOOK_COMPLIANCE");
+        return string.Equals(v, "on", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(v, "1", StringComparison.Ordinal)
+            || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(v, "yes", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool SuppressSemanticWarning()

@@ -176,7 +176,7 @@ internal static class ProxyCommand
     /// override the corresponding <c>SENTINEL_MCP_ON_*</c> env vars, which fall back to the
     /// existing <c>SENTINEL_HOOK_ON_*</c> env vars consumed by <see cref="HookConfig.FromEnvironment"/>.
     /// </summary>
-    private static HookConfig ResolveHookConfig(string[] args, IReadOnlyDictionary<string, string?> envVars)
+    internal static HookConfig ResolveHookConfig(string[] args, IReadOnlyDictionary<string, string?> envVars)
     {
         var envBaseline = HookConfig.FromEnvironment(envVars);
         return envBaseline with
@@ -185,7 +185,23 @@ internal static class ProxyCommand
             OnHigh = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_HIGH", envBaseline.OnHigh),
             OnMedium = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_MEDIUM", envBaseline.OnMedium),
             OnLow = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_LOW", envBaseline.OnLow),
+            EnableComplianceDetectors = ParseSwitch(envVars, "SENTINEL_MCP_COMPLIANCE") ?? envBaseline.EnableComplianceDetectors,
         };
+    }
+
+    /// <summary>Reads an on/off switch: <c>on</c>, <c>1</c>, <c>true</c> or <c>yes</c> is on, <c>off</c>, <c>0</c>,
+    /// <c>false</c> or <c>no</c> is off, and anything else is <see langword="null"/>, leaving the
+    /// <c>SENTINEL_HOOK_*</c> fallback in place, as the severity settings do.</summary>
+    internal static bool? ParseSwitch(IReadOnlyDictionary<string, string?> env, string key)
+    {
+        if (!env.TryGetValue(key, out var value) || string.IsNullOrEmpty(value)) return null;
+        if (value is "1" || value.Equals("on", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("true", StringComparison.OrdinalIgnoreCase) || value.Equals("yes", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (value is "0" || value.Equals("off", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("false", StringComparison.OrdinalIgnoreCase) || value.Equals("no", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return null;
     }
 
     private static McpDetectorPreset ParsePreset(IReadOnlyDictionary<string, string?> env)

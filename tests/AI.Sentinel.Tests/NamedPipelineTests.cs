@@ -135,7 +135,7 @@ public class NamedPipelineTests
         var lenientCfg = lenientOpts.GetDetectorConfigurations()[typeof(JailbreakDetector)];
 
         Assert.Equal(Severity.High, strictCfg.SeverityFloor);
-        Assert.True(strictCfg.Enabled);
+        Assert.Null(strictCfg.Enabled); // unset: the detector's own default
         Assert.Null(lenientCfg.SeverityFloor);
         Assert.False(lenientCfg.Enabled);
 

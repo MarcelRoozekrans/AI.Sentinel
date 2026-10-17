@@ -122,10 +122,19 @@ public sealed class SentinelPipeline
         if (responseError is not null)
             return Result<ChatResponse, SentinelError>.Failure(responseError);
 
-        var restored = RestoreResponse(scope, response, static (session, r) =>
+        // The inner client owns its response, and a caching client below Sentinel may hand out the same
+        // instance again, so the restore goes into a copy and the inner response keeps its placeholders.
+        var restored = RestoreResponse(scope, response, static (session, r) => new ChatResponse(session.Restore(r.Messages))
         {
-            r.Messages = session.Restore(r.Messages);
-            return r;
+            ResponseId = r.ResponseId,
+            ConversationId = r.ConversationId,
+            ModelId = r.ModelId,
+            CreatedAt = r.CreatedAt,
+            FinishReason = r.FinishReason,
+            Usage = r.Usage,
+            ContinuationToken = r.ContinuationToken,
+            RawRepresentation = r.RawRepresentation,
+            AdditionalProperties = r.AdditionalProperties is null ? null : new AdditionalPropertiesDictionary(r.AdditionalProperties),
         });
         if (restored.IsFailure)
             return restored;
@@ -453,11 +462,35 @@ public sealed class SentinelPipeline
     /// <param name="sessionId">The session recorded on the audit entries, as the <see cref="SessionId"/> domain type;
     /// <see langword="null"/> mints a fresh id for this call.</param>
     /// <param name="ct">Cancellation token.</param>
-    public async ValueTask<SentinelError?> ScanMessagesAsync(
+    public ValueTask<SentinelError?> ScanMessagesAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions = null,
         SessionId? sessionId = null,
         CancellationToken ct = default)
+        => ScanMessagesCoreAsync(messages, chatOptions, sessionId, findings: null, ct);
+
+    /// <summary>As <see cref="ScanMessagesAsync"/>, but returns every detection of the scan with its effective
+    /// action, so a host with no response to gate, such as a hook, can decide per detection.</summary>
+    /// <remarks>Audit, alerts and interventions run as for <see cref="ScanMessagesAsync"/>. A clean scan, or one
+    /// refused by the rate limit, returns an empty list. <see cref="ScanMessagesAsync"/> reports only the most
+    /// restrictive action's representative, which loses a weaker-ranked detection a hook still has to surface,
+    /// such as an Alert that co-fires with a Quarantine detection the hook maps to Allow.</remarks>
+    internal async ValueTask<IReadOnlyList<ScanFinding>> ScanMessagesForFindingsAsync(
+        IEnumerable<ChatMessage> messages,
+        SessionId? sessionId,
+        CancellationToken ct)
+    {
+        var findings = new List<ScanFinding>();
+        await ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings, ct).ConfigureAwait(false);
+        return findings;
+    }
+
+    private async ValueTask<SentinelError?> ScanMessagesCoreAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? chatOptions,
+        SessionId? sessionId,
+        List<ScanFinding>? findings,
+        CancellationToken ct)
     {
         var rateError = CheckRateLimit(chatOptions);
         if (rateError is not null) return rateError;
@@ -465,7 +498,8 @@ public sealed class SentinelPipeline
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var (scanned, systemPrompt) = WithInstructions(messageList, chatOptions?.Instructions);
         return await ScanAsync(scanned, sessionId ?? SessionIdFor(chatOptions),
-            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, llmId: chatOptions?.ModelId).ConfigureAwait(false);
+            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, llmId: chatOptions?.ModelId,
+            findings: findings).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -525,18 +559,10 @@ public sealed class SentinelPipeline
         CancellationToken ct,
         string? systemPrompt = null,
         Exemptions exemptions = default,
-        string? llmId = null)
+        string? llmId = null,
+        List<ScanFinding>? findings = null)
     {
-        var ctx = exemptions.Minted is null
-            ? new SentinelContext(sender, receiver, sessionId, msgs, []) { SystemPrompt = systemPrompt, LlmId = llmId }
-            : new SentinelContext(sender, receiver, sessionId, msgs, [])
-            {
-                SystemPrompt = systemPrompt,
-                LlmId = llmId,
-                RedactionPlaceholders = exemptions.Minted,
-                RequestPlaceholders = exemptions.Request ?? NoStrings,
-                RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,
-            };
+        var ctx = BuildContext(msgs, sessionId, sender, receiver, systemPrompt, in exemptions, llmId);
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
         await AppendAuditAsync(pipelineResult, sessionId, ct).ConfigureAwait(false);
@@ -558,6 +584,12 @@ public sealed class SentinelPipeline
                 { "detector", d.DetectorId.Value }
             };
             SentinelMetrics.Threats.Add(1, tags);
+        }
+
+        if (findings is not null)
+        {
+            foreach (var d in pipelineResult.Detections)
+                findings.Add(new ScanFinding(d, options.EffectiveAction(d)));
         }
 
         var action = SentinelActionRanking.MostRestrictive(pipelineResult.Detections.Select(options.EffectiveAction));
@@ -586,6 +618,20 @@ public sealed class SentinelPipeline
 
         return null;
     }
+
+    private static SentinelContext BuildContext(
+        IReadOnlyList<ChatMessage> msgs, SessionId sessionId, AgentId sender, AgentId receiver,
+        string? systemPrompt, in Exemptions exemptions, string? llmId)
+        => exemptions.Minted is null
+            ? new SentinelContext(sender, receiver, sessionId, msgs, []) { SystemPrompt = systemPrompt, LlmId = llmId }
+            : new SentinelContext(sender, receiver, sessionId, msgs, [])
+            {
+                SystemPrompt = systemPrompt,
+                LlmId = llmId,
+                RedactionPlaceholders = exemptions.Minted,
+                RequestPlaceholders = exemptions.Request ?? NoStrings,
+                RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,
+            };
 
     /// <summary>The detection that drove <paramref name="action"/>: highest severity among those whose
     /// effective action equals it, so an alert never carries a detection whose own action was weaker.</summary>

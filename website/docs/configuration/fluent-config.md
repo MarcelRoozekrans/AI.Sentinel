@@ -5,22 +5,29 @@ title: Fluent per-detector config
 
 # Fluent per-detector config
 
-`opts.Configure<T>(c => ...)` disables a detector or clamps its severity output (Floor / Cap) without forking detector code. Pipeline-level concern — detectors stay unaware of configuration.
+`opts.Configure<T>(c => ...)` enables or disables a detector, clamps its severity output (Floor / Cap), or sets a semantic detector's similarity thresholds, without forking detector code. Pipeline-level concern — detectors stay unaware of configuration.
 
-## Three knobs
+## The knobs
 
 ```csharp
 public sealed class DetectorConfiguration
 {
-    public bool Enabled { get; set; } = true;
+    public bool? Enabled { get; set; }          // null: the detector's own default
     public Severity? SeverityFloor { get; set; }
     public Severity? SeverityCap { get; set; }
+    public SentinelAction? Action { get; set; }
+    public float? HighThreshold { get; set; }   // semantic detectors only
+    public float? MediumThreshold { get; set; } // semantic detectors only
 }
 ```
+
+> **3.0 breaking change:** `Enabled` is now `bool?`, where `null` means the detector's own default. Source that reads it as a `bool` needs updating, and an untouched configuration now reads `null` where 2.x read `true`, so a check on it must decide what `null` means; `cfg.Enabled ?? detector.EnabledByDefault` is what the pipeline uses. A binary built against 2.x that writes or reads `Enabled`, through the old `set_Enabled(bool)` or `get_Enabled()`, fails with `MissingMethodException` at runtime until it is recompiled against 3.0.
 
 | Knob | Effect |
 |---|---|
 | `Enabled = false` | Pipeline skips invoking this detector entirely. Zero CPU cost — disabled detectors never enter the `_detectors` array at construction time. |
+| `Enabled = true` | Runs an opt-in detector. Left unset (`null`), each detector uses its `IDetector.EnabledByDefault`: on for every detector except the four [Art. 5 compliance detectors](../detectors/compliance), which are off until enabled. |
+| `HighThreshold` / `MediumThreshold` | Similarity at or above which a semantic detector reports High / Medium, in place of its built-in value. Must be in (0, 1], with Medium not above High. Setting either on a detector that is not a `SemanticDetectorBase` is an `ArgumentException` at `AddAISentinel`. |
 | `SeverityFloor = High` | Clamp upward — any **firing** result emitted below `High` is rewritten to `High`. Clean results pass through unchanged (no fabricated findings). |
 | `SeverityCap = Low` | Clamp downward — any firing result emitted above `Low` is rewritten to `Low`. Clean results unchanged. |
 
@@ -58,6 +65,20 @@ opts.Configure<MyNoisyDetector>(c =>
 });
 ```
 
+### Tune a semantic detector's thresholds
+
+Similarity scales differ between embedding models, so a semantic detector's built-in thresholds suit some models better than others. Override them per detector:
+
+```csharp
+opts.Configure<JailbreakDetector>(c =>
+{
+    c.HighThreshold = 0.80f;
+    c.MediumThreshold = 0.72f;
+});
+```
+
+When a pipeline is built, an override is checked against the other, built-in threshold: lowering only `HighThreshold` below the detector's built-in Medium is an `InvalidOperationException`, so lower both. Each named pipeline applies its own thresholds even though the detector instance is shared: the pipeline passes them with each call.
+
 ## How clamping works
 
 The `DetectionPipeline` runs every detector, then applies the clamp pass between dispatch and LLM escalation:
@@ -85,7 +106,7 @@ opts.Configure<JailbreakDetector>(c =>
     // SeverityFloor is still Medium from the previous call
     c.SeverityCap = Severity.Critical;  // adds a cap
 });
-// Net effect: Floor=Medium, Cap=Critical, Enabled=true (default)
+// Net effect: Floor=Medium, Cap=Critical, Enabled=null (the detector's default)
 ```
 
 This is by design — lets you split configuration across helper methods, environment overlays, etc.
@@ -113,7 +134,7 @@ In a [named-pipeline setup](./named-pipelines), each pipeline has its own `Detec
 ## What `Configure<T>` does NOT do
 
 - **It doesn't add detectors** — the detector type `T` must already be registered (built-in via DI source-gen, or via `opts.AddDetector<T>()`)
-- **It doesn't expose detector-internal knobs** — `Configure<PiiLeakageDetector>` can't set `IncludePhoneNumbers = false`. That's a per-detector-config feature still on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). The three universal knobs (Enabled/Floor/Cap) cover the 90% case for any detector.
+- **It doesn't expose detector-internal knobs** — `Configure<PiiLeakageDetector>` can't set `IncludePhoneNumbers = false`. That's a per-detector-config feature still on the [backlog](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/BACKLOG.md). The universal knobs (Enabled/Floor/Cap/Action, and the thresholds for semantic detectors) cover the 90% case for any detector.
 - **It doesn't fabricate findings** — Floor only clamps *firing* results. If a detector emits Clean, no Floor will turn it into a finding.
 
 ## Silent no-op for unmatched types
