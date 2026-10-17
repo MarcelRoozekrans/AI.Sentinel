@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Offline evaluation of the Art. 5 compliance detectors against a real embedding model.
        Not part of AI.Sentinel.slnx and not run by `dotnet test`: it downloads a model on first run.
+       CI builds it, without running it, because it reads AI.Sentinel internals.
        See docs/superpowers/evaluations/2026-10-17-compliance-detectors.md. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
