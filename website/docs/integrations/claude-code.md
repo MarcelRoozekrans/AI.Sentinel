@@ -148,6 +148,8 @@ HookOutput output = await adapter.HandleAsync(HookEvent.UserPromptSubmit, input,
 
 `provider` is an `IServiceProvider`, `env` an `IReadOnlyDictionary<string, string?>` and `ct` a `CancellationToken`. `HookConfig` is optional; without it the defaults apply.
 
+The decision follows the action your `SentinelOptions` give each detection: `Quarantine` maps through `HookConfig` by severity, `Alert` surfaces as `Warn`, or as `Allow` when `HookConfig` maps that severity to `Allow`, and `Log` gives `Allow`. With a stock `AddAISentinel()`, a `High` finding is an `Alert` and so a `Warn`; the `sentinel-hook` CLI sets every severity to `Quarantine` so that `SENTINEL_HOOK_ON_*` decides.
+
 Useful when you want a hook that ships entries to your own backend (Splunk, custom REST API, etc.) without going through file forwarders.
 
 ## Native binary (faster cold start)

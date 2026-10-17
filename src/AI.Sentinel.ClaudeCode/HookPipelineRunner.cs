@@ -7,13 +7,17 @@ namespace AI.Sentinel.ClaudeCode;
 
 /// <summary>
 /// Vendor-agnostic pipeline runner for hook adapters. Takes the mapped
-/// <see cref="ChatMessage"/> list, runs it through AI.Sentinel using
-/// <see cref="SentinelPipeline.ScanMessagesAsync"/> (prompt-only — no inner
-/// LLM call), and returns a <see cref="HookOutput"/>.
+/// <see cref="ChatMessage"/> list, runs it through AI.Sentinel prompt-only, with no inner
+/// LLM call, and returns a <see cref="HookOutput"/>.
 /// </summary>
 /// <remarks>
+/// A detection whose action is Quarantine maps through <see cref="HookConfig"/> by severity. One whose
+/// action is Alert surfaces as Warn, or as Allow when HookConfig maps its severity to Allow. One whose
+/// action is Log or PassThrough gives Allow.
+/// <para>
 /// Public so that other vendor adapters (e.g. <c>AI.Sentinel.Copilot</c>)
 /// can call it after doing their own payload -> messages mapping.
+/// </para>
 /// </remarks>
 public static class HookPipelineRunner
 {
@@ -37,8 +41,9 @@ public static class HookPipelineRunner
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(messages);
 
-        // Build a pipeline bound to an unused inner client — ScanMessagesAsync
-        // never invokes it, so the client shape is irrelevant.
+        // Build a pipeline bound to an unused inner client — a prompt-only scan
+        // never invokes it, so the client shape is irrelevant. This scan also reports
+        // Alert results, which ScanMessagesAsync drops, so the hook can warn on them.
         var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
         var error = await pipeline.ScanMessagesReportingAlertsAsync(
             messages, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), ct).ConfigureAwait(false);

@@ -134,4 +134,6 @@ The shared env-var contract (`SENTINEL_HOOK_ON_*`) means you configure once and 
 
 `AI.Sentinel.Copilot` (the library, not the `.Cli` tool) exposes `CopilotHookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Use this when bundling AI.Sentinel inside a custom Copilot-compatible agent.
 
+The decision follows the action your `SentinelOptions` give each detection: `Quarantine` maps through the hook config by severity, `Alert` surfaces as `Warn`, or as `Allow` when the config maps that severity to `Allow`, and `Log` gives `Allow`. With a stock `AddAISentinel()`, a `High` finding is an `Alert` and so a `Warn`; the `sentinel-copilot-hook` CLI sets every severity to `Quarantine` so that `SENTINEL_HOOK_ON_*` decides.
+
 ## Next: [MCP proxy](./mcp-proxy) — covers Cursor, Continue, Cline, Windsurf, and Copilot's MCP path
