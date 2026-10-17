@@ -31,6 +31,12 @@ public static class AuditEntryKinds
     public const string ApprovalDetectorId = "APPROVAL";
 
     /// <summary>
+    /// Separates the request id, which ends an approval decision's summary, from the rest. The writer and the
+    /// compliance report's parser share it, so the two cannot drift apart.
+    /// </summary>
+    internal const string ApprovalRequestMarker = ", request ";
+
+    /// <summary>
     /// True for an informational entry: <see cref="Severity.None"/> with a <see cref="AuditEntry.PolicyCode"/>.
     /// A detection, including an authorization denial, has a real severity and is not informational.
     /// </summary>

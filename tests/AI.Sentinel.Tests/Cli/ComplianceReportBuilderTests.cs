@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Cli.Report;
@@ -83,18 +84,19 @@ public class ComplianceReportBuilderTests
     public async Task Art14_DenialsAndApprovalOutcomes_DistinctRequests()
     {
         using var store = new RingBufferAuditStore();
-        AuditEntry Approval(string code, string outcome, string id) =>
-            Entry(Severity.None, AuditEntryKinds.ApprovalDetectorId, $"{outcome}: policy p, tool t, request {id}", code);
+        // Seeded through the real writer, so the parser is pinned to the summary shape it reads.
+        AuditEntry Approval(string code, string id) =>
+            ApprovalStoreAuditing.Decision(code, "p", "t", id) with { Timestamp = Now.AddDays(-1) };
         await Seed(store,
             Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "denied", "policy-x"),
             Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "denied", "policy-x"),
-            Approval(AuditEntryKinds.ApprovedPolicyCode, "Approved", "r1"),
-            Approval(AuditEntryKinds.ApprovedPolicyCode, "Approved", "r1"),
-            Approval(AuditEntryKinds.ApprovedPolicyCode, "Approved", "r2"),
-            Approval(AuditEntryKinds.DeniedPolicyCode, "Denied", "r3"),
-            Approval(AuditEntryKinds.ExpiredPolicyCode, "Expired", "unknown"),
-            Approval(AuditEntryKinds.ExpiredPolicyCode, "Expired", "unknown"),
-            Approval(AuditEntryKinds.TimedOutPolicyCode, "Timed out", "r4"));
+            Approval(AuditEntryKinds.ApprovedPolicyCode, "r1"),
+            Approval(AuditEntryKinds.ApprovedPolicyCode, "r1"),
+            Approval(AuditEntryKinds.ApprovedPolicyCode, "r2"),
+            Approval(AuditEntryKinds.DeniedPolicyCode, "r3"),
+            Approval(AuditEntryKinds.ExpiredPolicyCode, "unknown"),
+            Approval(AuditEntryKinds.ExpiredPolicyCode, "unknown"),
+            Approval(AuditEntryKinds.TimedOutPolicyCode, "r4"));
 
         var report = await BuildAsync(store);
 
@@ -128,6 +130,26 @@ public class ComplianceReportBuilderTests
 
         Assert.Equal(1, report.Art14.AuthorizationDenials);
         Assert.Equal(3, report.Art14.ApprovalHolds);
+    }
+
+    [Theory]
+    [InlineData("r-1")]
+    [InlineData("9f1c2d3e4b5a69788796a5b4c3d2e1f0")]
+    [InlineData("pim/req 42")]
+    public async Task Art14_ParsesTheRequestIdTheWriterWrote(string requestId)
+    {
+        // Policy and tool names that contain the marker still read back as the request the writer wrote.
+        using var store = new RingBufferAuditStore();
+        AuditEntry Approved(string policy, string tool, string id) =>
+            ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, policy, tool, id) with { Timestamp = Now.AddDays(-1) };
+        await Seed(store,
+            Approved("policy, request x", "tool", requestId),
+            Approved("other", "tool, request y", requestId),
+            Approved("other", "tool", requestId + "-2"));
+
+        var report = await BuildAsync(store);
+
+        Assert.Equal(2, report.Art14.ApprovalRequestsByOutcome[AuditEntryKinds.ApprovedPolicyCode]);
     }
 
     [Fact]
@@ -280,7 +302,7 @@ public class ComplianceReportBuilderTests
         }
         if (approval)
         {
-            await Seed(store, Entry(Severity.None, AuditEntryKinds.ApprovalDetectorId, "Approved: policy p, tool t, request r1", AuditEntryKinds.ApprovedPolicyCode));
+            await Seed(store, ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, "p", "t", "r1") with { Timestamp = Now.AddDays(-1) });
         }
 
         var report = await BuildAsync(store);
@@ -299,7 +321,8 @@ public class ComplianceReportBuilderTests
             AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "SESSION-ABC"),
             Entry(Severity.High, "CMP-01", "SECRET-SUMMARY-TEXT", session: "SESSION-ABC"),
             Entry(Severity.None, AuditEntryKinds.TransparencyDetectorId, "Disclosed: SECRET-SUMMARY-TEXT", AuditEntryKinds.DisclosedPolicyCode, "SESSION-ABC"),
-            Entry(Severity.None, AuditEntryKinds.ApprovalDetectorId, "Approved: policy SECRET-SUMMARY-TEXT, tool t, request REQ-SECRET-1", AuditEntryKinds.ApprovedPolicyCode, "SESSION-ABC"));
+            ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, "SECRET-SUMMARY-TEXT", "t", "REQ-SECRET-1")
+                with { Timestamp = Now.AddDays(-1), SessionId = "SESSION-ABC" });
 
         var report = await BuildAsync(store);
 

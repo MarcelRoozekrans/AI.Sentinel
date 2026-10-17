@@ -276,6 +276,37 @@ public class ApprovalAuditingTests
     }
 
     [Fact]
+    public async Task NonAdminStore_ActiveGrant_IsRecordedOncePerProcess_AndReportedOnce()
+    {
+        // Each hook invocation is a new process with nothing remembered, so while an Entra PIM grant is active every
+        // gated call appends APPROVED again. The compliance report counts the request once.
+        using var audit = new RingBufferAuditStore();
+        for (var process = 0; process < 3; process++)
+        {
+            var inner = new ExternalStore
+            {
+                EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+            };
+            var (store, _) = Wrap(inner, audit);
+            await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+            await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+        }
+
+        var entries = new List<AuditEntry>();
+        await foreach (var e in audit.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, Ct))
+        {
+            entries.Add(e);
+        }
+        Assert.Equal(3, entries.Count);
+        Assert.All(entries, e => AssertDecision(e, AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9"));
+
+        var now = DateTimeOffset.UtcNow;
+        var report = await AI.Sentinel.Cli.Report.ComplianceReportBuilder.BuildAsync(
+            audit, now.AddHours(-1), now.AddHours(1), "audit.db", TimeProvider.System, Ct);
+        Assert.Equal(1, report.Art14.ApprovalRequestsByOutcome[AuditEntryKinds.ApprovedPolicyCode]);
+    }
+
+    [Fact]
     public async Task NonAdminStore_ActiveWithoutAnyKnownRequestId_WritesNothing()
     {
         var inner = new ExternalStore { EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) };

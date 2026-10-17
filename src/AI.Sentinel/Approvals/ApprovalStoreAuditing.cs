@@ -81,7 +81,7 @@ internal static class ApprovalStoreAuditing
             PreviousHash: null,
             Severity: Severity.None,
             DetectorId: AuditEntryKinds.ApprovalDetectorId,
-            Summary: $"{outcome}: policy {policyName}, tool {toolName}, request {requestId}")
+            Summary: $"{outcome}: policy {policyName}, tool {toolName}{AuditEntryKinds.ApprovalRequestMarker}{requestId}")
         {
             PolicyCode = policyCode,
         };

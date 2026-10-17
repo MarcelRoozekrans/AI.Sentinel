@@ -11,7 +11,6 @@ internal static class ComplianceReportBuilder
     private const string Art5Prefix = "CMP-";
     private const string RedactedPrefix = "Redacted ";
     private const string NotRedactedSuffix = "; not redacted";
-    private const string RequestMarker = ", request ";
     private const string UnknownRequest = "unknown";
     private const int TopDetectorCount = 5;
 
@@ -224,8 +223,8 @@ internal static class ComplianceReportBuilder
         private void CountApproval(AuditEntry entry)
         {
             var outcome = entry.PolicyCode!;
-            var at = entry.Summary.LastIndexOf(RequestMarker, StringComparison.Ordinal);
-            var id = at < 0 ? string.Empty : entry.Summary[(at + RequestMarker.Length)..].Trim();
+            var at = entry.Summary.LastIndexOf(AuditEntryKinds.ApprovalRequestMarker, StringComparison.Ordinal);
+            var id = at < 0 ? string.Empty : entry.Summary[(at + AuditEntryKinds.ApprovalRequestMarker.Length)..].Trim();
             if (id.Length == 0 || string.Equals(id, UnknownRequest, StringComparison.Ordinal))
             {
                 _unknownApprovals[outcome] = _unknownApprovals.GetValueOrDefault(outcome) + 1;

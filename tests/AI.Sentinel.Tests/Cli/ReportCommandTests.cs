@@ -1,6 +1,7 @@
 using System.CommandLine;
 using System.Security.Cryptography;
 using System.Text.Json;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Cli;
@@ -466,9 +467,10 @@ public sealed class ReportCommandTests : IDisposable
     [
         Entry(Severity.High, "SEC-01", "prompt injection " + Marker, session: "session-a"),
         Entry(Severity.High, "CMP-01", "social scoring " + Marker, session: "session-a"),
-        Entry(Severity.None, "REDACTION", "Redacted 2 EMAIL", policyCode: "REDACTED", session: "session-b"),
+        AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 2 }, "session-b")
+            with { Timestamp = Now.AddDays(-1) },
         Entry(Severity.None, AuditEntryKinds.TransparencyDetectorId, "Disclosed " + Marker, policyCode: AuditEntryKinds.DisclosedPolicyCode, session: "session-c"),
-        Entry(Severity.None, AuditEntryKinds.ApprovalDetectorId, "Approved tool " + Marker + ", request req-1", policyCode: AuditEntryKinds.ApprovedPolicyCode),
+        ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, "policy-" + Marker, "tool-" + Marker, "req-1") with { Timestamp = Now.AddDays(-1) },
         Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "denied " + Marker, policyCode: "policy-x"),
         Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "held " + Marker, policyCode: SentinelDenyCodes.ApprovalRequired),
     ];
