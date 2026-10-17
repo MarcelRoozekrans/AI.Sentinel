@@ -27,9 +27,11 @@ public abstract record ApprovalState
     {
         /// <summary>
         /// The request that was denied or whose grant expired, when the store knows it. The built-in stores that own
-        /// approval state, in-memory and SQLite, set it on every denial they return; it is <see langword="null"/> for a
-        /// denial that belongs to no request, such as a caller the backend rejects, and for stores that do not set it.
-        /// Approval decisions in the audit log are recorded under this id.
+        /// approval state, in-memory and SQLite, set it on every denial they return, and Entra PIM on a denial PIM
+        /// reports for the request it waited on. It is <see langword="null"/> for a denial that belongs to no request,
+        /// such as a caller the backend rejects or a Graph error while polling, and for stores that do not set it.
+        /// Approval decisions in the audit log are recorded under this id; a denial without one is not recorded as a
+        /// decision.
         /// </summary>
         public string? RequestId { get; init; }
     }

@@ -292,13 +292,32 @@ public class ApprovalAuditingTests
         var inner = new ExternalStore();
         var (store, audit) = Wrap(inner);
         var requestId = await EnsurePendingAsync(store);
-        inner.Next = new ApprovalState.Denied("Denied in PIM", DateTimeOffset.UtcNow);
+        inner.Next = new ApprovalState.Denied("Denied in PIM", DateTimeOffset.UtcNow) { RequestId = requestId };
 
         await store.WaitForDecisionAsync(requestId, TimeSpan.FromSeconds(1), Ct);
         await store.WaitForDecisionAsync(requestId, TimeSpan.FromSeconds(1), Ct);
 
         var entry = Assert.Single(audit.Entries);
         AssertDecision(entry, AuditEntryKinds.DeniedPolicyCode, "Denied", requestId);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_DeniedWithoutRequestIdDuringWait_WritesNothing_LaterActiveWritesApproved()
+    {
+        // A denial that belongs to no request, such as a Graph error while polling PIM, is not a decision.
+        var inner = new ExternalStore();
+        var (store, audit) = Wrap(inner);
+        var requestId = await EnsurePendingAsync(store);
+
+        inner.Next = new ApprovalState.Denied("Graph error at WaitForDecision", DateTimeOffset.UtcNow);
+        await store.WaitForDecisionAsync(requestId, TimeSpan.FromSeconds(1), Ct);
+        Assert.Empty(audit.Entries);
+
+        inner.Next = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = requestId };
+        await store.WaitForDecisionAsync(requestId, TimeSpan.FromSeconds(1), Ct);
+
+        var entry = Assert.Single(audit.Entries);
+        AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", requestId);
     }
 
     [Fact]

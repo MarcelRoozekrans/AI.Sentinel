@@ -218,7 +218,7 @@ public sealed class EntraPimApprovalStore : IApprovalStore
             var reason = !string.IsNullOrWhiteSpace(snap.FailureReason)
                 ? snap.FailureReason!
                 : $"PIM request status: {status}";
-            return new ApprovalState.Denied(reason, now);
+            return new ApprovalState.Denied(reason, now) { RequestId = requestId };
         }
 
         // Unknown status → treat as pending (avoid false denials on a status PIM later adds).

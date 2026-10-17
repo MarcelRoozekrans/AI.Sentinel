@@ -117,14 +117,16 @@ internal class AuditingApprovalStore : IApprovalStore
         if (Admin is null)
         {
             // The remembered row is keyed by the id this process waited on; the entry names the store's id, which is
-            // the same one for every built-in store.
+            // the same one for every built-in store. A denial without a request id belongs to no request, such as a
+            // Graph error while polling Entra PIM: it is not a decision, so nothing is recorded and a later outcome
+            // of the same request still is.
             var settledId = state switch
             {
-                ApprovalState.Active a => a.RequestId,
+                ApprovalState.Active a => a.RequestId ?? requestId,
                 ApprovalState.Denied d => d.RequestId,
                 _ => null,
-            } ?? requestId;
-            if (Memory.Settled.TryAdd(settledId, 0))
+            };
+            if (settledId is not null && Memory.Settled.TryAdd(settledId, 0))
             {
                 var info = await LookUpAsync(requestId, ct).ConfigureAwait(false);
                 Memory.Requests.TryRemove(requestId, out _);
