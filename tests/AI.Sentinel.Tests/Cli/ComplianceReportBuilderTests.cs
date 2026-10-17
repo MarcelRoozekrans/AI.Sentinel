@@ -1,8 +1,10 @@
 using System.Collections;
 using System.Reflection;
 using AI.Sentinel.Audit;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.Cli.Report;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
 using Xunit;
 
 namespace AI.Sentinel.Tests.Cli;
@@ -106,6 +108,29 @@ public class ComplianceReportBuilderTests
     }
 
     [Fact]
+    public async Task Art14_ApprovalHolds_AreNotCountedAsDenials()
+    {
+        // The hooks, the MCP proxy and the in-process guard write each approval hold as AUTHZ-DENY with the
+        // approval_required code. A request held three times and then approved is not three denials.
+        using var store = new RingBufferAuditStore();
+        AuditEntry Deny(string code) =>
+            AuditEntryAuthorizationExtensions.AuthorizationDeny(
+                new AgentId("user"), new AgentId("assistant"), SessionId.New(), "alice",
+                new HashSet<string>(StringComparer.Ordinal), "delete_database", "p", "held", code)
+            with { Timestamp = Now.AddDays(-1) };
+        await Seed(store,
+            Deny(SentinelDenyCodes.ApprovalRequired),
+            Deny(SentinelDenyCodes.ApprovalRequired),
+            Deny(SentinelDenyCodes.ApprovalRequired),
+            Deny(SentinelDenyCodes.PolicyDenied));
+
+        var report = await BuildAsync(store);
+
+        Assert.Equal(1, report.Art14.AuthorizationDenials);
+        Assert.Equal(3, report.Art14.ApprovalHolds);
+    }
+
+    [Fact]
     public async Task Art10_RedactionCountsPerType_AndFallbacks()
     {
         using var store = new RingBufferAuditStore();
@@ -200,6 +225,7 @@ public class ComplianceReportBuilderTests
         Assert.Equal(0, report.Art12.EntriesInPeriod);
         Assert.Empty(report.Art12.EntriesBySource);
         Assert.Equal(0, report.Art14.AuthorizationDenials);
+        Assert.Equal(0, report.Art14.ApprovalHolds);
         Assert.Empty(report.Art14.ApprovalRequestsByOutcome);
         Assert.Empty(report.Art10.RedactionsByType);
         Assert.Equal(0, report.Art10.FallbackEntries);

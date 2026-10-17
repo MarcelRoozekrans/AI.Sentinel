@@ -29,6 +29,7 @@ internal static class ReportText
     internal const string Source = "Source";
     internal const string Entries = "Entries";
     internal const string AuthorizationDenials = "Authorization denials";
+    internal const string ApprovalHolds = "Tool calls held for approval";
     internal const string ApprovalDecisions = "Approval decisions";
     internal const string Outcome = "Outcome";
     internal const string Requests = "Requests";

@@ -1,5 +1,6 @@
 using System.Globalization;
 using AI.Sentinel.Audit;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 
 namespace AI.Sentinel.Cli.Report;
@@ -56,7 +57,7 @@ internal static class ComplianceReportBuilder
                 ComplianceReport.ChainNote,
                 tally.EntriesInPeriod,
                 Sorted(tally.BySource)),
-            Art14: new ComplianceReport.Art14Section(tally.Denials, tally.ApprovalCounts()),
+            Art14: new ComplianceReport.Art14Section(tally.Denials, tally.Holds, tally.ApprovalCounts()),
             Art10: new ComplianceReport.Art10Section(Sorted(tally.Redactions), tally.Fallbacks),
             Art50: new ComplianceReport.Art50Section(tally.DisclosedTotal),
             Art5: new ComplianceReport.Art5Section(
@@ -119,6 +120,7 @@ internal static class ComplianceReportBuilder
 
         internal int EntriesInPeriod { get; private set; }
         internal int Denials { get; private set; }
+        internal int Holds { get; private set; }
         internal int Fallbacks { get; private set; }
         internal Dictionary<string, int> BySource { get; } = new(StringComparer.Ordinal);
         internal Dictionary<string, int> Redactions { get; } = new(StringComparer.Ordinal);
@@ -136,7 +138,15 @@ internal static class ComplianceReportBuilder
 
             if (string.Equals(entry.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal))
             {
-                Denials++;
+                // An approval hold is written as a denial with its own code; it is oversight working, not a refusal.
+                if (string.Equals(entry.PolicyCode, SentinelDenyCodes.ApprovalRequired, StringComparison.Ordinal))
+                {
+                    Holds++;
+                }
+                else
+                {
+                    Denials++;
+                }
             }
             else if (AuditEntryKinds.IsRedaction(entry))
             {

@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.Security.Cryptography;
 using System.Text.Json;
 using AI.Sentinel.Audit;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.Cli;
 using AI.Sentinel.Cli.Report;
 using AI.Sentinel.Detection;
@@ -45,6 +46,8 @@ public sealed class ReportCommandTests : IDisposable
         Assert.Contains("CMP-01", stdout, StringComparison.Ordinal);
         Assert.Contains("EMAIL", stdout, StringComparison.Ordinal);
         Assert.Contains("APPROVED", stdout, StringComparison.Ordinal);
+        Assert.Contains("- Authorization denials: 1", stdout, StringComparison.Ordinal);
+        Assert.Contains("- Tool calls held for approval: 1", stdout, StringComparison.Ordinal);
         Assert.Contains("intact", stdout, StringComparison.Ordinal);
         Assert.DoesNotContain(ComplianceReport.Art5NoDetectionsNote, stdout, StringComparison.Ordinal);
     }
@@ -70,6 +73,7 @@ public sealed class ReportCommandTests : IDisposable
         Assert.DoesNotContain("url(", html, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("X-&lt;i&gt;&amp;", html, StringComparison.Ordinal);
         Assert.Contains("tool&lt;script&gt;", html, StringComparison.Ordinal);
+        Assert.Contains("<tr><th>Tool calls held for approval</th><td>1</td></tr>", html, StringComparison.Ordinal);
         foreach (var heading in new[] { "Art. 12", "Art. 14", "Art. 10", "Art. 50", "Art. 5 ", "Art. 15" })
         {
             Assert.Contains(heading, html, StringComparison.Ordinal);
@@ -91,6 +95,8 @@ public sealed class ReportCommandTests : IDisposable
             Assert.Equal(ComplianceReport.DisclaimerText, root.GetProperty("disclaimer").GetString());
             Assert.Equal(db, root.GetProperty("auditFilePath").GetString());
             Assert.True(root.GetProperty("art12").GetProperty("chainIntact").GetBoolean());
+            Assert.Equal(1, root.GetProperty("art14").GetProperty("authorizationDenials").GetInt32());
+            Assert.Equal(1, root.GetProperty("art14").GetProperty("approvalHolds").GetInt32());
             Assert.Equal("High", root.GetProperty("art15").GetProperty("detections")[0].GetProperty("severity").GetString());
         }
 
@@ -98,8 +104,9 @@ public sealed class ReportCommandTests : IDisposable
         Assert.NotNull(report);
         Assert.Equal(1, report.Schema);
         Assert.Equal(ComplianceReport.DisclaimerText, report.Disclaimer);
-        Assert.Equal(6, report.Art12.EntriesInPeriod);
+        Assert.Equal(7, report.Art12.EntriesInPeriod);
         Assert.Equal(1, report.Art14.AuthorizationDenials);
+        Assert.Equal(1, report.Art14.ApprovalHolds);
         Assert.Equal(1, report.Art14.ApprovalRequestsByOutcome["APPROVED"]);
         Assert.Equal(2, report.Art10.RedactionsByType["EMAIL"]);
         Assert.Equal(1, report.Art50.DisclosedSessions);
@@ -256,7 +263,7 @@ public sealed class ReportCommandTests : IDisposable
 
             Assert.True(exit == 0, stderr);
             Assert.Contains("## Art. 15", stdout, StringComparison.Ordinal);
-            Assert.Contains("intact, 6 entries verified", stdout, StringComparison.Ordinal);
+            Assert.Contains("intact, 7 entries verified", stdout, StringComparison.Ordinal);
             Assert.Equal([db], Directory.GetFiles(_dir));
         }
         finally
@@ -442,6 +449,7 @@ public sealed class ReportCommandTests : IDisposable
         Entry(Severity.None, AuditEntryKinds.TransparencyDetectorId, "Disclosed " + Marker, policyCode: AuditEntryKinds.DisclosedPolicyCode, session: "session-c"),
         Entry(Severity.None, AuditEntryKinds.ApprovalDetectorId, "Approved tool " + Marker + ", request req-1", policyCode: AuditEntryKinds.ApprovedPolicyCode),
         Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "denied " + Marker, policyCode: "policy-x"),
+        Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "held " + Marker, policyCode: SentinelDenyCodes.ApprovalRequired),
     ];
 
     private static AuditEntry Entry(

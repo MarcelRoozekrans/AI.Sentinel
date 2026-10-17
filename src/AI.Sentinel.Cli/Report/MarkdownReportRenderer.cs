@@ -44,7 +44,8 @@ internal static class MarkdownReportRenderer
     private static void Art14(StringBuilder md, ComplianceReport.Art14Section art14)
     {
         Heading(md, T.Art14Title);
-        md.Append("- ").Append(T.AuthorizationDenials).Append(": ").AppendLine(T.Number(art14.AuthorizationDenials)).AppendLine();
+        md.Append("- ").Append(T.AuthorizationDenials).Append(": ").AppendLine(T.Number(art14.AuthorizationDenials));
+        md.Append("- ").Append(T.ApprovalHolds).Append(": ").AppendLine(T.Number(art14.ApprovalHolds)).AppendLine();
         SubHeading(md, T.ApprovalDecisions);
         Counts(md, T.Outcome, T.Requests, art14.ApprovalRequestsByOutcome, T.NoApprovals);
     }

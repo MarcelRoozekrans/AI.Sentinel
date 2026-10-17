@@ -84,6 +84,7 @@ internal static class HtmlReportRenderer
         Heading(html, T.Art14Title);
         html.AppendLine("<table>");
         Row(html, T.AuthorizationDenials, E(T.Number(art14.AuthorizationDenials)));
+        Row(html, T.ApprovalHolds, E(T.Number(art14.ApprovalHolds)));
         html.AppendLine("</table>");
         SubHeading(html, T.ApprovalDecisions);
         Counts(html, T.Outcome, T.Requests, art14.ApprovalRequestsByOutcome, T.NoApprovals);

@@ -76,10 +76,13 @@ internal sealed record ComplianceReport(
         IReadOnlyDictionary<string, int> EntriesBySource);
 
     /// <summary>Human oversight.</summary>
-    /// <param name="AuthorizationDenials">Number of AUTHZ-DENY entries.</param>
+    /// <param name="AuthorizationDenials">Number of AUTHZ-DENY entries, except approval holds.</param>
+    /// <param name="ApprovalHolds">Number of AUTHZ-DENY entries with the approval-required code: a tool call held until a
+    /// person approves it. A request held several times counts each time.</param>
     /// <param name="ApprovalRequestsByOutcome">Distinct approval requests per outcome.</param>
     internal sealed record Art14Section(
         int AuthorizationDenials,
+        int ApprovalHolds,
         IReadOnlyDictionary<string, int> ApprovalRequestsByOutcome);
 
     /// <summary>Data minimisation.</summary>
