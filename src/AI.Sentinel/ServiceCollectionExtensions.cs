@@ -60,6 +60,7 @@ public static class ServiceCollectionExtensions
         configure?.Invoke(opts);
         RejectRedactOnSeverityOptions(opts);
         RejectRedactOnNonRedactingDetectors(opts, nameof(configure));
+        RejectEmptyTransparencyNotice(opts, nameof(configure));
 
         // Auto-register InMemoryApprovalStore if any binding has an ApprovalSpec and the user
         // hasn't registered an IApprovalStore yet. Keeps the happy path zero-config.
@@ -100,6 +101,18 @@ public static class ServiceCollectionExtensions
         }
 
         return services;
+    }
+
+    private static void RejectEmptyTransparencyNotice(SentinelOptions opts, string paramName)
+    {
+        var t = opts.Transparency;
+        if (t.Enabled && t.NoticeMode != Transparency.TransparencyNoticeMode.Never && string.IsNullOrWhiteSpace(t.Notice))
+        {
+            throw new ArgumentException(
+                "SentinelOptions.Transparency.Notice cannot be empty while Transparency is enabled and NoticeMode is not Never. " +
+                "Set a notice text or use NoticeMode = Never.",
+                paramName);
+        }
     }
 
     private static void RejectRedactOnSeverityOptions(SentinelOptions opts)
