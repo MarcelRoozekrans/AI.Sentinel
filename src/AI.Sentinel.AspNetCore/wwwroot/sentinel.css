@@ -184,7 +184,7 @@ td.session, td.source { white-space: nowrap; }
 .badge.redacted { background: rgba(56,189,248,0.15); color: #7dd3fc; }
 .badge.disclosed { background: rgba(167,139,250,0.15); color: #c4b5fd; }
 .badge.approval { background: rgba(45,212,191,0.15); color: #5eead4; }
-.badge.none     { background: rgba(148,163,184,0.1); color: var(--muted); }
+.badge.none, .badge.informational { background: rgba(148,163,184,0.1); color: var(--muted); }
 
 /* Policy code badge (rendered inline before AUTHZ-DENY reason text) — uses
    monospaced typography to read like a stable identifier (e.g. tenant_inactive)
@@ -208,7 +208,7 @@ td.session, td.source { white-space: nowrap; }
 tr.severity-critical { background: rgba(239,68,68,0.04); }
 tr.severity-high     { background: rgba(249,115,22,0.04); }
 /* Informational rows (redacted, disclosed, approval): deliberately no row tint, only the badge marks them. */
-tr.severity-redacted, tr.severity-disclosed, tr.severity-approval { background: none; }
+tr.severity-redacted, tr.severity-disclosed, tr.severity-approval, tr.severity-informational { background: none; }
 
 /* Authorization denial rows (DetectorId starts with "AUTHZ-") */
 tr.audit-row-authz {

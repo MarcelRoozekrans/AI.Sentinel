@@ -172,6 +172,8 @@ internal static class DashboardHandlers
             return ("disclosed", "Disclosed");
         if (AuditEntryKinds.IsApproval(e))
             return ("approval", "Approval");
+        if (AuditEntryKinds.IsInformational(e))
+            return ("informational", "Info");
         return (e.Severity.ToString().ToLowerInvariant(), e.Severity.ToString());
     }
 

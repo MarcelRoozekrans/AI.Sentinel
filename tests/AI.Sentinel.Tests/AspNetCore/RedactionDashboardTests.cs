@@ -194,7 +194,7 @@ public class RedactionDashboardTests
 
         var html = await GetAsync(host, "/sentinel/api/feed?filter=disclosed");
 
-        Assert.Equal(1, Regex.Count(html, "<tr class=", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        Assert.Equal(1, Regex.Count(html, "<tr class=\"severity-", RegexOptions.None, TimeSpan.FromSeconds(1)));
         Assert.Contains("badge disclosed", html, StringComparison.Ordinal);
     }
 
@@ -210,7 +210,7 @@ public class RedactionDashboardTests
 
         var html = await GetAsync(host, "/sentinel/api/feed?filter=approval");
 
-        Assert.Equal(2, Regex.Count(html, "<tr class=", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        Assert.Equal(2, Regex.Count(html, "<tr class=\"severity-", RegexOptions.None, TimeSpan.FromSeconds(1)));
         Assert.Equal(2, Regex.Count(html, "badge approval", RegexOptions.None, TimeSpan.FromSeconds(1)));
     }
 
@@ -227,5 +227,18 @@ public class RedactionDashboardTests
         var html = await GetAsync(host, "/sentinel/api/feed?filter=" + filter);
 
         Assert.Equal(0, Regex.Count(html, "<tr class=\"severity-", RegexOptions.None, TimeSpan.FromSeconds(1)));
+    }
+
+    [Fact]
+    public async Task UnknownInformationalEntry_RendersInfoBadge()
+    {
+        var host = await BuildHostAsync();
+        var store = host.Services.GetRequiredService<IAuditStore>();
+        await store.AppendAsync(Informational("SEC-23", "SOMETHING-ELSE"), CancellationToken.None);
+
+        var html = await GetAsync(host, "/sentinel/api/feed");
+
+        Assert.Contains("badge informational", html, StringComparison.Ordinal);
+        Assert.Contains(">Info<", html, StringComparison.Ordinal);
     }
 }

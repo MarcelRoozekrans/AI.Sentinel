@@ -28,4 +28,15 @@ public class AuditEntryKindsTests
         Assert.False(AuditEntryKinds.IsInformational(Entry(Severity.High, "AUTHZ-DENY", "AUTHZ-DENY")));
         Assert.False(AuditEntryKinds.IsInformational(Entry(Severity.None, null)));
     }
+
+    [Fact]
+    public void UnknownCode_IsInformationalButNoKnownKind()
+    {
+        var entry = Entry(Severity.None, "SOMETHING-ELSE");
+
+        Assert.True(AuditEntryKinds.IsInformational(entry));
+        Assert.False(AuditEntryKinds.IsRedaction(entry));
+        Assert.False(AuditEntryKinds.IsDisclosure(entry));
+        Assert.False(AuditEntryKinds.IsApproval(entry));
+    }
 }
