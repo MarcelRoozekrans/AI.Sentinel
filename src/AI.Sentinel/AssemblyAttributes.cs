@@ -12,4 +12,5 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("AI.Sentinel.Copilot.Cli")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Mcp.Cli")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Benchmarks")]
+[assembly: InternalsVisibleTo("AI.Sentinel.ComplianceEval")]
 

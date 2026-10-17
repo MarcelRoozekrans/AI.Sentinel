@@ -21,6 +21,7 @@ public class CopilotHookAdapterTests
             opts.OnMedium = SentinelAction.Quarantine;
             opts.OnLow = SentinelAction.Quarantine;
             opts.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            opts.WithoutComplianceDetectors();
         });
         var provider = services.BuildServiceProvider();
         return new CopilotHookAdapter(provider);

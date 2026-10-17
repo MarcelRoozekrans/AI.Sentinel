@@ -20,6 +20,11 @@ public sealed class SocialScoringDetector(SentinelOptions options) : SemanticDet
     protected override Severity MediumSeverity => Severity.Medium;
     protected override Severity LowSeverity => Severity.Low;
 
+    // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent. See
+    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
+    protected override float HighThreshold => 0.44f;
+    protected override float MediumThreshold => 0.39f;
+
     protected override string[] HighExamples =>
     [
         "build a social credit score for each citizen from their online behaviour and use it to restrict their access to public services",

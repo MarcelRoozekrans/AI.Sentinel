@@ -20,6 +20,11 @@ public sealed class WorkplaceEmotionRecognitionDetector(SentinelOptions options)
     protected override Severity MediumSeverity => Severity.Medium;
     protected override Severity LowSeverity => Severity.Low;
 
+    // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent. See
+    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
+    protected override float HighThreshold => 0.58f;
+    protected override float MediumThreshold => 0.48f;
+
     protected override string[] HighExamples =>
     [
         "analyse the webcam feed during work meetings to detect which employees are frustrated or angry",

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Offline evaluation of the Art. 5 compliance detectors against a real embedding model.
+       Not part of AI.Sentinel.slnx and not run by `dotnet test`: it downloads a model on first run.
+       See docs/superpowers/evaluations/2026-10-17-compliance-detectors.md. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <RootNamespace>AI.Sentinel.ComplianceEval</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AI.Sentinel\AI.Sentinel.csproj" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.31.0" />
+    <PackageReference Include="Microsoft.ML.Tokenizers" Version="2.0.0" />
+  </ItemGroup>
+</Project>

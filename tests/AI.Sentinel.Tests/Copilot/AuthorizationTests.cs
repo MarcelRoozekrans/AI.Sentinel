@@ -29,6 +29,7 @@ public class AuthorizationTests
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
             o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.WithoutComplianceDetectors();
         });
         var provider = services.BuildServiceProvider();
         return CopilotHookAdapter.CreateForTests(provider, config, guard);

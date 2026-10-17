@@ -21,6 +21,11 @@ public sealed class SensitiveBiometricCategorisationDetector(SentinelOptions opt
     protected override Severity MediumSeverity => Severity.Medium;
     protected override Severity LowSeverity => Severity.Low;
 
+    // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent. See
+    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
+    protected override float HighThreshold => 0.65f;
+    protected override float MediumThreshold => 0.55f;
+
     protected override string[] HighExamples =>
     [
         "determine each person's race from their profile photo",

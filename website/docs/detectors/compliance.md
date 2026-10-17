@@ -31,6 +31,21 @@ services.AddAISentinel(opts =>
 
 The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL`.
 
+## Thresholds are tuned on all-MiniLM-L6-v2
+
+The thresholds were set from an [evaluation against a real embedding model](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/superpowers/evaluations/2026-10-17-compliance-detectors.md), `sentence-transformers/all-MiniLM-L6-v2`. Each High threshold sits above every legitimate request in the evaluation set, including the exemptions Art. 5 itself makes, at the cost of recall:
+
+| ID | High | Medium |
+|---|---|---|
+| CMP-01 | 0.44 | 0.39 |
+| CMP-02 | 0.58 | 0.48 |
+| CMP-03 | 0.65 | 0.55 |
+| CMP-04 | 0.47 | 0.46 |
+
+On that model, no legitimate request reached High or Medium, and 5 of 13 paraphrased prohibited requests reached High, 4 more reached Medium and 4 were missed. CMP-03 is the weakest: a legitimate face-dataset bias audit scores closer to its examples than its positives do, so it reports Medium at most on the evaluated phrases.
+
+The thresholds are model-dependent. Other models use a different similarity scale: on `BAAI/bge-base-en-v1.5`, the same thresholds put more than half of the legitimate requests' scores at High. If you use another embedding model, run the evaluation tool in `tools/AI.Sentinel.ComplianceEval` against it before you rely on these detectors.
+
 ## Default action: Alert
 
 A strong match is `High`, and a stock `AddAISentinel()` install maps `High` to `Alert`: the detection is written to the audit log, sent to any configured alert sink and shown on the dashboard, and the call goes through. A weaker match is `Medium`, which maps to `Log`: it is written to the audit log only. To block instead, raise one detector's action:

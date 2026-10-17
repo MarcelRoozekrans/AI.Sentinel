@@ -57,6 +57,15 @@ public abstract class SemanticDetectorBase : IDetector
     protected virtual float MediumThreshold => 0.82f;
     protected virtual float LowThreshold => 0.75f;
 
+    /// <summary>The High examples, for the offline threshold evaluation in <c>tools/AI.Sentinel.ComplianceEval</c>.</summary>
+    internal string[] EvaluationHighExamples => HighExamples;
+    /// <summary>The Medium examples, for the offline threshold evaluation.</summary>
+    internal string[] EvaluationMediumExamples => MediumExamples;
+    /// <summary>The High threshold, for the offline threshold evaluation.</summary>
+    internal float EvaluationHighThreshold => HighThreshold;
+    /// <summary>The Medium threshold, for the offline threshold evaluation.</summary>
+    internal float EvaluationMediumThreshold => MediumThreshold;
+
     /// <summary>High-precision pattern checked before any embedding call. A match returns
     /// <see cref="FastPathSeverity"/> immediately.</summary>
     /// <remarks>
@@ -244,7 +253,9 @@ public abstract class SemanticDetectorBase : IDetector
         return embedding.Vector;
     }
 
-    private static float MaxSimilarity(ReadOnlySpan<float> query, ReadOnlyMemory<float>[] references)
+    /// <summary>The highest cosine similarity between <paramref name="query"/> and any reference vector.
+    /// Internal so the offline threshold evaluation scores with exactly this math.</summary>
+    internal static float MaxSimilarity(ReadOnlySpan<float> query, ReadOnlyMemory<float>[] references)
     {
         var max = 0f;
         foreach (var r in references)
