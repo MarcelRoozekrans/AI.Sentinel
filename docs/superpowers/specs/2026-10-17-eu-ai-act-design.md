@@ -68,7 +68,7 @@ Art. 50 asks that people are told when they interact with an AI system, and that
 | `ai.generated_at` | ISO 8601 UTC |
 | `ai.pipeline` | the pipeline name for named pipelines, or absent for the default |
 
-- **Streaming:** the keys go on the first update, so `ToChatResponse` carries them. The builder verifies that MEAI 10.11 merges update `AdditionalProperties` and otherwise picks the update that does.
+- **Streaming:** the keys go on the first update without a `MessageId`, which `ToChatResponse` merges into the response. When every update has a `MessageId`, they go on the first update and land on the first message after `ToChatResponse`, which can be a tool-call message. Consumers look on the response first, then on its messages (decided during implementation).
 - **Existing values:** values the inner client set are never overwritten. If a key already exists, Sentinel's value wins only for `ai.generated`.
 
 **Which reply is disclosed** (my call, after review). A reply counts only when it carries text the person sees.
@@ -78,12 +78,12 @@ Art. 50 asks that people are told when they interact with an AI system, and that
 - With Sentinel outside function invocation, the notice goes on the final assistant text message of the returned response, not on an intermediate tool-call message.
 - The audit never claims a disclosure the person did not see.
 
-**History** (my call, after review). Apps send earlier replies back as history. Before scanning and forwarding, Sentinel removes its own notice from incoming assistant messages. The match is an exact one: the configured `Notice` text as the leading `TextContent` it added. The notice is never re-scanned, never sent to the model, and never piles up in every-reply mode.
+**History** (my call, after review). Apps send earlier replies back as history. Before scanning and forwarding, Sentinel removes its own notice from incoming assistant messages. The match is exact and leading: the configured `Notice` text plus its blank line at the start of the first text of an assistant message, which also covers history whose text parts were joined into one (decided during implementation). The notice is never re-scanned, never sent to the model, and never piles up in every-reply mode.
 
 **Notice placement** (my call).
 
-- The notice is prepended as its own leading `TextContent` in the first assistant message, followed by a blank line. Disclosure comes before the content.
-- In streaming, it is emitted as text at the start of the first text update.
+- The notice is prepended as its own leading `TextContent` in the last assistant message with visible text, the one the person reads, followed by a blank line. Disclosure comes before the content.
+- In streaming, it is emitted as a leading `TextContent` in the first text update of that same message, using the message boundaries `ToChatResponse` uses.
 - It is added **after** the response scan and **after** redaction restore, so detectors never judge it and it is never mistaken for model output.
 
 **"Once per conversation".**
