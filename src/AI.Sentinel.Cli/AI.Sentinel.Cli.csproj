@@ -6,7 +6,7 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>sentinel</ToolCommandName>
     <PackageId>AI.Sentinel.Cli</PackageId>
-    <Description>Offline replay CLI for AI.Sentinel — run the detector pipeline against saved conversations, and browse the local audit file with 'sentinel dashboard'. The dashboard command needs the ASP.NET Core runtime, which the .NET SDK includes.</Description>
+    <Description>Offline replay CLI for AI.Sentinel — run the detector pipeline against saved conversations, browse the local audit file with 'sentinel dashboard', and build a compliance report from it with 'sentinel report'. The dashboard command needs the ASP.NET Core runtime, which the .NET SDK includes.</Description>
     <Version>0.1.0</Version>
     <Authors>Marcel Roozekrans</Authors>
     <PackageTags>ai;security;chatclient;cli;forensics;dotnet-tool</PackageTags>

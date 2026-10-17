@@ -43,7 +43,7 @@ The embedded dashboard ships in `AI.Sentinel.AspNetCore`. Mount it on any ASP.NE
 | `AI.Sentinel` | Core — pipeline, 56 detectors, intervention engine, audit store |
 | `AI.Sentinel.Detectors.Sdk` | SDK for writing and testing custom detectors — `SentinelContextBuilder`, `FakeEmbeddingGenerator`, worked examples |
 | `AI.Sentinel.AspNetCore` | Embedded dashboard (no JS framework, HTMX + SSE) |
-| `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI, and `sentinel dashboard` to browse the audit file the hooks and the MCP proxy write |
+| `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI, `sentinel dashboard` to browse the audit file the hooks and the MCP proxy write, and `sentinel report` for a compliance report from it |
 | `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
 | `AI.Sentinel.Copilot` / `AI.Sentinel.Copilot.Cli` | GitHub Copilot native hook adapter — wire into `hooks.json` to scan userPromptSubmitted, preToolUse, postToolUse |
 | `AI.Sentinel.Mcp` / `AI.Sentinel.Mcp.Cli` | `dotnet tool install AI.Sentinel.Mcp.Cli` — stdio MCP proxy that scans `tools/call` + `prompts/get` for any MCP-speaking host (Cursor, Continue, Cline, Windsurf, Copilot) |
@@ -280,6 +280,8 @@ Detectors run in these modes:
 ## EU AI Act Coverage
 
 AI.Sentinel provides runtime building blocks for several technical obligations of [Regulation (EU) 2024/1689](https://eur-lex.europa.eu/eli/reg/2024/1689/oj), the AI Act. It does not make a system compliant on its own. Classification, risk management, technical documentation, conformity assessment and registration stay with the provider and deployer, and most of these articles bind high-risk systems specifically.
+
+`sentinel report` turns the audit file into a [compliance report](https://marcelroozekrans.github.io/AI.Sentinel/docs/compliance-report) with totals per article below, as Markdown, HTML or JSON. It is evidence to support an assessment, not a statement of compliance; see [`sentinel report`](#sentinel-report-compliance-report-from-the-audit-file).
 
 | Article | Requirement | What AI.Sentinel provides | Active by default |
 |---|---|---|---|
@@ -678,6 +680,20 @@ sentinel dashboard [--db <path>] [--port <port>]   # default: http://127.0.0.1:5
 ```
 
 It listens on loopback only and does not open a browser. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a missing file, never appends, and shows no approvals panel. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Audit recording in the CLIs](#audit-recording-in-the-clis) for the settings.
+
+### `sentinel report` (compliance report from the audit file)
+
+`sentinel report` reads the same audit file read-only and writes a report with totals per EU AI Act article: chain integrity and entries per source for Art. 12, denials and approval decisions for Art. 14, redactions per type for Art. 10, disclosed conversations for Art. 50, and detections per detector and severity for Art. 5 and Art. 15. It holds counts only, never a summary, a session id or a caller id.
+
+```
+sentinel report [--db <path>]
+  [--from <yyyy-MM-dd|timestamp>]   # default: 30 days before --to
+  [--to <yyyy-MM-dd|timestamp>]     # default: now; a date runs to the end of that UTC day
+  [--format <md|html|json>]         # default: md
+  [--output <file>]                 # default: stdout
+```
+
+Exit codes: `0` report written, `1` usage error or a missing or unreadable audit file, `2` hash chain broken; the report is still written. The hash chain is verified over the whole file, not only the period. See [Compliance report](https://marcelroozekrans.github.io/AI.Sentinel/docs/compliance-report).
 
 The CLI's core types — `SentinelReplayClient`, `ConversationLoader`, `ReplayRunner`, `ReplayResult` — are all `public`, so callers can reference `AI.Sentinel.Cli` programmatically from their own xUnit tests to assert detection behavior on saved conversations.
 

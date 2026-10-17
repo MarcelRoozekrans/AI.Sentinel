@@ -19,6 +19,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     private readonly SqliteConnection _connection;
     private readonly SemaphoreSlim _writeLock = new(1, 1);
     private readonly Timer? _retentionTimer;
+    private readonly bool _readOnly;
     private bool _disposed;
 
     public SqliteAuditStore(SqliteAuditStoreOptions options)
@@ -81,6 +82,62 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Opens an existing audit file read-only, for tools that only report on it. The file is never
+    /// created, migrated, trimmed or appended to. The open fails with a <see cref="SqliteException"/>
+    /// when the file is missing or is not a SQLite database, and with an
+    /// <see cref="InvalidOperationException"/> when it does not hold the current audit schema.
+    /// </summary>
+    /// <param name="databasePath">Path to the audit SQLite file.</param>
+    internal static SqliteAuditStore OpenReadOnly(string databasePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        return new SqliteAuditStore(databasePath);
+    }
+
+    private SqliteAuditStore(string databasePath)
+    {
+        _options = new SqliteAuditStoreOptions { DatabasePath = databasePath };
+        _readOnly = true;
+
+        // Mode=ReadOnly never creates the file, and no schema bootstrap runs, so nothing is written.
+        var csb = new SqliteConnectionStringBuilder
+        {
+            DataSource = databasePath,
+            Pooling = false,
+            Mode = SqliteOpenMode.ReadOnly,
+            DefaultTimeout = (int)Math.Ceiling(_options.BusyTimeout.TotalSeconds),
+        };
+        _connection = new SqliteConnection(csb.ToString());
+        try
+        {
+            _connection.Open();
+            var version = SqliteSchema.GetVersionAsync(_connection, CancellationToken.None).GetAwaiter().GetResult();
+            if (version < 1)
+            {
+                throw new InvalidOperationException("The file holds no AI.Sentinel audit schema.");
+            }
+            if (version < SqliteSchema.CurrentVersion)
+            {
+                throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
+                    $"The audit schema is version {version}, older than version {SqliteSchema.CurrentVersion}. Open the file once with a current AI.Sentinel writer to upgrade it."));
+            }
+        }
+        catch
+        {
+            _connection.Dispose();
+            throw;
+        }
+    }
+
+    private void ThrowIfReadOnly()
+    {
+        if (_readOnly)
+        {
+            throw new InvalidOperationException("This audit store was opened read-only.");
+        }
+    }
+
     private static void ValidateBusyTimeout(TimeSpan busyTimeout)
     {
         if (busyTimeout < TimeSpan.Zero || busyTimeout.TotalSeconds > int.MaxValue)
@@ -115,6 +172,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(entry);
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ThrowIfReadOnly();
 
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try

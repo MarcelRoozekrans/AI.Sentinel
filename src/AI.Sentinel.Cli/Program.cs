@@ -10,6 +10,7 @@ public static class Program
         {
             ScanCommand.Build(),
             DashboardCommand.Build(),
+            ReportCommand.Build(),
         };
         return root.Parse(args).InvokeAsync();
     }
