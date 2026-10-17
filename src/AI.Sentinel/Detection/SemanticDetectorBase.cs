@@ -68,6 +68,19 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>The Medium threshold <paramref name="configuration"/> sets, or this detector's built-in one.</summary>
     internal float EffectiveMediumThreshold(DetectorConfiguration? configuration) => configuration?.MediumThreshold ?? MediumThreshold;
 
+    /// <summary>Throws when <paramref name="configuration"/>, filled in with this detector's built-in values, puts
+    /// the Medium threshold above the High one. Only the instance knows the built-in value of a threshold left unset.</summary>
+    internal void ThrowIfMediumAboveHigh(DetectorConfiguration? configuration)
+    {
+        var high = EffectiveHighThreshold(configuration);
+        var medium = EffectiveMediumThreshold(configuration);
+        if (medium > high)
+        {
+            throw new InvalidOperationException(
+                $"AI.Sentinel: detector {GetType().Name} has MediumThreshold {medium} above HighThreshold {high}. Medium must not exceed High.");
+        }
+    }
+
     /// <summary>The High examples, for the offline threshold evaluation in <c>tools/AI.Sentinel.ComplianceEval</c>.</summary>
     internal string[] EvaluationHighExamples => HighExamples;
     /// <summary>The Medium examples, for the offline threshold evaluation.</summary>

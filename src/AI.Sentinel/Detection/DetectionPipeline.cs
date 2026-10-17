@@ -38,14 +38,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 continue;  // skip disabled or not-opted-in detector entirely — zero CPU on the hot path
             }
 
-            if (d is SemanticDetectorBase semantic
-                && semantic.EffectiveMediumThreshold(cfg) > semantic.EffectiveHighThreshold(cfg))
-            {
-                // AddAISentinel checks a pair that is set in full; only here, with the instance, is the
-                // built-in value known that fills in a threshold left unset.
-                throw new InvalidOperationException(
-                    $"AI.Sentinel: detector {d.GetType().Name} has MediumThreshold {semantic.EffectiveMediumThreshold(cfg)} above HighThreshold {semantic.EffectiveHighThreshold(cfg)}. Medium must not exceed High.");
-            }
+            // AddAISentinel checks a pair that is set in full; only here, with the instance, is the
+            // built-in value known that fills in a threshold left unset.
+            (d as SemanticDetectorBase)?.ThrowIfMediumAboveHigh(cfg);
 
             if (cfg?.Action == SentinelAction.Redact && d is not IRedactingDetector)
             {

@@ -46,12 +46,15 @@ public sealed class DetectorTestBuilder
     }
 
     /// <summary>Mutate the internal <see cref="SentinelOptions"/> before the detector is constructed.
-    /// Useful for swapping the embedding generator, attaching a cache, or tuning thresholds via options.
+    /// Useful for swapping the embedding generator, attaching a cache, or tuning a semantic detector's thresholds
+    /// with <c>o.Configure&lt;MyDetector&gt;(c =&gt; c.HighThreshold = 0.85f)</c>.
     /// Each call mutates the same options instance — multiple calls are additive.
     /// <para>
-    /// Only affects detectors constructed via the factory overload <see cref="WithDetector{T}(Func{SentinelOptions, T})"/>.
-    /// The parameterless <see cref="WithDetector{T}()"/> and instance <see cref="WithDetector(IDetector)"/> overloads
-    /// do not see options changes — pass options to the detector's constructor yourself.
+    /// Options such as the embedding generator only reach detectors constructed via the factory overload
+    /// <see cref="WithDetector{T}(Func{SentinelOptions, T})"/>. The parameterless <see cref="WithDetector{T}()"/> and
+    /// instance <see cref="WithDetector(IDetector)"/> overloads do not see them — pass options to the detector's
+    /// constructor yourself. Thresholds set with <c>Configure&lt;T&gt;</c> apply to a semantic detector from any
+    /// overload, because they are passed with each call; see <see cref="RunAsync"/>.
     /// </para>
     /// </summary>
     public DetectorTestBuilder WithOptions(Action<SentinelOptions> configure)
@@ -120,6 +123,14 @@ public sealed class DetectorTestBuilder
 
     /// <summary>Invokes the detector and returns the raw <see cref="DetectionResult"/> for custom assertions.
     /// Use the <c>Expect*</c> terminals for the common cases.</summary>
+    /// <remarks>
+    /// The detector runs even when its <see cref="IDetector.EnabledByDefault"/> is <see langword="false"/>, or
+    /// <see cref="DetectorConfiguration.Enabled"/> turns it off: the builder tests the detector itself, not whether
+    /// a pipeline would run it. For a <see cref="SemanticDetectorBase"/>, the <see cref="DetectorConfiguration.HighThreshold"/>
+    /// and <see cref="DetectorConfiguration.MediumThreshold"/> set with <c>Configure&lt;T&gt;</c> in
+    /// <see cref="WithOptions"/> apply, keyed by the detector's type, and a Medium threshold above the effective High
+    /// one throws <see cref="InvalidOperationException"/>, as when a pipeline is built.
+    /// </remarks>
     public async Task<DetectionResult> RunAsync(CancellationToken ct = default)
     {
         if (_detectorResolver is null)
@@ -130,7 +141,13 @@ public sealed class DetectorTestBuilder
 
         var detector = _detectorResolver(_options);
         var ctx = _contextBuilder.Build();
-        return await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
+        if (detector is not SemanticDetectorBase semantic)
+            return await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
+
+        // As DetectionPipeline does: thresholds set with Configure<T> arrive with the call, not on the detector.
+        _options.GetDetectorConfigurations().TryGetValue(detector.GetType(), out var configuration);
+        semantic.ThrowIfMediumAboveHigh(configuration);
+        return await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false);
     }
 
     private static string DescribeObserved(DetectionResult r)
