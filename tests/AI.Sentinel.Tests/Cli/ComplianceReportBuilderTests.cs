@@ -159,8 +159,8 @@ public class ComplianceReportBuilderTests
     {
         using var store = new RingBufferAuditStore();
         await Seed(store,
-            AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 2, ["IBAN"] = 1 }, "s1"),
-            AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 3 }, "s2"),
+            InPeriod(AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 2, ["IBAN"] = 1 }, "s1")),
+            InPeriod(AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 3 }, "s2")),
             Entry(Severity.High, "PRIV-01", "Found secret; not redacted"));
 
         var report = await BuildAsync(store);
@@ -319,7 +319,7 @@ public class ComplianceReportBuilderTests
             Entry(Severity.High, "SEC-01", "SECRET-SUMMARY-TEXT", session: "SESSION-ABC"),
             Entry(Severity.High, "SEC-02", "SECRET-SUMMARY-TEXT; not redacted", session: "SESSION-ABC"),
             Entry(Severity.High, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, "SECRET-SUMMARY-TEXT", "policy-x", "SESSION-ABC"),
-            AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "SESSION-ABC"),
+            InPeriod(AuditEntryRedactionExtensions.Redaction("PRIV-01", new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 }, "SESSION-ABC")),
             Entry(Severity.High, "CMP-01", "SECRET-SUMMARY-TEXT", session: "SESSION-ABC"),
             Entry(Severity.None, AuditEntryKinds.TransparencyDetectorId, "Disclosed: SECRET-SUMMARY-TEXT", AuditEntryKinds.DisclosedPolicyCode, "SESSION-ABC"),
             InPeriod(ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, "SECRET-SUMMARY-TEXT", "t", "REQ-SECRET-1")) with { SessionId = "SESSION-ABC" });
