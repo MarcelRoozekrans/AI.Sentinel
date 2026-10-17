@@ -182,7 +182,9 @@ td.session, td.source { white-space: nowrap; }
 .badge.medium   { background: rgba(234,179,8,0.15);  color: #fde68a; }
 .badge.low      { background: rgba(34,197,94,0.15);  color: #86efac; }
 .badge.redacted { background: rgba(56,189,248,0.15); color: #7dd3fc; }
-.badge.none     { background: rgba(148,163,184,0.1); color: var(--muted); }
+.badge.disclosed { background: rgba(167,139,250,0.15); color: #c4b5fd; }
+.badge.approval { background: rgba(45,212,191,0.15); color: #5eead4; }
+.badge.none, .badge.informational { background: rgba(148,163,184,0.1); color: var(--muted); }
 
 /* Policy code badge (rendered inline before AUTHZ-DENY reason text) — uses
    monospaced typography to read like a stable identifier (e.g. tenant_inactive)
@@ -205,8 +207,8 @@ td.session, td.source { white-space: nowrap; }
 
 tr.severity-critical { background: rgba(239,68,68,0.04); }
 tr.severity-high     { background: rgba(249,115,22,0.04); }
-/* Redaction rows are informational: deliberately no row tint, only the blue badge marks them. */
-tr.severity-redacted { background: none; }
+/* Informational rows (redacted, disclosed, approval): deliberately no row tint, only the badge marks them. */
+tr.severity-redacted, tr.severity-disclosed, tr.severity-approval, tr.severity-informational { background: none; }
 
 /* Authorization denial rows (DetectorId starts with "AUTHZ-") */
 tr.audit-row-authz {
@@ -280,6 +282,8 @@ tr.audit-row-authz td:first-child {
 .feed-chip.chip-hallucination.active { border-color: #eab308; color: #fde68a; }
 .feed-chip.chip-operational.active   { border-color: #38bdf8; color: #7dd3fc; }
 .feed-chip.chip-redacted.active      { border-color: #38bdf8; color: #7dd3fc; }
+.feed-chip.chip-disclosed.active     { border-color: #a78bfa; color: #c4b5fd; }
+.feed-chip.chip-approval.active      { border-color: #2dd4bf; color: #5eead4; }
 
 .loading { color: var(--muted); font-style: italic; }
 
@@ -472,5 +476,9 @@ tr.audit-row-authz td:first-child {
   .search-input { background: #ffffff; }
   .badge.redacted { background: rgba(2,132,199,0.12); color: #0369a1; }
   .feed-chip.chip-redacted.active { color: #0369a1; }
+  .badge.disclosed { background: rgba(124,58,237,0.12); color: #6d28d9; }
+  .badge.approval { background: rgba(13,148,136,0.12); color: #0f766e; }
+  .feed-chip.chip-disclosed.active { color: #6d28d9; }
+  .feed-chip.chip-approval.active { color: #0f766e; }
   .export-button { background: #f1f5f9; }
 }

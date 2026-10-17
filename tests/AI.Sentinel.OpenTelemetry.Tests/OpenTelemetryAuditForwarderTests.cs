@@ -79,6 +79,32 @@ public sealed class OpenTelemetryAuditForwarderTests
         Assert.Equal(LogLevel.Information, records[0].LogLevel);
     }
 
+    [Theory]
+    [InlineData(AuditEntryKinds.DisclosedPolicyCode)]
+    [InlineData(AuditEntryKinds.ApprovedPolicyCode)]
+    public async Task InformationalEntry_LogsAtInformation(string code)
+    {
+        var records = new List<LogRecord>();
+        using var loggerFactory = LoggerFactory.Create(b => b
+            .SetMinimumLevel(LogLevel.Information)
+            .AddOpenTelemetry(o =>
+            {
+                o.IncludeScopes = true;
+                o.AddInMemoryExporter(records);
+            }));
+
+        var f = new OpenTelemetryAuditForwarder(new OpenTelemetryAuditForwarderOptions { LoggerFactory = loggerFactory });
+        var entry = new AuditEntry("e1", DateTimeOffset.UtcNow, "deadbeef00000000", null, Severity.None, "TRANSPARENCY", "info")
+        {
+            PolicyCode = code,
+        };
+        await f.SendAsync(new[] { entry }, TestContext.Current.CancellationToken);
+
+        loggerFactory.Dispose();
+        Assert.Single(records);
+        Assert.Equal(LogLevel.Information, records[0].LogLevel);
+    }
+
     [Fact]
     public async Task SendAsync_AuditEntryFieldsLiftedAsAttributes()
     {
