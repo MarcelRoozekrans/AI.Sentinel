@@ -3,7 +3,9 @@ namespace AI.Sentinel.Transparency;
 /// <summary>
 /// Keys of the machine-readable AI-generated mark that <see cref="TransparencyOptions"/> adds to
 /// <see cref="Microsoft.Extensions.AI.ChatResponse.AdditionalProperties"/>. A value the inner client already set is
-/// kept, except for <see cref="Generated"/>.
+/// kept, except for <see cref="Generated"/>. A streamed reply carries the mark on the first update without a message
+/// id, which <c>ToChatResponse</c> merges into the response; when every update has a message id, on the first update,
+/// which <c>ToChatResponse</c> merges into that update's message.
 /// </summary>
 public static class TransparencyKeys
 {

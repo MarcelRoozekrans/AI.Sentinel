@@ -49,9 +49,11 @@ internal sealed class Disclosure
     internal int TrackedSessions => _sessions.Count;
 
     /// <summary>
-    /// Removes Sentinel's own notice from the history: an assistant message whose leading content is exactly the
-    /// notice text. Other roles and notice text in any other position are left alone. The caller's messages are
-    /// not mutated; a changed message is a copy.
+    /// Removes Sentinel's own notice from the history: the notice text at the start of the first
+    /// <see cref="TextContent"/> of an assistant message. That is where Sentinel put it, as its own leading text,
+    /// or, once an app folds streamed updates into a message, joined with the reply's text that followed it.
+    /// Other roles and notice text in any other position are left alone. The caller's messages are not mutated; a
+    /// changed message is a copy.
     /// </summary>
     public IReadOnlyList<ChatMessage> StripNotice(IReadOnlyList<ChatMessage> messages)
     {
@@ -63,24 +65,46 @@ internal sealed class Disclosure
         {
             var message = messages[i];
             if (message.Role != ChatRole.Assistant
-                || message.Contents.Count == 0
-                || message.Contents[0] is not TextContent { Text: var text }
-                || !string.Equals(text, notice, StringComparison.Ordinal))
+                || FirstText(message.Contents) is not { } first
+                || !first.Text.StartsWith(notice, StringComparison.Ordinal))
             {
                 continue;
             }
 
             stripped ??= new List<ChatMessage>(messages);
-            stripped[i] = WithoutLeadingContent(message);
+            stripped[i] = WithoutNotice(message, first, notice.Length);
         }
         return stripped ?? messages;
     }
 
-    private static ChatMessage WithoutLeadingContent(ChatMessage message)
+    private static TextContent? FirstText(IList<AIContent> contents)
     {
-        var contents = new List<AIContent>(message.Contents.Count - 1);
-        for (var i = 1; i < message.Contents.Count; i++)
-            contents.Add(message.Contents[i]);
+        foreach (var content in contents)
+        {
+            if (content is TextContent text)
+                return text;
+        }
+        return null;
+    }
+
+    // The text the notice was joined with keeps its metadata; a text that held only the notice is removed.
+    private static ChatMessage WithoutNotice(ChatMessage message, TextContent text, int noticeLength)
+    {
+        var contents = new List<AIContent>(message.Contents);
+        var index = contents.IndexOf(text);
+        if (text.Text.Length == noticeLength)
+        {
+            contents.RemoveAt(index);
+        }
+        else
+        {
+            contents[index] = new TextContent(text.Text[noticeLength..])
+            {
+                AdditionalProperties = text.AdditionalProperties,
+                Annotations = text.Annotations,
+                RawRepresentation = text.RawRepresentation,
+            };
+        }
         var copy = message.Clone();
         copy.Contents = contents;
         return copy;
@@ -115,17 +139,181 @@ internal sealed class Disclosure
     }
 
     /// <summary>
+    /// Discloses a streamed reply by the rules of <see cref="TryDisclose(ChatResponse, SessionId, string?, out AuditEntry?, bool)"/>.
+    /// The mark goes on the first update without a message id, whose properties <c>ToChatResponse</c> merges into the
+    /// response it builds, or on the first update when every update has a message id; its message then carries it.
+    /// A key the inner client set in the same scope is kept, except for <see cref="TransparencyKeys.Generated"/>,
+    /// which is set wherever it appears in that scope so that no later update undoes it.
+    /// The notice is a new leading <see cref="TextContent"/> in the first update with text of the last assistant
+    /// message with text, messages delimited as <c>ToChatResponse</c> delimits them.
+    /// </summary>
+    /// <param name="updates">The streamed reply, after the response scan and redaction restore.</param>
+    /// <param name="session">The call's session.</param>
+    /// <param name="requestModelId">The requested model, used when no update names one.</param>
+    /// <param name="disclosed">The updates to return: the same count and metadata, with the changed updates
+    /// copied. <paramref name="updates"/> is not mutated.</param>
+    /// <param name="entry">The entry to append, or <see langword="null"/> when the session was already disclosed.</param>
+    /// <param name="remember">As for the non-streaming overload.</param>
+    /// <returns>True when the reply was marked.</returns>
+    public bool TryDisclose(
+        IReadOnlyList<ChatResponseUpdate> updates,
+        SessionId session,
+        string? requestModelId,
+        out IReadOnlyList<ChatResponseUpdate> disclosed,
+        out AuditEntry? entry,
+        bool remember = true)
+    {
+        disclosed = updates;
+        entry = null;
+        if (!Enabled || NoticeTarget(updates) is not { } target)
+            return false;
+
+        var now = _time.GetUtcNow();
+        var copies = new ChatResponseUpdate?[updates.Count];
+        Mark(updates, copies, ModelIdOf(updates) ?? requestModelId, now);
+
+        var (notice, first) = Decide(session, remember, now);
+        if (notice is not null)
+        {
+            var update = Own(updates, copies, target);
+            update.Contents = [new TextContent(notice), .. update.Contents];
+        }
+
+        var result = new ChatResponseUpdate[updates.Count];
+        for (var i = 0; i < result.Length; i++)
+            result[i] = copies[i] ?? updates[i];
+        disclosed = result;
+        entry = first;
+        return true;
+    }
+
+    /// <summary>
     /// Adds the machine-readable mark to <paramref name="properties"/>. An existing value is kept, except for
     /// <see cref="TransparencyKeys.Generated"/>.
     /// </summary>
     public void Mark(AdditionalPropertiesDictionary properties, string? modelId, DateTimeOffset now)
     {
         properties[TransparencyKeys.Generated] = BoxedTrue;
+        foreach (var (key, value) in MarkValues(modelId, now))
+            properties.TryAdd(key, value);
+    }
+
+    // The mark's keys other than Generated, which is always set.
+    private List<KeyValuePair<string, object?>> MarkValues(string? modelId, DateTimeOffset now)
+    {
+        var values = new List<KeyValuePair<string, object?>>(3);
         if (!string.IsNullOrWhiteSpace(modelId))
-            properties.TryAdd(TransparencyKeys.ModelId, modelId);
-        properties.TryAdd(TransparencyKeys.GeneratedAt, now.UtcDateTime.ToString("O", CultureInfo.InvariantCulture));
+            values.Add(new(TransparencyKeys.ModelId, modelId));
+        values.Add(new(TransparencyKeys.GeneratedAt, now.UtcDateTime.ToString("O", CultureInfo.InvariantCulture)));
         if (_pipelineName is not null)
-            properties.TryAdd(TransparencyKeys.Pipeline, _pipelineName);
+            values.Add(new(TransparencyKeys.Pipeline, _pipelineName));
+        return values;
+    }
+
+    // ToChatResponse (MEAI 10.11) scopes an update's properties to the response when the update has no message id
+    // and to that update's message when it has one. The mark goes on the first update without a message id, so the
+    // response carries it. When every update has a message id no update reaches the response, and the mark goes on
+    // the first update, so its message carries it. Values set in the same scope are the ones checked and kept.
+    private void Mark(IReadOnlyList<ChatResponseUpdate> updates, ChatResponseUpdate?[] copies, string? modelId, DateTimeOffset now)
+    {
+        var at = 0;
+        for (var i = 0; i < updates.Count; i++)
+        {
+            if (string.IsNullOrEmpty(updates[i].MessageId))
+            {
+                at = i;
+                break;
+            }
+        }
+        var scope = updates[at].MessageId;
+
+        var properties = Own(updates, copies, at).AdditionalProperties ??= [];
+        properties[TransparencyKeys.Generated] = BoxedTrue;
+        for (var i = at + 1; i < updates.Count; i++)
+        {
+            if (SameScope(updates[i], scope) && updates[i].AdditionalProperties?.ContainsKey(TransparencyKeys.Generated) == true)
+                Own(updates, copies, i).AdditionalProperties![TransparencyKeys.Generated] = BoxedTrue;
+        }
+
+        foreach (var (key, value) in MarkValues(modelId, now))
+        {
+            if (!SetInScope(updates, scope, key))
+                properties[key] = value;
+        }
+    }
+
+    private static bool SameScope(ChatResponseUpdate update, string? scope) =>
+        string.IsNullOrEmpty(scope)
+            ? string.IsNullOrEmpty(update.MessageId)
+            : string.Equals(update.MessageId, scope, StringComparison.Ordinal);
+
+    private static bool SetInScope(IReadOnlyList<ChatResponseUpdate> updates, string? scope, string key)
+    {
+        foreach (var update in updates)
+        {
+            if (SameScope(update, scope) && update.AdditionalProperties?.ContainsKey(key) == true)
+                return true;
+        }
+        return false;
+    }
+
+    // A copy of update i that may be changed, made once: its contents and properties are copies too.
+    private static ChatResponseUpdate Own(IReadOnlyList<ChatResponseUpdate> updates, ChatResponseUpdate?[] copies, int i)
+    {
+        if (copies[i] is { } owned)
+            return owned;
+
+        var source = updates[i];
+        var copy = source.Clone();
+        copy.Contents = new List<AIContent>(source.Contents);
+        if (source.AdditionalProperties is { } properties)
+            copy.AdditionalProperties = new AdditionalPropertiesDictionary(properties);
+        copies[i] = copy;
+        return copy;
+    }
+
+    // The model that answered, as ToChatResponse reports it: the last model id an update names.
+    private static string? ModelIdOf(IReadOnlyList<ChatResponseUpdate> updates)
+    {
+        for (var i = updates.Count - 1; i >= 0; i--)
+        {
+            if (!string.IsNullOrWhiteSpace(updates[i].ModelId))
+                return updates[i].ModelId;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The index of the first update with text of the last assistant message whose text the person sees, or
+    /// <see langword="null"/> when no assistant message has any.
+    /// </summary>
+    private static int? NoticeTarget(IReadOnlyList<ChatResponseUpdate> updates)
+    {
+        var boundaries = new StreamMessageBoundaries();
+        int? target = null;
+        int? firstText = null;
+        var hasText = false;
+        var role = ChatRole.Assistant;
+        for (var i = 0; i < updates.Count; i++)
+        {
+            if (boundaries.StartsNewMessage(updates[i]))
+            {
+                if (hasText && role == ChatRole.Assistant)
+                    target = firstText;
+                firstText = null;
+                hasText = false;
+            }
+            role = boundaries.Role;
+
+            foreach (var content in updates[i].Contents)
+            {
+                if (content is not TextContent text)
+                    continue;
+                firstText ??= i;
+                hasText |= !string.IsNullOrWhiteSpace(text.Text);
+            }
+        }
+        return hasText && role == ChatRole.Assistant ? firstText : target;
     }
 
     /// <summary>

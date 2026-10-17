@@ -134,15 +134,33 @@ public sealed class SentinelPipeline
 
     /// <summary>
     /// Marks the reply and adds the notice after the scan and the restore, so detectors never judge it and it is
-    /// never taken for model output. The session's DISCLOSED entry is written with <see cref="CancellationToken.None"/>:
-    /// the reply is being returned, so the evidence of its disclosure must be recorded. When the write fails the
-    /// exception reaches the caller and the reply is not delivered, so the session's claim is rolled back.
+    /// never taken for model output.
     /// </summary>
     private async ValueTask DiscloseAsync(ChatResponse response, SessionId sessionId, bool callerSession, string? requestModelId)
     {
-        if (!_disclosure.TryDisclose(response, sessionId, requestModelId, out var entry, remember: callerSession) || entry is null)
-            return;
+        if (_disclosure.TryDisclose(response, sessionId, requestModelId, out var entry, remember: callerSession) && entry is not null)
+            await AppendDisclosedAsync(entry).ConfigureAwait(false);
+    }
 
+    /// <summary>The streaming counterpart of <see cref="DiscloseAsync(ChatResponse, SessionId, bool, string?)"/>;
+    /// returns the updates to deliver.</summary>
+    private async ValueTask<IReadOnlyList<ChatResponseUpdate>> DiscloseAsync(
+        IReadOnlyList<ChatResponseUpdate> updates, SessionId sessionId, bool callerSession, string? requestModelId)
+    {
+        if (!_disclosure.TryDisclose(updates, sessionId, requestModelId, out var disclosed, out var entry, remember: callerSession))
+            return updates;
+        if (entry is not null)
+            await AppendDisclosedAsync(entry).ConfigureAwait(false);
+        return disclosed;
+    }
+
+    /// <summary>
+    /// Writes the session's DISCLOSED entry with <see cref="CancellationToken.None"/>: the reply is being returned,
+    /// so the evidence of its disclosure must be recorded. When the write fails the exception reaches the caller and
+    /// the reply is not delivered, so the session's claim is rolled back.
+    /// </summary>
+    private async ValueTask AppendDisclosedAsync(AuditEntry entry)
+    {
         try
         {
             await auditStore.AppendAndForwardAsync(entry, _forwarders, CancellationToken.None).ConfigureAwait(false);
@@ -371,13 +389,18 @@ public sealed class SentinelPipeline
     /// Redaction works as for <see cref="GetResponseResultAsync"/>. The response is scanned as the model streamed
     /// it, then restored update by update: a placeholder split across updates is restored whole, and no update
     /// carries part of one. The number of updates, their metadata and their non-text content are kept.
+    /// Transparency works as for <see cref="GetResponseResultAsync"/>: the mark goes on the update whose properties
+    /// <c>ToChatResponse</c> merges into the response, see <see cref="TransparencyKeys"/>, and the notice is a leading
+    /// text in the first update with text of the last assistant message with text. Nothing else about the updates
+    /// changes.
     /// </remarks>
     public async ValueTask<Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>> GetStreamingResultAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? chatOptions,
         CancellationToken ct)
     {
-        var sessionId = SessionIdFor(chatOptions);
+        var callerSession = CallerSessionIdFor(chatOptions);
+        var sessionId = callerSession ?? SessionId.New();
         var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, sessionId, ct).ConfigureAwait(false);
         if (requestError is not null)
             return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(requestError);
@@ -406,8 +429,12 @@ public sealed class SentinelPipeline
         if (responseError is not null)
             return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(responseError);
 
-        return RestoreResponse<IReadOnlyList<ChatResponseUpdate>>(scope, buffer,
+        var restored = RestoreResponse<IReadOnlyList<ChatResponseUpdate>>(scope, buffer,
             static (session, updates) => session.RestoreUpdates(updates));
+        if (restored.IsFailure)
+            return restored;
+        return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Success(
+            await DiscloseAsync(restored.Value, sessionId, callerSession is not null, chatOptions?.ModelId).ConfigureAwait(false));
     }
 
     /// <summary>Runs detection against <paramref name="messages"/> without invoking the inner chat client.
