@@ -1,0 +1,10 @@
+<Project>
+  <!-- Keep the repo-wide settings: MSBuild stops at the nearest Directory.Build.props. -->
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <!-- Code coverage for the Microsoft.Testing.Platform runner (global.json). CI runs
+       dotnet test with the coverage options and uploads the Cobertura report to Codecov. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0" />
+  </ItemGroup>
+</Project>

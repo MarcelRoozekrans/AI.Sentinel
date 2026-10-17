@@ -9,6 +9,9 @@ on:
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # Codecov upload via OIDC, no token secret
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -31,4 +34,13 @@ jobs:
         run: dotnet build AI.Sentinel.slnx --no-restore -c Release
 
       - name: Test
-        run: dotnet test AI.Sentinel.slnx --no-build -c Release --verbosity normal
+        # One Cobertura file per test app and target framework; Codecov merges them.
+        run: dotnet test AI.Sentinel.slnx --no-build -c Release --verbosity normal --coverage --coverage-output-format cobertura --coverage-settings coverage.config.xml --results-directory TestResults
+
+      - name: Upload coverage to Codecov
+        if: ${ !cancelled() }
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: "TestResults/**/*.cobertura.xml"
+          fail_ci_if_error: false
