@@ -321,6 +321,69 @@ public class ApprovalAuditingTests
     }
 
     [Fact]
+    public async Task NonAdminStore_ExpiryObserved_ForgetsTheSettledRequest()
+    {
+        var inner = new ExternalStore();
+        var memory = new ApprovalAuditMemory();
+        var audit = new RecordingAuditStore();
+        var store = new AuditingApprovalStore(inner, audit, [], null, memory);
+        var requestId = await EnsurePendingAsync(store);
+        inner.Next = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = requestId };
+        await store.WaitForDecisionAsync(requestId, TimeSpan.FromSeconds(1), Ct);
+        Assert.True(memory.Settled.ContainsKey(requestId));
+
+        inner.EnsureNext = new ApprovalState.Denied("expired", DateTimeOffset.UtcNow) { RequestId = requestId };
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        Assert.Empty(memory.Settled);
+        Assert.Collection(
+            audit.Entries,
+            e => Assert.Equal(AuditEntryKinds.ApprovedPolicyCode, e.PolicyCode),
+            e => Assert.Equal(AuditEntryKinds.ExpiredPolicyCode, e.PolicyCode));
+    }
+
+    [Fact]
+    public async Task NonAdminStore_DeniedRequestReplacedByANewOne_ForgetsTheSettledRequest()
+    {
+        // Entra PIM reports neither a denial nor an expiry on EnsureRequestAsync: the caller's next request simply
+        // opens a new one, which ends what this process has to remember of the old one.
+        var inner = new ExternalStore();
+        var memory = new ApprovalAuditMemory();
+        var store = new AuditingApprovalStore(inner, new RecordingAuditStore(), [], null, memory);
+        var requestId = await EnsurePendingAsync(store);
+        inner.Next = new ApprovalState.Denied("Denied in PIM", DateTimeOffset.UtcNow) { RequestId = requestId };
+        await store.WaitForDecisionAsync(requestId, TimeSpan.FromSeconds(1), Ct);
+        Assert.True(memory.Settled.ContainsKey(requestId));
+
+        inner.EnsureNext = new ApprovalState.Pending("pim-req-2", "https://pim/req", DateTimeOffset.UtcNow);
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        Assert.Empty(memory.Settled);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_DenialOfNoRequestOnEnsure_KeepsTheSettledGrant()
+    {
+        // A Graph error on EnsureRequestAsync says nothing about the grant, so its APPROVED entry is not written twice.
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var memory = new ApprovalAuditMemory();
+        var audit = new RecordingAuditStore();
+        var store = new AuditingApprovalStore(inner, audit, [], null, memory);
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        inner.EnsureNext = new ApprovalState.Denied("Graph error at EnsureRequest", DateTimeOffset.UtcNow);
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+        inner.EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" };
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        Assert.True(memory.Settled.ContainsKey("pim-req-9"));
+        Assert.Single(audit.Entries);
+    }
+
+    [Fact]
     public async Task WaitCancelledByCaller_WritesNothing()
     {
         var inner = new ExternalStore();

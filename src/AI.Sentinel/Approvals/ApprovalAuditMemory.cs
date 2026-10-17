@@ -13,7 +13,8 @@ internal sealed class ApprovalAuditMemory
 
     /// <summary>
     /// Request ids whose outcome this process has recorded. For a store without <see cref="IApprovalAdmin"/> this is
-    /// the memory of the first Active or Denied observed; for an admin store it keeps two racing calls from both
+    /// the memory of the first Active or Denied observed, dropped when the grant expires, a denial names the request
+    /// or the caller opens a new request for the same policy; for an admin store it keeps two racing calls from both
     /// recording, and an id is dropped once the store reports the request settled and forgets it.
     /// </summary>
     public ConcurrentDictionary<string, byte> Settled { get; } = new(StringComparer.Ordinal);

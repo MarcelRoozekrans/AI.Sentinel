@@ -77,17 +77,22 @@ internal class AuditingApprovalStore : IApprovalStore
                 // The store's own id wins; the remembered one covers stores that do not set it.
                 Memory.RequestIdByCallerPolicy.TryRemove(key, out var remembered);
                 var requestId = d.RequestId ?? remembered;
+                var expired = string.Equals(d.Reason, ExpiredReason, StringComparison.Ordinal);
                 if (requestId is not null)
                 {
                     Memory.Requests.TryRemove(requestId, out _);
-                    if (Admin is not null)
+
+                    // For an admin store Settled only guards ApproveAsync and DenyAsync against writing twice; the
+                    // store has now forgotten the request, so neither can settle it again. For a store whose decisions
+                    // are made elsewhere it guards a grant against being recorded on every call, so it is dropped only
+                    // when the request is over: an expiry, or a denial that names its request. A denial of no request,
+                    // such as a Graph error, says nothing about the grant.
+                    if (Admin is not null || expired || d.RequestId is not null)
                     {
-                        // Settled only guards ApproveAsync and DenyAsync against writing twice; the store has now
-                        // forgotten the request, so neither can settle it again.
                         Memory.Settled.TryRemove(requestId, out _);
                     }
                 }
-                if (string.Equals(d.Reason, ExpiredReason, StringComparison.Ordinal))
+                if (expired)
                 {
                     await WriteAsync(AuditEntryKinds.ExpiredPolicyCode, spec.PolicyName, context.ToolName, requestId ?? Unknown)
                         .ConfigureAwait(false);
@@ -137,7 +142,10 @@ internal class AuditingApprovalStore : IApprovalStore
         return state;
     }
 
-    /// <summary>Records <paramref name="requestId"/> as the latest request of its caller and policy, and forgets the one it replaces.</summary>
+    /// <summary>
+    /// Records <paramref name="requestId"/> as the latest request of its caller and policy, and forgets the one it
+    /// replaces; for a store without an admin surface that includes its settled outcome.
+    /// </summary>
     private protected void Remember(string callerPolicyKey, string requestId)
     {
         string? replaced = null;
@@ -152,6 +160,12 @@ internal class AuditingApprovalStore : IApprovalStore
         if (replaced is not null && !string.Equals(replaced, requestId, StringComparison.Ordinal))
         {
             Memory.Requests.TryRemove(replaced, out _);
+            if (Admin is null)
+            {
+                // A store whose decisions are made elsewhere, such as Entra PIM, reports neither an expiry nor a
+                // denial here: the caller's next request opens a new one, which ends the old one for this process.
+                Memory.Settled.TryRemove(replaced, out _);
+            }
         }
     }
 
