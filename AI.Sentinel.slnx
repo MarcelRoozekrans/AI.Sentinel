@@ -18,6 +18,7 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj" />
+    <Project Path="tests/AI.Sentinel.Tests.NdjsonWriter/AI.Sentinel.Tests.NdjsonWriter.csproj" />
     <Project Path="tests/AI.Sentinel.Sqlite.Tests/AI.Sentinel.Sqlite.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.Approvals.EntraPim.Tests/AI.Sentinel.Approvals.EntraPim.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.Approvals.Sqlite.Tests/AI.Sentinel.Approvals.Sqlite.Tests.csproj" />

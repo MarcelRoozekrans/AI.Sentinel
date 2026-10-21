@@ -12,4 +12,11 @@ public sealed class NdjsonFileAuditForwarderOptions
     /// as in a hook process. The callback must not throw; an exception from it is ignored.
     /// </summary>
     public Action<string>? OnError { get; set; }
+
+    /// <summary>
+    /// How long a send waits for the lock file (<c>&lt;FilePath&gt;.lock</c>) that serialises appends from several
+    /// forwarders and processes to one file. A batch that cannot take the lock in time is dropped and reported
+    /// through <see cref="OnError"/> like any other send failure. Must be positive. Default 5 seconds.
+    /// </summary>
+    public TimeSpan LockTimeout { get; set; } = TimeSpan.FromSeconds(5);
 }
