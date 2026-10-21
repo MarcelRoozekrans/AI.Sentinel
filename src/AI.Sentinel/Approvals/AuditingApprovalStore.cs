@@ -283,12 +283,24 @@ internal class AuditingApprovalStore : IApprovalStore
     /// </summary>
     private async ValueTask<bool> IsApprovalRecordedAsync(string requestId, DateTimeOffset? since)
     {
-        // AuditQuery filters on neither detector nor policy code, so the time window is the selective part.
-        var query = new AuditQuery { From = since, PageSize = int.MaxValue, Reverse = true };
+        // The built-in stores filter on the detector and the policy code; a custom store may return a superset, so both
+        // are checked again below. The read runs newest first and stops at the window edge, rather than passing the
+        // window as From, so SQLite walks the detector index without a timestamp range scan.
+        var query = new AuditQuery
+        {
+            DetectorId = AuditEntryKinds.ApprovalDetectorId,
+            PolicyCode = AuditEntryKinds.ApprovedPolicyCode,
+            PageSize = int.MaxValue,
+            Reverse = true,
+        };
         try
         {
             await foreach (var entry in _audit.QueryAsync(query, CancellationToken.None).ConfigureAwait(false))
             {
+                if (entry.Timestamp < since)
+                {
+                    break;
+                }
                 if (string.Equals(entry.DetectorId, AuditEntryKinds.ApprovalDetectorId, StringComparison.Ordinal)
                     && string.Equals(entry.PolicyCode, AuditEntryKinds.ApprovedPolicyCode, StringComparison.Ordinal)
                     && string.Equals(ApprovalStoreAuditing.RequestIdOf(entry.Summary), requestId, StringComparison.Ordinal))

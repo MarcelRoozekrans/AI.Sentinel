@@ -361,6 +361,43 @@ public class ApprovalAuditingTests
     }
 
     [Fact]
+    public async Task NonAdminStore_GrantLookup_FiltersOnApprovedDecisionsNewestFirst()
+    {
+        var audit = new RecordingAuditStore();
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        var query = Assert.IsType<AuditQuery>(audit.LastQuery);
+        Assert.Equal(AuditEntryKinds.ApprovalDetectorId, query.DetectorId);
+        Assert.Equal(AuditEntryKinds.ApprovedPolicyCode, query.PolicyCode);
+        Assert.True(query.Reverse);
+        Assert.Null(query.From);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ApprovedEntryOlderThanTheGrant_DoesNotSuppressTheEntry()
+    {
+        // The store ignores the filters and the window; the lookup stops at the window edge itself.
+        var audit = new RecordingAuditStore();
+        var old = ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, Policy, Tool, "pim-req-9");
+        audit.Entries.Add(old with { Timestamp = DateTimeOffset.UtcNow.AddDays(-3) });
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        Assert.Equal(2, audit.Entries.Count);
+    }
+
+    [Fact]
     public async Task NonAdminStore_AuditQueryFails_StillWritesApproved()
     {
         var audit = new RecordingAuditStore { FailQueries = true };
@@ -706,17 +743,26 @@ public class ApprovalAuditingTests
             return ValueTask.FromResult(entry);
         }
 
+        /// <summary>The last query passed to <see cref="QueryAsync"/>.</summary>
+        public AuditQuery? LastQuery { get; private set; }
+
+        /// <summary>
+        /// Honours only <see cref="AuditQuery.Reverse"/>, as a custom store that ignores the filters may: it returns a
+        /// superset.
+        /// </summary>
         public IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct)
         {
             Interlocked.Increment(ref _queries);
-            return FailQueries ? throw new InvalidOperationException("audit store down") : QueryCoreAsync(ct);
+            LastQuery = query;
+            return FailQueries ? throw new InvalidOperationException("audit store down") : QueryCoreAsync(query.Reverse, ct);
         }
 
-        private async IAsyncEnumerable<AuditEntry> QueryCoreAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+        private async IAsyncEnumerable<AuditEntry> QueryCoreAsync(bool reverse, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
         {
             await Task.CompletedTask;
             AuditEntry[] snapshot;
             lock (Entries) snapshot = [.. Entries];
+            if (reverse) Array.Reverse(snapshot);
             foreach (var e in snapshot) yield return e;
         }
     }
