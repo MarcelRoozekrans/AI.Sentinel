@@ -119,19 +119,34 @@ public sealed class HookAdapter
             }
         }
 
+        return await ScanAsync(evt, input, ct).ConfigureAwait(false);
+    }
+
+    private async Task<HookOutput> ScanAsync(HookEvent evt, HookInput input, CancellationToken ct)
+    {
+        // A tool result can be replaced before the model sees it, so it is redacted rather than judged as it is.
+        // Every other event, and a result with redaction switched off, keeps the 3.0 scan and its fallback.
+        if (evt == HookEvent.PostToolUse && _config.RedactToolResults && input.ToolResponse is { } toolResponse
+            && toolResponse.ValueKind != JsonValueKind.Undefined)
+        {
+            return await HookPipelineRunner.RunToolResultAsync(
+                _provider, _config, [ToolCallMessage(input)], toolResponse, input.SessionId, ct).ConfigureAwait(false);
+        }
+
         var messages = BuildMessages(evt, input);
         return await HookPipelineRunner.RunAsync(_provider, _config, messages, input.SessionId, ct).ConfigureAwait(false);
     }
 
+    private static ChatMessage ToolCallMessage(HookInput input) =>
+        new(ChatRole.User, $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}");
+
     private static IReadOnlyList<ChatMessage> BuildMessages(HookEvent evt, HookInput input) => evt switch
     {
         HookEvent.UserPromptSubmit => [new ChatMessage(ChatRole.User, input.Prompt ?? "")],
-        HookEvent.PreToolUse => [new ChatMessage(ChatRole.User,
-            $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}")],
+        HookEvent.PreToolUse => [ToolCallMessage(input)],
         HookEvent.PostToolUse =>
         [
-            new ChatMessage(ChatRole.User,
-                $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}"),
+            ToolCallMessage(input),
             new ChatMessage(ChatRole.Assistant,
                 input.ToolResponse?.GetRawText() ?? ""),
         ],

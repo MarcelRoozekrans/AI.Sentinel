@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
+using AI.Sentinel.Redaction;
 
 namespace AI.Sentinel.ClaudeCode;
 
@@ -52,6 +54,106 @@ public static class HookPipelineRunner
         // A clean scan, or one refused by the rate limit, allows. Hook invocations don't
         // honor rate limits (they're not real LLM calls), so the latter is unreachable in practice.
         return Decide(findings, config);
+    }
+
+    /// <summary>The start of the body that replaces a tool output the hook blocks; the block reason follows it.</summary>
+    internal const string WithheldPrefix = "withheld by AI.Sentinel: ";
+
+    /// <summary>
+    /// Redacts a tool result on its way to the model and scans the redacted copy, with <paramref name="context"/>, the
+    /// tool call, redacted in the scan copy only.
+    /// </summary>
+    /// <remarks>
+    /// The result is redacted in its string values only, so its keys, numbers and nesting stay as they are. The
+    /// decision follows <see cref="Decide"/>.
+    /// <list type="bullet">
+    /// <item>A Block withholds the output: <see cref="HookOutput.UpdatedToolOutput"/> is <see cref="WithheldPrefix"/>
+    /// plus the reason, and nothing is recorded as redacted, because nothing is delivered.</item>
+    /// <item>Otherwise, when anything was redacted, <see cref="HookOutput.UpdatedToolOutput"/> is the redacted result,
+    /// <see cref="HookOutput.Redactions"/> its counts, and the redactions are audited as <c>REDACTED</c>.</item>
+    /// <item>A clean result, or a redaction that fell back to the unredacted scan, leaves both null.</item>
+    /// </list>
+    /// A hook process keeps no placeholder store, so placeholder-shaped tokens already in the tool call or the result,
+    /// such as one an earlier redaction put there, are passed as known placeholders: they are neither flagged nor
+    /// wrapped again.
+    /// </remarks>
+    internal static async Task<HookOutput> RunToolResultAsync(
+        IServiceProvider provider,
+        HookConfig config,
+        IReadOnlyList<ChatMessage> context,
+        JsonElement toolResult,
+        string? sessionId,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(context);
+
+        var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
+        var request = new HostRedactionRequest
+        {
+            Context = context,
+            Content = [HostContent.FromJson(toolResult)],
+            ContentRole = ChatRole.Assistant,
+            KnownPlaceholders = CollectPlaceholders(context, toolResult),
+        };
+        var result = await pipeline.RedactAndScanAsync(
+            request, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), ct).ConfigureAwait(false);
+
+        var output = Decide(result.Findings, config);
+        if (output.Decision == HookDecision.Block)
+        {
+            return output with { UpdatedToolOutput = JsonString(WithheldPrefix + output.Reason) };
+        }
+
+        if (!result.Redacted)
+        {
+            return output;
+        }
+
+        await pipeline.AppendRedactionsAsync(result, result.SessionId, ct).ConfigureAwait(false);
+        return output with { UpdatedToolOutput = result.Content[0].Json, Redactions = result.RedactedByType };
+    }
+
+    /// <summary>A JSON string element holding <paramref name="text"/>, built without reflection.</summary>
+    internal static JsonElement JsonString(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            writer.WriteStringValue(text);
+        }
+
+        using var doc = JsonDocument.Parse(buffer.WrittenMemory);
+        return doc.RootElement.Clone();
+    }
+
+    /// <summary>The placeholder-shaped tokens in the tool call and the result; null when there are none.</summary>
+    private static HashSet<string>? CollectPlaceholders(IReadOnlyList<ChatMessage> context, JsonElement toolResult)
+    {
+        HashSet<string>? known = null;
+        foreach (var message in context)
+        {
+            Collect(message.Text, ref known);
+        }
+
+        Collect(toolResult.GetRawText(), ref known);
+        return known;
+
+        static void Collect(string? text, ref HashSet<string>? known)
+        {
+            if (string.IsNullOrEmpty(text) || text.IndexOf('[', StringComparison.Ordinal) < 0)
+            {
+                return;
+            }
+
+            foreach (var match in PlaceholderFormat.Pattern().EnumerateMatches(text))
+            {
+                known ??= new HashSet<string>(StringComparer.Ordinal);
+                known.Add(text.Substring(match.Index, match.Length));
+            }
+        }
     }
 
     /// <summary>

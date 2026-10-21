@@ -46,7 +46,9 @@ internal readonly record struct HostContent
     /// The text the detectors judge: the text, or the JSON with every name and string written as the characters it
     /// holds. Only <c>"</c> and <c>\</c> are escaped, so non-ASCII text, zero-width characters and
     /// <c>&lt; &gt; &amp; ' +</c> reach the detectors as they are and never as <c>\uXXXX</c>, whichever escaping
-    /// the input or a JSON writer used. It is for scanning only and is not sent anywhere.
+    /// the input or a JSON writer used. A space follows every <c>,</c> and <c>:</c>, so a value at the end of a string
+    /// ends at whitespace, as it does when the string is redacted on its own: a placeholder that ends a string is then
+    /// judged as the placeholder, not run on into the next member. It is for scanning only and is not sent anywhere.
     /// </summary>
     internal string ScanText()
     {
@@ -74,11 +76,11 @@ internal readonly record struct HostContent
                 {
                     if (!firstProperty)
                     {
-                        sb.Append(',');
+                        sb.Append(", ");
                     }
                     firstProperty = false;
                     AppendString(property.Name, sb);
-                    sb.Append(':');
+                    sb.Append(": ");
                     Render(property.Value, sb);
                 }
                 sb.Append('}');
@@ -90,7 +92,7 @@ internal readonly record struct HostContent
                 {
                     if (!firstItem)
                     {
-                        sb.Append(',');
+                        sb.Append(", ");
                     }
                     firstItem = false;
                     Render(item, sb);

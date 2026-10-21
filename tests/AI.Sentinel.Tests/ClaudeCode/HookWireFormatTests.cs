@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.ClaudeCode.Cli;
 using AI.Sentinel.Copilot;
 using Xunit;
 
@@ -73,6 +74,123 @@ public class HookWireFormatTests
 
         Assert.Equal("""{"decision":"Block","reason":"nope"}""", block);
         Assert.Equal("""{"decision":"Allow","reason":null}""", allow);
+    }
+
+    [Fact]
+    public void HookOutput_NewMembersNull_PinnedJsonUnchanged()
+    {
+        var allow = JsonSerializer.Serialize(
+            new HookOutput { Decision = HookDecision.Allow, UpdatedToolOutput = null, Redactions = null },
+            HookJsonContext.Default.HookOutput);
+
+        Assert.Equal("""{"decision":"Allow","reason":null}""", allow);
+    }
+
+    private static string Wire(HookEvent evt, HookOutput output)
+    {
+        var wire = ClaudeCodeWireOutput.From(evt, output);
+        Assert.NotNull(wire);
+        return JsonSerializer.Serialize(wire, ClaudeCodeWireJsonContext.Default.ClaudeCodeWireOutput);
+    }
+
+    [Fact]
+    public void ClaudeCodeWire_Allow_IsEmptyObject()
+    {
+        Assert.Equal("{}", Wire(HookEvent.PreToolUse, new HookOutput { Decision = HookDecision.Allow }));
+        Assert.Equal("{}", Wire(HookEvent.UserPromptSubmit, new HookOutput { Decision = HookDecision.Allow }));
+        Assert.Equal("{}", Wire(HookEvent.PostToolUse, new HookOutput { Decision = HookDecision.Allow }));
+    }
+
+    [Theory]
+    [InlineData(HookEvent.UserPromptSubmit)]
+    [InlineData(HookEvent.PreToolUse)]
+    [InlineData(HookEvent.PostToolUse)]
+    public void ClaudeCodeWire_Warn_IsSystemMessage(HookEvent evt)
+    {
+        Assert.Equal(
+            """{"systemMessage":"AI.Sentinel: r"}""",
+            Wire(evt, new HookOutput { Decision = HookDecision.Warn, Reason = "r" }));
+    }
+
+    [Theory]
+    [InlineData(HookEvent.UserPromptSubmit)]
+    [InlineData(HookEvent.PreToolUse)]
+    public void ClaudeCodeWire_PreToolUseBlock_IsNull(HookEvent evt)
+    {
+        Assert.Null(ClaudeCodeWireOutput.From(evt, new HookOutput { Decision = HookDecision.Block, Reason = "r" }));
+    }
+
+    [Fact]
+    public void ClaudeCodeWire_PostToolUseRedacted()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Allow,
+            UpdatedToolOutput = JsonDocument.Parse("""{"content":"mail [EMAIL_1_k3f9x2]","n":3}""").RootElement,
+            Redactions = new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 },
+        };
+
+        Assert.Equal(
+            """{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"content":"mail [EMAIL_1_k3f9x2]","n":3},"additionalContext":"AI.Sentinel redacted 1 EMAIL in this tool output. Placeholders such as [EMAIL_1_k3f9x2] stand for the real values; do not write them to files or commands."}}""",
+            Wire(HookEvent.PostToolUse, output));
+    }
+
+    [Fact]
+    public void ClaudeCodeWire_PostToolUseRedacted_ListsTypesInOrdinalOrder()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Allow,
+            UpdatedToolOutput = HookPipelineRunner.JsonString("x"),
+            Redactions = new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1, ["API_KEY"] = 1 },
+        };
+
+        var wire = ClaudeCodeWireOutput.From(HookEvent.PostToolUse, output);
+
+        Assert.StartsWith(
+            "AI.Sentinel redacted 1 API_KEY, 1 EMAIL in this tool output.",
+            wire!.HookSpecificOutput!.AdditionalContext,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ClaudeCodeWire_PostToolUseRedactedWithWarn_CarriesBoth()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Warn,
+            Reason = "r",
+            UpdatedToolOutput = HookPipelineRunner.JsonString("x"),
+            Redactions = new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 },
+        };
+
+        Assert.Equal(
+            """{"systemMessage":"AI.Sentinel: r","hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"x","additionalContext":"AI.Sentinel redacted 1 EMAIL in this tool output. Placeholders such as [EMAIL_1_k3f9x2] stand for the real values; do not write them to files or commands."}}""",
+            Wire(HookEvent.PostToolUse, output));
+    }
+
+    [Fact]
+    public void ClaudeCodeWire_PostToolUseBlock_WithholdsOutput()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Block,
+            Reason = "r",
+            UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldPrefix + "r"),
+        };
+
+        Assert.Equal(
+            """{"decision":"block","reason":"r","hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"withheld by AI.Sentinel: r","additionalContext":"r"}}""",
+            Wire(HookEvent.PostToolUse, output));
+    }
+
+    [Fact]
+    public void JsonString_EscapesAndRoundTrips()
+    {
+        var element = HookPipelineRunner.JsonString("a \"quoted\" line\nnext");
+
+        Assert.Equal(JsonValueKind.String, element.ValueKind);
+        Assert.Equal("a \"quoted\" line\nnext", element.GetString());
     }
 
     [Fact]

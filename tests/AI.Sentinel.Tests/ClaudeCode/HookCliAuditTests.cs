@@ -1,4 +1,5 @@
 using Xunit;
+using AI.Sentinel.Audit;
 using AI.Sentinel.ClaudeCode.Cli;
 using AI.Sentinel.Tests.Helpers;
 
@@ -128,6 +129,27 @@ public class HookCliAuditTests : IDisposable
         Assert.Equal(2, exit);
         Assert.Contains("SEC-01", stderr, StringComparison.Ordinal);
         Assert.Contains("audit:", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PostToolUseRedaction_RecordedAsRedactedWithClaudeCodeSource()
+    {
+        var db = Path.Combine(_dir, "audit.db");
+        Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, db);
+        const string json = """{"session_id":"cc-7","tool_name":"Read","tool_input":{"file_path":"/a/notes.txt"},"tool_response":{"content":"mail jan@example.com today"}}""";
+
+        var stderr = new StringWriter();
+        var exit = await Program.RunAsync(["post-tool-use"], new StringReader(json), new StringWriter(), stderr, new FakeEmbeddingGenerator());
+
+        Assert.Equal(0, exit);
+        var (entries, intact) = await HookAuditTestSupport.ReadAsync(db);
+        Assert.True(intact);
+        var redacted = Assert.Single(entries, e => string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal));
+        Assert.Equal("claude-code", redacted.Source);
+        Assert.Equal("cc-7", redacted.SessionId);
+        Assert.Equal("Redacted 1 EMAIL", redacted.Summary);
+        Assert.All(entries, e => Assert.DoesNotContain("jan@example.com", e.Summary, StringComparison.Ordinal));
+        Assert.DoesNotContain("jan@example.com", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

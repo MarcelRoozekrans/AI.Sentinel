@@ -128,6 +128,30 @@ public class HostRedactionTests
         }
     }
 
+    // A string's redacted last line is followed by more members. The scan text must end the placeholder there, as the
+    // string's own end does when it is redacted, or SEC-02's unquoted value runs on into the next member and the
+    // placeholder no longer counts as one. A Claude Code Read of a .env whose last line is a key has this shape.
+    [Fact]
+    public async Task JsonContent_SecretEndingAStringBeforeMoreMembers_IsRedactedNotFlagged()
+    {
+        var (pipeline, _) = Build();
+        var input = Json("""{"file":{"content":"OWNER=x\nAPI_KEY=sk-test-0123456789abcdefghij","numLines":2},"items":["api_key=sk-test-0123456789abcdefghij",1]}""");
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromJson(input)] });
+
+        Assert.Equal(2, result.RedactedByType["API_KEY"]);
+        Assert.Empty(result.Findings);
+        Assert.Null(result.Error);
+    }
+
+    [Fact]
+    public void JsonContent_ScanText_SeparatesMembersWithWhitespace()
+    {
+        Assert.Equal(
+            """{"a": "x", "b": [1, "y"], "c": {"d": null}}""",
+            HostContent.FromJson(Json("""{"a":"x","b":[1,"y"],"c":{"d":null}}""")).ScanText());
+    }
+
     // Zero-width characters are a non-ASCII attack that SEC-24 flags; escaped to \u200B it would go unseen.
     [Fact]
     public async Task JsonContent_ZeroWidthCharacters_StillFlagged()
