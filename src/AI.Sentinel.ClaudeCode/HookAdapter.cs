@@ -60,6 +60,11 @@ public sealed class HookAdapter
     }
 
     /// <summary>Handles a single hook event, returning the decision the Claude Code CLI should honour.</summary>
+    /// <remarks>
+    /// On <see cref="HookEvent.PostToolUse"/> with <see cref="HookConfig.RedactToolResults"/> on, a redacted result gives
+    /// Allow, and the caller must deliver <see cref="HookOutput.UpdatedToolOutput"/> instead of the original output. A
+    /// Block also carries <see cref="HookOutput.UpdatedToolOutput"/>: the withheld body that replaces the output.
+    /// </remarks>
     public async Task<HookOutput> HandleAsync(HookEvent evt, HookInput input, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(input);

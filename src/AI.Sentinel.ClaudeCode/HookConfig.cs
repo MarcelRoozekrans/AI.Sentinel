@@ -33,11 +33,18 @@ public sealed record HookConfig
     /// a finding warns instead of following <see cref="OnHigh"/>. Set by <c>SENTINEL_HOOK_COMPLIANCE=on</c>.</summary>
     public bool EnableComplianceDetectors { get; init; }
 
-    /// <summary>When true, the default, tool results, prompts and resources on their way to the model get
-    /// placeholders instead of the sensitive values they hold, where the host lets Sentinel rewrite them. When false,
-    /// a finding falls back to its severity action and is audited with <c>; not redacted</c>. Set by
-    /// <c>SENTINEL_HOOK_REDACT</c>: <c>off</c>, <c>0</c>, <c>false</c> or <c>no</c> turn it off.</summary>
-    public bool RedactToolResults { get; init; } = true;
+    /// <summary>When true, tool results, prompts and resources on their way to the model get placeholders instead of
+    /// the sensitive values they hold, where the host lets Sentinel rewrite them, and PreToolUse denies a write or shell
+    /// tool whose input holds a redaction placeholder. When false, a finding falls back to its severity action and is
+    /// audited with <c>; not redacted</c>.
+    /// <para>
+    /// False by default, which keeps the 3.0 behaviour for a caller that builds its own config: a secret in a tool
+    /// result blocks. A caller that sets it must apply <see cref="HookOutput.UpdatedToolOutput"/> on
+    /// <see cref="HookEvent.PostToolUse"/>, because the decision is then Allow and only the replaced output keeps the
+    /// value from the model. <see cref="FromEnvironment"/>, which the hook CLIs and the MCP proxy use, turns it on unless
+    /// <c>SENTINEL_HOOK_REDACT</c> is <c>off</c>, <c>0</c>, <c>false</c> or <c>no</c>.
+    /// </para></summary>
+    public bool RedactToolResults { get; init; }
 
     /// <summary>
     /// Resolves the caller identity from the hook input. When <c>null</c> (the default),

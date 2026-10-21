@@ -26,7 +26,8 @@ public class HookAdapterTests
             opts.EmbeddingGenerator = new FakeEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
-        return (new HookAdapter(provider, config), provider.GetRequiredService<IAuditStore>());
+        // Redaction on unless the test passes a config, as the hook CLI configures it from the environment.
+        return (new HookAdapter(provider, config ?? new HookConfig { RedactToolResults = true }), provider.GetRequiredService<IAuditStore>());
     }
 
     private const string Email = "jan@example.com";
@@ -132,6 +133,40 @@ public class HookAdapterTests
                 Assert.Equal(expected.GetRawText(), actual.GetRawText());
                 break;
         }
+    }
+
+    // A library caller that builds its own config keeps the 3.0 semantics: redaction is off unless it opts in, so a
+    // secret in a tool result blocks, and a caller that reads only Decision never passes the secret on.
+    [Fact]
+    public void HookConfig_Default_RedactToolResultsOff()
+    {
+        Assert.False(new HookConfig().RedactToolResults);
+    }
+
+    [Fact]
+    public async Task PostToolUse_LibraryDefaultConfig_SecretBlocks_As30()
+    {
+        var (adapter, audit) = BuildAdapterWithAudit(new HookConfig());
+
+        var output = await adapter.HandleAsync(
+            HookEvent.PostToolUse, PostToolUse($$"""{"content":"API_KEY={{ApiKey}}"}"""), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Null(output.Redactions);
+        Assert.DoesNotContain(await ReadAuditAsync(audit), IsRedacted);
+    }
+
+    [Fact]
+    public async Task PostToolUse_OptIn_SecretRedactedAndAllowed()
+    {
+        var (adapter, _) = BuildAdapterWithAudit(new HookConfig { RedactToolResults = true });
+
+        var output = await adapter.HandleAsync(
+            HookEvent.PostToolUse, PostToolUse($$"""{"content":"API_KEY={{ApiKey}}"}"""), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Allow, output.Decision);
+        Assert.NotNull(output.UpdatedToolOutput);
+        Assert.DoesNotContain(ApiKey, output.UpdatedToolOutput!.Value.GetRawText(), StringComparison.Ordinal);
     }
 
     [Fact]
