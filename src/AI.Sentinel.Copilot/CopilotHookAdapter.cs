@@ -125,7 +125,10 @@ public sealed class CopilotHookAdapter
 
         return evt switch
         {
-            CopilotHookEvent.PostToolUse => new CopilotHookResult(await ScanToolResultAsync(input, ct).ConfigureAwait(false), null),
+            CopilotHookEvent.PostToolUse => new CopilotHookResult(
+                await ScanToolResultAsync(input, ct).ConfigureAwait(false),
+                null,
+                input.ToolResult is { } original ? CopilotToolResult.ResultType(original) : null),
             CopilotHookEvent.UserPromptTransformed when rewritePrompt => await ScanTransformedPromptAsync(input, ct).ConfigureAwait(false),
             _ => new CopilotHookResult(
                 await HookPipelineRunner.RunAsync(_provider, _config.ToSharedConfig(), BuildMessages(evt, input), input.SessionId, ct).ConfigureAwait(false),

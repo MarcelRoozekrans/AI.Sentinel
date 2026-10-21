@@ -355,6 +355,36 @@ public class HookWireFormatTests
             CopilotWire(CopilotHookEvent.PostToolUse, output));
     }
 
+    // postToolUse fires for a successful tool only, and a modifiedResult must have resultType "success": "failure" would
+    // reroute it to postToolUseFailure. Any other original status is kept as a prefix of the text instead.
+    [Fact]
+    public void CopilotWire_PostToolUseRedacted_FailureResult_KeepsStatusInText()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Allow,
+            UpdatedToolOutput = JsonDocument.Parse("""{"resultType":"failure","textResultForLlm":"mail [EMAIL_1_abc123]"}""").RootElement.Clone(),
+        };
+
+        Assert.Equal(
+            """{"decision":"Allow","reason":null,"modifiedResult":{"resultType":"success","textResultForLlm":"[failure] mail [EMAIL_1_abc123]"}}""",
+            CopilotWire(CopilotHookEvent.PostToolUse, output));
+    }
+
+    [Fact]
+    public void CopilotWire_PostToolUseRedacted_VsCodeDeniedResult_KeepsStatusInText()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Allow,
+            UpdatedToolOutput = JsonDocument.Parse("""{"result_type":"denied","text_result_for_llm":"x [EMAIL_1_abc123]"}""").RootElement.Clone(),
+        };
+
+        Assert.Equal(
+            """{"decision":"Allow","reason":null,"modifiedResult":{"resultType":"success","textResultForLlm":"[denied] x [EMAIL_1_abc123]"}}""",
+            CopilotWire(CopilotHookEvent.PostToolUse, output));
+    }
+
     [Fact]
     public void CopilotWire_PostToolUseBlock_Withheld()
     {
@@ -368,6 +398,23 @@ public class HookWireFormatTests
         Assert.Equal(
             """{"decision":"Block","reason":"r","modifiedResult":{"resultType":"success","textResultForLlm":"withheld by AI.Sentinel: r"}}""",
             CopilotWire(CopilotHookEvent.PostToolUse, output));
+    }
+
+    [Fact]
+    public void CopilotWire_PostToolUseBlock_FailureResult_KeepsStatusInText()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Block,
+            Reason = "r",
+            UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldPrefix + "r"),
+        };
+
+        Assert.Equal(
+            """{"decision":"Block","reason":"r","modifiedResult":{"resultType":"success","textResultForLlm":"[failure] withheld by AI.Sentinel: r"}}""",
+            JsonSerializer.Serialize(
+                CopilotWireOutput.From(CopilotHookEvent.PostToolUse, new CopilotHookResult(output, null, "failure")),
+                CopilotWireJsonContext.Default.CopilotWireOutput));
     }
 
     [Fact]

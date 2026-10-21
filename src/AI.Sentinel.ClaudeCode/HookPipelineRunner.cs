@@ -197,7 +197,7 @@ public static class HookPipelineRunner
 
     /// <summary>True when <paramref name="value"/> looks like an identifier, <c>^[A-Za-z][A-Za-z0-9_.-]{0,31}$</c>,
     /// such as <c>text</c>: the only <c>type</c> values a withheld body keeps.</summary>
-    private static bool IsDiscriminator(string? value)
+    internal static bool IsDiscriminator(string? value)
     {
         if (string.IsNullOrEmpty(value) || value.Length > 32 || !char.IsAsciiLetter(value[0]))
         {

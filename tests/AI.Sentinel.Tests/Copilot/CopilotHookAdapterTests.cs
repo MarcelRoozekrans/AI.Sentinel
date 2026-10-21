@@ -431,6 +431,25 @@ public class CopilotHookAdapterTests
         Assert.DoesNotContain(await ReadAuditAsync(audit), IsRedacted);
     }
 
+    [Theory]
+    [InlineData("resultType", "failure", "failure")]
+    [InlineData("result_type", "denied", "denied")]
+    [InlineData("resultType", "success", "success")]
+    [InlineData("resultType", "not a status!", null)]
+    public async Task PostToolUse_CarriesOriginalResultType(string key, string value, string? expected)
+    {
+        var (adapter, _) = BuildAdapterWithAudit();
+        var input = PostToolUseInput($"{Injection} {Email}") with
+        {
+            ToolResult = Json($$"""{"{{key}}":"{{value}}","textResultForLlm":"{{Injection}}"}"""),
+        };
+
+        var result = await adapter.HandleForCliAsync(CopilotHookEvent.PostToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, result.Output.Decision);
+        Assert.Equal(expected, result.ToolResultType);
+    }
+
     // Ruling A: a Block withholds the result also with redaction off; the tool already ran.
     [Fact]
     public async Task PostToolUse_RedactOff_Injection_Withheld()

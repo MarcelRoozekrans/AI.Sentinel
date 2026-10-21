@@ -13,7 +13,9 @@ namespace AI.Sentinel.Copilot.Cli;
 /// <remarks>
 /// <list type="bullet">
 /// <item>On postToolUse a replaced result goes in <c>modifiedResult</c>: the redacted result, or on a block the
-/// withheld text.</item>
+/// withheld text. Its <c>resultType</c> is always <c>success</c>: the reference requires it, and <c>failure</c> would
+/// route the result to postToolUseFailure. An original status other than <c>success</c> is kept as a prefix of the
+/// text, such as <c>[failure] </c>, so the model still learns how the tool ended.</item>
 /// <item>On userPromptTransformed a replaced prompt goes in <c>modifiedTransformedPrompt</c>. Experimental until a live
 /// check with the Copilot CLI confirms command hooks honour it.</item>
 /// </list>
@@ -48,11 +50,23 @@ internal sealed record CopilotWireOutput
             Reason = output.Reason,
             ModifiedResult = evt == CopilotHookEvent.PostToolUse && output.UpdatedToolOutput is { } updated
                 && ResultText(updated) is { } text
-                ? new CopilotModifiedResult(SuccessResultType, text)
+                ? new CopilotModifiedResult(SuccessResultType, WithStatus(OriginalStatus(updated, result), text))
                 : null,
             ModifiedTransformedPrompt = evt == CopilotHookEvent.UserPromptTransformed ? result.ModifiedTransformedPrompt : null,
         };
     }
+
+    /// <summary>The status of the original result: the <c>resultType</c> of the redacted result, which redaction keeps,
+    /// or, for the withheld text, the one the adapter read from the original.</summary>
+    private static string? OriginalStatus(JsonElement updated, CopilotHookResult result) =>
+        CopilotToolResult.ResultType(updated) ?? result.ToolResultType;
+
+    /// <summary><paramref name="text"/>, prefixed with <c>[status] </c> when <paramref name="status"/> is not
+    /// <c>success</c>.</summary>
+    private static string WithStatus(string? status, string text) =>
+        status is null || string.Equals(status, SuccessResultType, StringComparison.OrdinalIgnoreCase)
+            ? text
+            : $"[{status}] {text}";
 
     /// <summary>The text of a replaced result: <c>textResultForLlm</c> of a redacted result, or the string itself, which
     /// is the withheld case.</summary>
