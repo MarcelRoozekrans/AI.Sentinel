@@ -37,7 +37,7 @@ When an `IAuditStore` is registered, every approval decision is written to the h
 With Entra PIM the decision is made in PIM, so AI.Sentinel records only what it observes:
 
 - **Denials**: a PIM denial is recorded only by a process that waits for the decision, such as the in-process chat client or the MCP proxy with `SENTINEL_MCP_APPROVAL_WAIT_SEC` set. The hook CLIs and the fail-fast MCP proxy never wait, so they never observe a denial: the caller's next attempt simply opens a new request. A Graph error while waiting is not a decision and is not recorded.
-- **Approvals in the hook CLIs**: each hook invocation is a new process that remembers nothing, so while a PIM grant is active every gated tool call appends another `APPROVED` entry for the same request. The [compliance report](/docs/compliance-report) counts each request once per outcome, so its totals are not inflated, but the number of `APPROVED` entries in the audit log is.
+- **Approvals in the hook CLIs**: each hook invocation is a new process that remembers nothing. The first time a process sees a PIM grant, it looks in the audit store for an `APPROVED` entry of that request, written since the grant started, and records the approval only when there is none. A grant is therefore recorded once across processes that share the audit store. If that lookup fails, the approval is recorded anyway, since a duplicate entry is better than a missing decision; the [compliance report](/docs/compliance-report) counts each request once per outcome either way.
 
 ## The three backends
 

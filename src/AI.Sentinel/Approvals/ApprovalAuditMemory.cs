@@ -19,8 +19,11 @@ internal sealed class ApprovalAuditMemory
     /// </summary>
     public ConcurrentDictionary<string, byte> Settled { get; } = new(StringComparer.Ordinal);
 
-    /// <summary>The policy and tool of an approval request, as seen when it was opened.</summary>
-    public readonly record struct RequestInfo(string PolicyName, string ToolName);
+    /// <summary>
+    /// The policy, tool and requested grant duration of an approval request, as seen when it was opened. The duration
+    /// is <see langword="null"/> when this process did not see the request opened.
+    /// </summary>
+    public readonly record struct RequestInfo(string PolicyName, string ToolName, TimeSpan? GrantDuration = null);
 
     /// <summary>The key of <see cref="RequestIdByCallerPolicy"/>.</summary>
     public static string CallerPolicyKey(string callerId, string policyName) => callerId + "\n" + policyName;

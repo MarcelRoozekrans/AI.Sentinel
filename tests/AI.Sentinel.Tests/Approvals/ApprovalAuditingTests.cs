@@ -276,10 +276,10 @@ public class ApprovalAuditingTests
     }
 
     [Fact]
-    public async Task NonAdminStore_ActiveGrant_IsRecordedOncePerProcess_AndReportedOnce()
+    public async Task NonAdminStore_ActiveGrant_SeenByManyHookProcesses_IsRecordedOnce()
     {
-        // Each hook invocation is a new process with nothing remembered, so while an Entra PIM grant is active every
-        // gated call appends APPROVED again. The compliance report counts the request once.
+        // Each hook invocation is a new process with nothing remembered. It finds the APPROVED entry an earlier one
+        // wrote in the audit store and writes nothing more.
         using var audit = new RingBufferAuditStore();
         for (var process = 0; process < 3; process++)
         {
@@ -297,13 +297,83 @@ public class ApprovalAuditingTests
         {
             entries.Add(e);
         }
-        Assert.Equal(3, entries.Count);
-        Assert.All(entries, e => AssertDecision(e, AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9"));
+        var entry = Assert.Single(entries);
+        AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9");
+    }
 
-        var now = DateTimeOffset.UtcNow;
-        var report = await AI.Sentinel.Cli.Report.ComplianceReportBuilder.BuildAsync(
-            audit, now.AddHours(-1), now.AddHours(1), "audit.db", TimeProvider.System, Ct);
-        Assert.Equal(1, report.Art14.ApprovalRequestsByOutcome[AuditEntryKinds.ApprovedPolicyCode]);
+    [Fact]
+    public async Task NonAdminStore_GrantRecordedByAHook_IsNotRecordedAgainByAProcessThatWaits()
+    {
+        using var audit = new RingBufferAuditStore();
+        var granted = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-1" };
+
+        // The waiting process opens the request; a hook process then sees the grant first and records it.
+        var (waiter, _) = Wrap(new ExternalStore { Next = granted }, audit);
+        var requestId = await EnsurePendingAsync(waiter);
+        var (hook, _) = Wrap(new ExternalStore { EnsureNext = granted }, audit);
+        await hook.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        await waiter.WaitForDecisionAsync(requestId, TimeSpan.FromSeconds(1), Ct);
+
+        var entries = new List<AuditEntry>();
+        await foreach (var e in audit.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, Ct))
+        {
+            entries.Add(e);
+        }
+        Assert.Single(entries);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ActiveGrant_ChecksTheAuditStoreOncePerProcess()
+    {
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var audit = new RecordingAuditStore();
+        var (store, _) = Wrap(inner, audit);
+
+        for (var call = 0; call < 3; call++)
+        {
+            await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+        }
+
+        Assert.Equal(1, audit.Queries);
+        Assert.Single(audit.Entries);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ApprovedEntryOfAnotherRequest_DoesNotSuppressTheEntry()
+    {
+        var audit = new RecordingAuditStore();
+        audit.Entries.Add(ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, Policy, Tool, "pim-req-90"));
+        audit.Entries.Add(ApprovalStoreAuditing.Decision(AuditEntryKinds.DeniedPolicyCode, Policy, Tool, "pim-req-9"));
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        Assert.Equal(3, audit.Entries.Count);
+        AssertDecision(audit.Entries[^1], AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9");
+    }
+
+    [Fact]
+    public async Task NonAdminStore_AuditQueryFails_StillWritesApproved()
+    {
+        var audit = new RecordingAuditStore { FailQueries = true };
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        var entry = Assert.Single(audit.Entries);
+        AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9");
     }
 
     [Fact]
@@ -622,16 +692,32 @@ public class ApprovalAuditingTests
     {
         public List<AuditEntry> Entries { get; } = [];
 
+        /// <summary>When true, <see cref="QueryAsync"/> throws.</summary>
+        public bool FailQueries { get; init; }
+
+        /// <summary>How many times <see cref="QueryAsync"/> was called.</summary>
+        public int Queries => _queries;
+
+        private int _queries;
+
         public ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
         {
             lock (Entries) Entries.Add(entry);
             return ValueTask.FromResult(entry);
         }
 
-        public async IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+        public IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _queries);
+            return FailQueries ? throw new InvalidOperationException("audit store down") : QueryCoreAsync(ct);
+        }
+
+        private async IAsyncEnumerable<AuditEntry> QueryCoreAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
         {
             await Task.CompletedTask;
-            foreach (var e in Entries) yield return e;
+            AuditEntry[] snapshot;
+            lock (Entries) snapshot = [.. Entries];
+            foreach (var e in snapshot) yield return e;
         }
     }
 

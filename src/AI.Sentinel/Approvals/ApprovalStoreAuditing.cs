@@ -86,6 +86,18 @@ internal static class ApprovalStoreAuditing
             : new AuditingApprovalStore(inner, audit, forwarders, logger, memory);
     }
 
+    /// <summary>
+    /// The request id the summary of an approval decision entry names, read after the last
+    /// <see cref="AuditEntryKinds.ApprovalRequestMarker"/>, or an empty string when it names none.
+    /// </summary>
+    /// <param name="summary">The summary <see cref="Decision"/> built.</param>
+    internal static string RequestIdOf(string summary)
+    {
+        ArgumentNullException.ThrowIfNull(summary);
+        var at = summary.LastIndexOf(AuditEntryKinds.ApprovalRequestMarker, StringComparison.Ordinal);
+        return at < 0 ? string.Empty : summary[(at + AuditEntryKinds.ApprovalRequestMarker.Length)..].Trim();
+    }
+
     /// <summary>The store DI hands out for a store registered through <see cref="AddApprovalStore{TStore}"/>.</summary>
     private sealed class RegisteredApprovalStore(IApprovalStore store)
     {
