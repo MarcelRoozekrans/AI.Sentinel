@@ -63,30 +63,28 @@ public sealed record HookConfig
             OnLow = ParseDecision(env, "SENTINEL_HOOK_ON_LOW", HookDecision.Allow),
             Verbose = ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"),
             SuppressSemanticWarning = ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"),
-            EnableComplianceDetectors = ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE"),
-            RedactToolResults = ParseOnByDefault(env, "SENTINEL_HOOK_REDACT"),
+            EnableComplianceDetectors = ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE") ?? false,
+            RedactToolResults = ParseSwitch(env, "SENTINEL_HOOK_REDACT") ?? true,
         };
     }
 
     private static HookDecision ParseDecision(IReadOnlyDictionary<string, string?> env, string key, HookDecision fallback)
         => env.TryGetValue(key, out var v) && Enum.TryParse<HookDecision>(v, ignoreCase: true, out var d) ? d : fallback;
 
-    /// <summary>Reads an on/off switch: <c>on</c>, <c>1</c>, <c>true</c> or <c>yes</c> turn it on; anything else leaves it off.</summary>
-    private static bool ParseSwitch(IReadOnlyDictionary<string, string?> env, string key)
+    /// <summary>Reads an on/off switch: <c>on</c>, <c>1</c>, <c>true</c> or <c>yes</c> is on, <c>off</c>, <c>0</c>,
+    /// <c>false</c> or <c>no</c> is off, and anything else, or nothing, is <see langword="null"/>, so the caller applies
+    /// its default with <c>??</c>. Shared by the Copilot hook config and the MCP proxy.</summary>
+    internal static bool? ParseSwitch(IReadOnlyDictionary<string, string?> env, string key)
     {
-        if (!env.TryGetValue(key, out var v) || string.IsNullOrEmpty(v)) return false;
-        return string.Equals(v, "on", StringComparison.OrdinalIgnoreCase) || ParseVerbose(env, key);
-    }
-
-    /// <summary>Reads a switch that is on by default: <c>off</c>, <c>0</c>, <c>false</c> or <c>no</c> turn it off;
-    /// <c>on</c>, <c>1</c>, <c>true</c>, <c>yes</c>, anything else or nothing leave it on. The Copilot hook config shares it.</summary>
-    internal static bool ParseOnByDefault(IReadOnlyDictionary<string, string?> env, string key)
-    {
-        if (!env.TryGetValue(key, out var v) || string.IsNullOrEmpty(v)) return true;
-        return !(string.Equals(v, "off", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(v, "0", StringComparison.Ordinal)
-            || string.Equals(v, "false", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(v, "no", StringComparison.OrdinalIgnoreCase));
+        ArgumentNullException.ThrowIfNull(env);
+        if (!env.TryGetValue(key, out var value) || string.IsNullOrEmpty(value)) return null;
+        if (value is "1" || value.Equals("on", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("true", StringComparison.OrdinalIgnoreCase) || value.Equals("yes", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (value is "0" || value.Equals("off", StringComparison.OrdinalIgnoreCase)
+            || value.Equals("false", StringComparison.OrdinalIgnoreCase) || value.Equals("no", StringComparison.OrdinalIgnoreCase))
+            return false;
+        return null;
     }
 
     private static bool ParseVerbose(IReadOnlyDictionary<string, string?> env, string key)

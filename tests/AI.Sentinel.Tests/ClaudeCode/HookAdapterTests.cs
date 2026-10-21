@@ -183,7 +183,7 @@ public class HookAdapterTests
         Assert.Equal(HookDecision.Block, output.Decision);
         Assert.NotNull(output.Reason);
         Assert.Equal(
-            HookPipelineRunner.WithheldPrefix + output.Reason,
+            HookPipelineRunner.WithheldText(output.Reason),
             output.UpdatedToolOutput!.Value.GetProperty("content").GetString());
         Assert.DoesNotContain(Email, output.UpdatedToolOutput.Value.GetRawText(), StringComparison.Ordinal);
         Assert.Null(output.Redactions);
@@ -212,7 +212,7 @@ public class HookAdapterTests
         var withheld = output.UpdatedToolOutput!.Value;
         AssertSameShape(Json(response), withheld);
         var file = withheld.GetProperty("file");
-        var body = HookPipelineRunner.WithheldPrefix + output.Reason;
+        var body = HookPipelineRunner.WithheldText(output.Reason);
         Assert.Equal("text", withheld.GetProperty("type").GetString());
         Assert.Equal(body, file.GetProperty("filePath").GetString());
         Assert.Equal(body, file.GetProperty("content").GetString());
@@ -233,7 +233,7 @@ public class HookAdapterTests
 
         Assert.Equal(HookDecision.Block, output.Decision);
         Assert.Equal(
-            HookPipelineRunner.WithheldPrefix + output.Reason,
+            HookPipelineRunner.WithheldText(output.Reason),
             output.UpdatedToolOutput!.Value.GetProperty("content").GetString());
         Assert.DoesNotContain(Email, output.UpdatedToolOutput.Value.GetRawText(), StringComparison.Ordinal);
         Assert.Null(output.Redactions);
@@ -553,6 +553,29 @@ public class HookAdapterTests
         };
         var config = HookConfig.FromEnvironment(env);
         Assert.Equal(expected, config.Verbose);
+    }
+
+    [Theory]
+    [InlineData("on", true)]
+    [InlineData("1", true)]
+    [InlineData("TRUE", true)]
+    [InlineData("yes", true)]
+    [InlineData("off", false)]
+    [InlineData("0", false)]
+    [InlineData("False", false)]
+    [InlineData("no", false)]
+    [InlineData("garbage", null)]
+    [InlineData("", null)]
+    [InlineData(null, null)]
+    public void HookConfig_ParseSwitch_IsTriState(string? value, bool? expected)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
+        if (value is not null)
+        {
+            env["SENTINEL_X"] = value;
+        }
+
+        Assert.Equal(expected, HookConfig.ParseSwitch(env, "SENTINEL_X"));
     }
 
     [Theory]

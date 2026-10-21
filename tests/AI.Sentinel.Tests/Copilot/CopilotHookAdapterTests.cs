@@ -101,7 +101,7 @@ public class CopilotHookAdapterTests
         };
         var output = await adapter.HandleAsync(CopilotHookEvent.PostToolUse, input, TestContext.Current.CancellationToken);
         Assert.Equal(HookDecision.Block, output.Decision);
-        Assert.Equal(HookPipelineRunner.WithheldPrefix + output.Reason, output.UpdatedToolOutput!.Value.GetString());
+        Assert.Equal(HookPipelineRunner.WithheldText(output.Reason), output.UpdatedToolOutput!.Value.GetString());
     }
 
     [Fact]
@@ -425,7 +425,7 @@ public class CopilotHookAdapterTests
         Assert.Equal(HookDecision.Block, result.Output.Decision);
         Assert.NotNull(result.Output.Reason);
         Assert.Equal(JsonValueKind.String, result.Output.UpdatedToolOutput!.Value.ValueKind);
-        Assert.Equal(HookPipelineRunner.WithheldPrefix + result.Output.Reason, result.Output.UpdatedToolOutput.Value.GetString());
+        Assert.Equal(HookPipelineRunner.WithheldText(result.Output.Reason), result.Output.UpdatedToolOutput.Value.GetString());
         Assert.Null(result.Output.Redactions);
         Assert.DoesNotContain(Email, result.Output.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain(await ReadAuditAsync(audit), IsRedacted);
@@ -460,7 +460,7 @@ public class CopilotHookAdapterTests
             CopilotHookEvent.PostToolUse, PostToolUseInput($"{Injection} {Email}"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, result.Output.Decision);
-        Assert.Equal(HookPipelineRunner.WithheldPrefix + result.Output.Reason, result.Output.UpdatedToolOutput!.Value.GetString());
+        Assert.Equal(HookPipelineRunner.WithheldText(result.Output.Reason), result.Output.UpdatedToolOutput!.Value.GetString());
         Assert.DoesNotContain(await ReadAuditAsync(audit), IsRedacted);
     }
 
@@ -578,7 +578,7 @@ public class CopilotHookAdapterTests
 
         Assert.Equal(HookDecision.Block, result.Output.Decision);
         Assert.NotNull(result.Output.Reason);
-        Assert.Equal(HookPipelineRunner.WithheldPrefix + result.Output.Reason, result.ModifiedTransformedPrompt);
+        Assert.Equal(HookPipelineRunner.WithheldText(result.Output.Reason), result.ModifiedTransformedPrompt);
         Assert.DoesNotContain(Email, result.Output.Reason, StringComparison.Ordinal);
         Assert.DoesNotContain(await ReadAuditAsync(audit), IsRedacted);
     }
@@ -597,7 +597,7 @@ public class CopilotHookAdapterTests
             new CopilotHookInput { SessionId = "cp-t", TransformedPrompt = $"mail {Email} today" },
             TestContext.Current.CancellationToken);
 
-        Assert.Equal(HookPipelineRunner.WithheldPrefix + blocked.Output.Reason, blocked.ModifiedTransformedPrompt);
+        Assert.Equal(HookPipelineRunner.WithheldText(blocked.Output.Reason), blocked.ModifiedTransformedPrompt);
         Assert.Null(email.ModifiedTransformedPrompt);
     }
 
@@ -701,7 +701,7 @@ public class CopilotHookAdapterTests
         var result = await adapter.HandleForCliAsync(CopilotHookEvent.PostToolUse, input, TestContext.Current.CancellationToken);
 
         Assert.Equal(HookDecision.Block, result.Output.Decision);
-        Assert.Equal(HookPipelineRunner.WithheldPrefix + result.Output.Reason, result.Output.UpdatedToolOutput!.Value.GetString());
+        Assert.Equal(HookPipelineRunner.WithheldText(result.Output.Reason), result.Output.UpdatedToolOutput!.Value.GetString());
     }
 
     private sealed class CapturingGuard : AI.Sentinel.Authorization.IToolCallGuard

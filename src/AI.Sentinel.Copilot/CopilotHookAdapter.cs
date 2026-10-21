@@ -151,7 +151,7 @@ public sealed class CopilotHookAdapter
         // The tool already ran, so replacing its result is the only way to keep it from the model. modifiedResult
         // carries text only, so the withheld body is the withheld text itself.
         return output.Decision == HookDecision.Block
-            ? output with { UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldPrefix + output.Reason) }
+            ? output with { UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldText(output.Reason)) }
             : output;
     }
 
@@ -171,7 +171,7 @@ public sealed class CopilotHookAdapter
         var output = await HookPipelineRunner.RunAsync(
             _provider, shared, [new ChatMessage(ChatRole.User, prompt)], input.SessionId, ct).ConfigureAwait(false);
         return new CopilotHookResult(
-            output, output.Decision == HookDecision.Block ? HookPipelineRunner.WithheldPrefix + output.Reason : null);
+            output, output.Decision == HookDecision.Block ? HookPipelineRunner.WithheldText(output.Reason) : null);
     }
 
     /// <summary>Asks the <see cref="IToolCallGuard"/>, when one is registered, whether the tool call may run. A Block

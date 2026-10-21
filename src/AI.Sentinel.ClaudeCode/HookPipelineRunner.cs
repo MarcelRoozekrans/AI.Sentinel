@@ -57,7 +57,11 @@ public static class HookPipelineRunner
     }
 
     /// <summary>The start of the body that replaces a tool output the hook blocks; the block reason follows it.</summary>
-    internal const string WithheldPrefix = "withheld by AI.Sentinel: ";
+    private const string WithheldPrefix = "withheld by AI.Sentinel: ";
+
+    /// <summary>The text that replaces a tool output or a prompt the hook blocks: <c>withheld by AI.Sentinel: </c>
+    /// followed by <paramref name="reason"/>.</summary>
+    internal static string WithheldText(string? reason) => WithheldPrefix + reason;
 
     /// <summary>
     /// Redacts a tool result on its way to the model and scans the redacted copy, with <paramref name="context"/>, the
@@ -122,7 +126,7 @@ public static class HookPipelineRunner
     /// <remarks>
     /// The decision follows <see cref="Decide"/>.
     /// <list type="bullet">
-    /// <item>A Block withholds the prompt: the rewritten prompt is <see cref="WithheldPrefix"/> plus the reason, and
+    /// <item>A Block withholds the prompt: the rewritten prompt is <see cref="WithheldText"/> of the reason, and
     /// nothing is recorded as redacted, because nothing is delivered.</item>
     /// <item>Otherwise, when anything was redacted, the rewritten prompt is the redacted prompt, and the redactions are
     /// audited as <c>REDACTED</c>.</item>
@@ -157,7 +161,7 @@ public static class HookPipelineRunner
         var output = Decide(result.Findings, config);
         if (output.Decision == HookDecision.Block)
         {
-            return (output, WithheldPrefix + output.Reason);
+            return (output, WithheldText(output.Reason));
         }
 
         if (!result.Redacted)
@@ -171,7 +175,7 @@ public static class HookPipelineRunner
 
     /// <summary>
     /// The body that replaces a tool output the hook blocks: <paramref name="toolResponse"/> with every non-empty string
-    /// value replaced by <see cref="WithheldPrefix"/> plus <paramref name="reason"/>, and its names, numbers, booleans,
+    /// value replaced by <see cref="WithheldText"/> of <paramref name="reason"/>, and its names, numbers, booleans,
     /// nulls and nesting kept. Claude Code ignores a replacement that does not match a built-in tool's output schema and
     /// shows the original instead, so the shape is kept, and so is an identifier-like string value of every property named
     /// <c>type</c>, a discriminator such as Read's <c>"type":"text"</c>. Empty strings stay empty, so a field such as Bash's empty
@@ -179,7 +183,7 @@ public static class HookPipelineRunner
     /// </summary>
     internal static JsonElement WithheldOutput(JsonElement toolResponse, string? reason)
     {
-        var text = WithheldPrefix + reason;
+        var text = WithheldText(reason);
         if (toolResponse.ValueKind is not (JsonValueKind.Object or JsonValueKind.Array))
         {
             return JsonString(text);

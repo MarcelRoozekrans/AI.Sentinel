@@ -66,8 +66,8 @@ public sealed record CopilotHookConfig
             OnLow = ParseDecision(env, "SENTINEL_HOOK_ON_LOW", HookDecision.Allow),
             Verbose = ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"),
             SuppressSemanticWarning = ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"),
-            EnableComplianceDetectors = ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE"),
-            RedactToolResults = HookConfig.ParseOnByDefault(env, "SENTINEL_HOOK_REDACT"),
+            EnableComplianceDetectors = HookConfig.ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE") ?? false,
+            RedactToolResults = HookConfig.ParseSwitch(env, "SENTINEL_HOOK_REDACT") ?? true,
         };
     }
 
@@ -91,13 +91,6 @@ public sealed record CopilotHookConfig
 
     private static HookDecision ParseDecision(IReadOnlyDictionary<string, string?> env, string key, HookDecision fallback)
         => env.TryGetValue(key, out var v) && Enum.TryParse<HookDecision>(v, ignoreCase: true, out var d) ? d : fallback;
-
-    /// <summary>Reads an on/off switch: <c>on</c>, <c>1</c>, <c>true</c> or <c>yes</c> turn it on; anything else leaves it off.</summary>
-    private static bool ParseSwitch(IReadOnlyDictionary<string, string?> env, string key)
-    {
-        if (!env.TryGetValue(key, out var v) || string.IsNullOrEmpty(v)) return false;
-        return string.Equals(v, "on", StringComparison.OrdinalIgnoreCase) || ParseVerbose(env, key);
-    }
 
     private static bool ParseVerbose(IReadOnlyDictionary<string, string?> env, string key)
     {

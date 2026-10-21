@@ -176,7 +176,7 @@ public class HookWireFormatTests
         {
             Decision = HookDecision.Block,
             Reason = "r",
-            UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldPrefix + "r"),
+            UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldText("r")),
         };
 
         Assert.Equal(
@@ -392,7 +392,7 @@ public class HookWireFormatTests
         {
             Decision = HookDecision.Block,
             Reason = "r",
-            UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldPrefix + "r"),
+            UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldText("r")),
         };
 
         Assert.Equal(
@@ -407,7 +407,7 @@ public class HookWireFormatTests
         {
             Decision = HookDecision.Block,
             Reason = "r",
-            UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldPrefix + "r"),
+            UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldText("r")),
         };
 
         Assert.Equal(
@@ -433,7 +433,7 @@ public class HookWireFormatTests
             CopilotWire(
                 CopilotHookEvent.UserPromptTransformed,
                 new HookOutput { Decision = HookDecision.Block, Reason = "r" },
-                HookPipelineRunner.WithheldPrefix + "r"));
+                HookPipelineRunner.WithheldText("r")));
     }
 
     // A rewrite belongs to its own event only: a stray UpdatedToolOutput or prompt on another event is not written.
