@@ -312,7 +312,7 @@ public class NdjsonFileAuditForwarderTests : IDisposable
 
         var message = Assert.Single(messages);
         Assert.Contains("action=send_error", message, StringComparison.Ordinal);
-        Assert.Contains("error=TimeoutException", message, StringComparison.Ordinal);
+        Assert.Contains("error=TimeoutException inner=IOException", message, StringComparison.Ordinal);
         Assert.Empty(File.ReadAllLines(_tempPath));
 
         // The lock is free again, and so is the forwarder.
@@ -344,6 +344,46 @@ public class NdjsonFileAuditForwarderTests : IDisposable
         finally
         {
             Directory.Delete(_tempPath);
+        }
+    }
+
+    [Fact]
+    public void Constructor_DirectoryNotWritable_Throws()
+    {
+        // Every send creates or opens <file>.lock next to the file. A directory that holds a writable
+        // data file but refuses new files must fail at registration, not on every batch.
+        if (OperatingSystem.IsWindows() || string.Equals(Environment.UserName, "root", StringComparison.Ordinal))
+        {
+            Assert.Skip("Needs Unix directory modes and a non-root user.");
+            return;
+        }
+
+        var dir = Path.Combine(Path.GetTempPath(), $"sentinel-ro-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var path = Path.Combine(dir, "audit.ndjson");
+        File.WriteAllText(path, "");
+        try
+        {
+            File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserExecute | UnixFileMode.GroupRead
+                | UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);   // 555
+
+            Assert.Throws<UnauthorizedAccessException>(
+                () => new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = path }));
+        }
+        finally
+        {
+            File.SetUnixFileMode(dir, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Constructor_LockHeldByAnotherWriter_Succeeds()
+    {
+        // The fail-fast check must not mistake a busy lock for a broken one.
+        using (new FileStream(_tempPath + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            await using var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = _tempPath });
         }
     }
 

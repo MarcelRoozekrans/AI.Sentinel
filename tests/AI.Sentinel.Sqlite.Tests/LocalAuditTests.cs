@@ -198,6 +198,7 @@ public sealed class LocalAuditTests : IDisposable
         Assert.Equal(ownerOnly | UnixFileMode.UserExecute, File.GetUnixFileMode(dir));
         Assert.Equal(ownerOnly, File.GetUnixFileMode(dbPath));
         Assert.Equal(ownerOnly, File.GetUnixFileMode(ndjsonPath));
+        Assert.Equal(ownerOnly, File.GetUnixFileMode(ndjsonPath + ".lock"));
     }
 
     [Fact]
