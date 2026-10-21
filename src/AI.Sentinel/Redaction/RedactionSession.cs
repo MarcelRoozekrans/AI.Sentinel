@@ -556,11 +556,13 @@ internal sealed class RedactionSession
     }
 
     // Walks backwards collecting the ids of results seen so far, so a call counts as answered only when a
-    // result with its id comes after it. One content list per message, or per streamed update.
+    // result with its id comes after it. One content list per message, or per streamed update. A result answers
+    // only a call of its own kind: a function result a function call, a hosted tool result a hosted tool call.
     private static HashSet<ToolCallContent> AnsweredCalls(List<IList<AIContent>> lists)
     {
         var answered = new HashSet<ToolCallContent>(ReferenceEqualityComparer.Instance);
-        var laterResults = new HashSet<string>(StringComparer.Ordinal);
+        var laterFunctionResults = new HashSet<string>(StringComparer.Ordinal);
+        var laterHostedResults = new HashSet<string>(StringComparer.Ordinal);
         for (var m = lists.Count - 1; m >= 0; m--)
         {
             var contents = lists[m];
@@ -568,10 +570,11 @@ internal sealed class RedactionSession
             {
                 switch (contents[c])
                 {
-                    case ToolResultContent fr when !string.IsNullOrEmpty(fr.CallId):
-                        laterResults.Add(fr.CallId);
+                    case ToolResultContent result when !string.IsNullOrEmpty(result.CallId):
+                        (result is FunctionResultContent ? laterFunctionResults : laterHostedResults).Add(result.CallId);
                         break;
-                    case ToolCallContent call when !string.IsNullOrEmpty(call.CallId) && laterResults.Contains(call.CallId):
+                    case ToolCallContent call when !string.IsNullOrEmpty(call.CallId)
+                        && (call is FunctionCallContent ? laterFunctionResults : laterHostedResults).Contains(call.CallId):
                         answered.Add(call);
                         break;
                 }
@@ -633,16 +636,36 @@ internal sealed class RedactionSession
                 {
                     Reason = response.Reason is null ? null : map(response.Reason),
                 });
-            case DataContent data when redact && IsText(data) && !data.Data.IsEmpty:
-                var encoding = EncodingOf(data);
-                var mapped = encoding.GetBytes(map(encoding.GetString(data.Data.Span)));
-                return CopyMetadata(data, new DataContent(mapped, data.MediaType) { Name = data.Name });
+            case DataContent data when IsText(data) && !data.Data.IsEmpty:
+                return MapTextData(data, map, redact);
             default:
                 return content;
         }
     }
 
-    private static Encoding EncodingOf(DataContent data)
+    // Text data, such as the code a code interpreter call carries, is mapped both ways. Redacting fails closed on a
+    // charset it cannot decode. Restoring can leak nothing, so such data is returned as it is, and data with
+    // nothing to restore is returned unchanged rather than decoded and encoded again.
+    private DataContent MapTextData(DataContent data, Func<string, string> map, bool redact)
+    {
+        var encoding = redact ? EncodingOf(data) : EncodingOf(data, failClosed: false);
+        if (encoding is null)
+        {
+            return data;
+        }
+
+        var text = encoding.GetString(data.Data.Span);
+        var mapped = map(text);
+        if (!redact && string.Equals(text, mapped, StringComparison.Ordinal))
+        {
+            return data;
+        }
+        return CopyMetadata(data, new DataContent(encoding.GetBytes(mapped), data.MediaType) { Name = data.Name });
+    }
+
+    private static Encoding EncodingOf(DataContent data) => EncodingOf(data, failClosed: true)!;
+
+    private static Encoding? EncodingOf(DataContent data, bool failClosed)
     {
         var parameters = data.MediaType.Split(';');
         for (var i = 1; i < parameters.Length; i++)
@@ -664,6 +687,10 @@ internal sealed class RedactionSession
                 encoding = null;
             }
 
+            if (encoding is null && !failClosed)
+            {
+                return null;
+            }
             return encoding ?? throw new InvalidOperationException(
                 "Text data content declares a charset that is not supported, so it cannot be scanned.");
         }

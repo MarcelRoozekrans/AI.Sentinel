@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Redaction;
@@ -244,5 +245,113 @@ public class RedactionHostedContentTests
         Assert.Same(raw, approvalCall.RawRepresentation);
         Assert.Equal(Redacted, approvalCall.Arguments!["q"]?.ToString());
         Assert.DoesNotContain("abc123def456", JsonSerializer.Serialize<AIContent>(redactedRequest, AIJsonUtilities.DefaultOptions), StringComparison.Ordinal);
+    }
+
+    // MEAI documents code interpreter inputs as typically a DataContent of code, such as text/x-python, which is
+    // what the OpenAI adapter produces. It is redacted, and restored by the same rules as any call's inputs.
+    [Fact]
+    public void CodeInterpreterPythonInput_RedactedAndRestored_FullyWhenAnswered_ByToolRuleWhenNot()
+    {
+        var session = Session();
+        var code = new DataContent(Encoding.UTF8.GetBytes("send('" + Text + "')"), "text/x-python") { Name = "main.py" };
+        var call = new CodeInterpreterToolCallContent("c1") { Inputs = [code] };
+
+        var redacted = session.Redact([new ChatMessage(ChatRole.Assistant, [call])]);
+
+        var redactedCall = Single<CodeInterpreterToolCallContent>(redacted);
+        var redactedCode = Assert.IsType<DataContent>(Assert.Single(redactedCall.Inputs!));
+        Assert.Equal("send('" + Redacted + "')", Encoding.UTF8.GetString(redactedCode.Data.Span));
+
+        var unanswered = session.Restore(new List<ChatMessage> { new(ChatRole.Assistant, [redactedCall]) });
+        var toolRestored = Assert.IsType<DataContent>(Single<CodeInterpreterToolCallContent>(unanswered).Inputs![0]);
+        Assert.Equal("send('" + ToolRestored + "')", Encoding.UTF8.GetString(toolRestored.Data.Span));
+        Assert.Equal("text/x-python", toolRestored.MediaType);
+        Assert.Equal("main.py", toolRestored.Name);
+
+        var answered = session.Restore(new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [redactedCall, new CodeInterpreterToolResultContent("c1")]),
+        });
+        var fullyRestored = Assert.IsType<DataContent>(Single<CodeInterpreterToolCallContent>(answered).Inputs![0]);
+        Assert.Equal("send('" + Text + "')", Encoding.UTF8.GetString(fullyRestored.Data.Span));
+        // The redacted input is not mutated.
+        Assert.Equal("send('" + Redacted + "')", Encoding.UTF8.GetString(redactedCode.Data.Span));
+    }
+
+    // A text data content restored with a charset .NET does not know is returned as it is: restoring can leak
+    // nothing, so it does not fail the response the way an unscannable request fails closed.
+    [Fact]
+    public void TextDataWithUnknownCharset_PassesThroughOnRestore()
+    {
+        var session = Session();
+        session.Redact(Text);
+        var data = new DataContent(Encoding.UTF8.GetBytes(Redacted), "text/plain; charset=bogus-xyz");
+
+        var restored = session.Restore(new List<ChatMessage> { new(ChatRole.Assistant, [data]) });
+
+        Assert.Same(data, restored[0].Contents[0]);
+    }
+
+    // A result answers only a call of its own kind: a hosted result with a function call's id leaves the function
+    // call waiting, so its secrets keep their placeholders; a function result likewise leaves a hosted call waiting.
+    [Fact]
+    public void AnsweredCalls_MatchOnlyTheirOwnKind()
+    {
+        var session = Session();
+        var redacted = session.Redact(
+        [
+            new ChatMessage(ChatRole.Assistant,
+            [
+                new FunctionCallContent("c1", "lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["q"] = Text }),
+                McpCall(),
+            ]),
+        ]);
+
+        var restored = session.Restore(new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, redacted[0].Contents),
+            new(ChatRole.Assistant, [new McpServerToolResultContent("c1"), new FunctionResultContent("c1", "ok")]),
+        });
+
+        // Both are answered by their own kind here, so both are restored fully.
+        Assert.Equal(Text, Assert.IsType<FunctionCallContent>(restored[0].Contents[0]).Arguments!["q"]?.ToString());
+        Assert.Equal(Text, Assert.IsType<McpServerToolCallContent>(restored[0].Contents[1]).Arguments!["q"]?.ToString());
+
+        var functionCall = session.Restore(new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [redacted[0].Contents[0]]),
+            new(ChatRole.Assistant, [new McpServerToolResultContent("c1")]),
+        });
+        Assert.Equal(ToolRestored, Assert.IsType<FunctionCallContent>(functionCall[0].Contents[0]).Arguments!["q"]?.ToString());
+
+        var hostedCall = session.Restore(new List<ChatMessage>
+        {
+            new(ChatRole.Assistant, [redacted[0].Contents[1]]),
+            new(ChatRole.Tool, [new FunctionResultContent("c1", "ok")]),
+        });
+        Assert.Equal(ToolRestored, Assert.IsType<McpServerToolCallContent>(hostedCall[0].Contents[0]).Arguments!["q"]?.ToString());
+    }
+
+    [Fact]
+    public void ApprovalResponse_WithImageGenerationCall_KeepsCall_ReasonRedactedAndRestored()
+    {
+        var session = Session();
+        var call = new ImageGenerationToolCallContent("c1");
+        var response = new ToolApprovalResponseContent("r1", approved: false, call) { Reason = "no, ask jan@acme.nl" };
+
+        var redacted = session.Redact([new ChatMessage(ChatRole.User, [response])]);
+
+        var redactedResponse = Single<ToolApprovalResponseContent>(redacted);
+        Assert.NotSame(response, redactedResponse);
+        Assert.Same(call, redactedResponse.ToolCall);
+        Assert.False(redactedResponse.Approved);
+        Assert.Equal("no, ask [EMAIL_1_abc123]", redactedResponse.Reason);
+        Assert.Equal("no, ask jan@acme.nl", response.Reason);
+
+        var restored = session.Restore(new List<ChatMessage> { new(ChatRole.User, [redactedResponse]) });
+
+        var restoredResponse = Single<ToolApprovalResponseContent>(restored);
+        Assert.Same(call, restoredResponse.ToolCall);
+        Assert.Equal("no, ask jan@acme.nl", restoredResponse.Reason);
     }
 }
