@@ -97,6 +97,30 @@ public sealed class SqliteAuditStoreSessionRoundtripTests : IDisposable
         Assert.Equal("e-mcp", Assert.Single(results).Id);
     }
 
+    [Fact]
+    public async Task QueryWithDetectorIdAndPolicyCode_FiltersOrdinally()
+    {
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
+
+        await store.AppendAsync(NewEntry("1", null) with { DetectorId = "APPROVAL", PolicyCode = "APPROVED" }, CancellationToken.None);
+        await store.AppendAsync(NewEntry("2", null) with { DetectorId = "APPROVAL", PolicyCode = "DENIED" }, CancellationToken.None);
+        await store.AppendAsync(NewEntry("3", null) with { DetectorId = "approval", PolicyCode = "APPROVED" }, CancellationToken.None);
+        await store.AppendAsync(NewEntry("4", null), CancellationToken.None);
+
+        async Task<string[]> Ids(AuditQuery query)
+        {
+            var ids = new List<string>();
+            await foreach (var e in store.QueryAsync(query, CancellationToken.None)) ids.Add(e.Id);
+            return [.. ids];
+        }
+
+        Assert.Equal(["1", "2"], await Ids(new AuditQuery { DetectorId = "APPROVAL" }));
+        Assert.Equal(["1", "3"], await Ids(new AuditQuery { PolicyCode = "APPROVED" }));
+        Assert.Equal(["1"], await Ids(new AuditQuery { DetectorId = "APPROVAL", PolicyCode = "APPROVED" }));
+        Assert.Empty(await Ids(new AuditQuery { PolicyCode = "approved" }));
+        Assert.Equal(4, (await Ids(new AuditQuery())).Length);
+    }
+
     private static AuditEntry NewEntry(string id, string? sessionId) =>
         new(
             Id: id,

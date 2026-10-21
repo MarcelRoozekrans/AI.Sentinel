@@ -276,10 +276,10 @@ public class ApprovalAuditingTests
     }
 
     [Fact]
-    public async Task NonAdminStore_ActiveGrant_IsRecordedOncePerProcess_AndReportedOnce()
+    public async Task NonAdminStore_ActiveGrant_SeenByManyHookProcesses_IsRecordedOnce()
     {
-        // Each hook invocation is a new process with nothing remembered, so while an Entra PIM grant is active every
-        // gated call appends APPROVED again. The compliance report counts the request once.
+        // Each hook invocation is a new process with nothing remembered. It finds the APPROVED entry an earlier one
+        // wrote in the audit store and writes nothing more.
         using var audit = new RingBufferAuditStore();
         for (var process = 0; process < 3; process++)
         {
@@ -297,13 +297,197 @@ public class ApprovalAuditingTests
         {
             entries.Add(e);
         }
-        Assert.Equal(3, entries.Count);
-        Assert.All(entries, e => AssertDecision(e, AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9"));
+        var entry = Assert.Single(entries);
+        AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9");
+    }
 
+    [Fact]
+    public async Task NonAdminStore_GrantRecordedByAHook_IsNotRecordedAgainByAProcessThatWaits()
+    {
+        using var audit = new RingBufferAuditStore();
+        var granted = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-1" };
+
+        // The waiting process opens the request; a hook process then sees the grant first and records it.
+        var (waiter, _) = Wrap(new ExternalStore { Next = granted }, audit);
+        var requestId = await EnsurePendingAsync(waiter);
+        var (hook, _) = Wrap(new ExternalStore { EnsureNext = granted }, audit);
+        await hook.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        await waiter.WaitForDecisionAsync(requestId, TimeSpan.FromSeconds(1), Ct);
+
+        var entries = new List<AuditEntry>();
+        await foreach (var e in audit.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, Ct))
+        {
+            entries.Add(e);
+        }
+        Assert.Single(entries);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ActiveGrant_ChecksTheAuditStoreOncePerProcess()
+    {
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var audit = new RecordingAuditStore();
+        var (store, _) = Wrap(inner, audit);
+
+        for (var call = 0; call < 3; call++)
+        {
+            await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+        }
+
+        Assert.Equal(1, audit.Queries);
+        Assert.Single(audit.Entries);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ApprovedEntryOfAnotherRequest_DoesNotSuppressTheEntry()
+    {
+        var audit = new RecordingAuditStore();
+        audit.Entries.Add(ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, Policy, Tool, "pim-req-90"));
+        audit.Entries.Add(ApprovalStoreAuditing.Decision(AuditEntryKinds.DeniedPolicyCode, Policy, Tool, "pim-req-9"));
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        Assert.Equal(3, audit.Entries.Count);
+        AssertDecision(audit.Entries[^1], AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9");
+    }
+
+    [Fact]
+    public async Task NonAdminStore_GrantLookup_FiltersOnApprovedDecisionsNewestFirst()
+    {
+        var audit = new RecordingAuditStore();
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        var query = Assert.IsType<AuditQuery>(audit.LastQuery);
+        Assert.Equal(AuditEntryKinds.ApprovalDetectorId, query.DetectorId);
+        Assert.Equal(AuditEntryKinds.ApprovedPolicyCode, query.PolicyCode);
+        Assert.True(query.Reverse);
+        Assert.Null(query.From);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ApprovedEntryOlderThanTheGrant_DoesNotSuppressTheEntry()
+    {
+        // The store ignores the filters and the window; the lookup stops at the window edge itself.
+        var audit = new RecordingAuditStore();
+        var old = ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, Policy, Tool, "pim-req-9");
+        audit.Entries.Add(old with { Timestamp = DateTimeOffset.UtcNow.AddDays(-3) });
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        Assert.Equal(2, audit.Entries.Count);
+    }
+
+    /// <summary>An audit store holding one APPROVED entry of <paramref name="requestId"/>, written at <paramref name="at"/>.</summary>
+    private static RecordingAuditStore AuditWithApproval(string requestId, DateTimeOffset at)
+    {
+        var audit = new RecordingAuditStore();
+        var entry = ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, Policy, Tool, requestId);
+        audit.Entries.Add(entry with { Timestamp = at });
+        return audit;
+    }
+
+    [Fact]
+    public async Task NonAdminStore_GrantLongerThanTheSpec_FindsTheEarlierEntry()
+    {
+        // PIM granted an hour ten minutes ago, though the spec asked for 15 minutes; another process recorded it then.
         var now = DateTimeOffset.UtcNow;
-        var report = await AI.Sentinel.Cli.Report.ComplianceReportBuilder.BuildAsync(
-            audit, now.AddHours(-1), now.AddHours(1), "audit.db", TimeProvider.System, Ct);
-        Assert.Equal(1, report.Art14.ApprovalRequestsByOutcome[AuditEntryKinds.ApprovedPolicyCode]);
+        var audit = AuditWithApproval("pim-req-9", now.AddMinutes(-9));
+        var inner = new ExternalStore { EnsureNext = new ApprovalState.Active(now.AddMinutes(50)) { RequestId = "pim-req-9" } };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(TimeSpan.FromMinutes(15)), MakeCtx(), Ct);
+
+        Assert.Single(audit.Entries);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ZeroGrantDuration_FindsTheEarlierEntry()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var audit = AuditWithApproval("pim-req-9", now.AddMinutes(-9));
+        var inner = new ExternalStore { EnsureNext = new ApprovalState.Active(now.AddMinutes(5)) { RequestId = "pim-req-9" } };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(TimeSpan.Zero), MakeCtx(), Ct);
+
+        Assert.Single(audit.Entries);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_UnknownGrantDuration_LooksBackOneDayFromTheExpiry()
+    {
+        // A process waits on a request it never saw opened, so the requested duration is unknown.
+        var now = DateTimeOffset.UtcNow;
+        var granted = new ApprovalState.Active(now.AddMinutes(5)) { RequestId = "pim-req-7" };
+
+        var recent = AuditWithApproval("pim-req-7", now.AddHours(-20));
+        var (waiter, _) = Wrap(new ExternalStore { Next = granted }, recent);
+        await waiter.WaitForDecisionAsync("pim-req-7", TimeSpan.FromSeconds(1), Ct);
+        Assert.Single(recent.Entries);
+
+        var stale = AuditWithApproval("pim-req-7", now.AddDays(-2));
+        var (otherWaiter, _) = Wrap(new ExternalStore { Next = granted }, stale);
+        await otherWaiter.WaitForDecisionAsync("pim-req-7", TimeSpan.FromSeconds(1), Ct);
+        Assert.Equal(2, stale.Entries.Count);
+    }
+
+    public static TheoryData<int, int?, int> LookBackCases => new()
+    {
+        // Expiry in minutes from now, requested minutes, expected start in minutes from now before the clock skew.
+        { 5, 15, -10 },          // the grant as requested
+        { 50, 15, 50 - 24 * 60 }, // a grant longer than requested
+        { 5, 0, 5 - 24 * 60 },    // a zero duration
+        { 5, -15, 5 - 24 * 60 },  // a negative duration
+        { 5, null, 5 - 24 * 60 }, // an unknown duration
+        { 30 * 60, null, 0 },     // an expiry further out than the longest grant
+    };
+
+    [Theory]
+    [MemberData(nameof(LookBackCases))]
+    public void LookBackStart_CoversTheWholeGrant(int expiresInMinutes, int? requestedMinutes, int expectedStartMinutes)
+    {
+        var now = new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
+        TimeSpan? requested = requestedMinutes is { } m ? TimeSpan.FromMinutes(m) : null;
+
+        var since = AuditingApprovalStore.LookBackStart(now.AddMinutes(expiresInMinutes), requested, now);
+
+        Assert.Equal(now.AddMinutes(expectedStartMinutes) - AuditingApprovalStore.ClockSkew, since);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_AuditQueryFails_StillWritesApproved()
+    {
+        var audit = new RecordingAuditStore { FailQueries = true };
+        var inner = new ExternalStore
+        {
+            EnsureNext = new ApprovalState.Active(DateTimeOffset.UtcNow.AddMinutes(5)) { RequestId = "pim-req-9" },
+        };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+
+        var entry = Assert.Single(audit.Entries);
+        AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", "pim-req-9");
     }
 
     [Fact]
@@ -622,16 +806,41 @@ public class ApprovalAuditingTests
     {
         public List<AuditEntry> Entries { get; } = [];
 
+        /// <summary>When true, <see cref="QueryAsync"/> throws.</summary>
+        public bool FailQueries { get; init; }
+
+        /// <summary>How many times <see cref="QueryAsync"/> was called.</summary>
+        public int Queries => _queries;
+
+        private int _queries;
+
         public ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
         {
             lock (Entries) Entries.Add(entry);
             return ValueTask.FromResult(entry);
         }
 
-        public async IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
+        /// <summary>The last query passed to <see cref="QueryAsync"/>.</summary>
+        public AuditQuery? LastQuery { get; private set; }
+
+        /// <summary>
+        /// Honours only <see cref="AuditQuery.Reverse"/>, as a custom store that ignores the filters may: it returns a
+        /// superset.
+        /// </summary>
+        public IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct)
+        {
+            Interlocked.Increment(ref _queries);
+            LastQuery = query;
+            return FailQueries ? throw new InvalidOperationException("audit store down") : QueryCoreAsync(query.Reverse, ct);
+        }
+
+        private async IAsyncEnumerable<AuditEntry> QueryCoreAsync(bool reverse, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
         {
             await Task.CompletedTask;
-            foreach (var e in Entries) yield return e;
+            AuditEntry[] snapshot;
+            lock (Entries) snapshot = [.. Entries];
+            if (reverse) Array.Reverse(snapshot);
+            foreach (var e in snapshot) yield return e;
         }
     }
 

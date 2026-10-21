@@ -28,4 +28,18 @@ public sealed record AuditQuery
 
     /// <summary>Only entries written by this tool, compared case-insensitively. See <see cref="AuditSources"/>.</summary>
     public string? Source { get; init; }
+
+    /// <summary>
+    /// Only entries with this <see cref="AuditEntry.DetectorId"/>, compared ordinally. <see langword="null"/> returns
+    /// every detector. The built-in stores apply it; a custom <see cref="IAuditStore"/> may ignore it and return a
+    /// superset, so a caller that needs the filter still checks each entry.
+    /// </summary>
+    public string? DetectorId { get; init; }
+
+    /// <summary>
+    /// Only entries with this <see cref="AuditEntry.PolicyCode"/>, compared ordinally. <see langword="null"/> returns
+    /// every entry, with or without a policy code. The built-in stores apply it; a custom <see cref="IAuditStore"/> may
+    /// ignore it and return a superset, so a caller that needs the filter still checks each entry.
+    /// </summary>
+    public string? PolicyCode { get; init; }
 }

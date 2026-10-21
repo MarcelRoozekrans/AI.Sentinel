@@ -16,6 +16,9 @@ public static class EntraPimServiceCollectionExtensions
     /// <see cref="ChainedTokenCredential"/> by default (managed identity → workload
     /// identity → environment vars → Azure CLI). Operators can override the credential
     /// by registering a <see cref="TokenCredential"/> in DI BEFORE calling this extension.
+    /// When an <c>IAuditStore</c> is registered, before or after this call, the <see cref="IApprovalStore"/>
+    /// resolved from DI is an auditing wrapper over the store that records the PIM decisions it observes;
+    /// it cannot be cast to <see cref="EntraPimApprovalStore"/>.
     /// </summary>
     /// <remarks>
     /// Required Graph permissions (admin-consent in Entra):
@@ -38,7 +41,7 @@ public static class EntraPimServiceCollectionExtensions
         // Approval-store backends are exclusive — silently overwriting a prior registration
         // (e.g. AddSentinelSqliteStore + AddSentinelEntraPimApprovalStore) is almost always
         // a wiring bug. Fail fast with an operator-actionable message.
-        if (services.Any(sd => sd.ServiceType == typeof(IApprovalStore)))
+        if (services.Any(sd => sd.ServiceType == typeof(IApprovalStore) && !sd.IsKeyedService))
         {
             throw new InvalidOperationException(
                 "An IApprovalStore is already registered. Approval-store backends are exclusive — " +
@@ -67,10 +70,9 @@ public static class EntraPimServiceCollectionExtensions
         services.TryAddSingleton<IGraphRoleClient>(sp =>
             new MicrosoftGraphRoleClient(sp.GetRequiredService<GraphServiceClient>()));
 
-        // IApprovalStore stays AddSingleton: last-write-wins is the right contract for
-        // the headline approval store — operators explicitly opt in to this backend by
-        // calling this extension, and the docs above document that semantics.
-        services.AddSingleton<IApprovalStore>(sp =>
+        // The IApprovalStore DI hands out is the auditing wrapper whenever an IAuditStore is
+        // registered, before or after this call, so the PIM decisions it observes are recorded.
+        services.AddSentinelApprovalStore(sp =>
             new EntraPimApprovalStore(
                 sp.GetRequiredService<IGraphRoleClient>(),
                 sp.GetRequiredService<EntraPimOptions>()));

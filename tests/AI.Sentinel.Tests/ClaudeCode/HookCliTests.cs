@@ -221,8 +221,9 @@ public class HookCliTests : HookAuditOffFixtureBase
         var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: config);
         try
         {
-            var store = provider.GetRequiredService<IApprovalStore>();
-            Assert.IsType<SqliteApprovalStore>(store);
+            // DI hands out the auditing wrapper over the SQLite store, so decisions taken through it are recorded.
+            Assert.IsType<AuditingApprovalAdminStore>(provider.GetRequiredService<IApprovalStore>());
+            Assert.IsType<SqliteApprovalStore>(provider.GetRequiredKeyedService<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey));
             Assert.True(File.Exists(dbPath), "SqliteApprovalStore should have created the database file.");
         }
         finally
@@ -256,8 +257,8 @@ public class HookCliTests : HookAuditOffFixtureBase
 
         await using var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: config);
 
-        var store = provider.GetRequiredService<IApprovalStore>();
-        Assert.IsType<EntraPimApprovalStore>(store);
+        Assert.IsType<AuditingApprovalStore>(provider.GetRequiredService<IApprovalStore>());
+        Assert.IsType<EntraPimApprovalStore>(provider.GetRequiredKeyedService<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey));
         var opts = provider.GetRequiredService<EntraPimOptions>();
         Assert.Equal("11111111-1111-1111-1111-111111111111", opts.TenantId);
     }

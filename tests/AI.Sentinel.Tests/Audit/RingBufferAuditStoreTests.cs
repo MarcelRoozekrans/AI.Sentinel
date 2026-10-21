@@ -162,4 +162,27 @@ public class RingBufferAuditStoreTests
 
         Assert.Equal("1", Assert.Single(results).Id);
     }
+
+    [Fact]
+    public async Task Query_DetectorIdAndPolicyCode_FilterOrdinally()
+    {
+        var store = new RingBufferAuditStore(capacity: 100);
+        await store.AppendAsync(new AuditEntry("1", DateTimeOffset.UtcNow, "h1", null, Severity.None, "APPROVAL", "a") { PolicyCode = "APPROVED" }, CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("2", DateTimeOffset.UtcNow, "h2", null, Severity.None, "APPROVAL", "b") { PolicyCode = "DENIED" }, CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("3", DateTimeOffset.UtcNow, "h3", null, Severity.Low, "approval", "c") { PolicyCode = "APPROVED" }, CancellationToken.None);
+        await store.AppendAsync(new AuditEntry("4", DateTimeOffset.UtcNow, "h4", null, Severity.Low, "SEC-01", "d"), CancellationToken.None);
+
+        async Task<string[]> Ids(AuditQuery query)
+        {
+            var ids = new List<string>();
+            await foreach (var e in store.QueryAsync(query, CancellationToken.None)) ids.Add(e.Id);
+            return [.. ids];
+        }
+
+        Assert.Equal(["1", "2"], await Ids(new AuditQuery { DetectorId = "APPROVAL" }));
+        Assert.Equal(["1", "3"], await Ids(new AuditQuery { PolicyCode = "APPROVED" }));
+        Assert.Equal(["1"], await Ids(new AuditQuery { DetectorId = "APPROVAL", PolicyCode = "APPROVED" }));
+        Assert.Empty(await Ids(new AuditQuery { PolicyCode = "approved" }));
+        Assert.Equal(4, (await Ids(new AuditQuery())).Length);
+    }
 }

@@ -67,9 +67,9 @@ public static class ServiceCollectionExtensions
         // Auto-register InMemoryApprovalStore if any binding has an ApprovalSpec and the user
         // hasn't registered an IApprovalStore yet. Keeps the happy path zero-config.
         if (opts.GetAuthorizationBindings().Any(b => b.ApprovalSpec is not null) &&
-            !services.Any(d => d.ServiceType == typeof(IApprovalStore)))
+            !ApprovalStoreAuditing.IsApprovalStoreRegistered(services))
         {
-            services.AddSingleton<IApprovalStore, InMemoryApprovalStore>();
+            services.AddSentinelApprovalStore(sp => new InMemoryApprovalStore(sp.GetService<TimeProvider>() ?? TimeProvider.System));
         }
 
         if (name is null)

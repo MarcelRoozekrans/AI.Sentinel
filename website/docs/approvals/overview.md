@@ -28,12 +28,17 @@ Some tool calls are too consequential to gate behind allow/deny alone — `delet
 
 ## Audit trail
 
-When an `IAuditStore` is registered, every approval decision is written to the hash-chained audit log as an informational entry with policy code `APPROVED`, `DENIED`, `EXPIRED` or `TIMED_OUT`. The entry names the policy, the tool and the request id, and never the arguments, the approver's note or any caller or approver id. AI.Sentinel's own surfaces record these decisions: the tool-call guard, `UseToolCallAuthorization`, the dashboard panel and the MCP proxy. A decision taken through an `IApprovalStore` or `IApprovalAdmin` that your code resolves straight from DI, as the ConsoleDemo sample's `/approve-demo` does, is not audited, and there is no public way yet to resolve an audited store.
+When an `IAuditStore` is registered, every approval decision is written to the hash-chained audit log as an informational entry with policy code `APPROVED`, `DENIED`, `EXPIRED` or `TIMED_OUT`. The entry names the policy, the tool and the request id, and never the arguments, the approver's note or any caller or approver id. The `IApprovalStore` and `IApprovalAdmin` that DI hands out for the built-in backends, and for a store registered with `AddSentinelApprovalStore`, are an auditing wrapper over the store, so a decision is recorded wherever it is taken: in the tool-call guard, `UseToolCallAuthorization`, the dashboard panel, the MCP proxy, or your own approval UI resolving either interface from DI. This holds in any registration order, and the wrapper writes to whichever `IAuditStore` is registered last. A backend still goes before an `AddAISentinel` that has `RequireApproval` bindings, as the [SQLite page](/docs/approvals/sqlite) explains. All of these share one wrapper, so a decision is written once.
+
+- **The concrete store is not audited.** Resolving `SqliteApprovalStore` by its own type returns the store itself, and a decision taken through it is not recorded. Resolve `IApprovalStore` or `IApprovalAdmin` instead, and don't cast either to a concrete store type: the cast fails while an audit store is registered.
+- **A custom store** is audited the same way when you register it with `AddSentinelApprovalStore`, as [Writing your own store](#writing-your-own-store) shows. One registered straight as `IApprovalStore` with `AddSingleton` is resolved from DI unwrapped: AI.Sentinel's own surfaces still record the decisions they take through it, but a decision your code takes through the `IApprovalStore` it resolves is not recorded. When such a store replaces the built-in in-memory store, the `IApprovalAdmin` you resolve is still an audited wrapper over it, so decisions taken through that interface are recorded.
+- **Keyed DI services.** The store itself is registered as a keyed singleton under a private key, and `IApprovalStore` and `IApprovalAdmin` are factories over it. `RemoveAll<IApprovalStore>()` removes the factory, and registering another backend afterwards replaces the rest. A third-party container must support keyed services, as Microsoft.Extensions.DependencyInjection 8 and later does.
+- **Without an `IAuditStore`** DI hands out the store unwrapped. The unnamed `AddAISentinel` always registers an in-memory audit store, so this happens only when you register named pipelines alone or the backend without `AddAISentinel`.
 
 With Entra PIM the decision is made in PIM, so AI.Sentinel records only what it observes:
 
 - **Denials**: a PIM denial is recorded only by a process that waits for the decision, such as the in-process chat client or the MCP proxy with `SENTINEL_MCP_APPROVAL_WAIT_SEC` set. The hook CLIs and the fail-fast MCP proxy never wait, so they never observe a denial: the caller's next attempt simply opens a new request. A Graph error while waiting is not a decision and is not recorded.
-- **Approvals in the hook CLIs**: each hook invocation is a new process that remembers nothing, so while a PIM grant is active every gated tool call appends another `APPROVED` entry for the same request. The [compliance report](/docs/compliance-report) counts each request once per outcome, so its totals are not inflated, but the number of `APPROVED` entries in the audit log is.
+- **Approvals in the hook CLIs**: each hook invocation is a new process that remembers nothing. The first time a process sees a PIM grant, it looks in the audit store for an `APPROVED` entry of that request, written since the grant started, and records the approval only when there is none. A grant is therefore normally recorded once across processes that share the audit store; two hook processes that see the grant at the same moment can both record it. If that lookup fails, the approval is recorded anyway, since a duplicate entry is better than a missing decision; the [compliance report](/docs/compliance-report) counts each request once per outcome either way.
 
 ## The three backends
 
@@ -69,7 +74,15 @@ Policies and approval requests see the real argument values, not [redaction](/do
 
 ## Writing your own store
 
-A custom backend implements `IApprovalStore`, and `IApprovalAdmin` as well when approvers decide in the [dashboard panel](/docs/approvals/dashboard). Set `RequestId` on every `ApprovalState.Active` and `ApprovalState.Denied` you return whenever the store knows the request, as the built-in stores do. [Approval decisions](#audit-trail) in the audit log are recorded under that id.
+A custom backend implements `IApprovalStore`, and `IApprovalAdmin` as well when approvers decide in the [dashboard panel](/docs/approvals/dashboard). Register it with `AddSentinelApprovalStore`, which the built-in backends use too, so the decisions taken through it are [audited](#audit-trail) wherever the store is resolved:
+
+```csharp
+services.AddSentinelApprovalStore(sp => new MyApprovalStore(sp.GetRequiredService<MyApprovalOptions>()));
+```
+
+It registers `IApprovalStore`, and `IApprovalAdmin` when your type implements it, and throws if an `IApprovalStore` is already registered. Register it before an `AddAISentinel` that has `RequireApproval` bindings, or that call registers the in-memory store first.
+
+Set `RequestId` on every `ApprovalState.Active` and `ApprovalState.Denied` you return whenever the store knows the request, as the built-in stores do. [Approval decisions](#audit-trail) in the audit log are recorded under that id.
 
 For a store that implements `IApprovalAdmin`, AI.Sentinel records `ApproveAsync` and `DenyAsync` itself, from the request id they are called with. For a store without it, whose decisions are made elsewhere as with Entra PIM, AI.Sentinel records what the store returns:
 

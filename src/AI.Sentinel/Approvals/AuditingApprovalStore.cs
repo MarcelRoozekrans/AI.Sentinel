@@ -20,6 +20,12 @@ internal class AuditingApprovalStore : IApprovalStore
     /// <summary>Reason of the <see cref="ApprovalState.Denied"/> the stores return for a grant that ran out.</summary>
     private const string ExpiredReason = "expired";
 
+    /// <summary>How far the clocks of two processes sharing an audit store may disagree.</summary>
+    internal static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(5);
+
+    /// <summary>The longest grant Entra PIM activates, which bounds a grant whose length is not known.</summary>
+    internal static readonly TimeSpan LongestGrant = TimeSpan.FromHours(24);
+
     private readonly IApprovalStore _inner;
     private readonly IAuditStore _audit;
     private readonly IAuditForwarder[] _forwarders;
@@ -55,7 +61,7 @@ internal class AuditingApprovalStore : IApprovalStore
         switch (state)
         {
             case ApprovalState.Pending p:
-                Memory.Requests[p.RequestId] = new ApprovalAuditMemory.RequestInfo(spec.PolicyName, context.ToolName);
+                Memory.Requests[p.RequestId] = new ApprovalAuditMemory.RequestInfo(spec.PolicyName, context.ToolName, spec.GrantDuration);
                 Remember(key, p.RequestId);
                 break;
 
@@ -67,7 +73,7 @@ internal class AuditingApprovalStore : IApprovalStore
                 if (grantedId is not null && Memory.Settled.TryAdd(grantedId, 0))
                 {
                     Memory.Requests.TryRemove(grantedId, out _);
-                    await WriteAsync(AuditEntryKinds.ApprovedPolicyCode, spec.PolicyName, context.ToolName, grantedId)
+                    await WriteApprovedOnceAsync(a, spec.GrantDuration, spec.PolicyName, context.ToolName, grantedId)
                         .ConfigureAwait(false);
                 }
                 break;
@@ -135,8 +141,15 @@ internal class AuditingApprovalStore : IApprovalStore
             {
                 var info = await LookUpAsync(requestId, ct).ConfigureAwait(false);
                 Memory.Requests.TryRemove(requestId, out _);
-                var code = state is ApprovalState.Active ? AuditEntryKinds.ApprovedPolicyCode : AuditEntryKinds.DeniedPolicyCode;
-                await WriteAsync(code, info.PolicyName, info.ToolName, settledId).ConfigureAwait(false);
+                if (state is ApprovalState.Active granted)
+                {
+                    await WriteApprovedOnceAsync(granted, info.GrantDuration, info.PolicyName, info.ToolName, settledId)
+                        .ConfigureAwait(false);
+                }
+                else
+                {
+                    await WriteAsync(AuditEntryKinds.DeniedPolicyCode, info.PolicyName, info.ToolName, settledId).ConfigureAwait(false);
+                }
             }
         }
         return state;
@@ -235,6 +248,87 @@ internal class AuditingApprovalStore : IApprovalStore
             _logger?.LogError(ex, "Could not read approval request {RequestId} for the audit log.", requestId);
         }
         return null;
+    }
+
+    /// <summary>
+    /// Records the grant <paramref name="requestId"/> of a store whose decisions are made elsewhere, unless another
+    /// process has already recorded it. Each hook invocation is a new process that remembers nothing, so the first time
+    /// this process sees a grant it looks for an earlier <c>APPROVED</c> entry of the request in the audit store.
+    /// </summary>
+    /// <param name="granted">The grant the store reported.</param>
+    /// <param name="grantDuration">The duration the request asked for, or <see langword="null"/> when unknown.</param>
+    /// <param name="policyName">The approval policy.</param>
+    /// <param name="toolName">The gated tool.</param>
+    /// <param name="requestId">The approval request.</param>
+    private async ValueTask WriteApprovedOnceAsync(
+        ApprovalState.Active granted, TimeSpan? grantDuration, string policyName, string toolName, string requestId)
+    {
+        var since = LookBackStart(granted.ExpiresAt, grantDuration, DateTimeOffset.UtcNow);
+        if (!await IsApprovalRecordedAsync(requestId, since).ConfigureAwait(false))
+        {
+            await WriteAsync(AuditEntryKinds.ApprovedPolicyCode, policyName, toolName, requestId).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// The earliest time an earlier process can have recorded the grant that expires at <paramref name="expiresAt"/>:
+    /// the grant's start, less <see cref="ClockSkew"/>. The start is <paramref name="expiresAt"/> less the requested
+    /// duration. When that duration is unknown, not positive, or shorter than the grant turned out to be, so that the
+    /// start would lie after <paramref name="now"/>, the start is taken as <see cref="LongestGrant"/> before the
+    /// expiry instead. It never lies after <paramref name="now"/>.
+    /// </summary>
+    /// <param name="expiresAt">When the grant expires.</param>
+    /// <param name="requested">The duration the request asked for, or <see langword="null"/> when unknown.</param>
+    /// <param name="now">The current time.</param>
+    internal static DateTimeOffset LookBackStart(DateTimeOffset expiresAt, TimeSpan? requested, DateTimeOffset now)
+    {
+        var start = requested is { } duration && duration > TimeSpan.Zero && expiresAt - duration <= now
+            ? expiresAt - duration
+            : expiresAt - LongestGrant;
+        return (start < now ? start : now) - ClockSkew;
+    }
+
+    /// <summary>
+    /// True when the audit store holds an <c>APPROVED</c> entry of <paramref name="requestId"/> timestamped at or after
+    /// <paramref name="since"/>. A failed read is logged and returns <see langword="false"/>: a duplicate entry is
+    /// better than a missing decision. Uses <see cref="CancellationToken.None"/>, as <see cref="WriteAsync"/> does.
+    /// </summary>
+    private async ValueTask<bool> IsApprovalRecordedAsync(string requestId, DateTimeOffset since)
+    {
+        // The built-in stores filter on the detector and the policy code; a custom store may return a superset, so both
+        // are checked again below. The read runs newest first and stops at the window edge, rather than passing the
+        // window as From, so SQLite walks the detector index without a timestamp range scan.
+        var query = new AuditQuery
+        {
+            DetectorId = AuditEntryKinds.ApprovalDetectorId,
+            PolicyCode = AuditEntryKinds.ApprovedPolicyCode,
+            PageSize = int.MaxValue,
+            Reverse = true,
+        };
+        try
+        {
+            await foreach (var entry in _audit.QueryAsync(query, CancellationToken.None).ConfigureAwait(false))
+            {
+                if (entry.Timestamp < since)
+                {
+                    break;
+                }
+                if (string.Equals(entry.DetectorId, AuditEntryKinds.ApprovalDetectorId, StringComparison.Ordinal)
+                    && string.Equals(entry.PolicyCode, AuditEntryKinds.ApprovedPolicyCode, StringComparison.Ordinal)
+                    && string.Equals(ApprovalStoreAuditing.RequestIdOf(entry.Summary), requestId, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+        }
+#pragma warning disable CA1031 // Auditing must never fail the decision; the failure is logged.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            _logger?.LogWarning(
+                ex, "Could not look for an earlier APPROVED audit entry of approval request {RequestId}; recording it.", requestId);
+        }
+        return false;
     }
 
     /// <summary>

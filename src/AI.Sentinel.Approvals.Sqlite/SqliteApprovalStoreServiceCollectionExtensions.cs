@@ -11,7 +11,9 @@ public static class SqliteApprovalStoreServiceCollectionExtensions
     /// Registers <see cref="SqliteApprovalStore"/> as the <see cref="IApprovalStore"/>
     /// (and <see cref="IApprovalAdmin"/>) for AI.Sentinel approval gates. State persists
     /// across process restarts via a SQLite database file — required for CLI deployments
-    /// where each invocation is a fresh process.
+    /// where each invocation is a fresh process. When an <c>IAuditStore</c> is registered, before or after this call,
+    /// the <see cref="IApprovalStore"/> and <see cref="IApprovalAdmin"/> resolved from DI record every approval
+    /// decision in the audit log; <see cref="SqliteApprovalStore"/> resolved by its own type does not.
     /// </summary>
     /// <remarks>
     /// Throws <see cref="InvalidOperationException"/> at registration time if an
@@ -25,7 +27,7 @@ public static class SqliteApprovalStoreServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
 
-        if (services.Any(sd => sd.ServiceType == typeof(IApprovalStore)))
+        if (services.Any(sd => sd.ServiceType == typeof(IApprovalStore) && !sd.IsKeyedService))
         {
             throw new InvalidOperationException(
                 "An IApprovalStore is already registered. Approval-store backends are exclusive — " +
@@ -38,8 +40,9 @@ public static class SqliteApprovalStoreServiceCollectionExtensions
         services.AddSingleton<SqliteApprovalStore>(sp =>
             new SqliteApprovalStore(sp.GetRequiredService<SqliteApprovalStoreOptions>()));
 
-        services.AddSingleton<IApprovalStore>(sp => sp.GetRequiredService<SqliteApprovalStore>());
-        services.AddSingleton<IApprovalAdmin>(sp => sp.GetRequiredService<SqliteApprovalStore>());
+        // IApprovalStore and IApprovalAdmin are the auditing wrapper whenever an IAuditStore is registered, so a
+        // decision taken through either is recorded. The concrete type stays resolvable and is the unwrapped store.
+        services.AddSentinelApprovalStore(sp => sp.GetRequiredService<SqliteApprovalStore>());
 
         return services;
     }

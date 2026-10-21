@@ -329,6 +329,16 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             sql.Append(" AND session_id = $session");
             cmd.Parameters.AddWithValue("$session", query.SessionId);
         }
+        if (query.DetectorId is not null)
+        {
+            sql.Append(" AND detector_id = $detector");
+            cmd.Parameters.AddWithValue("$detector", query.DetectorId);
+        }
+        if (query.PolicyCode is not null)
+        {
+            sql.Append(" AND policy_code = $policyCode");
+            cmd.Parameters.AddWithValue("$policyCode", query.PolicyCode);
+        }
         if (!string.IsNullOrEmpty(query.Source))
         {
             sql.Append(" AND source = $source COLLATE NOCASE");

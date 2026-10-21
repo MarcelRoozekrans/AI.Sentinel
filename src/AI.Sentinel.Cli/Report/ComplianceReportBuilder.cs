@@ -1,4 +1,5 @@
 using System.Globalization;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
@@ -223,8 +224,7 @@ internal static class ComplianceReportBuilder
         private void CountApproval(AuditEntry entry)
         {
             var outcome = entry.PolicyCode!;
-            var at = entry.Summary.LastIndexOf(AuditEntryKinds.ApprovalRequestMarker, StringComparison.Ordinal);
-            var id = at < 0 ? string.Empty : entry.Summary[(at + AuditEntryKinds.ApprovalRequestMarker.Length)..].Trim();
+            var id = ApprovalStoreAuditing.RequestIdOf(entry.Summary);
             if (id.Length == 0 || string.Equals(id, UnknownRequest, StringComparison.Ordinal))
             {
                 _unknownApprovals[outcome] = _unknownApprovals.GetValueOrDefault(outcome) + 1;
