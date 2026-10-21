@@ -11,20 +11,21 @@ public class PipelineForwarderIntegrationTests
     [Fact]
     public async Task AuditAppend_InvokesForwarderWithSingleEntryBatch()
     {
-        var fwd = new RecordingForwarder();
-        var services = new ServiceCollection();
-        services.AddAISentinel(opts => { });
-        services.AddSingleton<IAuditForwarder>(fwd);
-        var sp = services.BuildServiceProvider();
+        var fwd = new RecordingAuditForwarder();
+        var sp = BuildProvider(fwd);
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
 
-        // Wait for fire-and-forget propagation (bounded poll instead of fixed sleep — CI is slower)
-        await WaitUntilAsync(() => fwd.Batches.Count > 0);
+        // Each stored entry is forwarded on its own fire-and-forget task, so wait for all of them
+        // rather than for the first: a later one may still be landing while the test asserts.
+        var stored = await RecordingAuditForwarder.ReadAllAsync(sp.GetRequiredService<IAuditStore>());
+        Assert.NotEmpty(stored);
+        await fwd.WaitForAsync(stored.Count);
 
-        Assert.NotEmpty(fwd.Batches);
-        Assert.All(fwd.Batches, b => Assert.Single(b)); // single-entry batches
+        var batches = fwd.Batches;
+        Assert.Equal(stored.Count, batches.Count);
+        Assert.All(batches, b => Assert.Single(b)); // single-entry batches
     }
 
     [Fact]
@@ -32,10 +33,7 @@ public class PipelineForwarderIntegrationTests
     {
         // Forwarders must receive the chain hashes the store assigned, or a SIEM cannot verify them.
         var fwd = new RecordingAuditForwarder();
-        var services = new ServiceCollection();
-        services.AddAISentinel(opts => { });
-        services.AddSingleton<IAuditForwarder>(fwd);
-        var sp = services.BuildServiceProvider();
+        var sp = BuildProvider(fwd);
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
@@ -43,6 +41,7 @@ public class PipelineForwarderIntegrationTests
         var stored = await RecordingAuditForwarder.ReadAllAsync(sp.GetRequiredService<IAuditStore>());
         Assert.NotEmpty(stored);
         await fwd.WaitForAsync(stored.Count);
+        // Forwarding order across entries is not part of the contract: each entry runs on its own task.
         Assert.Equal(
             stored.OrderBy(e => e.Id, StringComparer.Ordinal),
             fwd.Entries.OrderBy(e => e.Id, StringComparer.Ordinal));
@@ -51,28 +50,26 @@ public class PipelineForwarderIntegrationTests
     [Fact]
     public async Task MultipleForwarders_AllReceiveEntry()
     {
-        var fwdA = new RecordingForwarder();
-        var fwdB = new RecordingForwarder();
-        var services = new ServiceCollection();
-        services.AddAISentinel(opts => { });
-        services.AddSingleton<IAuditForwarder>(fwdA);
-        services.AddSingleton<IAuditForwarder>(fwdB);
-        var sp = services.BuildServiceProvider();
+        var fwdA = new RecordingAuditForwarder();
+        var fwdB = new RecordingAuditForwarder();
+        var sp = BuildProvider(fwdA, fwdB);
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
         await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
-        await WaitUntilAsync(() => fwdA.Batches.Count > 0 && fwdB.Batches.Count > 0);
 
-        Assert.NotEmpty(fwdA.Batches);
-        Assert.NotEmpty(fwdB.Batches);
+        var stored = await RecordingAuditForwarder.ReadAllAsync(sp.GetRequiredService<IAuditStore>());
+        Assert.NotEmpty(stored);
+        await fwdA.WaitForAsync(stored.Count);
+        await fwdB.WaitForAsync(stored.Count);
+
+        Assert.Equal(stored.Count, fwdA.Entries.Count);
+        Assert.Equal(stored.Count, fwdB.Entries.Count);
     }
 
     [Fact]
     public async Task NoForwardersRegistered_PipelineWorksUnchanged()
     {
-        var services = new ServiceCollection();
-        services.AddAISentinel(opts => { });
-        var sp = services.BuildServiceProvider();
+        var sp = BuildProvider();
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
         var response = await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
@@ -83,11 +80,11 @@ public class PipelineForwarderIntegrationTests
     [Fact]
     public async Task NdjsonForwarder_PlusRecordingForwarder_BothReceiveEntry_ViaRealDI()
     {
-        // Already covered: 2 RecordingForwarders. New angle: NdjsonFileAuditForwarder (real impl) + RecordingForwarder.
+        // Already covered: 2 recording forwarders. New angle: NdjsonFileAuditForwarder (real impl) + a recording one.
         var ndjsonPath = Path.Combine(Path.GetTempPath(), $"sentinel-fanout-{Guid.NewGuid():N}.ndjson");
         try
         {
-            var recording = new RecordingForwarder();
+            var recording = new RecordingAuditForwarder();
             var services = new ServiceCollection();
             services.AddAISentinel(opts => { });
             services.AddSentinelNdjsonFileForwarder(opts => opts.FilePath = ndjsonPath);
@@ -97,20 +94,18 @@ public class PipelineForwarderIntegrationTests
             var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
             await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
 
-            // Both forwarders run fire-and-forget on Task.Run — wait for BOTH before
-            // disposing the SP, otherwise DisposeAsync on the NDJSON forwarder closes the
-            // FileStream while its Task.Run is still mid-write (ObjectDisposedException
-            // gets swallowed by the fail-open contract, file ends up empty).
-            await WaitUntilAsync(() =>
-                recording.Batches.Count > 0 &&
-                File.Exists(ndjsonPath) &&
-                new FileInfo(ndjsonPath).Length > 0);
+            var stored = await RecordingAuditForwarder.ReadAllAsync(sp.GetRequiredService<IAuditStore>());
+            Assert.NotEmpty(stored);
+            await recording.WaitForAsync(stored.Count);
 
-            Assert.NotEmpty(recording.Batches);
-            // Dispose closes the NDJSON FileStream so File.ReadAllLines doesn't trip on a sharing violation.
+            // Both forwarders run fire-and-forget on Task.Run. Wait until every stored entry is in
+            // the file before disposing the provider: a send that starts after DisposeAsync is
+            // dropped by the fail-open contract and the file would come up short. The file has no
+            // completion signal, so this one wait polls it; the bound is a hang detector.
+            await WaitForLinesAsync(ndjsonPath, stored.Count);
+
             await ((IAsyncDisposable)sp).DisposeAsync();
-            var lines = File.ReadAllLines(ndjsonPath);
-            Assert.NotEmpty(lines);
+            Assert.Equal(stored.Count, File.ReadAllLines(ndjsonPath).Length);
         }
         finally
         {
@@ -123,63 +118,76 @@ public class PipelineForwarderIntegrationTests
     [Fact]
     public async Task SlowForwarder_DoesNotBlockPipeline()
     {
-        var slow = new SlowForwarder(TimeSpan.FromSeconds(2));
-        var services = new ServiceCollection();
-        services.AddAISentinel(opts => { });
-        services.AddSingleton<IAuditForwarder>(slow);
-        var sp = services.BuildServiceProvider();
+        // The invariant is "the pipeline did not await the forwarder". The forwarder blocks until the
+        // test releases it, so the call can only complete if the pipeline did not wait for it. A
+        // wall-clock threshold, or a forwarder that finishes on its own after a delay, would make the
+        // result depend on how loaded the machine is.
+        var slow = new BlockingForwarder();
+        var sp = BuildProvider(slow);
 
         var client = new ChatClientBuilder(new EchoChatClient()).UseAISentinel().Build(sp);
-        await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken);
-
-        // The invariant is "the pipeline did not await the forwarder", not "the call took under
-        // 500 ms". A wall-clock threshold fails on a loaded machine for reasons unrelated to the
-        // forwarder — which is how this test cost a release once. If the pipeline had awaited a
-        // two-second forwarder, it would have finished; that it has not is the actual proof.
-        await WaitUntilAsync(() => slow.Started);
-        Assert.True(slow.Started, "the forwarder never ran, so the test proves nothing");
-        Assert.False(slow.Completed, "the pipeline awaited the slow forwarder");
-    }
-
-    /// <summary>
-    /// Polls <paramref name="condition"/> until it returns true or the timeout elapses.
-    /// Replaces brittle fixed-duration <c>Task.Delay</c> waits which can flake on slower CI.
-    /// </summary>
-    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5_000, int pollMs = 25)
-    {
-        var deadline = Environment.TickCount + timeoutMs;
-        while (!condition())
+        try
         {
-            if (Environment.TickCount > deadline) return;
-            await Task.Delay(pollMs).ConfigureAwait(false);
+            await client.GetResponseAsync([new ChatMessage(ChatRole.User, "hello")], default, TestContext.Current.CancellationToken)
+                .WaitAsync(RecordingAuditForwarder.DefaultWaitTimeout, TestContext.Current.CancellationToken);
+
+            await slow.Started.WaitAsync(RecordingAuditForwarder.DefaultWaitTimeout, TestContext.Current.CancellationToken);
+            Assert.False(slow.Completed, "the pipeline awaited the slow forwarder");
+        }
+        finally
+        {
+            slow.Release();
         }
     }
 
-    private sealed class RecordingForwarder : IAuditForwarder
+    private static ServiceProvider BuildProvider(params IAuditForwarder[] forwarders)
     {
-        public List<IReadOnlyList<AuditEntry>> Batches { get; } = new();
-        public ValueTask SendAsync(IReadOnlyList<AuditEntry> batch, CancellationToken ct)
+        var services = new ServiceCollection();
+        services.AddAISentinel(opts => { });
+        foreach (var forwarder in forwarders)
         {
-            lock (Batches) Batches.Add(batch);
-            return ValueTask.CompletedTask;
+            services.AddSingleton(forwarder);
         }
+        return services.BuildServiceProvider();
     }
 
-    private sealed class SlowForwarder(TimeSpan delay) : IAuditForwarder
+    /// <summary>Polls <paramref name="path"/> until it holds <paramref name="count"/> lines.
+    /// Reads with a share mode that lets the forwarder keep writing.</summary>
+    private static async Task WaitForLinesAsync(string path, int count)
     {
-        public volatile bool Started;
-        public volatile bool Completed;
-
-        public ValueTask SendAsync(IReadOnlyList<AuditEntry> batch, CancellationToken ct)
+        var deadline = DateTime.UtcNow + RecordingAuditForwarder.DefaultWaitTimeout;
+        var lines = 0;
+        while (DateTime.UtcNow < deadline)
         {
-            Started = true;
-            return new(RunAsync(ct));
+            if (File.Exists(path))
+            {
+                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(stream);
+                var text = await reader.ReadToEndAsync(TestContext.Current.CancellationToken);
+                lines = text.AsSpan().Count('\n');
+                if (lines >= count) return;
+            }
+            await Task.Delay(25, TestContext.Current.CancellationToken);
         }
+        throw new TimeoutException($"Expected {count} lines in {path}, found {lines}.");
+    }
 
-        private async Task RunAsync(CancellationToken ct)
+    private sealed class BlockingForwarder : IAuditForwarder
+    {
+        private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private volatile bool _completed;
+
+        public Task Started => _started.Task;
+        public bool Completed => _completed;
+
+        public void Release() => _release.TrySetResult();
+
+        public async ValueTask SendAsync(IReadOnlyList<AuditEntry> batch, CancellationToken ct)
         {
-            await Task.Delay(delay, ct).ConfigureAwait(false);
-            Completed = true;
+            _started.TrySetResult();
+            await _release.Task;
+            _completed = true;
         }
     }
 
