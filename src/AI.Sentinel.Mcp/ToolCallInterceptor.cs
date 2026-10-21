@@ -33,6 +33,8 @@ namespace AI.Sentinel.Mcp;
 /// When a <see cref="PlaceholderStore"/> is supplied, the result's text blocks, allowlisted embedded text resources
 /// and structured content are redacted before they reach the agent, and the redacted result is what the response
 /// scan judges. Without one, the result is scanned as in 3.0 and a finding falls back to its severity action.
+/// With a store, PII placeholders minted in earlier results are restored in the arguments the guard and the tool
+/// see. The request scan still judges the arguments as the agent sent them, with the store's placeholders exempt.
 /// </remarks>
 internal static class ToolCallInterceptor
 {
@@ -80,15 +82,21 @@ internal static class ToolCallInterceptor
         var req = ctx.Params ?? throw new McpProtocolException(
             "missing tool call parameters", McpErrorCode.InvalidParams);
 
+        // PII placeholders the proxy minted in earlier results get their values back before the tool, and the
+        // guard, see the arguments. The scans keep judging the arguments as the agent sent them.
+        var forwarded = WithRestoredArguments(req, redaction?.Placeholders);
+
         if (guard is not null)
         {
-            await AuthorizeAsync(guard, audit, forwarders, callerResolver, approvalStore, approvalWait, sessionId, req, stderr, ct).ConfigureAwait(false);
+            await AuthorizeAsync(guard, audit, forwarders, callerResolver, approvalStore, approvalWait, sessionId, forwarded, stderr, ct).ConfigureAwait(false);
         }
 
         var requestMessages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes);
-        var preError = await ScanSafelyAsync(pipeline, requestMessages, stderr, phase: "request", sessionId, ct).ConfigureAwait(false);
+        var preError = await ScanSafelyAsync(
+            pipeline, requestMessages, stderr, phase: "request", sessionId, redaction?.Placeholders.KnownTokens(), ct).ConfigureAwait(false);
         await BlockIfThreatAsync(preError, req.Name, stderr, phase: "request").ConfigureAwait(false);
 
+        ctx.Params = forwarded;
         var result = await next(ctx, ct).ConfigureAwait(false);
 
         if (redaction is not null)
@@ -97,13 +105,37 @@ internal static class ToolCallInterceptor
         }
 
         var responseMessages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes);
-        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", sessionId, ct).ConfigureAwait(false);
+        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", sessionId, exemptPlaceholders: null, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(postError, req.Name, stderr, phase: "response").ConfigureAwait(false);
 
         await stderr.WriteLineAsync(
             $"[sentinel-mcp] event=tools/call decision=Allow tool={req.Name}"
         ).ConfigureAwait(false);
         return result;
+    }
+
+    /// <summary>
+    /// <paramref name="req"/> with every live PII placeholder in its arguments restored to its value. A secret's
+    /// token, an expired or evicted one and one the proxy never minted stay literal. Returns <paramref name="req"/>
+    /// itself when there is no store or nothing to restore; otherwise a copy, so the request the agent sent stays
+    /// as it was for the scans and the response context.
+    /// </summary>
+    private static CallToolRequestParams WithRestoredArguments(CallToolRequestParams req, PlaceholderStore? placeholders)
+    {
+        var restored = placeholders?.RestoreToolArguments(req.Arguments);
+        if (restored is null || ReferenceEquals(restored, req.Arguments))
+        {
+            return req;
+        }
+
+        return new CallToolRequestParams
+        {
+            Name = req.Name,
+            Arguments = restored,
+            Meta = req.Meta,
+            InputResponses = req.InputResponses,
+            RequestState = req.RequestState,
+        };
     }
 
     /// <summary>
@@ -307,11 +339,12 @@ internal static class ToolCallInterceptor
         TextWriter stderr,
         string phase,
         SessionId? sessionId,
+        IReadOnlySet<string>? exemptPlaceholders,
         CancellationToken ct)
     {
         try
         {
-            return await pipeline.ScanMessagesAsync(messages, ct: ct, sessionId: sessionId).ConfigureAwait(false);
+            return await pipeline.ScanMessagesExemptingAsync(messages, sessionId, exemptPlaceholders, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

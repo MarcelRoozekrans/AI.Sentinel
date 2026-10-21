@@ -48,6 +48,7 @@ internal static class ProxyCommand
         var config = ResolveHookConfig(args, envVars);
         var preset = ParsePreset(envVars);
         var maxScanBytes = ParseMaxScanBytes(envVars);
+        var placeholderIdleExpiry = ParseRedactionIdleExpiry(envVars);
 
         // Every proxy process records to the shared local audit file unless SENTINEL_MCP_AUDIT_SQLITE=off.
         // Opening never throws; problems are reported on stderr, which is not model-facing here.
@@ -73,7 +74,7 @@ internal static class ProxyCommand
             if (configError) return 1;
 
             return await RunProxyAsync(
-                targetCommand, targetArgs, config, preset, maxScanBytes,
+                targetCommand, targetArgs, config, preset, maxScanBytes, placeholderIdleExpiry,
                 stderr, ct, guard, approvalStore, approvalWait, audit, transportFactory).ConfigureAwait(false);
         }
         finally
@@ -119,7 +120,7 @@ internal static class ProxyCommand
 
     private static async Task<int> RunProxyAsync(
         string targetCommand, string[] targetArgs, HookConfig config, McpDetectorPreset preset,
-        int maxScanBytes, TextWriter stderr, CancellationToken ct,
+        int maxScanBytes, TimeSpan placeholderIdleExpiry, TextWriter stderr, CancellationToken ct,
         IToolCallGuard? guard, IApprovalStore? approvalStore, TimeSpan? approvalWait,
         LocalAuditSession audit, Func<(ITransport Host, IClientTransport Target)>? transportFactory)
     {
@@ -142,7 +143,8 @@ internal static class ProxyCommand
                 approvalStore: approvalStore,
                 approvalWait: approvalWait,
                 auditStore: audit.Store,
-                forwarders: audit.Forwarders).ConfigureAwait(false);
+                forwarders: audit.Forwarders,
+                placeholderIdleExpiry: placeholderIdleExpiry).ConfigureAwait(false);
             return 0;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -175,6 +177,8 @@ internal static class ProxyCommand
     /// CLI flags (<c>--on-critical</c>/<c>--on-high</c>/<c>--on-medium</c>/<c>--on-low</c>)
     /// override the corresponding <c>SENTINEL_MCP_ON_*</c> env vars, which fall back to the
     /// existing <c>SENTINEL_HOOK_ON_*</c> env vars consumed by <see cref="HookConfig.FromEnvironment"/>.
+    /// <c>SENTINEL_MCP_COMPLIANCE</c> and <c>SENTINEL_MCP_REDACT</c> likewise fall back to their
+    /// <c>SENTINEL_HOOK_*</c> counterparts.
     /// </summary>
     internal static HookConfig ResolveHookConfig(string[] args, IReadOnlyDictionary<string, string?> envVars)
     {
@@ -186,6 +190,7 @@ internal static class ProxyCommand
             OnMedium = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_MEDIUM", envBaseline.OnMedium),
             OnLow = SeverityFlagParser.Parse(args, "SENTINEL_MCP_ON_LOW", envBaseline.OnLow),
             EnableComplianceDetectors = ParseSwitch(envVars, "SENTINEL_MCP_COMPLIANCE") ?? envBaseline.EnableComplianceDetectors,
+            RedactToolResults = ParseSwitch(envVars, "SENTINEL_MCP_REDACT") ?? envBaseline.RedactToolResults,
         };
     }
 
@@ -220,6 +225,18 @@ internal static class ProxyCommand
             && parsed > 0)
             return parsed;
         return 262144; // 256 KB default
+    }
+
+    /// <summary>Reads <c>SENTINEL_MCP_REDACT_TTL_MIN</c>, how many minutes a placeholder the proxy minted stays
+    /// restorable after its last use. A positive integer is taken; anything else keeps
+    /// <see cref="Redaction.PlaceholderStore.DefaultIdleExpiry"/>.</summary>
+    internal static TimeSpan ParseRedactionIdleExpiry(IReadOnlyDictionary<string, string?> env)
+    {
+        if (env.TryGetValue("SENTINEL_MCP_REDACT_TTL_MIN", out var value)
+            && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes)
+            && minutes > 0)
+            return TimeSpan.FromMinutes(minutes);
+        return Redaction.PlaceholderStore.DefaultIdleExpiry;
     }
 
     private static bool IsTargetFailure(Exception ex) =>

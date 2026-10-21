@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AI.Sentinel.Audit;
+using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
@@ -12,6 +13,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Xunit;
+using ZeroAlloc.Authorization;
 
 namespace AI.Sentinel.Tests.Mcp;
 
@@ -339,5 +341,83 @@ public class McpRedactionTests
         var entries = await RecordingAuditForwarder.ReadAllAsync(store);
         Assert.Contains(entries, e => e.Summary.EndsWith("; not redacted", StringComparison.Ordinal));
         Assert.DoesNotContain(entries, IsRedactedEntry);
+    }
+
+    private const string EmailToken = "[EMAIL_1_k3f9x2]";
+
+    private static PlaceholderStore StoreWithEmail()
+    {
+        var placeholders = NewStore();
+        placeholders.Register([new MintedPlaceholder(EmailToken, Email, RestoreIntoToolArguments: true)]);
+        return placeholders;
+    }
+
+    private static Dictionary<string, JsonElement> EmailArgs() =>
+        new(StringComparer.Ordinal) { ["to"] = Json($"\"{EmailToken}\"") };
+
+    [Fact]
+    public async Task Guard_SeesRestoredArguments()
+    {
+        var (pipeline, _) = Build();
+        var guard = new RecordingGuard();
+        CallToolRequestParams? forwarded = null;
+        var filter = ToolCallInterceptor.Create(
+            pipeline, MaxScanBytes, TextWriter.Null, guard: guard, placeholders: StoreWithEmail());
+        var handler = filter((ctx, _) =>
+        {
+            forwarded = ctx.Params;
+            return new ValueTask<CallToolResult>(new CallToolResult { Content = [] });
+        });
+        var request = new CallToolRequestParams { Name = "send", Arguments = EmailArgs() };
+
+        _ = await handler(Context(request), TestContext.Current.CancellationToken);
+
+        Assert.Contains(Email, Assert.Single(guard.Seen), StringComparison.Ordinal);
+        Assert.Equal(Email, forwarded?.Arguments?["to"].GetString());
+        Assert.Equal(EmailToken, request.Arguments!["to"].GetString());
+    }
+
+    [Fact]
+    public async Task RequestScan_JudgesArgumentsAsSent_PlaceholderExempt()
+    {
+        var options = new SentinelOptions
+        {
+            OnCritical = SentinelAction.Quarantine,
+            OnHigh = SentinelAction.Quarantine,
+            OnMedium = SentinelAction.Quarantine,
+            OnLow = SentinelAction.Quarantine,
+        };
+        var pipeline = McpPipelineFactory.Assemble(
+            options, [new PiiLeakageDetector(), new CredentialExposureDetector()], new RingBufferAuditStore(capacity: 16));
+        string? forwardedTo = null;
+        var filter = ToolCallInterceptor.Create(pipeline, MaxScanBytes, TextWriter.Null, placeholders: StoreWithEmail());
+        var handler = filter((ctx, _) =>
+        {
+            forwardedTo = ctx.Params!.Arguments!["to"].GetString();
+            return new ValueTask<CallToolResult>(new CallToolResult { Content = [new TextContentBlock { Text = "sent" }] });
+        });
+
+        _ = await handler(
+            Context(new CallToolRequestParams { Name = "send", Arguments = EmailArgs() }),
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(Email, forwardedTo);
+    }
+
+    private sealed class RecordingGuard : IToolCallGuard
+    {
+        private readonly List<string> _seen = [];
+
+        public IReadOnlyList<string> Seen
+        {
+            get { lock (_seen) { return _seen.ToArray(); } }
+        }
+
+        public ValueTask<AuthorizationDecision> AuthorizeAsync(
+            ISecurityContext caller, string toolName, JsonElement args, CancellationToken ct = default)
+        {
+            lock (_seen) { _seen.Add(args.GetRawText()); }
+            return ValueTask.FromResult<AuthorizationDecision>(AuthorizationDecision.Allow);
+        }
     }
 }
