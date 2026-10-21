@@ -69,8 +69,7 @@ public static class ServiceCollectionExtensions
         if (opts.GetAuthorizationBindings().Any(b => b.ApprovalSpec is not null) &&
             !services.Any(d => d.ServiceType == typeof(IApprovalStore)))
         {
-            ApprovalStoreAuditing.AddApprovalStore(
-                services, sp => new InMemoryApprovalStore(sp.GetService<TimeProvider>() ?? TimeProvider.System));
+            services.AddSentinelApprovalStore(sp => new InMemoryApprovalStore(sp.GetService<TimeProvider>() ?? TimeProvider.System));
         }
 
         if (name is null)

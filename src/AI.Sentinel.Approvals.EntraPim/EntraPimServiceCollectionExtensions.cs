@@ -69,7 +69,7 @@ public static class EntraPimServiceCollectionExtensions
 
         // The IApprovalStore DI hands out is the auditing wrapper whenever an IAuditStore is
         // registered, before or after this call, so the PIM decisions it observes are recorded.
-        ApprovalStoreAuditing.AddApprovalStore(services, sp =>
+        services.AddSentinelApprovalStore(sp =>
             new EntraPimApprovalStore(
                 sp.GetRequiredService<IGraphRoleClient>(),
                 sp.GetRequiredService<EntraPimOptions>()));

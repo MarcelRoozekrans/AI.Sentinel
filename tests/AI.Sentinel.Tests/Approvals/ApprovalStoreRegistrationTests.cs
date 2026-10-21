@@ -194,6 +194,79 @@ public sealed class ApprovalStoreRegistrationTests : IDisposable
         Assert.Same(concrete, sp.GetRequiredService<IApprovalAdmin>());
     }
 
+    [Theory]
+    [InlineData(Order.StoreBeforeSentinel)]
+    [InlineData(Order.StoreAfterSentinel)]
+    public async Task CustomAdminStore_RegisteredThroughAddSentinelApprovalStore_DiAdminApprovalIsAudited(Order order)
+    {
+        var services = new ServiceCollection();
+        if (order == Order.StoreBeforeSentinel) services.AddSentinelApprovalStore(_ => new CustomAdminStore());
+        AddSentinel(services, order);
+        if (order == Order.StoreAfterSentinel) services.AddSentinelApprovalStore(_ => new CustomAdminStore());
+        using var audit = new RingBufferAuditStore();
+        services.AddSingleton<IAuditStore>(audit);
+        await using var sp = services.BuildServiceProvider();
+
+        var store = sp.GetRequiredService<IApprovalStore>();
+        Assert.Same(store, sp.GetRequiredService<IApprovalAdmin>());
+        Assert.Same(store, ApprovalStoreAuditing.Resolve(sp));
+        var requestId = await OpenRequestAsync(store);
+        await sp.GetRequiredService<IApprovalAdmin>().ApproveAsync(requestId, "approver", null, Ct);
+
+        Assert.Single(await ApprovedEntriesAsync(audit));
+    }
+
+    [Fact]
+    public async Task CustomStoreWithoutAdmin_RegisteredThroughAddSentinelApprovalStore_IsWrapped_AndNoAdminIsRegistered()
+    {
+        var services = new ServiceCollection();
+        services.AddSentinelApprovalStore(_ => new CustomStore());
+        services.AddAISentinel(Gate);
+        await using var sp = services.BuildServiceProvider();
+
+        Assert.IsType<AuditingApprovalStore>(sp.GetRequiredService<IApprovalStore>());
+        Assert.Null(sp.GetService<IApprovalAdmin>());
+    }
+
+    [Fact]
+    public void AddSentinelApprovalStore_WhenAStoreIsAlreadyRegistered_Throws()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IApprovalStore>(new CustomStore());
+
+        Assert.Throws<InvalidOperationException>(() => services.AddSentinelApprovalStore(_ => new CustomAdminStore()));
+    }
+
+    /// <summary>A host's own store with an admin surface, over the in-memory store.</summary>
+    private sealed class CustomAdminStore : IApprovalStore, IApprovalAdmin
+    {
+        private readonly InMemoryApprovalStore _inner = new();
+
+        public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
+            _inner.EnsureRequestAsync(caller, spec, context, ct);
+
+        public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
+            _inner.WaitForDecisionAsync(requestId, timeout, ct);
+
+        public ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct) =>
+            _inner.ApproveAsync(requestId, approverId, note, ct);
+
+        public ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct) =>
+            _inner.DenyAsync(requestId, approverId, reason, ct);
+
+        public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => _inner.ListPendingAsync(ct);
+    }
+
+    /// <summary>A host's own store whose decisions are made elsewhere.</summary>
+    private sealed class CustomStore : IApprovalStore
+    {
+        public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
+            ValueTask.FromResult<ApprovalState>(new ApprovalState.Pending("custom-1", "https://approve", DateTimeOffset.UtcNow));
+
+        public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
+            ValueTask.FromResult<ApprovalState>(new ApprovalState.Pending(requestId, "https://approve", DateTimeOffset.UtcNow));
+    }
+
     private sealed class TestCaller(string id) : ISecurityContext
     {
         public string Id { get; } = id;

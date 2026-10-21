@@ -42,7 +42,7 @@ public static class SqliteApprovalStoreServiceCollectionExtensions
 
         // IApprovalStore and IApprovalAdmin are the auditing wrapper whenever an IAuditStore is registered, so a
         // decision taken through either is recorded. The concrete type stays resolvable and is the unwrapped store.
-        ApprovalStoreAuditing.AddApprovalStore(services, sp => sp.GetRequiredService<SqliteApprovalStore>());
+        services.AddSentinelApprovalStore(sp => sp.GetRequiredService<SqliteApprovalStore>());
 
         return services;
     }
