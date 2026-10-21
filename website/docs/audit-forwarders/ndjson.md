@@ -5,7 +5,7 @@ title: NDJSON file
 
 # NDJSON file forwarder
 
-Append-only NDJSON (newline-delimited JSON) file forwarder. Zero external dependencies — direct `StreamWriter` append. Operators ship the file via Filebeat, Vector, Fluent Bit, or any log shipper. Universal SIEM coverage by way of "the lowest common denominator everyone supports".
+Append-only NDJSON (newline-delimited JSON) file forwarder. Zero external dependencies — each batch is serialised to UTF-8 and appended to the file in one write. Operators ship the file via Filebeat, Vector, Fluent Bit, or any log shipper. Universal SIEM coverage by way of "the lowest common denominator everyone supports".
 
 Lives in the core `AI.Sentinel` package — no separate install.
 
@@ -19,7 +19,7 @@ services.AddSentinelNdjsonFileForwarder(opts =>
 });
 ```
 
-The directory must exist (or be creatable by the process). The forwarder opens the file in append mode at registration time and keeps the handle open for the process lifetime.
+The directory must exist and be writable by the process: next to the file the forwarder keeps a lock file, `<file>.lock`, which it may need to create. At registration time it creates both files if they are missing, which checks that it can write there, then opens them once per batch and closes them again, so it holds no handle between writes.
 
 ## File format
 
@@ -34,26 +34,50 @@ Every entry is a complete `AuditEntry` serialized via the source-gen JSON contex
 
 ## Performance
 
-- Direct file append, no buffering
-- ~10–30 µs per write on local SSD
+- Direct file append, no buffering: each batch is one write call
+- Opens the file and its lock file per batch, a few tens of µs on a local SSD
 - Thread-safe via internal `SemaphoreSlim` — concurrent writes serialize cleanly
-- Flushes after every entry (durability over throughput)
+- Flushes after every batch (durability over throughput)
 
 The forwarder is **not** wrapped in `BufferingAuditForwarder` — file appends are already fast enough that batching adds latency without meaningful gain.
 
 ## Several processes on one file
 
-The forwarder opens the file with `FileShare.Read`, so on Windows a second process cannot open it for writing and its constructor throws. On Linux and macOS the OS allows concurrent appends. For several writer processes on Windows, give each its own file, or use the [SQLite store](./sqlite), which supports them. See [#349](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/349).
+Several processes, and several forwarders in one process, can append to the same file on Windows, Linux and macOS. The Claude Code and Copilot hooks and the MCP proxy can all point `SENTINEL_HOOK_AUDIT_NDJSON` / `SENTINEL_MCP_AUDIT_NDJSON` at one path.
+
+Each batch is appended under a lock file next to the NDJSON file, `<file>.lock`:
+
+1. The forwarder opens `<file>.lock` exclusively, retrying with a short backoff while another writer holds it.
+2. It opens the NDJSON file at its current end, writes the whole batch in one call, flushes and closes it. If the write or flush fails, for example on a full disk, it cuts the file back to where the batch started.
+3. It closes the lock file, which releases the lock, also when the write fails.
+
+A batch is therefore never interleaved with, or written over, another writer's batch, and every line is a complete JSON object. The one exception is a writer process that dies in the middle of a write. It can leave a partial last line, and the next batch's first entry is appended to that partial line, so one line does not parse. The operating system releases the lock when a writer process dies, so a crashed process cannot block the others. Leave `<file>.lock` in place; deleting it while a writer holds it breaks the exclusion.
+
+The file is opened with `FileShare.ReadWrite | FileShare.Delete`, so log shippers can read it and rotation can rename or delete it while writers are running. On Windows, readers must open the file with `FileShare.ReadWrite` too. A reader that allows only `FileShare.Read` blocks every writer for as long as it keeps the file open. Writers retry while it does, within the same `LockTimeout`.
+
+If a writer cannot take the lock, or open the file under it, within `LockTimeout` (default 5 seconds), that batch is dropped and reported like any other send failure:
+
+```csharp
+services.AddSentinelNdjsonFileForwarder(opts =>
+{
+    opts.FilePath = "/var/log/ai-sentinel/audit.ndjson";
+    opts.LockTimeout = TimeSpan.FromSeconds(10);
+});
+```
+
+On Linux and macOS the lock is an advisory `flock` that .NET takes for exclusive opens. Every AI.Sentinel writer honours it; a non-.NET process writing to the same file does not, and neither does a .NET process run with `DOTNET_SYSTEM_IO_DISABLEFILELOCKING=1`.
 
 ## Failure handling
 
-Per the [forwarder reliability contract](./overview#forwarder-reliability), failures swallow + log + count:
+Per the [forwarder reliability contract](./overview#forwarder-reliability), a send never throws. A failed batch is dropped and reported as one `event=audit_forward action=send_error forwarder=NdjsonFile error=<type> inner=<type>` line. This forwarder keeps no drop counter.
 
 | Failure | What happens |
 |---|---|
-| Disk full | Exception swallowed, stderr log, `audit.forward.dropped++` |
-| File handle closed externally | First write detects, swallows, logs once per minute (rate-limited) |
-| Permission denied at startup | Constructor throws — registration fails, app fails fast |
+| Disk full or another I/O error | Partial batch cut back, batch dropped, `action=send_error` reported with the exception type |
+| File deleted or rotated away | The next batch creates the file again at the configured path |
+| Lock file, or the file itself, held past `LockTimeout` | Batch dropped, `action=send_error error=TimeoutException inner=IOException` reported |
+| Send after the forwarder is disposed | Batch dropped, `action=send_dropped reason=disposed` reported |
+| File or directory not writable at startup | Constructor throws — registration fails, app fails fast |
 
 By default a send failure or dropped batch is written to `Console.Error`. Set `OnError` when stderr is reserved for other output, as in a hook process, where stderr carries the reason fed back to the model:
 
@@ -67,7 +91,7 @@ services.AddSentinelNdjsonFileForwarder(opts =>
 
 `OnError` receives one line per failure. The callback must not throw; an exception from it is ignored. The CLIs set it to collect problems instead of printing them.
 
-The "fail at startup" rule for permission denied is intentional. If you can't open the file at registration time, the configuration is broken and you want to know immediately, not at first request.
+The "fail at startup" rule for permission denied is intentional. If you can't open the file or create its lock file at registration time, the configuration is broken and you want to know immediately, not at first request.
 
 ## Log shipping patterns
 
@@ -127,7 +151,7 @@ default_api_key = "${DD_API_KEY}"
 
 The forwarder doesn't rotate the file itself — that's by design. Use an external mechanism:
 
-- **logrotate** (Linux) — daily/size-based rotation with `copytruncate` mode
+- **logrotate** (Linux) — daily/size-based rotation; both `copytruncate` and the default rename-and-create mode work, because the forwarder opens the file per batch
 - **Vector / Fluent Bit** — built-in rotation while ingesting
 - **Container orchestrator** — Kubernetes' `RotateKubeletServerCertificate` and similar
 
