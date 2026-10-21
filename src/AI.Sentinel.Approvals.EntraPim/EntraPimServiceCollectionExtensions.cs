@@ -16,6 +16,9 @@ public static class EntraPimServiceCollectionExtensions
     /// <see cref="ChainedTokenCredential"/> by default (managed identity → workload
     /// identity → environment vars → Azure CLI). Operators can override the credential
     /// by registering a <see cref="TokenCredential"/> in DI BEFORE calling this extension.
+    /// When an <c>IAuditStore</c> is registered, before or after this call, the <see cref="IApprovalStore"/>
+    /// resolved from DI is an auditing wrapper over the store that records the PIM decisions it observes;
+    /// it cannot be cast to <see cref="EntraPimApprovalStore"/>.
     /// </summary>
     /// <remarks>
     /// Required Graph permissions (admin-consent in Entra):

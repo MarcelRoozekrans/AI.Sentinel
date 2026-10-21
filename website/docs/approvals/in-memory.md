@@ -34,7 +34,7 @@ services.AddAISentinel(opts =>
 
 ## Approver UX
 
-Mount the [dashboard](/docs/approvals/dashboard) — operators approve/deny via the pending-approvals panel. The `IApprovalAdmin` interface (which `InMemoryApprovalStore` implements) is what powers the panel's POST endpoints.
+Mount the [dashboard](/docs/approvals/dashboard) — operators approve/deny via the pending-approvals panel. The `IApprovalAdmin` interface (which `InMemoryApprovalStore` implements) is what powers the panel's POST endpoints. Your own approval UI can resolve `IApprovalAdmin` from DI as well; the decisions it takes are [audited](/docs/approvals/overview#audit-trail).
 
 ## Behavior notes
 
