@@ -184,8 +184,10 @@ public static class ServiceCollectionExtensions
                 // legitimately produce differently-constructed instances of the same type.
                 services.TryAddEnumerable(ServiceDescriptor.Singleton(typeof(IDetector), detectorType));
             }
-            else if (reg.Factory is { } factory)
+            else
             {
+                // The DetectorRegistration constructor guarantees a factory when there is no type.
+                var factory = reg.Factory!;
                 services.AddSingleton<IDetector>(sp => factory(sp));
             }
         }
