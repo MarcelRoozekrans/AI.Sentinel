@@ -26,6 +26,9 @@ public static class ApprovalStoreServiceCollectionExtensions
     /// The store is registered as a keyed singleton under a private key, so resolve it through
     /// <see cref="IApprovalStore"/> or <see cref="IApprovalAdmin"/>; neither can be cast to
     /// <typeparamref name="TStore"/> while an audit store is registered. Approval-store backends are exclusive.
+    /// <see cref="IApprovalAdmin"/> follows the active store: if a store without an admin surface replaces this
+    /// registration, resolving <see cref="IApprovalAdmin"/> returns <see langword="null"/>, and
+    /// <c>GetRequiredService</c> throws.
     /// </remarks>
     /// <typeparam name="TStore">The store type. <see cref="IApprovalAdmin"/> is registered when it implements it.</typeparam>
     /// <param name="services">The service collection.</param>
