@@ -57,6 +57,13 @@ internal sealed class RedactionSession
     /// <summary>Never prints the mapping.</summary>
     public override string ToString() => nameof(RedactionSession);
 
+    /// <summary>
+    /// Placeholders minted by earlier calls of the same host, such as the MCP proxy, that this session must leave as
+    /// they are. They are no values: a tool that echoes one, for example in a search result, would otherwise have
+    /// its inner text redacted again into a nested placeholder that never restores.
+    /// </summary>
+    public IReadOnlySet<string>? KnownPlaceholders { get; init; }
+
     public bool HasRedactions
     {
         get { lock (_gate) { return _valueByToken.Count > 0; } }
@@ -84,6 +91,29 @@ internal sealed class RedactionSession
             }
         }
     }
+
+    /// <summary>
+    /// A snapshot of every placeholder this session minted so far, with its value and whether that value may go
+    /// back into a tool call's arguments, for a host that restores outside the session.
+    /// </summary>
+    public IReadOnlyList<MintedPlaceholder> ExportMinted()
+    {
+        lock (_gate)
+        {
+            var minted = new List<MintedPlaceholder>(_valueByToken.Count);
+            foreach (var (token, value) in _valueByToken)
+            {
+                minted.Add(new MintedPlaceholder(token, value, _toolRestorable.Contains(token)));
+            }
+            return minted;
+        }
+    }
+
+    /// <summary>
+    /// Redacts the string values of <paramref name="element"/>. Property names, numbers, booleans, nulls and the
+    /// nesting are written unchanged, so a host that validates the shape of what it gets back accepts the copy.
+    /// </summary>
+    public JsonElement RedactJsonValues(JsonElement element) => MapJson(element, Redact, mapNames: false);
 
     public string Redact(string text)
     {
@@ -124,7 +154,9 @@ internal sealed class RedactionSession
     {
         // A span over a placeholder this session minted is its own output, for example the value part of
         // `api_key=[API_KEY_1_k3f9x2]` echoed by a tool in this call: replacing it again would nest placeholders.
-        found.RemoveAll(f => RedactionSpanCollector.PlaceholderAt(text, f.Start, f.Length) is { } token && _valueByToken.ContainsKey(token));
+        // A placeholder from an earlier call that the host still knows is left alone for the same reason.
+        found.RemoveAll(f => RedactionSpanCollector.PlaceholderAt(text, f.Start, f.Length) is { } token
+            && (_valueByToken.ContainsKey(token) || (KnownPlaceholders?.Contains(token) ?? false)));
         if (found.Count == 0)
         {
             return text;
@@ -814,7 +846,7 @@ internal sealed class RedactionSession
                 $"A value of type {value.GetType().FullName} could not be serialized for redaction.");
     }
 
-    private static JsonElement MapJson(JsonElement element, Func<string, string> map)
+    private static JsonElement MapJson(JsonElement element, Func<string, string> map, bool mapNames = true)
     {
         if (element.ValueKind == JsonValueKind.Undefined)
         {
@@ -824,13 +856,13 @@ internal sealed class RedactionSession
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer))
         {
-            WriteMapped(writer, element, map);
+            WriteMapped(writer, element, map, mapNames);
         }
         using var doc = JsonDocument.Parse(buffer.WrittenMemory);
         return doc.RootElement.Clone();
     }
 
-    private static void WriteMapped(Utf8JsonWriter writer, JsonElement element, Func<string, string> map)
+    private static void WriteMapped(Utf8JsonWriter writer, JsonElement element, Func<string, string> map, bool mapNames)
     {
         switch (element.ValueKind)
         {
@@ -841,8 +873,8 @@ internal sealed class RedactionSession
                 writer.WriteStartObject();
                 foreach (var property in element.EnumerateObject())
                 {
-                    writer.WritePropertyName(map(property.Name));
-                    WriteMapped(writer, property.Value, map);
+                    writer.WritePropertyName(mapNames ? map(property.Name) : property.Name);
+                    WriteMapped(writer, property.Value, map, mapNames);
                 }
                 writer.WriteEndObject();
                 break;
@@ -850,7 +882,7 @@ internal sealed class RedactionSession
                 writer.WriteStartArray();
                 foreach (var item in element.EnumerateArray())
                 {
-                    WriteMapped(writer, item, map);
+                    WriteMapped(writer, item, map, mapNames);
                 }
                 writer.WriteEndArray();
                 break;

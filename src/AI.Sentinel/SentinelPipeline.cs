@@ -374,7 +374,14 @@ public sealed class SentinelPipeline
         if (session is null)
             return;
 
-        var byDetector = session.CountsByDetector;
+        await AppendRedactionsAsync(session.CountsByDetector, sessionId, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>One audit entry per redacting detector in <paramref name="byDetector"/>, counts only, and one Redact
+    /// notification; nothing when it is empty.</summary>
+    private async Task AppendRedactionsAsync(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> byDetector, SessionId sessionId, CancellationToken ct)
+    {
         if (byDetector.Count == 0)
             return;
 
@@ -467,7 +474,7 @@ public sealed class SentinelPipeline
         ChatOptions? chatOptions = null,
         SessionId? sessionId = null,
         CancellationToken ct = default)
-        => ScanMessagesCoreAsync(messages, chatOptions, sessionId, findings: null, ct);
+        => ScanMessagesCoreAsync(messages, chatOptions, sessionId, findings: null, exemptPlaceholders: null, ct);
 
     /// <summary>As <see cref="ScanMessagesAsync"/>, but returns every detection of the scan with its effective
     /// action, so a host with no response to gate, such as a hook, can decide per detection.</summary>
@@ -481,8 +488,147 @@ public sealed class SentinelPipeline
         CancellationToken ct)
     {
         var findings = new List<ScanFinding>();
-        await ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings, ct).ConfigureAwait(false);
+        await ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings, exemptPlaceholders: null, ct).ConfigureAwait(false);
         return findings;
+    }
+
+    /// <summary>As <see cref="ScanMessagesAsync"/>, but no detector flags the placeholders in
+    /// <paramref name="exemptPlaceholders"/>: tokens a host such as the MCP proxy minted on earlier calls, which are
+    /// no values. Null exempts nothing.</summary>
+    internal ValueTask<SentinelError?> ScanMessagesExemptingAsync(
+        IEnumerable<ChatMessage> messages,
+        SessionId? sessionId,
+        IReadOnlySet<string>? exemptPlaceholders,
+        CancellationToken ct)
+        => ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings: null, exemptPlaceholders, ct);
+
+    /// <summary>
+    /// Redacts content a host hands Sentinel on its way to the model, such as a tool result in the MCP proxy or a
+    /// hook, and scans the redacted copy. Never calls the inner client.
+    /// </summary>
+    /// <remarks>
+    /// The content is redacted with a new <see cref="RedactionSession"/>: text as a whole, JSON in its string values
+    /// only. <see cref="HostRedactionRequest.Context"/> is then redacted in the scan copy only, so a value it shares
+    /// with the content is counted once, for the content. The scan judges the redacted context, the redacted
+    /// content and <see cref="HostRedactionRequest.Unredactable"/> as it is, with this call's placeholders and
+    /// <see cref="HostRedactionRequest.KnownPlaceholders"/> exempt. One <c>REDACTED</c> entry per redacting detector
+    /// records the content's counts. With no redacting detector the request is scanned as it is. When the redaction
+    /// fails, the session is discarded and the request is scanned unredacted, as in 3.0: the result has
+    /// <see cref="HostRedactionResult.FellBack"/> set, the input content, and findings with their severity action,
+    /// audited with <c>; not redacted</c>. The exception is not kept, because its message can carry the value.
+    /// </remarks>
+    internal async ValueTask<HostRedactionResult> RedactAndScanAsync(
+        HostRedactionRequest request, SessionId? sessionId, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        foreach (var item in request.Content)
+        {
+            if (item.Text is null && item.Json is null)
+                throw new ArgumentException("Every content item must be made with HostContent.FromText or HostContent.FromJson.", nameof(request));
+        }
+
+        var sid = sessionId ?? SessionId.New();
+        var redactors = pipeline.Redactors;
+        if (redactors.Count == 0)
+            return await ScanHostVerbatimAsync(request, sid, fellBack: false, checkRateLimit: true, ct).ConfigureAwait(false);
+
+        // As on the chat path, the rate limit is checked before anything is redacted.
+        var rateError = CheckRateLimit(chatOptions: null);
+        if (rateError is not null)
+            return new HostRedactionResult(request.Content, [], rateError, EmptyCounts, [], FellBack: false);
+
+        var redacted = TryRedactHost(request, redactors);
+        if (redacted is not { } host)
+            return await ScanHostVerbatimAsync(request, sid, fellBack: true, checkRateLimit: false, ct).ConfigureAwait(false);
+
+        var exempt = new HashSet<string>(StringComparer.Ordinal);
+        exempt.UnionWith(RedactionScope.ExemptPlaceholders(host.Session, parent: null)!);
+        if (request.KnownPlaceholders is not null)
+            exempt.UnionWith(request.KnownPlaceholders);
+
+        var findings = new List<ScanFinding>();
+        var error = await ScanCollectingAsync(
+            HostScanMessages(host.Context, host.Content, request), sid, findings, exempt, ct).ConfigureAwait(false);
+
+        await AppendRedactionsAsync(host.CountsByDetector, sid, ct).ConfigureAwait(false);
+        return new HostRedactionResult(host.Content, findings, error, SumByType(host.CountsByDetector), host.Minted, FellBack: false);
+    }
+
+    private static readonly IReadOnlyDictionary<string, int> EmptyCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+    /// <summary>The host request after redaction; the counts and placeholders are those of the content only.</summary>
+    private readonly record struct RedactedHost(
+        RedactionSession Session,
+        IReadOnlyList<HostContent> Content,
+        IReadOnlyList<ChatMessage> Context,
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> CountsByDetector,
+        IReadOnlyList<MintedPlaceholder> Minted);
+
+    /// <summary>Redacts the content, takes its counts and placeholders, then redacts the context into a scan copy.
+    /// Null when anything fails; the exception is deliberately dropped, because its message can carry the value.</summary>
+    private static RedactedHost? TryRedactHost(HostRedactionRequest request, IReadOnlyList<IRedactingDetector> redactors)
+    {
+        try
+        {
+            var session = new RedactionSession(redactors) { KnownPlaceholders = request.KnownPlaceholders };
+            var content = new List<HostContent>(request.Content.Count);
+            foreach (var item in request.Content)
+            {
+                content.Add(item.Text is { } text
+                    ? HostContent.FromText(session.Redact(text))
+                    : HostContent.FromJson(session.RedactJsonValues(item.Json!.Value)));
+            }
+
+            var counts = session.CountsByDetector;
+            var minted = session.ExportMinted();
+            var context = request.Context.Count == 0 ? request.Context : session.RedactRequest(request.Context).Messages;
+            return new RedactedHost(session, content, context, counts, minted);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The 3.0 scan of a host request: context, content and unredactable content as they are.</summary>
+    private async ValueTask<HostRedactionResult> ScanHostVerbatimAsync(
+        HostRedactionRequest request, SessionId sessionId, bool fellBack, bool checkRateLimit, CancellationToken ct)
+    {
+        if (checkRateLimit && CheckRateLimit(chatOptions: null) is { } rateError)
+            return new HostRedactionResult(request.Content, [], rateError, EmptyCounts, [], fellBack);
+
+        var findings = new List<ScanFinding>();
+        var error = await ScanCollectingAsync(
+            HostScanMessages(request.Context, request.Content, request), sessionId, findings, request.KnownPlaceholders, ct).ConfigureAwait(false);
+        return new HostRedactionResult(request.Content, findings, error, EmptyCounts, [], fellBack);
+    }
+
+    /// <summary>The context, then one message per content item under the content role, then the unredactable
+    /// content.</summary>
+    private static List<ChatMessage> HostScanMessages(
+        IReadOnlyList<ChatMessage> context, IReadOnlyList<HostContent> content, HostRedactionRequest request)
+    {
+        var messages = new List<ChatMessage>(context.Count + content.Count + request.Unredactable.Count);
+        messages.AddRange(context);
+        foreach (var item in content)
+        {
+            messages.Add(new ChatMessage(request.ContentRole, item.ScanText()));
+        }
+        messages.AddRange(request.Unredactable);
+        return messages;
+    }
+
+    private static Dictionary<string, int> SumByType(IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> byDetector)
+    {
+        var byType = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var counts in byDetector.Values)
+        {
+            foreach (var (type, count) in counts)
+            {
+                byType[type] = byType.GetValueOrDefault(type) + count;
+            }
+        }
+        return byType;
     }
 
     private async ValueTask<SentinelError?> ScanMessagesCoreAsync(
@@ -490,6 +636,7 @@ public sealed class SentinelPipeline
         ChatOptions? chatOptions,
         SessionId? sessionId,
         List<ScanFinding>? findings,
+        IReadOnlySet<string>? exemptPlaceholders,
         CancellationToken ct)
     {
         var rateError = CheckRateLimit(chatOptions);
@@ -498,8 +645,18 @@ public sealed class SentinelPipeline
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var (scanned, systemPrompt) = WithInstructions(messageList, chatOptions?.Instructions);
         return await ScanAsync(scanned, sessionId ?? SessionIdFor(chatOptions),
-            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, llmId: chatOptions?.ModelId,
-            findings: findings).ConfigureAwait(false);
+            options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, new Exemptions(exemptPlaceholders),
+            llmId: chatOptions?.ModelId, findings: findings).ConfigureAwait(false);
+    }
+
+    /// <summary>One scan with no rate-limit check, collecting every finding.</summary>
+    private ValueTask<SentinelError?> ScanCollectingAsync(
+        IReadOnlyList<ChatMessage> messages, SessionId sessionId, List<ScanFinding> findings,
+        IReadOnlySet<string>? exemptPlaceholders, CancellationToken ct)
+    {
+        var systemPrompt = SystemPromptOf(messages);
+        return ScanAsync(messages, sessionId, options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
+            new Exemptions(exemptPlaceholders), findings: findings);
     }
 
     /// <summary>
