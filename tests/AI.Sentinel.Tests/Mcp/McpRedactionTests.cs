@@ -238,6 +238,94 @@ public class McpRedactionTests
     }
 
     [Fact]
+    public async Task ResourceRead_ManyCleanItems_ScannedOneByOne_NotBlocked()
+    {
+        // SEC-19 scores more than 20 Tool messages in one scan as High, which blocks here. Each item is its own scan.
+        var options = new SentinelOptions
+        {
+            OnCritical = SentinelAction.Quarantine,
+            OnHigh = SentinelAction.Quarantine,
+            OnMedium = SentinelAction.Quarantine,
+            OnLow = SentinelAction.Alert,
+        };
+        var store = new RingBufferAuditStore(capacity: 64);
+        var pipeline = McpPipelineFactory.Assemble(
+            options, [new PiiLeakageDetector(), new CredentialExposureDetector(), new ToolCallFrequencyDetector()], store);
+        var items = new List<ResourceContents>();
+        for (var i = 0; i < 21; i++)
+        {
+            items.Add(new TextResourceContents { Uri = $"file:///{i}.txt", MimeType = "text/plain", Text = $"line {i}" });
+        }
+        var filter = ResourceReadInterceptor.Create(pipeline, placeholders: NewStore());
+        var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult { Contents = items }));
+
+        var result = await handler(Context(new ReadResourceRequestParams { Uri = "file:///dir" }), TestContext.Current.CancellationToken);
+
+        Assert.Equal(21, result.Contents.Count);
+        Assert.DoesNotContain(await RecordingAuditForwarder.ReadAllAsync(store), e => string.Equals(e.DetectorId, "SEC-19", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ResourceRead_TwoItemsWithEmail_EachRedactedAndAudited()
+    {
+        var (pipeline, store) = Build();
+        var first = new TextResourceContents { Uri = "file:///a.txt", MimeType = "text/plain", Text = $"a {Email}" };
+        var second = new TextResourceContents { Uri = "file:///b.txt", MimeType = "text/plain", Text = $"b {Email}" };
+        var filter = ResourceReadInterceptor.Create(pipeline, placeholders: NewStore());
+        var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult { Contents = [first, second] }));
+
+        _ = await handler(Context(new ReadResourceRequestParams { Uri = "file:///dir" }), TestContext.Current.CancellationToken);
+
+        Assert.Equal("a [EMAIL_1]", Placeholders.Untag(first.Text));
+        Assert.Equal("b [EMAIL_1]", Placeholders.Untag(second.Text));
+        Assert.Equal(2, (await RecordingAuditForwarder.ReadAllAsync(store)).Count(IsRedactedEntry));
+    }
+
+    [Fact]
+    public async Task ToolResult_BlocksPastTotalBudget_NotRedacted()
+    {
+        // 30-byte blocks against a 64-byte cap: two fit, the third is truncated to what is left, the rest are not scanned.
+        var (pipeline, store) = Build();
+        var padding = " " + new string('x', 29 - Email.Length);
+        var text = Email + padding;
+        var blocks = new List<ContentBlock>();
+        for (var i = 0; i < 5; i++)
+        {
+            blocks.Add(new TextContentBlock { Text = text });
+        }
+
+        var result = await CallAsync(pipeline, new CallToolResult { Content = blocks }, NewStore(), maxScanBytes: 64);
+
+        Assert.Equal("[EMAIL_1]" + padding, Placeholders.Untag(((TextContentBlock)result.Content[0]).Text));
+        Assert.Equal("[EMAIL_1]" + padding, Placeholders.Untag(((TextContentBlock)result.Content[1]).Text));
+        for (var i = 2; i < 5; i++)
+        {
+            Assert.Equal(text, ((TextContentBlock)result.Content[i]).Text);
+        }
+        var redacted = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(store), IsRedactedEntry);
+        Assert.Equal("Redacted 2 EMAIL", redacted.Summary);
+    }
+
+    [Fact]
+    public async Task ToolResult_RateLimited_LogsReason()
+    {
+        // A burst of one: the request pre-scan takes the only token, so the response scan is rate limited.
+        var options = new SentinelOptions { MaxCallsPerSecond = 1, BurstSize = 1 };
+        var pipeline = McpPipelineFactory.Assemble(
+            options, [new PiiLeakageDetector()], new RingBufferAuditStore(capacity: 16));
+        var stderr = new StringWriter();
+        var filter = ToolCallInterceptor.Create(pipeline, MaxScanBytes, stderr, placeholders: NewStore());
+        var handler = filter((_, _) => new ValueTask<CallToolResult>(new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = "clean" }],
+        }));
+
+        _ = await handler(Context(new CallToolRequestParams { Name = "lookup" }), TestContext.Current.CancellationToken);
+
+        Assert.Contains("decision=Allow tool=lookup reason=rate_limited", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task NullStore_BehavesAsThreeZero()
     {
         var (pipeline, store) = Build();

@@ -150,6 +150,11 @@ internal static class ToolCallInterceptor
             redactedSuffix = " redacted=" + McpRedaction.TotalRedacted(scanned).ToString(CultureInfo.InvariantCulture);
         }
 
+        if (scanned.Error is SentinelError.RateLimitExceeded)
+        {
+            redactedSuffix += " reason=rate_limited";
+        }
+
         await stderr.WriteLineAsync(
             $"[sentinel-mcp] event=tools/call decision=Allow tool={req.Name}{redactedSuffix}"
         ).ConfigureAwait(false);
@@ -311,7 +316,7 @@ internal static class ToolCallInterceptor
         catch (Exception ex)
         {
             await stderr.WriteLineAsync(
-                $"[sentinel-mcp] event=tools/call decision=FailOpen phase={phase} reason={ex.GetType().Name}:{ex.Message}"
+                $"[sentinel-mcp] event=tools/call decision=FailOpen phase={phase} reason={ex.GetType().Name}"
             ).ConfigureAwait(false);
             return null;
         }

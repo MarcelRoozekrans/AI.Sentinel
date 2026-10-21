@@ -117,22 +117,23 @@ internal static class ResourceReadInterceptor
             BlockIfThreat(req.Uri, scanError);
         }
 
-        var redacted = 0;
-        if (placeholders is not null && redactable.Count > 0)
-        {
-            redacted = await RedactAsync(pipeline, placeholders, redactable, req.Uri, sessionId, ct).ConfigureAwait(false);
-        }
+        var (redacted, rateLimited) = placeholders is not null && redactable.Count > 0
+            ? await RedactAsync(pipeline, placeholders, redactable, req.Uri, sessionId, ct).ConfigureAwait(false)
+            : (0, false);
 
-        LogAllow(req.Uri, reason: null, redacted);
+        LogAllow(req.Uri, reason: rateLimited ? "rate_limited" : null, redacted);
         return result;
     }
 
     /// <summary>
-    /// Redacts the items in place and scans them together as redacted. A threat blocks and nothing is written back
-    /// or audited as redacted. A pipeline failure fails open and logs only the exception type, because its message
-    /// can carry the value. Returns the number of redacted occurrences.
+    /// Redacts and scans each item on its own, as 3.0 scanned them, so the items of one read neither add up to a
+    /// burst of tool messages nor dilute each other. Every item is scanned before any is written back: a threat in
+    /// any item blocks the read, and then nothing is written back or audited as redacted. Otherwise each item is
+    /// written back and its redactions are audited. A pipeline failure on an item fails open for that item and logs
+    /// only the exception type, because its message can carry the value. Returns the number of redacted occurrences
+    /// and whether any scan was skipped by the rate limit.
     /// </summary>
-    private static async ValueTask<int> RedactAsync(
+    private static async ValueTask<(int Redacted, bool RateLimited)> RedactAsync(
         SentinelPipeline pipeline,
         PlaceholderStore placeholders,
         List<TextResourceContents> items,
@@ -140,35 +141,43 @@ internal static class ResourceReadInterceptor
         SessionId? sessionId,
         CancellationToken ct)
     {
-        var content = new List<HostContent>(items.Count);
-        var apply = new List<Action<HostContent>>(items.Count);
+        var scans = new List<(TextResourceContents Item, HostRedactionResult Scanned)>(items.Count);
+        var rateLimited = false;
         foreach (var item in items)
         {
-            content.Add(HostContent.FromText(item.Text));
-            apply.Add(redacted => item.Text = redacted.Text!);
+            HostRedactionResult scanned;
+            try
+            {
+                scanned = await McpRedaction.RedactAndScanAsync(
+                    pipeline, placeholders, context: [], [HostContent.FromText(item.Text)], unredactable: [],
+                    Microsoft.Extensions.AI.ChatRole.Tool, sessionId, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                LogFailOpen(uri, ex.GetType().Name);
+                continue;
+            }
+
+            BlockIfThreat(uri, scanned.Error);
+            rateLimited |= scanned.Error is SentinelError.RateLimitExceeded;
+            scans.Add((item, scanned));
         }
 
-        HostRedactionResult scanned;
-        try
+        var total = 0;
+        foreach (var (item, scanned) in scans)
         {
-            scanned = await McpRedaction.RedactAndScanAsync(
-                pipeline, placeholders, context: [], content, unredactable: [],
-                Microsoft.Extensions.AI.ChatRole.Tool, sessionId, ct).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            LogFailOpen(uri, ex.GetType().Name, message: null);
-            return 0;
-        }
+            McpRedaction.WriteBack(scanned, [redacted => item.Text = redacted.Text!], placeholders);
+            if (!scanned.Redacted) continue;
 
-        BlockIfThreat(uri, scanned.Error);
-
-        McpRedaction.WriteBack(scanned, apply, placeholders);
-        if (!scanned.Redacted)
-        {
-            return 0;
+            await AppendRedactionsSafelyAsync(pipeline, scanned, uri, ct).ConfigureAwait(false);
+            total += McpRedaction.TotalRedacted(scanned);
         }
+        return (total, rateLimited);
+    }
 
+    private static async ValueTask AppendRedactionsSafelyAsync(
+        SentinelPipeline pipeline, HostRedactionResult scanned, string uri, CancellationToken ct)
+    {
         try
         {
             await pipeline.AppendRedactionsAsync(scanned, scanned.SessionId, ct).ConfigureAwait(false);
@@ -183,7 +192,6 @@ internal static class ResourceReadInterceptor
                 ["error"] = ex.GetType().Name,
             });
         }
-        return McpRedaction.TotalRedacted(scanned);
     }
 
     private static void BlockIfThreat(string uri, SentinelError? error)
@@ -206,23 +214,20 @@ internal static class ResourceReadInterceptor
         }
         catch (Exception ex)
         {
-            LogFailOpen(uri, ex.GetType().Name, ex.Message);
+            LogFailOpen(uri, ex.GetType().Name);
             return null;
         }
     }
 
-    private static void LogFailOpen(string uri, string error, string? message)
-    {
-        var fields = new Dictionary<string, string>(StringComparer.Ordinal)
+    /// <summary>Logs the exception type only: a message can carry the scanned text.</summary>
+    private static void LogFailOpen(string uri, string error) =>
+        StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["event"] = "resources_read",
             ["action"] = "fail_open",
             ["uri"] = uri,
             ["error"] = error,
-        };
-        if (message is not null) fields["message"] = message;
-        StderrLogger.Log(fields);
-    }
+        });
 
     private static void LogAllow(string uri, string? reason, int redacted = 0)
     {

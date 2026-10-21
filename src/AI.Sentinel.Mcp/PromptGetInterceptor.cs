@@ -101,6 +101,11 @@ internal static class PromptGetInterceptor
             redactedSuffix = " redacted=" + McpRedaction.TotalRedacted(scanned).ToString(CultureInfo.InvariantCulture);
         }
 
+        if (scanned.Error is SentinelError.RateLimitExceeded)
+        {
+            redactedSuffix += " reason=rate_limited";
+        }
+
         await stderr.WriteLineAsync(
             $"[sentinel-mcp] event=prompts/get decision=Allow prompt={req.Name}{redactedSuffix}"
         ).ConfigureAwait(false);
@@ -193,7 +198,7 @@ internal static class PromptGetInterceptor
         catch (Exception ex)
         {
             await stderr.WriteLineAsync(
-                $"[sentinel-mcp] event=prompts/get decision=FailOpen phase=response reason={ex.GetType().Name}:{ex.Message}"
+                $"[sentinel-mcp] event=prompts/get decision=FailOpen phase=response reason={ex.GetType().Name}"
             ).ConfigureAwait(false);
             return null;
         }
