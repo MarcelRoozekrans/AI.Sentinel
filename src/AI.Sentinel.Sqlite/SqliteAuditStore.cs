@@ -169,7 +169,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             if (version < SqliteSchema.CurrentVersion)
             {
                 throw new InvalidOperationException(string.Create(CultureInfo.InvariantCulture,
-                    $"The audit schema is version {version}, older than version {SqliteSchema.CurrentVersion}. Open the file once with a current AI.Sentinel writer to upgrade it."));
+                    $"The audit schema is version {version}, older than version {SqliteSchema.CurrentVersion}. Run a hook or the MCP proxy once, or use a current AI.Sentinel writer, to upgrade it."));
             }
             return connection;
         }

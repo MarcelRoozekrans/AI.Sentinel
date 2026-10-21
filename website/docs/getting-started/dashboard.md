@@ -42,7 +42,7 @@ dotnet tool install -g AI.Sentinel.Cli
 sentinel dashboard [--db <path>] [--port <port>]
 ```
 
-It serves `http://127.0.0.1:5170/ai-sentinel/` by default, listens on loopback only and does not open a browser. Without `--db` it reads the file the CLIs write, `ai-sentinel/audit.db` under your per-user data folder. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a file that does not exist, never appends to it, and shows no approvals panel. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Claude Code → Audit destination](../integrations/claude-code#audit-destination) for what is recorded.
+It serves `http://127.0.0.1:5170/ai-sentinel/` by default, listens on loopback only and does not open a browser. Without `--db` it reads the file the CLIs write, `ai-sentinel/audit.db` under your per-user data folder. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a file that does not exist and shows no approvals panel. It opens the file read-only: it never creates the file, never upgrades an older schema (run a hook or the MCP proxy once to upgrade it), and never appends. SQLite may create `-wal` and `-shm` files next to it. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Claude Code → Audit destination](../integrations/claude-code#audit-destination) for what is recorded.
 
 ## Protect it
 

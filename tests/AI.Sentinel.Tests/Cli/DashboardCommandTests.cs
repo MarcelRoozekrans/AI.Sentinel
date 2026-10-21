@@ -202,6 +202,95 @@ public class DashboardCommandTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Start_MissingFile_NeverCreatesTheFileOrItsSidecars()
+    {
+        var db = Path.Combine(_dir, "missing.db");
+
+        await DashboardCommand.StartAsync(
+            db, 0, new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
+
+        Assert.Empty(Directory.GetFileSystemEntries(_dir));
+    }
+
+    [Fact]
+    public async Task Start_OlderSchema_RefusesWithAdviceAndLeavesTheFileUnchanged()
+    {
+        var db = await SeedAsync("SEC-01");
+        SetUserVersion(db, 1);
+        var before = await File.ReadAllBytesAsync(db, TestContext.Current.CancellationToken);
+        var stderr = new StringWriter();
+
+        var dashboard = await DashboardCommand.StartAsync(
+            db, 0, new StringWriter(), stderr, TestContext.Current.CancellationToken);
+
+        Assert.Null(dashboard);
+        var text = stderr.ToString();
+        Assert.Contains("older", text, StringComparison.Ordinal);
+        Assert.Contains("hook", text, StringComparison.Ordinal);
+        Assert.Contains("MCP proxy", text, StringComparison.Ordinal);
+        Assert.Equal(before, await File.ReadAllBytesAsync(db, TestContext.Current.CancellationToken));
+        Assert.Equal(1, ReadUserVersion(db));
+    }
+
+    [Fact]
+    public async Task Start_SeesEntriesAppendedAfterTheDashboardOpened()
+    {
+        var db = await SeedAsync("SEC-01");
+        var ct = TestContext.Current.CancellationToken;
+
+        await using var dashboard = await DashboardCommand.StartAsync(
+            db, 0, new StringWriter(), new StringWriter(), ct);
+        Assert.NotNull(dashboard);
+        using var http = new HttpClient();
+        var first = await http.GetStringAsync(new Uri(dashboard.Url, "api/feed"), ct);
+        Assert.DoesNotContain("LATE-99", first, StringComparison.Ordinal);
+
+        await using (var writer = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = db }))
+        {
+            await writer.AppendAsync(new AuditEntry(
+                Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, "", null, Severity.High, "LATE-99", "appended late"), ct);
+
+            var second = await http.GetStringAsync(new Uri(dashboard.Url, "api/feed"), ct);
+            Assert.Contains("LATE-99", second, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
+    public async Task Start_ApprovalEndpoints_WriteNothingBecauseNoApprovalStoreIsWired()
+    {
+        var db = await SeedAsync("SEC-01");
+        var before = await SnapshotAsync(db);
+        var ct = TestContext.Current.CancellationToken;
+
+        await using var dashboard = await DashboardCommand.StartAsync(
+            db, 0, new StringWriter(), new StringWriter(), ct);
+        Assert.NotNull(dashboard);
+        using var http = new HttpClient();
+        var resp = await http.PostAsync(new Uri(dashboard.Url, "api/approvals/x/approve"), new StringContent(""), ct);
+
+        Assert.False(resp.IsSuccessStatusCode);
+        Assert.Equal(before.Ids, (await SnapshotAsync(db)).Ids);
+    }
+
+    private static void SetUserVersion(string db, int version)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db};Pooling=False");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = $"PRAGMA user_version = {version};";
+        cmd.ExecuteNonQuery();
+    }
+
+    private static long ReadUserVersion(string db)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db};Mode=ReadOnly;Pooling=False");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA user_version;";
+        return (long)cmd.ExecuteScalar()!;
+    }
+
     private async Task<string> SeedAsync(params string[] detectorIds)
     {
         var db = Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".db");
