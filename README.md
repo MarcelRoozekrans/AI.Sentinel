@@ -521,6 +521,10 @@ services.AddAISentinel(opts =>
 });
 ```
 
+Names must belong to the official detectors that ship with AI.Sentinel. A detector you added yourself
+with `AddDetector<T>()` counts as unknown here; tune it with `Configure<T>()`. Use the `Try` form when the
+caller wants to raise its own error instead of the `ArgumentException`.
+
 `Floor` and `Cap` apply only to *firing* results — Clean results pass through unchanged
 (no fabricated findings). Multiple `Configure<T>` calls for the same detector merge by
 mutation, so base configuration and per-environment overrides compose naturally.

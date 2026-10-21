@@ -7,6 +7,7 @@ namespace AI.Sentinel.Tests.Detection;
 
 public class SentinelOptionsDisableDetectorTests
 {
+    // Red: key the table by Id only.
     [Fact]
     public void Disable_by_type_name_turns_the_detector_off()
     {
@@ -17,6 +18,7 @@ public class SentinelOptionsDisableDetectorTests
         Assert.False(opts.GetDetectorConfigurations()[typeof(PromptInjectionDetector)].Enabled);
     }
 
+    // Red: key the table by name only.
     [Fact]
     public void Disable_by_id_turns_the_detector_off()
     {
@@ -27,6 +29,7 @@ public class SentinelOptionsDisableDetectorTests
         Assert.False(opts.GetDetectorConfigurations()[typeof(PromptInjectionDetector)].Enabled);
     }
 
+    // Red: return opts without throwing.
     [Fact]
     public void Disable_with_an_unknown_name_throws_naming_it()
     {
@@ -35,6 +38,7 @@ public class SentinelOptionsDisableDetectorTests
         Assert.Contains("'NoSuchDetector'", ex.Message);
     }
 
+    // Red: create the configuration before resolving.
     [Fact]
     public void TryDisable_with_an_unknown_name_returns_false_and_changes_nothing()
     {
@@ -44,6 +48,7 @@ public class SentinelOptionsDisableDetectorTests
         Assert.Empty(opts.GetDetectorConfigurations());
     }
 
+    // Red: return false on success.
     [Fact]
     public void TryDisable_with_a_known_name_returns_true()
     {
@@ -53,6 +58,7 @@ public class SentinelOptionsDisableDetectorTests
         Assert.False(opts.GetDetectorConfigurations()[typeof(PromptInjectionDetector)].Enabled);
     }
 
+    // Red: drop one row from the table.
     [Fact]
     public void The_table_lists_every_official_detector_with_its_id()
     {
@@ -70,6 +76,7 @@ public class SentinelOptionsDisableDetectorTests
         Assert.Equal(detectors.Count, OfficialDetectors.Count);
     }
 
+    // Red: use OrdinalIgnoreCase.
     [Fact]
     public void Disabling_is_case_sensitive()
     {
