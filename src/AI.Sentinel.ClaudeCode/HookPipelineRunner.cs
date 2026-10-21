@@ -116,6 +116,60 @@ public static class HookPipelineRunner
     }
 
     /// <summary>
+    /// Redacts a user prompt on its way to the model and scans the redacted copy, for a host that lets the hook replace
+    /// the prompt the model receives.
+    /// </summary>
+    /// <remarks>
+    /// The decision follows <see cref="Decide"/>.
+    /// <list type="bullet">
+    /// <item>A Block withholds the prompt: the rewritten prompt is <see cref="WithheldPrefix"/> plus the reason, and
+    /// nothing is recorded as redacted, because nothing is delivered.</item>
+    /// <item>Otherwise, when anything was redacted, the rewritten prompt is the redacted prompt, and the redactions are
+    /// audited as <c>REDACTED</c>.</item>
+    /// <item>A clean prompt, or a redaction that fell back to the unredacted scan, gives <see langword="null"/>: the
+    /// prompt is delivered as it is.</item>
+    /// </list>
+    /// Placeholder-shaped tokens already in the prompt are passed as known placeholders, as for a tool result.
+    /// </remarks>
+    internal static async Task<(HookOutput Output, string? Rewritten)> RunPromptAsync(
+        IServiceProvider provider,
+        HookConfig config,
+        string prompt,
+        string? sessionId,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(prompt);
+
+        var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
+        HashSet<string>? known = null;
+        CollectPlaceholderTokens(prompt, ref known);
+        var request = new HostRedactionRequest
+        {
+            Content = [HostContent.FromText(prompt)],
+            ContentRole = ChatRole.User,
+            KnownPlaceholders = known,
+        };
+        var result = await pipeline.RedactAndScanAsync(
+            request, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), ct).ConfigureAwait(false);
+
+        var output = Decide(result.Findings, config);
+        if (output.Decision == HookDecision.Block)
+        {
+            return (output, WithheldPrefix + output.Reason);
+        }
+
+        if (!result.Redacted)
+        {
+            return (output, null);
+        }
+
+        await pipeline.AppendRedactionsAsync(result, result.SessionId, ct).ConfigureAwait(false);
+        return (output, result.Content[0].Text);
+    }
+
+    /// <summary>
     /// The body that replaces a tool output the hook blocks: <paramref name="toolResponse"/> with every non-empty string
     /// value replaced by <see cref="WithheldPrefix"/> plus <paramref name="reason"/>, and its names, numbers, booleans,
     /// nulls and nesting kept. Claude Code ignores a replacement that does not match a built-in tool's output schema and
@@ -224,24 +278,26 @@ public static class HookPipelineRunner
         HashSet<string>? known = null;
         foreach (var message in context)
         {
-            Collect(message.Text, ref known);
+            CollectPlaceholderTokens(message.Text, ref known);
         }
 
-        Collect(toolResult.GetRawText(), ref known);
+        CollectPlaceholderTokens(toolResult.GetRawText(), ref known);
         return known;
+    }
 
-        static void Collect(string? text, ref HashSet<string>? known)
+    /// <summary>Adds the placeholder-shaped tokens in <paramref name="text"/> to <paramref name="known"/>, creating it
+    /// on the first one.</summary>
+    private static void CollectPlaceholderTokens(string? text, ref HashSet<string>? known)
+    {
+        if (string.IsNullOrEmpty(text) || text.IndexOf('[', StringComparison.Ordinal) < 0)
         {
-            if (string.IsNullOrEmpty(text) || text.IndexOf('[', StringComparison.Ordinal) < 0)
-            {
-                return;
-            }
+            return;
+        }
 
-            foreach (var match in PlaceholderFormat.Pattern().EnumerateMatches(text))
-            {
-                known ??= new HashSet<string>(StringComparer.Ordinal);
-                known.Add(text.Substring(match.Index, match.Length));
-            }
+        foreach (var match in PlaceholderFormat.Pattern().EnumerateMatches(text))
+        {
+            known ??= new HashSet<string>(StringComparer.Ordinal);
+            known.Add(text.Substring(match.Index, match.Length));
         }
     }
 

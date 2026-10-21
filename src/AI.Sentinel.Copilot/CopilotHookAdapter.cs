@@ -65,12 +65,32 @@ public sealed class CopilotHookAdapter
         CopilotHookEvent evt,
         CopilotHookInput input,
         CancellationToken ct)
+        => (await HandleForCliAsync(evt, input, ct).ConfigureAwait(false)).Output;
+
+    /// <summary>
+    /// Handles a single hook event, returning the decision and, for <see cref="CopilotHookEvent.UserPromptTransformed"/>,
+    /// the prompt the model should receive instead.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item>On <see cref="CopilotHookEvent.PostToolUse"/> a <c>toolResult</c> holding <c>textResultForLlm</c> is redacted;
+    /// <see cref="HookOutput.UpdatedToolOutput"/> carries the redacted result. A Block withholds the result, also with
+    /// redaction off: <see cref="HookOutput.UpdatedToolOutput"/> is then the withheld text as a JSON string.</item>
+    /// <item>On <see cref="CopilotHookEvent.UserPromptTransformed"/> the transformed prompt, or the prompt when there is
+    /// none, is redacted, and a Block withholds it, also with redaction off.</item>
+    /// <item>Every other event keeps the scan and its fallback.</item>
+    /// </list>
+    /// </remarks>
+    internal async Task<CopilotHookResult> HandleForCliAsync(
+        CopilotHookEvent evt,
+        CopilotHookInput input,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(input);
 
         if (evt == CopilotHookEvent.PreToolUse && await AuthorizeAsync(input, ct).ConfigureAwait(false) is { } unauthorized)
         {
-            return unauthorized;
+            return new CopilotHookResult(unauthorized, null);
         }
 
         // A redaction placeholder written into a file or a command would replace the real value there. Denied
@@ -79,11 +99,55 @@ public sealed class CopilotHookAdapter
         if (evt == CopilotHookEvent.PreToolUse && _config.RedactToolResults
             && PlaceholderGuard.Check(input.ToolName, input.GuardToolArgs(default), PlaceholderGuard.CopilotTools) is { } denied)
         {
-            return denied;
+            return new CopilotHookResult(denied, null);
         }
 
-        var messages = BuildMessages(evt, input);
-        return await HookPipelineRunner.RunAsync(_provider, _config.ToSharedConfig(), messages, input.SessionId, ct).ConfigureAwait(false);
+        return evt switch
+        {
+            CopilotHookEvent.PostToolUse => new CopilotHookResult(await ScanToolResultAsync(input, ct).ConfigureAwait(false), null),
+            CopilotHookEvent.UserPromptTransformed => await ScanTransformedPromptAsync(input, ct).ConfigureAwait(false),
+            _ => new CopilotHookResult(
+                await HookPipelineRunner.RunAsync(_provider, _config.ToSharedConfig(), BuildMessages(evt, input), input.SessionId, ct).ConfigureAwait(false),
+                null),
+        };
+    }
+
+    /// <summary>Redacts a <c>toolResult</c> that holds <c>textResultForLlm</c>, the only shape Copilot's
+    /// <c>modifiedResult</c> can carry back; any other result, and every result with redaction off, keeps the scan
+    /// and its fallback. A Block withholds the result either way.</summary>
+    private async Task<HookOutput> ScanToolResultAsync(CopilotHookInput input, CancellationToken ct)
+    {
+        var shared = _config.ToSharedConfig();
+        var output = _config.RedactToolResults && input.ToolResult is { } toolResult && CopilotToolResult.TextForLlm(toolResult) is not null
+            ? await HookPipelineRunner.RunToolResultAsync(
+                _provider, shared, [ToolCallMessage(input)], toolResult, input.SessionId, ct).ConfigureAwait(false)
+            : await HookPipelineRunner.RunAsync(
+                _provider, shared, BuildMessages(CopilotHookEvent.PostToolUse, input), input.SessionId, ct).ConfigureAwait(false);
+
+        // The tool already ran, so replacing its result is the only way to keep it from the model. modifiedResult
+        // carries text only, so the withheld body is the withheld text itself.
+        return output.Decision == HookDecision.Block
+            ? output with { UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldPrefix + output.Reason) }
+            : output;
+    }
+
+    /// <summary>Redacts the transformed prompt, or the prompt when Copilot sent no transformed one. With redaction off
+    /// the prompt is scanned as it is, and a Block still withholds it: exit code 2 is only a warning on this event.</summary>
+    private async Task<CopilotHookResult> ScanTransformedPromptAsync(CopilotHookInput input, CancellationToken ct)
+    {
+        var shared = _config.ToSharedConfig();
+        var prompt = input.TransformedPrompt ?? input.Prompt ?? "";
+        if (_config.RedactToolResults)
+        {
+            var (redacted, rewritten) = await HookPipelineRunner.RunPromptAsync(
+                _provider, shared, prompt, input.SessionId, ct).ConfigureAwait(false);
+            return new CopilotHookResult(redacted, rewritten);
+        }
+
+        var output = await HookPipelineRunner.RunAsync(
+            _provider, shared, [new ChatMessage(ChatRole.User, prompt)], input.SessionId, ct).ConfigureAwait(false);
+        return new CopilotHookResult(
+            output, output.Decision == HookDecision.Block ? HookPipelineRunner.WithheldPrefix + output.Reason : null);
     }
 
     /// <summary>Asks the <see cref="IToolCallGuard"/>, when one is registered, whether the tool call may run. A Block
@@ -150,20 +214,20 @@ public sealed class CopilotHookAdapter
         return null;
     }
 
+    private static ChatMessage ToolCallMessage(CopilotHookInput input) =>
+        new(ChatRole.User, $"tool:{input.ToolName} input:{input.ToolArgsText()}");
+
     private static IReadOnlyList<ChatMessage> BuildMessages(
         CopilotHookEvent evt,
         CopilotHookInput input) => evt switch
         {
             CopilotHookEvent.UserPromptSubmitted => [new ChatMessage(ChatRole.User, input.Prompt ?? "")],
-            CopilotHookEvent.PreToolUse => [new ChatMessage(ChatRole.User,
-            $"tool:{input.ToolName} input:{input.ToolArgsText()}")],
+            CopilotHookEvent.PreToolUse => [ToolCallMessage(input)],
             CopilotHookEvent.PostToolUse =>
             [
-                new ChatMessage(ChatRole.User,
-                $"tool:{input.ToolName} input:{input.ToolArgsText()}"),
-            new ChatMessage(ChatRole.Assistant,
-                input.ToolResultText()),
-        ],
+                ToolCallMessage(input),
+                new ChatMessage(ChatRole.Assistant, input.ToolResultText()),
+            ],
             _ => throw new ArgumentOutOfRangeException(nameof(evt)),
         };
 }

@@ -35,7 +35,8 @@ public sealed record CopilotHookConfig
     public bool EnableComplianceDetectors { get; init; }
 
     /// <summary>When true, the default, PreToolUse denies a write or shell tool whose input holds a redaction
-    /// placeholder, and tool results are redacted where the host lets Sentinel rewrite them. Set by
+    /// placeholder, and tool results and the transformed prompt are redacted where the host lets Sentinel rewrite them.
+    /// A Block withholds a tool result or a transformed prompt whether this is on or off. Set by
     /// <c>SENTINEL_HOOK_REDACT</c>: <c>off</c>, <c>0</c>, <c>false</c> or <c>no</c> turn it off.</summary>
     public bool RedactToolResults { get; init; } = true;
 

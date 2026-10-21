@@ -2,6 +2,7 @@ using System.Text.Json;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.ClaudeCode.Cli;
 using AI.Sentinel.Copilot;
+using AI.Sentinel.Copilot.Cli;
 using Xunit;
 
 namespace AI.Sentinel.Tests.ClaudeCode;
@@ -314,5 +315,90 @@ public class HookWireFormatTests
             new HookOutput { Decision = HookDecision.Warn, Reason = "careful" }, CopilotHookJsonContext.Default.HookOutput);
 
         Assert.Equal("""{"decision":"Warn","reason":"careful"}""", json);
+    }
+
+    private static string CopilotWire(CopilotHookEvent evt, HookOutput output, string? modifiedTransformedPrompt = null) =>
+        JsonSerializer.Serialize(
+            CopilotWireOutput.From(evt, new CopilotHookResult(output, modifiedTransformedPrompt)),
+            CopilotWireJsonContext.Default.CopilotWireOutput);
+
+    [Theory]
+    [InlineData(CopilotHookEvent.UserPromptSubmitted)]
+    [InlineData(CopilotHookEvent.PreToolUse)]
+    [InlineData(CopilotHookEvent.PostToolUse)]
+    [InlineData(CopilotHookEvent.UserPromptTransformed)]
+    public void CopilotWire_Allow_LegacyShapeUnchanged(CopilotHookEvent evt)
+    {
+        Assert.Equal("""{"decision":"Allow","reason":null}""", CopilotWire(evt, new HookOutput { Decision = HookDecision.Allow }));
+    }
+
+    [Fact]
+    public void CopilotWire_Warn_LegacyShapeUnchanged()
+    {
+        Assert.Equal(
+            """{"decision":"Warn","reason":"careful"}""",
+            CopilotWire(CopilotHookEvent.PreToolUse, new HookOutput { Decision = HookDecision.Warn, Reason = "careful" }));
+    }
+
+    [Fact]
+    public void CopilotWire_PostToolUseRedacted()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Allow,
+            UpdatedToolOutput = JsonDocument.Parse("""{"resultType":"success","textResultForLlm":"mail [EMAIL_1_abc123]"}""").RootElement.Clone(),
+            Redactions = new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 },
+        };
+
+        Assert.Equal(
+            """{"decision":"Allow","reason":null,"modifiedResult":{"resultType":"success","textResultForLlm":"mail [EMAIL_1_abc123]"}}""",
+            CopilotWire(CopilotHookEvent.PostToolUse, output));
+    }
+
+    [Fact]
+    public void CopilotWire_PostToolUseBlock_Withheld()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Block,
+            Reason = "r",
+            UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldPrefix + "r"),
+        };
+
+        Assert.Equal(
+            """{"decision":"Block","reason":"r","modifiedResult":{"resultType":"success","textResultForLlm":"withheld by AI.Sentinel: r"}}""",
+            CopilotWire(CopilotHookEvent.PostToolUse, output));
+    }
+
+    [Fact]
+    public void CopilotWire_UserPromptTransformed()
+    {
+        Assert.Equal(
+            """{"decision":"Allow","reason":null,"modifiedTransformedPrompt":"mail [EMAIL_1_abc123] today"}""",
+            CopilotWire(CopilotHookEvent.UserPromptTransformed, new HookOutput { Decision = HookDecision.Allow }, "mail [EMAIL_1_abc123] today"));
+    }
+
+    [Fact]
+    public void CopilotWire_UserPromptTransformedBlock_Withheld()
+    {
+        Assert.Equal(
+            """{"decision":"Block","reason":"r","modifiedTransformedPrompt":"withheld by AI.Sentinel: r"}""",
+            CopilotWire(
+                CopilotHookEvent.UserPromptTransformed,
+                new HookOutput { Decision = HookDecision.Block, Reason = "r" },
+                HookPipelineRunner.WithheldPrefix + "r"));
+    }
+
+    // A rewrite belongs to its own event only: a stray UpdatedToolOutput or prompt on another event is not written.
+    [Fact]
+    public void CopilotWire_RewriteOnOtherEvent_NotWritten()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Allow,
+            UpdatedToolOutput = JsonDocument.Parse("""{"resultType":"success","textResultForLlm":"x"}""").RootElement.Clone(),
+        };
+
+        Assert.Equal("""{"decision":"Allow","reason":null}""", CopilotWire(CopilotHookEvent.PreToolUse, output, "p"));
     }
 }

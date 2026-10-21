@@ -142,4 +142,27 @@ public class CopilotHookCliAuditTests : IDisposable
         Assert.False(File.Exists(db));
         Assert.Empty(Directory.GetFileSystemEntries(_dir));
     }
+
+    [Fact]
+    public async Task PostToolUseRedaction_RecordedWithCopilotSource()
+    {
+        var db = Path.Combine(_dir, "audit.db");
+        Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, db);
+        const string json = """{"sessionId":"cp-7","toolName":"view","toolArgs":{"path":"/a/notes.txt"},"toolResult":{"resultType":"success","textResultForLlm":"mail jan@example.com today"}}""";
+
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var exit = await Program.RunAsync(["post-tool-use"], new StringReader(json), stdout, stderr, new FakeEmbeddingGenerator());
+
+        Assert.Equal(0, exit);
+        var (entries, intact) = await HookAuditTestSupport.ReadAsync(db);
+        Assert.True(intact);
+        var redacted = Assert.Single(entries, e => string.Equals(e.PolicyCode, AI.Sentinel.Audit.AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal));
+        Assert.Equal("copilot", redacted.Source);
+        Assert.Equal("cp-7", redacted.SessionId);
+        Assert.Equal("Redacted 1 EMAIL", redacted.Summary);
+        Assert.All(entries, e => Assert.DoesNotContain("jan@example.com", e.Summary, StringComparison.Ordinal));
+        Assert.DoesNotContain("jan@example.com", stdout.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("jan@example.com", stderr.ToString(), StringComparison.Ordinal);
+    }
 }
