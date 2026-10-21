@@ -354,7 +354,7 @@ internal sealed class RedactionSession
     }
 
     /// <summary>Restores the updates of one stream in order, holding text back across them.</summary>
-    private sealed class UpdateRestorer(RedactionSession session, HashSet<FunctionCallContent> answered, int longestToken)
+    private sealed class UpdateRestorer(RedactionSession session, HashSet<ToolCallContent> answered, int longestToken)
     {
         private readonly StreamedText _text = new(session, longestToken);
         private readonly StreamedText _reasoning = new(session, longestToken);
@@ -557,9 +557,9 @@ internal sealed class RedactionSession
 
     // Walks backwards collecting the ids of results seen so far, so a call counts as answered only when a
     // result with its id comes after it. One content list per message, or per streamed update.
-    private static HashSet<FunctionCallContent> AnsweredCalls(List<IList<AIContent>> lists)
+    private static HashSet<ToolCallContent> AnsweredCalls(List<IList<AIContent>> lists)
     {
-        var answered = new HashSet<FunctionCallContent>(ReferenceEqualityComparer.Instance);
+        var answered = new HashSet<ToolCallContent>(ReferenceEqualityComparer.Instance);
         var laterResults = new HashSet<string>(StringComparer.Ordinal);
         for (var m = lists.Count - 1; m >= 0; m--)
         {
@@ -568,10 +568,10 @@ internal sealed class RedactionSession
             {
                 switch (contents[c])
                 {
-                    case FunctionResultContent fr when !string.IsNullOrEmpty(fr.CallId):
+                    case ToolResultContent fr when !string.IsNullOrEmpty(fr.CallId):
                         laterResults.Add(fr.CallId);
                         break;
-                    case FunctionCallContent call when !string.IsNullOrEmpty(call.CallId) && laterResults.Contains(call.CallId):
+                    case ToolCallContent call when !string.IsNullOrEmpty(call.CallId) && laterResults.Contains(call.CallId):
                         answered.Add(call);
                         break;
                 }
@@ -580,7 +580,7 @@ internal sealed class RedactionSession
         return answered;
     }
 
-    private ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redact, HashSet<FunctionCallContent>? answered = null)
+    private ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redact, HashSet<ToolCallContent>? answered = null)
     {
         var copy = message.Clone();
         var contents = new List<AIContent>(message.Contents.Count);
@@ -594,31 +594,42 @@ internal sealed class RedactionSession
 
     // answered: the calls followed by their result in the list being restored; null when redacting, or for
     // content nested in a value, which follows the tool rule.
-    private AIContent MapContent(AIContent content, Func<string, string> map, bool redact, HashSet<FunctionCallContent>? answered = null)
+    private AIContent MapContent(AIContent content, Func<string, string> map, bool redact, HashSet<ToolCallContent>? answered = null)
     {
         switch (content)
         {
             case TextContent text:
                 return CopyMetadata(text, new TextContent(text.Text is null ? null : map(text.Text)));
-            case FunctionCallContent call:
+            case ToolCallContent call when CarriesText(call):
                 // Arguments of a call that may still be invoked are what a tool would receive, so restoring
-                // them follows the tool rule; an answered call is history and is restored like text.
+                // them follows the tool rule; an answered call is history and is restored like text. Calls to
+                // hosted tools, such as an MCP server or web search, follow the same rule as function calls.
                 var restoreAll = redact || (answered is not null && answered.Contains(call));
-                return CopyMetadata(call, MapCall(call, restoreAll ? map : RestoreToolArgument, redact));
+                return MapToolCall(call, restoreAll ? map : RestoreToolArgument, redact);
             case FunctionResultContent fr:
                 return CopyMetadata(fr, new FunctionResultContent(fr.CallId, MapValue(fr.Result, map, redact))
                 {
                     Exception = fr.Exception,
                 });
+            // Results of hosted tools are restored fully, like function results.
+            case McpServerToolResultContent mcp:
+                return CopyMetadata(mcp, new McpServerToolResultContent(mcp.CallId) { Outputs = MapOutputs(mcp.Outputs, map, redact) });
+            case CodeInterpreterToolResultContent code:
+                return CopyMetadata(code, new CodeInterpreterToolResultContent(code.CallId) { Outputs = MapOutputs(code.Outputs, map, redact) });
+            case WebSearchToolResultContent search:
+                return CopyMetadata(search, new WebSearchToolResultContent(search.CallId) { Outputs = MapOutputs(search.Outputs, map, redact) });
+            case ImageGenerationToolResultContent image:
+                return CopyMetadata(image, new ImageGenerationToolResultContent(image.CallId) { Outputs = MapOutputs(image.Outputs, map, redact) });
             case TextReasoningContent reasoning:
                 return CopyMetadata(reasoning, new TextReasoningContent(reasoning.Text is null ? null : map(reasoning.Text))
                 {
                     ProtectedData = reasoning.ProtectedData,
                 });
-            case ToolApprovalRequestContent request when request.ToolCall is FunctionCallContent call:
-                return CopyApprovalRequest(request, MapApprovalCall(call, map, redact));
-            case ToolApprovalResponseContent response when response.ToolCall is FunctionCallContent call:
-                return CopyMetadata(response, new ToolApprovalResponseContent(response.RequestId, response.Approved, MapApprovalCall(call, map, redact))
+            case ToolApprovalRequestContent request when CarriesText(request.ToolCall):
+                return CopyApprovalRequest(request, MapApprovalCall(request.ToolCall, map, redact));
+            case ToolApprovalResponseContent response when response.ToolCall is not null:
+                // The reason is text even when the call carries none, such as an image generation call.
+                return CopyMetadata(response, new ToolApprovalResponseContent(response.RequestId, response.Approved, MapApprovalCall(response.ToolCall, map, redact))
                 {
                     Reason = response.Reason is null ? null : map(response.Reason),
                 });
@@ -697,48 +708,116 @@ internal sealed class RedactionSession
 
     // The call inside an approval request or response: redacted like any call on the way to the model. On the way
     // back it is a call that runs once approved, so it follows the tool rule whether or not a result follows it.
-    private FunctionCallContent MapApprovalCall(FunctionCallContent call, Func<string, string> map, bool redact) =>
-        CopyMetadata(call, MapCall(call, redact ? map : RestoreToolArgument, redact));
+    // A call that carries no text, such as an image generation call, is kept as it is.
+    private ToolCallContent MapApprovalCall(ToolCallContent call, Func<string, string> map, bool redact) =>
+        CarriesText(call) ? MapToolCall(call, redact ? map : RestoreToolArgument, redact) : call;
+
+    // The calls whose text is mapped: function calls and calls to MCP server, code interpreter and web search tools.
+    // An image generation call carries no text, and an unknown call type is not known to.
+    private static bool CarriesText(ToolCallContent? call) =>
+        call is FunctionCallContent or McpServerToolCallContent or CodeInterpreterToolCallContent or WebSearchToolCallContent;
+
+    /// <summary>
+    /// A copy of <paramref name="call"/>, one of the types <see cref="CarriesText"/> accepts, with its arguments,
+    /// inputs or queries mapped. The copy keeps the call id, the name and server name where the type has them,
+    /// and the metadata.
+    /// </summary>
+    private ToolCallContent MapToolCall(ToolCallContent call, Func<string, string> map, bool redact) => call switch
+    {
+        FunctionCallContent function => CopyMetadata(function, MapCall(function, map, redact)),
+        McpServerToolCallContent mcp => CopyMetadata(mcp, new McpServerToolCallContent(mcp.CallId, mcp.Name, mcp.ServerName)
+        {
+            Arguments = MapArguments(mcp.Arguments, map, redact),
+        }),
+        CodeInterpreterToolCallContent code => CopyMetadata(code, new CodeInterpreterToolCallContent(code.CallId)
+        {
+            Inputs = MapOutputs(code.Inputs, map, redact),
+        }),
+        WebSearchToolCallContent search => CopyMetadata(search, new WebSearchToolCallContent(search.CallId)
+        {
+            Queries = MapQueries(search.Queries, map),
+        }),
+        _ => throw new InvalidOperationException("A tool call of an unsupported type was given for redaction."),
+    };
 
     /// <summary>
     /// A copy of <paramref name="request"/> carrying <paramref name="call"/>. The request is copied through its
     /// JSON contract, which carries every property, including RequiresConfirmation, which is experimental and so
-    /// is not set from code here; the copy's call is then given the mapped arguments and the call's metadata.
+    /// is not set from code here; the copy's call is then given the mapped arguments, inputs or queries and the
+    /// call's metadata.
     /// </summary>
-    private static ToolApprovalRequestContent CopyApprovalRequest(ToolApprovalRequestContent request, FunctionCallContent call)
+    private static ToolApprovalRequestContent CopyApprovalRequest(ToolApprovalRequestContent request, ToolCallContent call)
     {
         // The type info comes from MEAI's own source-generated contract, so the copy works under trimming and AOT.
         var contentInfo = AIJsonUtilities.DefaultOptions.GetTypeInfo(typeof(AIContent));
         var json = JsonSerializer.SerializeToElement(request, contentInfo);
-        if (json.Deserialize(contentInfo) is not ToolApprovalRequestContent { ToolCall: FunctionCallContent copiedCall } copy)
+        if (json.Deserialize(contentInfo) is not ToolApprovalRequestContent { ToolCall: { } copiedCall } copy
+            || copiedCall.GetType() != call.GetType())
         {
             throw new InvalidOperationException("A tool approval request could not be copied for redaction.");
         }
 
-        copiedCall.Arguments = call.Arguments;
-        copiedCall.Exception = call.Exception;
-        copiedCall.InformationalOnly = call.InformationalOnly;
+        switch (copiedCall)
+        {
+            case FunctionCallContent function:
+                var mappedFunction = (FunctionCallContent)call;
+                function.Arguments = mappedFunction.Arguments;
+                function.Exception = mappedFunction.Exception;
+                function.InformationalOnly = mappedFunction.InformationalOnly;
+                break;
+            case McpServerToolCallContent mcp:
+                mcp.Arguments = ((McpServerToolCallContent)call).Arguments;
+                break;
+            case CodeInterpreterToolCallContent code:
+                code.Inputs = ((CodeInterpreterToolCallContent)call).Inputs;
+                break;
+            case WebSearchToolCallContent search:
+                search.Queries = ((WebSearchToolCallContent)call).Queries;
+                break;
+        }
         CopyMetadata(call, copiedCall);
         return CopyMetadata(request, copy);
     }
 
-    private FunctionCallContent MapCall(FunctionCallContent call, Func<string, string> map, bool redact)
-    {
-        IDictionary<string, object?>? args = null;
-        if (call.Arguments is not null)
-        {
-            var mapped = new Dictionary<string, object?>(call.Arguments.Count, ComparerOf(call.Arguments));
-            foreach (var (key, value) in call.Arguments)
-            {
-                mapped[key] = MapValue(value, map, redact);
-            }
-            args = mapped;
-        }
-        return new FunctionCallContent(call.CallId, call.Name, args)
+    private FunctionCallContent MapCall(FunctionCallContent call, Func<string, string> map, bool redact) =>
+        new(call.CallId, call.Name, MapArguments(call.Arguments, map, redact))
         {
             Exception = call.Exception,
             InformationalOnly = call.InformationalOnly,
         };
+
+    private Dictionary<string, object?>? MapArguments(IDictionary<string, object?>? arguments, Func<string, string> map, bool redact)
+    {
+        if (arguments is null)
+        {
+            return null;
+        }
+
+        var mapped = new Dictionary<string, object?>(arguments.Count, ComparerOf(arguments));
+        foreach (var (key, value) in arguments)
+        {
+            mapped[key] = MapValue(value, map, redact);
+        }
+        return mapped;
+    }
+
+    // Inputs and outputs of hosted tools; a content nested here follows the tool rule when it is a call.
+    private List<AIContent>? MapOutputs(IList<AIContent>? contents, Func<string, string> map, bool redact) =>
+        contents is null ? null : MapContents(contents, map, redact);
+
+    private static List<string>? MapQueries(IList<string>? queries, Func<string, string> map)
+    {
+        if (queries is null)
+        {
+            return null;
+        }
+
+        var mapped = new List<string>(queries.Count);
+        foreach (var query in queries)
+        {
+            mapped.Add(query is null ? query! : map(query));
+        }
+        return mapped;
     }
 
     private static T CopyMetadata<T>(AIContent source, T target) where T : AIContent
