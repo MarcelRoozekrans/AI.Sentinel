@@ -404,6 +404,26 @@ public class McpRedactionTests
         Assert.Equal(Email, forwardedTo);
     }
 
+    [Fact]
+    public void CallToolRequestParams_SettableProperties_AreTheOnesRestoreCopies()
+    {
+        // ToolCallInterceptor.WithRestoredArguments copies these into the forwarded request. The SDK floats, so a
+        // new settable member would be dropped silently from every restored call.
+        string[] copied = ["Arguments", "InputResponses", "Meta", "Name", "RequestState"];
+
+        var settable = typeof(CallToolRequestParams)
+            .GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+            .Where(p => p.SetMethod is { IsPublic: true })
+            .Select(p => p.Name)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            settable.SequenceEqual(copied, StringComparer.Ordinal),
+            "CallToolRequestParams' settable properties changed to [" + string.Join(", ", settable)
+            + "]; update WithRestoredArguments in ToolCallInterceptor to copy them, then this list.");
+    }
+
     private sealed class RecordingGuard : IToolCallGuard
     {
         private readonly List<string> _seen = [];

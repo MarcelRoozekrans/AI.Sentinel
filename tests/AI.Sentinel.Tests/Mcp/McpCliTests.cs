@@ -224,6 +224,7 @@ public class McpCliTests : McpAuditOffFixtureBase
     // unset leave it on.
     [Theory]
     [InlineData("off", "on", false)]
+    [InlineData("on", "off", true)]
     [InlineData(null, "off", false)]
     [InlineData(null, null, true)]
     public void ResolveHookConfig_McpRedactOverridesHookRedact(string? mcp, string? hook, bool expected)
