@@ -116,11 +116,12 @@ public static class HookPipelineRunner
     }
 
     /// <summary>
-    /// The body that replaces a tool output the hook blocks: <paramref name="toolResponse"/> with every string value
-    /// replaced by <see cref="WithheldPrefix"/> plus <paramref name="reason"/>, and its names, numbers, booleans, nulls
-    /// and nesting kept. Claude Code ignores a replacement that does not match a built-in tool's output schema and
-    /// shows the original instead, so the shape is kept. A string, an absent response or a null gives the withheld
-    /// text itself.
+    /// The body that replaces a tool output the hook blocks: <paramref name="toolResponse"/> with every non-empty string
+    /// value replaced by <see cref="WithheldPrefix"/> plus <paramref name="reason"/>, and its names, numbers, booleans,
+    /// nulls and nesting kept. Claude Code ignores a replacement that does not match a built-in tool's output schema and
+    /// shows the original instead, so the shape is kept, and so is the string value of every property named <c>type</c>, a
+    /// discriminator such as Read's <c>"type":"text"</c>. Empty strings stay empty, so a field such as Bash's empty
+    /// <c>stderr</c> does not repeat the notice. A string, an absent response or a null gives the withheld text itself.
     /// </summary>
     internal static JsonElement WithheldOutput(JsonElement toolResponse, string? reason)
     {
@@ -149,7 +150,17 @@ public static class HookPipelineRunner
                 foreach (var property in element.EnumerateObject())
                 {
                     writer.WritePropertyName(property.Name);
-                    WriteWithheld(property.Value, text, writer);
+                    if (property.Value.ValueKind == JsonValueKind.String
+                        && string.Equals(property.Name, "type", StringComparison.Ordinal))
+                    {
+                        // A discriminator such as Read's "type":"text"; Claude Code rejects the body without it. Only a
+                        // string is kept, so an object under "type" cannot carry content past the walk.
+                        property.Value.WriteTo(writer);
+                    }
+                    else
+                    {
+                        WriteWithheld(property.Value, text, writer);
+                    }
                 }
                 writer.WriteEndObject();
                 break;
@@ -162,7 +173,8 @@ public static class HookPipelineRunner
                 writer.WriteEndArray();
                 break;
             case JsonValueKind.String:
-                writer.WriteStringValue(text);
+                // An empty string, such as Bash's empty stderr, stays empty so the notice appears once.
+                writer.WriteStringValue(element.ValueEquals(string.Empty) ? string.Empty : text);
                 break;
             default:
                 // Numbers, booleans and null hold no text.

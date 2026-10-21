@@ -161,7 +161,8 @@ public class HookAdapterTests
     }
 
     // Claude Code ignores a replacement that does not match a built-in tool's output schema and then shows the
-    // original, so the withheld body keeps the Read response's shape with every string leaf replaced. The injection is
+    // original, so the withheld body keeps the Read response's shape and its "type" discriminator, with every other
+    // string leaf replaced. The injection is
     // repeated so the test embedder's bigram score stays clear of the threshold over the larger response.
     [Fact]
     public async Task PostToolUse_InjectionInReadResponse_WithheldBodyKeepsShape()
@@ -177,7 +178,7 @@ public class HookAdapterTests
         AssertSameShape(Json(response), withheld);
         var file = withheld.GetProperty("file");
         var body = HookPipelineRunner.WithheldPrefix + output.Reason;
-        Assert.Equal(body, withheld.GetProperty("type").GetString());
+        Assert.Equal("text", withheld.GetProperty("type").GetString());
         Assert.Equal(body, file.GetProperty("filePath").GetString());
         Assert.Equal(body, file.GetProperty("content").GetString());
         Assert.Equal(1, file.GetProperty("numLines").GetInt32());

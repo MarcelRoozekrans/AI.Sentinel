@@ -184,15 +184,26 @@ public class HookWireFormatTests
     }
 
     [Fact]
-    public void WithheldOutput_KeepsShape_ReplacesEveryStringLeaf()
+    public void WithheldOutput_KeepsShapeTypesAndEmptyStrings_ReplacesOtherStringLeaves()
     {
-        var response = JsonDocument.Parse("""{"type":"text","file":{"filePath":"/a/.env","content":"secret","numLines":2,"ok":true,"none":null,"lines":["a",1]}}""").RootElement;
+        var response = JsonDocument.Parse("""{"type":"text","file":{"filePath":"/a/.env","content":"secret","numLines":2,"ok":true,"none":null,"empty":"","lines":["a","",1,{"type":"x"}],"meta":{"type":{"name":"secret"}}}}""").RootElement;
 
         var withheld = HookPipelineRunner.WithheldOutput(response, "r");
 
         Assert.Equal(
-            """{"type":"withheld by AI.Sentinel: r","file":{"filePath":"withheld by AI.Sentinel: r","content":"withheld by AI.Sentinel: r","numLines":2,"ok":true,"none":null,"lines":["withheld by AI.Sentinel: r",1]}}""",
+            """{"type":"text","file":{"filePath":"withheld by AI.Sentinel: r","content":"withheld by AI.Sentinel: r","numLines":2,"ok":true,"none":null,"empty":"","lines":["withheld by AI.Sentinel: r","",1,{"type":"x"}],"meta":{"type":{"name":"withheld by AI.Sentinel: r"}}}}""",
             withheld.GetRawText());
+    }
+
+    // Live check: a Bash response's empty stderr stays empty, or Claude Code shows the notice twice.
+    [Fact]
+    public void WithheldOutput_BashShape_NoticeOnceEmptyStderrKept()
+    {
+        var response = JsonDocument.Parse("""{"stdout":"secret","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false}""").RootElement;
+
+        Assert.Equal(
+            """{"stdout":"withheld by AI.Sentinel: r","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false}""",
+            HookPipelineRunner.WithheldOutput(response, "r").GetRawText());
     }
 
     [Fact]
@@ -200,6 +211,7 @@ public class HookWireFormatTests
     {
         Assert.Equal("withheld by AI.Sentinel: r", HookPipelineRunner.WithheldOutput(HookPipelineRunner.JsonString("secret"), "r").GetString());
         Assert.Equal("withheld by AI.Sentinel: r", HookPipelineRunner.WithheldOutput(default, "r").GetString());
+        Assert.Equal("withheld by AI.Sentinel: r", HookPipelineRunner.WithheldOutput(HookPipelineRunner.JsonString(""), "r").GetString());
         Assert.Equal("withheld by AI.Sentinel: r", HookPipelineRunner.WithheldOutput(JsonDocument.Parse("null").RootElement, "r").GetString());
     }
 
