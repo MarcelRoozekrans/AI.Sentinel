@@ -22,6 +22,12 @@ internal static class PlaceholderGuard
             ["create", "edit", "str_replace_editor", "apply_patch", "bash", "powershell", "write_bash", "write_powershell"],
             StringComparer.Ordinal);
 
+    /// <summary>Tools a Copilot hook in the VS Code compatible format can name: that format reports the Claude name of a
+    /// tool that has one and keeps the Copilot name of one that has none, such as <c>write_bash</c>, so both lists
+    /// apply.</summary>
+    public static readonly FrozenSet<string> CopilotVsCodeTools =
+        FrozenSet.ToFrozenSet(ClaudeCodeTools.Concat(CopilotTools), StringComparer.Ordinal);
+
     /// <summary>Fixed copy: it never echoes the placeholder or any other part of the input.</summary>
     public const string Reason = "AI.Sentinel denied this call: its input contains a redaction placeholder such as [EMAIL_1_k3f9x2]. The real value was redacted and must not be written to a file or a command. Ask the user for the value if you need it.";
 

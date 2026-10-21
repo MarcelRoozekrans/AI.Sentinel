@@ -98,9 +98,9 @@ public sealed class CopilotHookAdapter
 
         // A redaction placeholder written into a file or a command would replace the real value there. Denied
         // without an audit entry: nothing was detected, and the call never runs. toolArgs sent as a JSON string is
-        // parsed first, so the guard walks the same shape either way. The VS Code compatible payload names tools as
-        // Claude Code does, so it is checked against that list.
-        var guardedTools = input.UsesClaudeToolNames ? PlaceholderGuard.ClaudeCodeTools : PlaceholderGuard.CopilotTools;
+        // parsed first, so the guard walks the same shape either way. The VS Code compatible payload gives a tool its
+        // Claude name when it has one and keeps its Copilot name otherwise, so it is checked against both lists.
+        var guardedTools = input.UsesClaudeToolNames ? PlaceholderGuard.CopilotVsCodeTools : PlaceholderGuard.CopilotTools;
         if (evt == CopilotHookEvent.PreToolUse && _config.RedactToolResults
             && PlaceholderGuard.Check(input.ToolName, input.GuardToolArgs(default), guardedTools) is { } denied)
         {

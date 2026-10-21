@@ -573,6 +573,23 @@ public class CopilotHookAdapterTests
         Assert.Equal(PlaceholderGuard.Reason, output.Reason);
     }
 
+    // Tools with no Claude equivalent keep their Copilot names in the VS Code format, so both lists apply.
+    [Theory]
+    [InlineData("write_bash")]
+    [InlineData("write_powershell")]
+    [InlineData("powershell")]
+    [InlineData("apply_patch")]
+    public async Task VsCodeFormat_PreToolUse_WriteBashWithPlaceholder_Denied(string toolName)
+    {
+        var adapter = BuildAdapter();
+        var input = VsCode($$$"""{"hook_event_name":"PreToolUse","session_id":"v","tool_name":"{{{toolName}}}","tool_input":{"shellId":"1","input":"echo [EMAIL_1_k3f9x2]"}}""");
+
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Equal(PlaceholderGuard.Reason, output.Reason);
+    }
+
     [Fact]
     public async Task VsCodeFormat_Guard_ReceivesToolNameAndInput()
     {

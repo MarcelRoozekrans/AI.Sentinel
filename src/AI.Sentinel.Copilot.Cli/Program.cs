@@ -143,9 +143,14 @@ public static class Program
         }
     }
 
-    /// <summary>A Block exits 2 on userPromptSubmitted and preToolUse. On postToolUse and userPromptTransformed it exits
-    /// 0: Copilot parses stdout only on exit 0, where <c>modifiedResult</c> or <c>modifiedTransformedPrompt</c> withholds
-    /// the content, and exit 2 there is only a warning. The reason goes to stderr in every non-Allow case.</summary>
+    /// <summary>
+    /// A Block exits 2 on userPromptSubmitted and preToolUse. On preToolUse exit 2 denies the call. On userPromptSubmitted
+    /// it is advisory: Copilot treats it as a warning and drops a command hook's output, so the prompt still reaches the
+    /// model; enforcing on the prompt needs the user-prompt-transformed hook. On postToolUse and userPromptTransformed a
+    /// Block exits 0: Copilot parses stdout only on exit 0, where <c>modifiedResult</c> or
+    /// <c>modifiedTransformedPrompt</c> withholds the content, and exit 2 there is only a warning. The reason goes to
+    /// stderr in every non-Allow case.
+    /// </summary>
     private static async Task<int> ExitCodeAsync(TextWriter stderr, CopilotHookEvent evt, HookOutput output) =>
         output.Decision switch
         {
