@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using System.Threading.Channels;
@@ -14,7 +15,7 @@ public sealed class BufferingAuditForwarder<TInner> : IAuditForwarder, IAsyncDis
     private readonly Task _readerTask;
     private readonly CancellationTokenSource _cts = new();
     private long _droppedCount;
-    private long _lastDropLogTicks;
+    private long _lastDropLogMs = long.MinValue / 2;
 
     /// <summary>Total number of entries dropped due to channel overflow.</summary>
     public long DroppedCount => Interlocked.Read(ref _droppedCount);
@@ -53,11 +54,12 @@ public sealed class BufferingAuditForwarder<TInner> : IAuditForwarder, IAsyncDis
     {
         Interlocked.Increment(ref _droppedCount);
 
-        // Rate-limit stderr to once per second to avoid log floods on outage
-        var nowTicks = DateTime.UtcNow.Ticks;
-        var lastTicks = Interlocked.Read(ref _lastDropLogTicks);
-        if (nowTicks - lastTicks > TimeSpan.TicksPerSecond
-            && Interlocked.CompareExchange(ref _lastDropLogTicks, nowTicks, lastTicks) == lastTicks)
+        // Rate-limit stderr to once per second to avoid log floods on outage. Monotonic clock:
+        // a wall-clock step backwards must not silence the drop log.
+        var nowMs = Environment.TickCount64;
+        var lastMs = Interlocked.Read(ref _lastDropLogMs);
+        if (nowMs - lastMs > 1000
+            && Interlocked.CompareExchange(ref _lastDropLogMs, nowMs, lastMs) == lastMs)
         {
             LogStderr(new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -89,7 +91,9 @@ public sealed class BufferingAuditForwarder<TInner> : IAuditForwarder, IAsyncDis
     private async Task ReadLoopAsync(CancellationToken ct)
     {
         var batch = new List<AuditEntry>(_options.MaxBatchSize);
-        var lastFlush = DateTime.UtcNow;
+        // Monotonic timestamp, not DateTime.UtcNow: a wall-clock step backwards (NTP, DST on a
+        // misconfigured host) would otherwise hold a partial batch for as long as the step.
+        var lastFlush = Stopwatch.GetTimestamp();
         var writerCompleted = false;
 
         while (!ct.IsCancellationRequested && !writerCompleted)
@@ -99,11 +103,11 @@ public sealed class BufferingAuditForwarder<TInner> : IAuditForwarder, IAsyncDis
                 writerCompleted = !await TryReadIntoBatchAsync(batch, lastFlush, ct).ConfigureAwait(false);
 
                 if (batch.Count >= _options.MaxBatchSize ||
-                    (batch.Count > 0 && DateTime.UtcNow - lastFlush >= _options.MaxFlushInterval))
+                    (batch.Count > 0 && Stopwatch.GetElapsedTime(lastFlush) >= _options.MaxFlushInterval))
                 {
                     await FlushAsync(batch, ct).ConfigureAwait(false);
                     batch = new List<AuditEntry>(_options.MaxBatchSize);
-                    lastFlush = DateTime.UtcNow;
+                    lastFlush = Stopwatch.GetTimestamp();
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -125,10 +129,10 @@ public sealed class BufferingAuditForwarder<TInner> : IAuditForwarder, IAsyncDis
     }
 
     /// <summary>Reads one entry into <paramref name="batch"/>, bounded by the flush-interval timeout. Returns false when the channel is closed.</summary>
-    private async Task<bool> TryReadIntoBatchAsync(List<AuditEntry> batch, DateTime lastFlush, CancellationToken ct)
+    private async Task<bool> TryReadIntoBatchAsync(List<AuditEntry> batch, long lastFlush, CancellationToken ct)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var elapsed = DateTime.UtcNow - lastFlush;
+        var elapsed = Stopwatch.GetElapsedTime(lastFlush);
         var remaining = _options.MaxFlushInterval - elapsed;
         if (remaining > TimeSpan.Zero)
         {

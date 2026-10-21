@@ -152,7 +152,7 @@ The hook records to a local SQLite file by default, with no configuration. Every
 export SENTINEL_HOOK_AUDIT_NDJSON=/var/log/ai-sentinel/claude-code.ndjson
 ```
 
-One line per audit entry; ship via Filebeat/Vector. See [NDJSON file forwarder](../audit-forwarders/ndjson) for shipping recipes. The NDJSON file does not support several processes writing to the same file on Windows (see [#349](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/349)), so give each tool its own path there.
+One line per audit entry; ship via Filebeat/Vector. See [NDJSON file forwarder](../audit-forwarders/ndjson) for shipping recipes. Several hook processes, and the Copilot hook and MCP proxy, can share one NDJSON path: appends are serialised through a lock file, so no line is lost or interleaved.
 
 ### Browse the audit file
 

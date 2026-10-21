@@ -127,6 +127,8 @@ internal static class LocalAudit
         try
         {
             CreatePrivateFile(path);
+            // The forwarder serialises appends through <path>.lock; give it the same owner-only mode.
+            CreatePrivateFile(path + ".lock");
             forwarders.Add(new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions
             {
                 FilePath = path,

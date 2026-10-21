@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Child process for the multi-process NDJSON forwarder tests: a separate process is the only
+       way to exercise cross-process file sharing and locking. AI.Sentinel.Tests references it, so
+       its output lands next to the test assembly and the tests run it with `dotnet exec`. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- Not a test app: keep `dotnet test` from running it. The coverage package from
+         tests/Directory.Build.props would otherwise mark it as a Testing Platform application. -->
+    <IsTestProject>false</IsTestProject>
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+    <RollForward>LatestMajor</RollForward>
+    <RootNamespace>AI.Sentinel.Tests.NdjsonWriter</RootNamespace>
+    <!-- A console app has no SynchronizationContext to capture. -->
+    <NoWarn>$(NoWarn);MA0004</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AI.Sentinel\AI.Sentinel.csproj" />
+  </ItemGroup>
+</Project>

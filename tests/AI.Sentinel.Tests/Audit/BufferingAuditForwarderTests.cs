@@ -1,5 +1,6 @@
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Tests.Helpers;
 using Xunit;
 
 namespace AI.Sentinel.Tests.Audit;
@@ -12,35 +13,39 @@ public class BufferingAuditForwarderTests
     [Fact]
     public async Task SizeThreshold_FlushesBatch()
     {
-        var inner = new RecordingForwarder();
-        await using var buf = new BufferingAuditForwarder<RecordingForwarder>(inner,
-            new BufferingAuditForwarderOptions { MaxBatchSize = 3, MaxFlushInterval = TimeSpan.FromSeconds(60) });
+        var inner = new RecordingAuditForwarder();
+        await using var buf = new BufferingAuditForwarder<RecordingAuditForwarder>(inner,
+            new BufferingAuditForwarderOptions { MaxBatchSize = 3, MaxFlushInterval = TimeSpan.FromMinutes(10) });
 
         for (var i = 0; i < 3; i++)
         {
             await buf.SendAsync([MakeEntry($"e{i}")], TestContext.Current.CancellationToken);
         }
 
-        // Bounded poll for the background reader (CI is slower than fixed delays assume).
-        await WaitUntilAsync(() => inner.Batches.Count > 0);
+        // The interval is far beyond the wait bound, so only the size threshold can flush: the reader
+        // holds the entries until the third arrives and ships them as one batch, in order.
+        await inner.WaitForAsync(3);
 
-        Assert.Single(inner.Batches);
-        Assert.Equal(3, inner.Batches[0].Count);
+        Assert.Equal(3, Assert.Single(inner.Batches).Count);
+        Assert.Equal(["e0", "e1", "e2"], inner.Entries.Select(e => e.Id), StringComparer.Ordinal);
     }
 
     [Fact]
     public async Task IntervalThreshold_FlushesBatch()
     {
-        var inner = new RecordingForwarder();
-        await using var buf = new BufferingAuditForwarder<RecordingForwarder>(inner,
+        var inner = new RecordingAuditForwarder();
+        await using var buf = new BufferingAuditForwarder<RecordingAuditForwarder>(inner,
             new BufferingAuditForwarderOptions { MaxBatchSize = 1000, MaxFlushInterval = TimeSpan.FromMilliseconds(150) });
 
         await buf.SendAsync([MakeEntry()], TestContext.Current.CancellationToken);
-        // Flush interval is 150ms — poll up to 5s for the interval-driven flush to land.
-        await WaitUntilAsync(() => inner.Batches.Count > 0);
 
-        Assert.Single(inner.Batches);
-        Assert.Single(inner.Batches[0]);
+        // The batch is far below MaxBatchSize and the forwarder is not disposed until after the
+        // wait, so only the interval flush can deliver it. The wait bound is a hang detector, not
+        // a timing expectation: a loaded machine may run the 150 ms flush late, never not at all.
+        await inner.WaitForAsync(1);
+
+        var batch = Assert.Single(inner.Batches);
+        Assert.Equal("e1", Assert.Single(batch).Id);
     }
 
     [Fact]
@@ -67,14 +72,14 @@ public class BufferingAuditForwarderTests
     [Fact]
     public async Task DisposeAsync_FlushesPendingBatch()
     {
-        var inner = new RecordingForwarder();
-        var buf = new BufferingAuditForwarder<RecordingForwarder>(inner,
-            new BufferingAuditForwarderOptions { MaxBatchSize = 1000, MaxFlushInterval = TimeSpan.FromSeconds(60) });
+        var inner = new RecordingAuditForwarder();
+        var buf = new BufferingAuditForwarder<RecordingAuditForwarder>(inner,
+            new BufferingAuditForwarderOptions { MaxBatchSize = 1000, MaxFlushInterval = TimeSpan.FromMinutes(10) });
 
         await buf.SendAsync([MakeEntry()], TestContext.Current.CancellationToken);
         await buf.DisposeAsync();
 
-        Assert.Single(inner.Batches);
+        Assert.Equal("e1", Assert.Single(inner.Entries).Id);
     }
 
     [Fact]
@@ -82,24 +87,14 @@ public class BufferingAuditForwarderTests
     {
         var inner = new ThrowOnceForwarder();
         await using var buf = new BufferingAuditForwarder<ThrowOnceForwarder>(inner,
-            new BufferingAuditForwarderOptions { MaxBatchSize = 1, MaxFlushInterval = TimeSpan.FromMilliseconds(50) });
+            new BufferingAuditForwarderOptions { MaxBatchSize = 1, MaxFlushInterval = TimeSpan.FromMinutes(10) });
 
-        await buf.SendAsync([MakeEntry("e1")], TestContext.Current.CancellationToken); // first batch — inner throws
-        await WaitUntilAsync(() => inner.Calls >= 1);    // wait for the throw to be processed
-        await buf.SendAsync([MakeEntry("e2")], TestContext.Current.CancellationToken); // second — must still ship
-        await WaitUntilAsync(() => inner.SuccessfulSends >= 1);
+        // MaxBatchSize = 1 puts each entry in its own batch, so e1 is the batch that throws.
+        await buf.SendAsync([MakeEntry("e1")], TestContext.Current.CancellationToken);
+        await buf.SendAsync([MakeEntry("e2")], TestContext.Current.CancellationToken);
+        await inner.Delivered.WaitForAsync(1);
 
-        Assert.Equal(1, inner.SuccessfulSends);
-    }
-
-    private sealed class RecordingForwarder : IAuditForwarder
-    {
-        public List<IReadOnlyList<AuditEntry>> Batches { get; } = new();
-        public ValueTask SendAsync(IReadOnlyList<AuditEntry> batch, CancellationToken ct)
-        {
-            Batches.Add(batch);
-            return ValueTask.CompletedTask;
-        }
+        Assert.Equal("e2", Assert.Single(inner.Delivered.Entries).Id);
     }
 
     private sealed class BlockingForwarder : IAuditForwarder
@@ -111,30 +106,14 @@ public class BufferingAuditForwarderTests
     private sealed class ThrowOnceForwarder : IAuditForwarder
     {
         private int _calls;
-        public int Calls => Volatile.Read(ref _calls);
-        public int SuccessfulSends { get; private set; }
+        public RecordingAuditForwarder Delivered { get; } = new();
         public ValueTask SendAsync(IReadOnlyList<AuditEntry> batch, CancellationToken ct)
         {
             if (Interlocked.Increment(ref _calls) == 1)
             {
                 throw new InvalidOperationException("first call boom");
             }
-            SuccessfulSends++;
-            return ValueTask.CompletedTask;
-        }
-    }
-
-    /// <summary>
-    /// Polls <paramref name="condition"/> until true or timeout. Replaces fixed Task.Delay
-    /// waits that flake on slower CI runners.
-    /// </summary>
-    private static async Task WaitUntilAsync(Func<bool> condition, int timeoutMs = 5_000, int pollMs = 25)
-    {
-        var deadline = Environment.TickCount + timeoutMs;
-        while (!condition())
-        {
-            if (Environment.TickCount > deadline) return;
-            await Task.Delay(pollMs).ConfigureAwait(false);
+            return Delivered.SendAsync(batch, ct);
         }
     }
 }

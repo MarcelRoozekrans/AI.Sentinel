@@ -50,3 +50,28 @@ jobs:
           files: "TestResults/**/*.cobertura.xml"
           disable_search: true   # only the files above, not every *.xml the search finds
           fail_ci_if_error: false
+
+  # The NDJSON forwarder's cross-process locking depends on Windows file sharing semantics that the
+  # ubuntu job cannot exercise. Building the test project also builds the NdjsonWriter helper that
+  # the multi-process test starts. The two queries select tests whose class or method name contains
+  # "Ndjson"; filters of the same kind are OR'ed.
+  ndjson-windows:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Build
+        run: dotnet build tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj -c Release
+
+      - name: Test NDJSON forwarder
+        run: dotnet test --project tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj --no-build -c Release --filter-query "/*/*/*Ndjson*/*" --filter-query "/*/*/*/*Ndjson*"

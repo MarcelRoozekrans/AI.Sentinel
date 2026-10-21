@@ -908,7 +908,7 @@ Useful when wiring the hook for the first time ("did it run?") or when a block w
 | Variable (hooks) | MCP proxy | Default | Purpose |
 |---|---|---|---|
 | `SENTINEL_HOOK_AUDIT_SQLITE` | `SENTINEL_MCP_AUDIT_SQLITE` | `<data folder>/ai-sentinel/audit.db` | A database path, or `off` for the in-memory ring buffer |
-| `SENTINEL_HOOK_AUDIT_NDJSON` | `SENTINEL_MCP_AUDIT_NDJSON` | — | A file path; adds an NDJSON copy (not safe for several writer processes on Windows, see [#349](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/349)) |
+| `SENTINEL_HOOK_AUDIT_NDJSON` | `SENTINEL_MCP_AUDIT_NDJSON` | — | A file path; adds an NDJSON copy. Several processes can share one path |
 | `SENTINEL_HOOK_AUDIT_MAX_MB` | `SENTINEL_MCP_AUDIT_MAX_MB` | `100` | Size cap in MB, enforced when the CLI opens the file; `0` means no cap. The CLIs never `VACUUM`, so the file stops growing at about the cap instead of shrinking |
 
 An audit failure never changes a decision. `sentinel-hook` prints it to stderr with the prefix `[sentinel-hook] audit:` unless the decision is a Block that exits 2, `sentinel-copilot-hook` only on Allow, and both on any decision when `SENTINEL_HOOK_VERBOSE` is set; the MCP proxy logs it as the `audit_unavailable` event.
