@@ -162,7 +162,7 @@ public static class Program
             var json = await stdin.ReadToEndAsync().ConfigureAwait(false);
             var input = JsonSerializer.Deserialize(json, CopilotHookJsonContext.Default.CopilotHookInput)
                 ?? throw new InvalidDataException("Empty input.");
-            return (input, 0);
+            return (input.WithVsCodeAliases(), 0);
         }
         catch (JsonException ex)
         {

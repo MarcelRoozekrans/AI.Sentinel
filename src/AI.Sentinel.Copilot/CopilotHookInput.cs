@@ -24,6 +24,58 @@ public sealed record CopilotHookInput
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TransformedPrompt { get; init; }
 
+    /// <summary><c>session_id</c>, sent instead of <c>sessionId</c> by a hook configured with a PascalCase event name,
+    /// which gets the VS Code compatible payload. Read only through <see cref="WithVsCodeAliases"/>.</summary>
+    [JsonInclude]
+    [JsonPropertyName("session_id")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal string? VsCodeSessionId { get; init; }
+
+    /// <summary><c>tool_name</c> of the VS Code compatible payload: the Claude tool name, such as <c>Bash</c>.</summary>
+    [JsonInclude]
+    [JsonPropertyName("tool_name")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal string? VsCodeToolName { get; init; }
+
+    /// <summary><c>tool_input</c> of the VS Code compatible payload.</summary>
+    [JsonInclude]
+    [JsonPropertyName("tool_input")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal JsonElement? VsCodeToolInput { get; init; }
+
+    /// <summary><c>tool_result</c> of the VS Code compatible payload, shaped
+    /// <c>{result_type, text_result_for_llm}</c>.</summary>
+    [JsonInclude]
+    [JsonPropertyName("tool_result")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    internal JsonElement? VsCodeToolResult { get; init; }
+
+    /// <summary>True when <see cref="ToolName"/> came from <c>tool_name</c>, which carries the Claude tool name.</summary>
+    [JsonIgnore]
+    internal bool UsesClaudeToolNames { get; private init; }
+
+    /// <summary>
+    /// This input with the VS Code compatible snake_case fields copied onto the members the adapter reads. A camelCase
+    /// field wins when both are sent. Returns this instance when no snake_case field was sent.
+    /// </summary>
+    internal CopilotHookInput WithVsCodeAliases()
+    {
+        if (VsCodeSessionId is null && VsCodeToolName is null && VsCodeToolInput is null && VsCodeToolResult is null)
+        {
+            return this;
+        }
+
+        var toolNameFromAlias = ToolName is null && VsCodeToolName is not null;
+        return this with
+        {
+            SessionId = string.IsNullOrEmpty(SessionId) ? VsCodeSessionId ?? SessionId : SessionId,
+            ToolName = ToolName ?? VsCodeToolName,
+            ToolInput = ToolInput ?? VsCodeToolInput,
+            ToolResult = ToolResult ?? VsCodeToolResult,
+            UsesClaudeToolNames = UsesClaudeToolNames || toolNameFromAlias,
+        };
+    }
+
     [JsonIgnore]
     internal JsonElement? EffectiveToolArgs => ToolArgs ?? ToolInput;
 

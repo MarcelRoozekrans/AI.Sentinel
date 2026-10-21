@@ -401,4 +401,73 @@ public class HookWireFormatTests
 
         Assert.Equal("""{"decision":"Allow","reason":null}""", CopilotWire(CopilotHookEvent.PreToolUse, output, "p"));
     }
+
+    // A Copilot hook configured with a PascalCase event name sends the VS Code format: snake_case fields, and a
+    // tool_result shaped {result_type, text_result_for_llm}.
+    [Fact]
+    public void Copilot_VsCodeFormatPayload_ReadsSnakeCaseFields()
+    {
+        const string json = """
+            {"hook_event_name":"PostToolUse","session_id":"v-1","timestamp":"2026-10-21T10:00:00Z","cwd":"/w","tool_name":"Bash","tool_input":{"command":"ls"},"tool_result":{"result_type":"success","text_result_for_llm":"ok"}}
+            """;
+
+        var input = JsonSerializer.Deserialize(json, CopilotHookJsonContext.Default.CopilotHookInput)!.WithVsCodeAliases();
+
+        Assert.Equal("v-1", input.SessionId);
+        Assert.Equal("Bash", input.ToolName);
+        Assert.Equal("""{"command":"ls"}""", input.ToolInput?.GetRawText());
+        Assert.Equal("""{"result_type":"success","text_result_for_llm":"ok"}""", input.ToolResult?.GetRawText());
+        Assert.True(input.UsesClaudeToolNames);
+    }
+
+    [Fact]
+    public void Copilot_VsCodeFormatPrompt_ReadsSessionId()
+    {
+        var input = JsonSerializer.Deserialize(
+            """{"hook_event_name":"UserPromptSubmit","session_id":"v-2","prompt":"hi"}""",
+            CopilotHookJsonContext.Default.CopilotHookInput)!.WithVsCodeAliases();
+
+        Assert.Equal("v-2", input.SessionId);
+        Assert.Equal("hi", input.Prompt);
+        Assert.False(input.UsesClaudeToolNames);
+    }
+
+    [Fact]
+    public void Copilot_CamelCaseFieldsWinOverSnakeCase()
+    {
+        var input = JsonSerializer.Deserialize(
+            """{"sessionId":"c-1","session_id":"v-1","toolName":"bash","tool_name":"Bash","toolArgs":{"a":1},"tool_input":{"b":2}}""",
+            CopilotHookJsonContext.Default.CopilotHookInput)!.WithVsCodeAliases();
+
+        Assert.Equal("c-1", input.SessionId);
+        Assert.Equal("bash", input.ToolName);
+        Assert.Equal("""{"a":1}""", input.EffectiveToolArgs?.GetRawText());
+        Assert.False(input.UsesClaudeToolNames);
+    }
+
+    // The aliases are read only: a camelCase input serializes as before, and so does one read from the VS Code format
+    // once its aliases are left unset.
+    [Fact]
+    public void Copilot_Input_WithAliasesUnset_SerializesUnchanged()
+    {
+        var input = new CopilotHookInput { SessionId = "c-1", ToolName = "Bash" }.WithVsCodeAliases();
+
+        Assert.Equal(
+            """{"sessionId":"c-1","prompt":null,"toolName":"Bash","toolInput":null,"toolResponse":null}""",
+            JsonSerializer.Serialize(input, CopilotHookJsonContext.Default.CopilotHookInput));
+    }
+
+    [Fact]
+    public void CopilotWire_PostToolUseRedacted_VsCodeFormatResult()
+    {
+        var output = new HookOutput
+        {
+            Decision = HookDecision.Allow,
+            UpdatedToolOutput = JsonDocument.Parse("""{"result_type":"success","text_result_for_llm":"mail [EMAIL_1_abc123]"}""").RootElement.Clone(),
+        };
+
+        Assert.Equal(
+            """{"decision":"Allow","reason":null,"modifiedResult":{"resultType":"success","textResultForLlm":"mail [EMAIL_1_abc123]"}}""",
+            CopilotWire(CopilotHookEvent.PostToolUse, output));
+    }
 }
