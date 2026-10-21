@@ -2,7 +2,7 @@ name: Release Please
 
 on:
   push:
-    branches: [main]
+    branches: [release/2.x]
 
 permissions:
   contents: write
@@ -21,6 +21,7 @@ jobs:
         id: release
         with:
           release-type: simple
+          target-branch: release/2.x
           token: ${{ secrets.GITHUB_TOKEN }}
 
       # release-please parses every commit with a conventional-commit grammar, and a commit it
@@ -53,7 +54,8 @@ jobs:
             exit 0
           fi
 
-          if gh pr list --state open --json title --jq '.[].title' | grep -qE '^chore\(main\): release'; then
+          if gh pr list --state open --base release/2.x --json title --jq '.[].title' \
+              | grep -qE '^chore\(release/2\.x\): release'; then
             echo "$releasable releasable commit(s) since $last_tag, and a release PR is open."
             exit 0
           fi
