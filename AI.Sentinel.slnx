@@ -25,5 +25,6 @@
     <Project Path="tests/AI.Sentinel.AzureSentinel.Tests/AI.Sentinel.AzureSentinel.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.OpenTelemetry.Tests/AI.Sentinel.OpenTelemetry.Tests.csproj" />
     <Project Path="tests/AI.Sentinel.Detectors.Sdk.Tests/AI.Sentinel.Detectors.Sdk.Tests.csproj" />
+    <Project Path="tests/AI.Sentinel.Aot.Probe/AI.Sentinel.Aot.Probe.csproj" />
   </Folder>
 </Solution>
