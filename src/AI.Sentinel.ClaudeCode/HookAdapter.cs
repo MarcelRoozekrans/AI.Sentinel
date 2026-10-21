@@ -64,62 +64,84 @@ public sealed class HookAdapter
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        if (evt == HookEvent.PreToolUse && _guard is not null && !string.IsNullOrEmpty(input.ToolName))
+        if (evt == HookEvent.PreToolUse && await AuthorizeAsync(input, ct).ConfigureAwait(false) is { } unauthorized)
         {
-            var caller = _config.CallerContextProvider?.Invoke(input) ?? AnonymousSecurityContext.Instance;
-            var args = input.ToolInput ?? EmptyJsonObject;
-            var decision = await _guard.AuthorizeAsync(caller, input.ToolName, args, ct).ConfigureAwait(false);
-            if (!decision.Allowed)
+            return unauthorized;
+        }
+
+        // A redaction placeholder written into a file or a command would replace the real value there. Denied
+        // without an audit entry: nothing was detected, and the call never runs.
+        if (evt == HookEvent.PreToolUse && _config.RedactToolResults
+            && PlaceholderGuard.Check(input.ToolName, input.ToolInput ?? default, PlaceholderGuard.ClaudeCodeTools) is { } denied)
+        {
+            return denied;
+        }
+
+        return await ScanAsync(evt, input, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Asks the <see cref="IToolCallGuard"/>, when one is registered, whether the tool call may run. A Block
+    /// with the denial or approval receipt when it may not, audited as AUTHZ-DENY; otherwise <see langword="null"/>.</summary>
+    private async Task<HookOutput?> AuthorizeAsync(HookInput input, CancellationToken ct)
+    {
+        if (_guard is null || string.IsNullOrEmpty(input.ToolName))
+        {
+            return null;
+        }
+
+        var caller = _config.CallerContextProvider?.Invoke(input) ?? AnonymousSecurityContext.Instance;
+        var args = input.ToolInput ?? EmptyJsonObject;
+        var decision = await _guard.AuthorizeAsync(caller, input.ToolName, args, ct).ConfigureAwait(false);
+        if (!decision.Allowed)
+        {
+            // RequireApproval: surface the receipt so the operator can find and approve the
+            // pending request out of band, then retry. Audit as AUTHZ-DENY with the request id
+            // so log readers can correlate Sentinel decisions with PIM activations.
+            if (decision is AuthorizationDecision.RequireApprovalDecision r)
             {
-                // RequireApproval: surface the receipt so the operator can find and approve the
-                // pending request out of band, then retry. Audit as AUTHZ-DENY with the request id
-                // so log readers can correlate Sentinel decisions with PIM activations.
-                if (decision is AuthorizationDecision.RequireApprovalDecision r)
-                {
-                    if (_audit is not null)
-                    {
-                        var approvalEntry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
-                            sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
-                            receiver: new AgentId(input.ToolName),
-                            session: new SessionId(string.IsNullOrWhiteSpace(input.SessionId) ? Guid.NewGuid().ToString("N") : input.SessionId),
-                            callerId: caller.Id,
-                            roles: caller.Roles,
-                            toolName: input.ToolName,
-                            policyName: r.PolicyName,
-                            reason: $"approval required (requestId={r.RequestId})",
-                            policyCode: SentinelDenyCodes.ApprovalRequired);
-                        await _audit.AppendAndForwardAsync(approvalEntry, _forwarders, ct).ConfigureAwait(false);
-                    }
-
-                    return new HookOutput { Decision = HookDecision.Block, Reason = ApprovalReceipt.Format(input.ToolName, r) };
-                }
-
-                var deny = decision as AuthorizationDecision.DenyDecision;  // defensive `??` below — see AuthorizationChatClient.AuditDenyAsync
-                var policyName = deny?.PolicyName ?? "?";
-                var denyReason = deny?.Reason ?? "?";
-                var denyCode = deny?.Code ?? SentinelDenyCodes.PolicyDenied;
-
                 if (_audit is not null)
                 {
-                    var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+                    var approvalEntry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
                         sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
                         receiver: new AgentId(input.ToolName),
                         session: new SessionId(string.IsNullOrWhiteSpace(input.SessionId) ? Guid.NewGuid().ToString("N") : input.SessionId),
                         callerId: caller.Id,
                         roles: caller.Roles,
                         toolName: input.ToolName,
-                        policyName: policyName,
-                        reason: denyReason,
-                        policyCode: denyCode);
-                    await _audit.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
+                        policyName: r.PolicyName,
+                        reason: $"approval required (requestId={r.RequestId})",
+                        policyCode: SentinelDenyCodes.ApprovalRequired);
+                    await _audit.AppendAndForwardAsync(approvalEntry, _forwarders, ct).ConfigureAwait(false);
                 }
 
-                var reason = $"Authorization denied [{denyCode}] by policy '{policyName}': {denyReason}";
-                return new HookOutput { Decision = HookDecision.Block, Reason = reason };
+                return new HookOutput { Decision = HookDecision.Block, Reason = ApprovalReceipt.Format(input.ToolName, r) };
             }
+
+            var deny = decision as AuthorizationDecision.DenyDecision;  // defensive `??` below — see AuthorizationChatClient.AuditDenyAsync
+            var policyName = deny?.PolicyName ?? "?";
+            var denyReason = deny?.Reason ?? "?";
+            var denyCode = deny?.Code ?? SentinelDenyCodes.PolicyDenied;
+
+            if (_audit is not null)
+            {
+                var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+                    sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
+                    receiver: new AgentId(input.ToolName),
+                    session: new SessionId(string.IsNullOrWhiteSpace(input.SessionId) ? Guid.NewGuid().ToString("N") : input.SessionId),
+                    callerId: caller.Id,
+                    roles: caller.Roles,
+                    toolName: input.ToolName,
+                    policyName: policyName,
+                    reason: denyReason,
+                    policyCode: denyCode);
+                await _audit.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
+            }
+
+            var reason = $"Authorization denied [{denyCode}] by policy '{policyName}': {denyReason}";
+            return new HookOutput { Decision = HookDecision.Block, Reason = reason };
         }
 
-        return await ScanAsync(evt, input, ct).ConfigureAwait(false);
+        return null;
     }
 
     private async Task<HookOutput> ScanAsync(HookEvent evt, HookInput input, CancellationToken ct)

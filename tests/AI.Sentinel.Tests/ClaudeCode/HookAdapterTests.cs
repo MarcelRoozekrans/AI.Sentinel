@@ -235,6 +235,41 @@ public class HookAdapterTests
         Assert.Contains(entries, e => e.Summary.EndsWith("; not redacted", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task PreToolUse_WritePlaceholder_BlockWithGuardReason()
+    {
+        var (adapter, audit) = BuildAdapterWithAudit();
+        var input = new HookInput
+        {
+            SessionId = "sess-g",
+            ToolName = "Write",
+            ToolInput = Json("""{"file_path":"/a/b.txt","content":"mail [EMAIL_1_k3f9x2] today"}"""),
+        };
+
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Equal(PlaceholderGuard.Reason, output.Reason);
+        Assert.Empty(await ReadAuditAsync(audit));
+    }
+
+    [Fact]
+    public async Task PreToolUse_WritePlaceholder_RedactOff_NotGuarded()
+    {
+        var (adapter, _) = BuildAdapterWithAudit(new HookConfig { RedactToolResults = false });
+        var input = new HookInput
+        {
+            SessionId = "sess-g",
+            ToolName = "Write",
+            ToolInput = Json("""{"file_path":"/a/b.txt","content":"mail [EMAIL_1_k3f9x2] today"}"""),
+        };
+
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.NotEqual(PlaceholderGuard.Reason, output.Reason, StringComparer.Ordinal);
+        Assert.Equal(HookDecision.Allow, output.Decision);
+    }
+
     // Controller ruling: a hook process has no placeholder store, so placeholder-shaped tokens already in the hook
     // input are known placeholders. Content that echoes one is neither wrapped again nor flagged.
     [Fact]

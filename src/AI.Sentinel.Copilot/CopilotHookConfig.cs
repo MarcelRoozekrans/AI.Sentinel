@@ -34,6 +34,11 @@ public sealed record CopilotHookConfig
     /// a finding warns instead of following <see cref="OnHigh"/>. Set by <c>SENTINEL_HOOK_COMPLIANCE=on</c>.</summary>
     public bool EnableComplianceDetectors { get; init; }
 
+    /// <summary>When true, the default, PreToolUse denies a write or shell tool whose input holds a redaction
+    /// placeholder, and tool results are redacted where the host lets Sentinel rewrite them. Set by
+    /// <c>SENTINEL_HOOK_REDACT</c>: <c>off</c>, <c>0</c>, <c>false</c> or <c>no</c> turn it off.</summary>
+    public bool RedactToolResults { get; init; } = true;
+
     /// <summary>
     /// Resolves the caller identity from the hook input. When <c>null</c> (the default),
     /// <see cref="AnonymousSecurityContext.Instance"/> is used for authorization checks.
@@ -55,6 +60,7 @@ public sealed record CopilotHookConfig
             Verbose = ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"),
             SuppressSemanticWarning = ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"),
             EnableComplianceDetectors = ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE"),
+            RedactToolResults = HookConfig.ParseOnByDefault(env, "SENTINEL_HOOK_REDACT"),
         };
     }
 
@@ -73,6 +79,7 @@ public sealed record CopilotHookConfig
             OnLow = OnLow,
             Verbose = Verbose,
             EnableComplianceDetectors = EnableComplianceDetectors,
+            RedactToolResults = RedactToolResults,
         };
 
     private static HookDecision ParseDecision(IReadOnlyDictionary<string, string?> env, string key, HookDecision fallback)

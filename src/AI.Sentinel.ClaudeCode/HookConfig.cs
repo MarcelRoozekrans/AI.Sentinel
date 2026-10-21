@@ -72,8 +72,8 @@ public sealed record HookConfig
     }
 
     /// <summary>Reads a switch that is on by default: <c>off</c>, <c>0</c>, <c>false</c> or <c>no</c> turn it off;
-    /// <c>on</c>, <c>1</c>, <c>true</c>, <c>yes</c>, anything else or nothing leave it on.</summary>
-    private static bool ParseOnByDefault(IReadOnlyDictionary<string, string?> env, string key)
+    /// <c>on</c>, <c>1</c>, <c>true</c>, <c>yes</c>, anything else or nothing leave it on. The Copilot hook config shares it.</summary>
+    internal static bool ParseOnByDefault(IReadOnlyDictionary<string, string?> env, string key)
     {
         if (!env.TryGetValue(key, out var v) || string.IsNullOrEmpty(v)) return true;
         return !(string.Equals(v, "off", StringComparison.OrdinalIgnoreCase)

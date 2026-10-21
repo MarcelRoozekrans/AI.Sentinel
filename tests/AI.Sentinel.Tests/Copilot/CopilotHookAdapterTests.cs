@@ -108,6 +108,56 @@ public class CopilotHookAdapterTests
     }
 
     [Fact]
+    public async Task CopilotGuard_EditWithPlaceholder_Denies()
+    {
+        var adapter = BuildAdapter();
+        var input = new CopilotHookInput
+        {
+            SessionId = "s",
+            ToolName = "edit",
+            ToolArgs = Json("""{"path":"/a/b.txt","new_str":"mail [EMAIL_1_k3f9x2] today"}"""),
+        };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Equal(PlaceholderGuard.Reason, output.Reason);
+    }
+
+    [Fact]
+    public async Task CopilotGuard_ToolArgsAsJsonString_Denies()
+    {
+        var adapter = BuildAdapter();
+        var input = JsonSerializer.Deserialize(
+            """{"sessionId":"s","toolName":"bash","toolArgs":"{\"command\":\"echo [EMAIL_1_k3f9x2] > out.txt\"}"}""",
+            CopilotHookJsonContext.Default.CopilotHookInput)!;
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Equal(PlaceholderGuard.Reason, output.Reason);
+    }
+
+    [Fact]
+    public async Task CopilotGuard_View_Allowed()
+    {
+        var adapter = BuildAdapter();
+        var input = new CopilotHookInput
+        {
+            SessionId = "s",
+            ToolName = "view",
+            ToolArgs = Json("""{"path":"/a/[EMAIL_1_k3f9x2].txt"}"""),
+        };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+        Assert.Equal(HookDecision.Allow, output.Decision);
+    }
+
+    [Fact]
+    public void CopilotHookConfig_FromEnvironment_RedactSwitch()
+    {
+        Assert.True(CopilotHookConfig.FromEnvironment(new Dictionary<string, string?>(StringComparer.Ordinal)).RedactToolResults);
+        var off = CopilotHookConfig.FromEnvironment(new Dictionary<string, string?>(StringComparer.Ordinal) { ["SENTINEL_HOOK_REDACT"] = "off" });
+        Assert.False(off.RedactToolResults);
+        Assert.False(off.ToSharedConfig().RedactToolResults);
+    }
+
+    [Fact]
     public async Task Guard_ReceivesToolArgs()
     {
         var guard = new CapturingGuard();
