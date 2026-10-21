@@ -503,6 +503,24 @@ services.AddAISentinel(opts =>
 });
 ```
 
+To disable a detector by name from configuration, with no generic type argument, pass its type name
+or its id. Matching is case-sensitive:
+
+```csharp
+services.AddAISentinel(opts =>
+{
+    foreach (var name in config.GetSection("Sentinel:DisabledDetectors").Get<string[]>() ?? [])
+    {
+        if (!opts.TryDisableDetector(name))   // "WrongLanguageDetector" or "OPS-15"
+        {
+            logger.LogWarning("Unknown detector {Name}", name);
+        }
+    }
+
+    opts.DisableDetector("SEC-01");           // throws ArgumentException for an unknown value
+});
+```
+
 `Floor` and `Cap` apply only to *firing* results — Clean results pass through unchanged
 (no fabricated findings). Multiple `Configure<T>` calls for the same detector merge by
 mutation, so base configuration and per-environment overrides compose naturally.
