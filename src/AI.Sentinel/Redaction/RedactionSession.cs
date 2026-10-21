@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Collections;
 using System.Text;
 using System.Text.Json;
+using System.Text.Encodings.Web;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
@@ -846,6 +847,11 @@ internal sealed class RedactionSession
                 $"A value of type {value.GetType().FullName} could not be serialized for redaction.");
     }
 
+    // The default encoder writes every non-ASCII character and < > & ' + as \uXXXX, so anyone reading the raw text of
+    // the copy, such as a host scanning or forwarding it, would see escapes instead of the text. The copy is data,
+    // never embedded in HTML, so the relaxed encoder is safe here; it still escapes quotes, backslashes and controls.
+    private static readonly JsonWriterOptions MappedJsonOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
     private static JsonElement MapJson(JsonElement element, Func<string, string> map, bool mapNames = true)
     {
         if (element.ValueKind == JsonValueKind.Undefined)
@@ -854,7 +860,7 @@ internal sealed class RedactionSession
         }
 
         var buffer = new ArrayBufferWriter<byte>();
-        using (var writer = new Utf8JsonWriter(buffer))
+        using (var writer = new Utf8JsonWriter(buffer, MappedJsonOptions))
         {
             WriteMapped(writer, element, map, mapNames);
         }

@@ -18,4 +18,16 @@ internal sealed record HostRedactionResult(
 {
     /// <summary>True when anything in the content was redacted.</summary>
     public bool Redacted => RedactedByType.Count > 0;
+
+    /// <summary>Detector id to entity type to number of redacted occurrences in the content: the counts
+    /// <see cref="RedactedByType"/> sums. Counts only. The pipeline does not audit them; a host that delivers the
+    /// redacted content records them with <see cref="SentinelPipeline.AppendRedactionsAsync(HostRedactionResult, string, CancellationToken)"/>.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> RedactedByDetector { get; init; } = NoCounts;
+
+    /// <summary>The session the scan's audit entries were recorded for: the caller's, or the one minted for this
+    /// call when the caller passed none.</summary>
+    public string SessionId { get; init; } = string.Empty;
+
+    private static readonly IReadOnlyDictionary<string, IReadOnlyDictionary<string, int>> NoCounts =
+        new Dictionary<string, IReadOnlyDictionary<string, int>>(StringComparer.Ordinal);
 }

@@ -129,6 +129,32 @@ public class PlaceholderStoreTests
         Assert.Equal("[EMAIL_1_bbbbb2]", store.RestoreToolArgument("[EMAIL_1_bbbbb2]"));
     }
 
+    // Two sessions can draw the same tag and mint the same token; neither value may reach the other's tool call.
+    [Fact]
+    public void Register_SameTokenDifferentValue_NeverRestoresEither()
+    {
+        var store = NewStore();
+        store.Register([Pii("[EMAIL_1_k3f9x2]", "a@example.com")]);
+
+        store.Register([Pii("[EMAIL_1_k3f9x2]", "b@example.com")]);
+
+        Assert.Equal("[EMAIL_1_k3f9x2]", store.RestoreToolArgument("[EMAIL_1_k3f9x2]"));
+        store.Register([Pii("[EMAIL_1_k3f9x2]", "a@example.com")]);
+        Assert.Equal("[EMAIL_1_k3f9x2]", store.RestoreToolArgument("[EMAIL_1_k3f9x2]"));
+        Assert.Contains("[EMAIL_1_k3f9x2]", store.KnownTokens());
+    }
+
+    [Fact]
+    public void Register_SameTokenSameValue_StillRestores()
+    {
+        var store = NewStore();
+        store.Register([Pii("[EMAIL_1_k3f9x2]", Email)]);
+
+        store.Register([Pii("[EMAIL_1_k3f9x2]", Email)]);
+
+        Assert.Equal(Email, store.RestoreToolArgument("[EMAIL_1_k3f9x2]"));
+    }
+
     [Fact]
     public void RestoreToolArguments_WalksNestedJson_KeysUnchanged_InputNotMutated()
     {

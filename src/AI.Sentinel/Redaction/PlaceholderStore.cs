@@ -63,8 +63,12 @@ internal sealed class PlaceholderStore
         }
     }
 
-    /// <summary>Adds what one call minted, as most recently used. A token registered again is refreshed, and once
-    /// it is not restorable it never becomes restorable again.</summary>
+    /// <summary>
+    /// Adds what one call minted, as most recently used. A token registered again is refreshed. Once it is not
+    /// restorable it never becomes restorable again, and a token registered with a different value is poisoned:
+    /// two sessions drew the same tag, so restoring either value could hand one caller's value to another's tool
+    /// call. A poisoned token stays known, and literal, until it expires or is evicted.
+    /// </summary>
     public void Register(IReadOnlyList<MintedPlaceholder> minted)
     {
         ArgumentNullException.ThrowIfNull(minted);
@@ -78,8 +82,13 @@ internal sealed class PlaceholderStore
                 var value = m.RestoreIntoToolArguments ? m.Value : null;
                 if (_byToken.TryGetValue(m.Token, out var node))
                 {
+                    // Kept only while both registrations are restorable and agree on the value; otherwise null for good.
+                    var stored = node.Value.Value;
+                    var kept = stored is not null && value is not null && string.Equals(stored, value, StringComparison.Ordinal)
+                        ? stored
+                        : null;
                     _byUse.Remove(node);
-                    node.Value = new Entry(m.Token, node.Value.Value is null ? null : value, now);
+                    node.Value = new Entry(m.Token, kept, now);
                     _byUse.AddLast(node);
                     continue;
                 }

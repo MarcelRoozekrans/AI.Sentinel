@@ -511,8 +511,9 @@ public sealed class SentinelPipeline
     /// only. <see cref="HostRedactionRequest.Context"/> is then redacted in the scan copy only, so a value it shares
     /// with the content is counted once, for the content. The scan judges the redacted context, the redacted
     /// content and <see cref="HostRedactionRequest.Unredactable"/> as it is, with this call's placeholders and
-    /// <see cref="HostRedactionRequest.KnownPlaceholders"/> exempt. One <c>REDACTED</c> entry per redacting detector
-    /// records the content's counts. With no redacting detector the request is scanned as it is. When the redaction
+    /// <see cref="HostRedactionRequest.KnownPlaceholders"/> exempt. The content's counts are returned, not audited:
+    /// a host that delivers the redacted content records them with
+    /// <see cref="AppendRedactionsAsync(HostRedactionResult, string, CancellationToken)"/>. With no redacting detector the request is scanned as it is. When the redaction
     /// fails, the session is discarded and the request is scanned unredacted, as in 3.0: the result has
     /// <see cref="HostRedactionResult.FellBack"/> set, the input content, and findings with their severity action,
     /// audited with <c>; not redacted</c>. The exception is not kept, because its message can carry the value.
@@ -535,7 +536,7 @@ public sealed class SentinelPipeline
         // As on the chat path, the rate limit is checked before anything is redacted.
         var rateError = CheckRateLimit(chatOptions: null);
         if (rateError is not null)
-            return new HostRedactionResult(request.Content, [], rateError, EmptyCounts, [], FellBack: false);
+            return new HostRedactionResult(request.Content, [], rateError, EmptyCounts, [], FellBack: false) { SessionId = sid.Value };
 
         var redacted = TryRedactHost(request, redactors);
         if (redacted is not { } host)
@@ -550,8 +551,27 @@ public sealed class SentinelPipeline
         var error = await ScanCollectingAsync(
             HostScanMessages(host.Context, host.Content, request), sid, findings, exempt, ct).ConfigureAwait(false);
 
-        await AppendRedactionsAsync(host.CountsByDetector, sid, ct).ConfigureAwait(false);
-        return new HostRedactionResult(host.Content, findings, error, SumByType(host.CountsByDetector), host.Minted, FellBack: false);
+        return new HostRedactionResult(host.Content, findings, error, SumByType(host.CountsByDetector), host.Minted, FellBack: false)
+        {
+            RedactedByDetector = host.CountsByDetector,
+            SessionId = sid.Value,
+        };
+    }
+
+    /// <summary>
+    /// Records the redactions of <paramref name="result"/>: one <c>REDACTED</c> entry per redacting detector, counts
+    /// only, and one Redact notification; nothing when it redacted nothing. A host calls this only when it delivers
+    /// the redacted content. <see cref="RedactAndScanAsync"/> cannot know that: a finding that a hook maps to Warn is
+    /// delivered, while one the MCP proxy blocks is withheld.
+    /// </summary>
+    /// <param name="result">The result whose content the host delivered.</param>
+    /// <param name="sessionId">The session to record the entries for, usually <see cref="HostRedactionResult.SessionId"/>.</param>
+    /// <param name="ct">Cancellation token.</param>
+    internal Task AppendRedactionsAsync(HostRedactionResult result, string sessionId, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        return AppendRedactionsAsync(result.RedactedByDetector, new SessionId(sessionId), ct);
     }
 
     private static readonly IReadOnlyDictionary<string, int> EmptyCounts = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -579,9 +599,17 @@ public sealed class SentinelPipeline
                     : HostContent.FromJson(session.RedactJsonValues(item.Json!.Value)));
             }
 
+            // The counts and tokens are the content's alone. Restorability is read after the context is redacted:
+            // the context can show that a value the content holds is a secret, which makes its token non-restorable.
             var counts = session.CountsByDetector;
-            var minted = session.ExportMinted();
+            var contentTokens = session.MintedTokens;
             var context = request.Context.Count == 0 ? request.Context : session.RedactRequest(request.Context).Messages;
+            var minted = new List<MintedPlaceholder>(contentTokens.Count);
+            foreach (var m in session.ExportMinted())
+            {
+                if (contentTokens.Contains(m.Token))
+                    minted.Add(m);
+            }
             return new RedactedHost(session, content, context, counts, minted);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -595,12 +623,12 @@ public sealed class SentinelPipeline
         HostRedactionRequest request, SessionId sessionId, bool fellBack, bool checkRateLimit, CancellationToken ct)
     {
         if (checkRateLimit && CheckRateLimit(chatOptions: null) is { } rateError)
-            return new HostRedactionResult(request.Content, [], rateError, EmptyCounts, [], fellBack);
+            return new HostRedactionResult(request.Content, [], rateError, EmptyCounts, [], fellBack) { SessionId = sessionId.Value };
 
         var findings = new List<ScanFinding>();
         var error = await ScanCollectingAsync(
             HostScanMessages(request.Context, request.Content, request), sessionId, findings, request.KnownPlaceholders, ct).ConfigureAwait(false);
-        return new HostRedactionResult(request.Content, findings, error, EmptyCounts, [], fellBack);
+        return new HostRedactionResult(request.Content, findings, error, EmptyCounts, [], fellBack) { SessionId = sessionId.Value };
     }
 
     /// <summary>The context, then one message per content item under the content role, then the unredactable

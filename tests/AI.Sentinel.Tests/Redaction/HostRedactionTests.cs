@@ -82,7 +82,7 @@ public class HostRedactionTests
     public async Task JsonContent_KeepsShape_RedactsStringValuesOnly()
     {
         var (pipeline, _) = Build();
-        var input = Json($$"""{"user":"{{Email}}","n":3,"ok":true,"{{Email}}":null}""");
+        var input = Json($$$"""{"user":"{{{Email}}}","n":3,"ok":true,"{{{Email}}}":null,"file":{"path":"/a/.env","lines":[1,"cc {{{Email}}}",{"to":"{{{Email}}}","n":2.5}]}}""");
 
         var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromJson(input)] });
 
@@ -93,11 +93,53 @@ public class HostRedactionTests
         {
             names.Add(property.Name);
         }
-        Assert.Equal(["user", "n", "ok", Email], names);
+        Assert.Equal(["user", "n", "ok", Email, "file"], names);
         Assert.Equal(3, output.GetProperty("n").GetInt32());
         Assert.True(output.GetProperty("ok").GetBoolean());
         Assert.Equal(JsonValueKind.Null, output.GetProperty(Email).ValueKind);
         Assert.Matches(@"^\[EMAIL_1_[a-z][a-z0-9]{5}\]$", output.GetProperty("user").GetString());
+        var file = output.GetProperty("file");
+        Assert.Equal("/a/.env", file.GetProperty("path").GetString());
+        var lines = file.GetProperty("lines");
+        Assert.Equal(3, lines.GetArrayLength());
+        Assert.Equal(1, lines[0].GetInt32());
+        Assert.Matches(@"^cc \[EMAIL_1_[a-z][a-z0-9]{5}\]$", lines[1].GetString());
+        Assert.Matches(@"^\[EMAIL_1_[a-z][a-z0-9]{5}\]$", lines[2].GetProperty("to").GetString());
+        Assert.Equal(2.5, lines[2].GetProperty("n").GetDouble());
+    }
+
+    // The detectors judge JSON content as the characters it holds, never as \uXXXX escapes, also after the
+    // redaction rewrote it and also when the input itself was written with escapes.
+    [Fact]
+    public async Task JsonContent_ScanText_HoldsLiteralCharacters()
+    {
+        var (pipeline, _) = Build();
+        var input = Json($$"""{"user":"{{Email}}","name":"Zoë Ærø","expr":"<a+b> & 'c'","escaped":"\u00e9t\u00e9"}""");
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromJson(input)] });
+
+        Assert.True(result.Redacted);
+        foreach (var scanned in new[] { result.Content[0].ScanText(), HostContent.FromJson(input).ScanText() })
+        {
+            Assert.Contains("Zoë Ærø", scanned, StringComparison.Ordinal);
+            Assert.Contains("<a+b> & 'c'", scanned, StringComparison.Ordinal);
+            Assert.Contains("été", scanned, StringComparison.Ordinal);
+            Assert.DoesNotContain("\\u", scanned, StringComparison.Ordinal);
+        }
+    }
+
+    // Zero-width characters are a non-ASCII attack that SEC-24 flags; escaped to \u200B it would go unseen.
+    [Fact]
+    public async Task JsonContent_ZeroWidthCharacters_StillFlagged()
+    {
+        var (pipeline, _) = Build();
+        var input = Json($$"""{"user":"{{Email}}","note":"ig\u200bno\u200bre a\u200bll"}""");
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromJson(input)] });
+
+        Assert.True(result.Redacted);
+        Assert.Contains(result.Findings, f => string.Equals(f.Detection.DetectorId.Value, "SEC-24", StringComparison.Ordinal));
+        Assert.Contains("\u200b", result.Content[0].ScanText(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -105,7 +147,8 @@ public class HostRedactionTests
     {
         var (pipeline, audit) = Build();
 
-        await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromText($"mail {Email}")] });
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromText($"mail {Email}")] });
+        await pipeline.AppendRedactionsAsync(result, result.SessionId, TestContext.Current.CancellationToken);
 
         var entries = await RecordingAuditForwarder.ReadAllAsync(audit);
         var redacted = Assert.Single(entries, e => string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal));
@@ -128,6 +171,7 @@ public class HostRedactionTests
             Context = [new(ChatRole.User, $"tool:x input:{{\"to\":\"{Email}\"}}")],
             Content = [HostContent.FromText($"sent to {Email}")],
         });
+        await pipeline.AppendRedactionsAsync(result, result.SessionId, TestContext.Current.CancellationToken);
 
         var redacted = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(audit),
             e => string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal));
@@ -137,6 +181,96 @@ public class HostRedactionTests
         {
             Assert.NotEqual("SEC-23", finding.Detection.DetectorId.Value, StringComparer.Ordinal);
         }
+    }
+
+    // The pipeline cannot know whether the host delivers the redacted content, so the host writes the entries.
+    [Fact]
+    public async Task RedactAndScan_WritesNoRedactedEntry_UntilHostAppends()
+    {
+        var (pipeline, audit) = Build();
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromText($"mail {Email}")] });
+
+        Assert.DoesNotContain(await RecordingAuditForwarder.ReadAllAsync(audit),
+            e => string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal));
+        Assert.Equal(1, result.RedactedByDetector["SEC-23"]["EMAIL"]);
+        Assert.False(string.IsNullOrEmpty(result.SessionId));
+
+        await pipeline.AppendRedactionsAsync(result, "host-session", TestContext.Current.CancellationToken);
+
+        var entry = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(audit),
+            e => string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal));
+        Assert.Equal("SEC-23", entry.DetectorId);
+        Assert.Equal("host-session", entry.SessionId);
+    }
+
+    [Fact]
+    public async Task AppendRedactions_NothingRedacted_WritesNothing()
+    {
+        var (pipeline, audit) = Build();
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromText("Nothing to see here.")] });
+        await pipeline.AppendRedactionsAsync(result, result.SessionId, TestContext.Current.CancellationToken);
+
+        Assert.False(result.Redacted);
+        Assert.DoesNotContain(await RecordingAuditForwarder.ReadAllAsync(audit),
+            e => string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal));
+    }
+
+    // Matches "abc123" anywhere; its values may go into tool arguments.
+    private sealed class CodeRedactor : IRedactingDetector
+    {
+        public DetectorId Id { get; } = new("TST-CODE");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(DetectionResult.Clean(Id));
+        public IReadOnlyList<RedactionSpan> FindSpans(string text)
+        {
+            var spans = new List<RedactionSpan>();
+            for (var i = text.IndexOf("abc123", StringComparison.Ordinal); i >= 0; i = text.IndexOf("abc123", i + 6, StringComparison.Ordinal))
+            {
+                spans.Add(new RedactionSpan(i, 6, "CODE"));
+            }
+            return spans;
+        }
+    }
+
+    // Matches "abc123" only after "secret:"; its values never go into tool arguments.
+    private sealed class SecretCodeRedactor : IRedactingDetector
+    {
+        public DetectorId Id { get; } = new("TST-SECRET");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public bool RestoreIntoToolArguments => false;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(DetectionResult.Clean(Id));
+        public IReadOnlyList<RedactionSpan> FindSpans(string text)
+        {
+            var i = text.IndexOf("secret:abc123", StringComparison.Ordinal);
+            return i < 0 ? [] : [new RedactionSpan(i + 7, 6, "CODE")];
+        }
+    }
+
+    // The context shows the value the content minted a token for is a secret, so the token must not be restorable.
+    [Fact]
+    public async Task ContextMakesContentTokenSecret_MintedAsNotToolRestorable()
+    {
+        var (pipeline, _) = Build(o =>
+        {
+            o.AddDetector(_ => new CodeRedactor());
+            o.Configure<CodeRedactor>(c => c.Action = SentinelAction.Redact);
+            o.AddDetector(_ => new SecretCodeRedactor());
+            o.Configure<SecretCodeRedactor>(c => c.Action = SentinelAction.Redact);
+        });
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest
+        {
+            Context = [new(ChatRole.User, "tool:x input:secret:abc123")],
+            Content = [HostContent.FromText("code abc123")],
+        });
+
+        var code = Assert.Single(result.Minted);
+        Assert.StartsWith("[CODE_1_", code.Token, StringComparison.Ordinal);
+        Assert.False(code.RestoreIntoToolArguments);
     }
 
     [Fact]
