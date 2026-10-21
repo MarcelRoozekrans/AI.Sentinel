@@ -5,7 +5,7 @@ title: NDJSON file
 
 # NDJSON file forwarder
 
-Append-only NDJSON (newline-delimited JSON) file forwarder. Zero external dependencies — direct `StreamWriter` append. Operators ship the file via Filebeat, Vector, Fluent Bit, or any log shipper. Universal SIEM coverage by way of "the lowest common denominator everyone supports".
+Append-only NDJSON (newline-delimited JSON) file forwarder. Zero external dependencies — each batch is serialised to UTF-8 and appended to the file in one write. Operators ship the file via Filebeat, Vector, Fluent Bit, or any log shipper. Universal SIEM coverage by way of "the lowest common denominator everyone supports".
 
 Lives in the core `AI.Sentinel` package — no separate install.
 
@@ -19,7 +19,7 @@ services.AddSentinelNdjsonFileForwarder(opts =>
 });
 ```
 
-The directory must exist. The forwarder creates the file at registration time to check that it can write there, then opens it once per batch and closes it again, so it holds no handle between writes.
+The directory must exist and be writable by the process: next to the file the forwarder keeps a lock file, `<file>.lock`, which it may need to create. At registration time it creates both files if they are missing, which checks that it can write there, then opens them once per batch and closes them again, so it holds no handle between writes.
 
 ## File format
 
@@ -48,14 +48,14 @@ Several processes, and several forwarders in one process, can append to the same
 Each batch is appended under a lock file next to the NDJSON file, `<file>.lock`:
 
 1. The forwarder opens `<file>.lock` exclusively, retrying with a short backoff while another writer holds it.
-2. It opens the NDJSON file at its current end, writes the whole batch in one call, flushes and closes it.
+2. It opens the NDJSON file at its current end, writes the whole batch in one call, flushes and closes it. If the write or flush fails, for example on a full disk, it cuts the file back to where the batch started.
 3. It closes the lock file, which releases the lock, also when the write fails.
 
-A batch is therefore never interleaved with, or written over, another writer's batch, and every line is a complete JSON object. The operating system releases the lock when a writer process dies, so a crashed process cannot block the others. Leave `<file>.lock` in place; deleting it while a writer holds it breaks the exclusion.
+A batch is therefore never interleaved with, or written over, another writer's batch, and every line is a complete JSON object. The one exception is a writer process that dies in the middle of a write. It can leave a partial last line, and the next batch's first entry is appended to that partial line, so one line does not parse. The operating system releases the lock when a writer process dies, so a crashed process cannot block the others. Leave `<file>.lock` in place; deleting it while a writer holds it breaks the exclusion.
 
-The file is opened with `FileShare.ReadWrite | FileShare.Delete`, so log shippers can read it and rotation can rename or delete it while writers are running.
+The file is opened with `FileShare.ReadWrite | FileShare.Delete`, so log shippers can read it and rotation can rename or delete it while writers are running. On Windows, readers must open the file with `FileShare.ReadWrite` too. A reader that allows only `FileShare.Read` blocks every writer for as long as it keeps the file open. Writers retry while it does, within the same `LockTimeout`.
 
-If a writer cannot take the lock within `LockTimeout` (default 5 seconds), that batch is dropped and reported like any other send failure:
+If a writer cannot take the lock, or open the file under it, within `LockTimeout` (default 5 seconds), that batch is dropped and reported like any other send failure:
 
 ```csharp
 services.AddSentinelNdjsonFileForwarder(opts =>
@@ -69,14 +69,15 @@ On Linux and macOS the lock is an advisory `flock` that .NET takes for exclusive
 
 ## Failure handling
 
-Per the [forwarder reliability contract](./overview#forwarder-reliability), failures swallow + log + count:
+Per the [forwarder reliability contract](./overview#forwarder-reliability), a send never throws. A failed batch is dropped and reported as one `event=audit_forward action=send_error forwarder=NdjsonFile error=<type> inner=<type>` line. This forwarder keeps no drop counter.
 
 | Failure | What happens |
 |---|---|
-| Disk full | Exception swallowed, stderr log, `audit.forward.dropped++` |
+| Disk full or another I/O error | Partial batch cut back, batch dropped, `action=send_error` reported with the exception type |
 | File deleted or rotated away | The next batch creates the file again at the configured path |
-| Lock file held past `LockTimeout` | Batch dropped, `action=send_error error=TimeoutException` reported |
-| Permission denied at startup | Constructor throws — registration fails, app fails fast |
+| Lock file, or the file itself, held past `LockTimeout` | Batch dropped, `action=send_error error=TimeoutException inner=IOException` reported |
+| Send after the forwarder is disposed | Batch dropped, `action=send_dropped reason=disposed` reported |
+| File or directory not writable at startup | Constructor throws — registration fails, app fails fast |
 
 By default a send failure or dropped batch is written to `Console.Error`. Set `OnError` when stderr is reserved for other output, as in a hook process, where stderr carries the reason fed back to the model:
 
@@ -90,7 +91,7 @@ services.AddSentinelNdjsonFileForwarder(opts =>
 
 `OnError` receives one line per failure. The callback must not throw; an exception from it is ignored. The CLIs set it to collect problems instead of printing them.
 
-The "fail at startup" rule for permission denied is intentional. If you can't open the file at registration time, the configuration is broken and you want to know immediately, not at first request.
+The "fail at startup" rule for permission denied is intentional. If you can't open the file or create its lock file at registration time, the configuration is broken and you want to know immediately, not at first request.
 
 ## Log shipping patterns
 
