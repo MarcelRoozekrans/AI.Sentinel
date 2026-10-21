@@ -76,7 +76,30 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 | `SENTINEL_HOOK_ON_CRITICAL` (shared with hooks) | low |
 | Default (`Block` / `Block` / `Warn` / `Allow`) | lowest |
 
-> **Redaction in 3.0:** the hook CLIs cannot rewrite the request, so a detection configured to `Redact` (the 3.0 default for PII and credentials) falls back to the action of its severity here, and its audit summary ends with `; not redacted`. See [Redaction](../redaction#fallback).
+## Redaction
+
+With `SENTINEL_MCP_REDACT` on, the default, the proxy redacts personal data and secrets in what the target server sends back to the agent, so the model sees `[EMAIL_1_k3f9x2]` in place of the address:
+
+- **`tools/call` results:** text blocks, embedded text resources whose MIME type is in `SENTINEL_MCP_SCAN_MIMES`, and `structuredContent`. 3.0 did not scan embedded resources or `structuredContent`, so these can now produce findings of their own. A value that appears in both `structuredContent` and a text block is counted once per occurrence in the `REDACTED` summary.
+- **`prompts/get` messages.**
+- **`resources/read` text items** whose MIME type is in `SENTINEL_MCP_SCAN_MIMES`.
+
+Each redaction is recorded as a `REDACTED` audit entry with counts only, and the Allow log line gets `redacted=<n>`.
+
+**PII is restored into later tool calls.** When the agent calls a tool with a PII placeholder the proxy minted earlier in the same run, the tool gets the real value. A lookup followed by an action, such as finding a customer and then mailing them, therefore works. A placeholder stays restorable until `SENTINEL_MCP_REDACT_TTL_MIN` minutes after its last use, 30 by default. The proxy holds up to 10,000 placeholders in memory and evicts the least recently used. An expired or evicted placeholder reaches the tool as literal text.
+
+**Secrets are never restored.** A tool called with `[API_KEY_1_k3f9x2]` gets the placeholder, so a prompt-injected agent cannot send a pasted key to a tool. A tool that needs a secret must get it another way.
+
+Limits:
+
+- **Restored values reach the tool unscanned.** The request scan judges the arguments as the agent sent them, with placeholders, so a restored email address sent to an outbound tool is not flagged on the way out. [Tool-call authorization](../authorization/overview) sees the restored arguments and is the control for outbound tools.
+- **Approvals hold real values.** With `RequireApproval`, the approval store, SQLite included, keeps the restored real arguments.
+- **Only `tools/call` is restored.** A placeholder in the arguments of `prompts/get` or in a resource URI stays literal text.
+- **Tool-call arguments are not redacted.** The proxy judges a call before it runs, so a PII or credential finding in the arguments uses the action of its severity, and its audit summary ends with `; not redacted`. The same holds for blob resources, resources whose MIME type is not allowlisted, and content past the byte budget.
+- **The byte budget.** `SENTINEL_MCP_MAX_SCAN_BYTES` limits each block and is also the total budget for one scan of a tool result or prompt. The first item that does not fit is scanned truncated and not redacted, and the items after it pass unredacted and unscanned, as 3.0's truncation passed them unscanned.
+- **Fallbacks.** When a scan is rate limited, or the pipeline throws, the content is forwarded unredacted, as 3.0 forwarded it unscanned. The rate-limited case is logged with `reason=rate_limited`.
+
+See [Redaction → Per surface](../redaction#per-surface) for how this compares with the hook CLIs and the in-process client.
 
 ## Environment variables
 
@@ -91,6 +114,7 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 | `SENTINEL_HOOK_VERBOSE` | `false` | Stderr diagnostic per call |
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | Suppress the inert-semantic-detection warning |
 | `SENTINEL_HOOK_COMPLIANCE` | `off` | Fallback for `SENTINEL_MCP_COMPLIANCE` |
+| `SENTINEL_HOOK_REDACT` | `on` | Fallback for `SENTINEL_MCP_REDACT` |
 | `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
 | `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
 | `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |
@@ -103,7 +127,9 @@ sentinel-mcp proxy --on-critical Block --on-high Block --on-medium Warn --on-low
 |---|---|---|
 | `SENTINEL_MCP_DETECTORS` | `security` | `security` (13 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on` — recommended for MCP) or `all` (every detector — higher false-positive rate on structured tool data) |
 | `SENTINEL_MCP_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](../detectors/compliance), which are off by default; `off` / `0` / `false` / `no` keeps them off. Unset, falls back to `SENTINEL_HOOK_COMPLIANCE`. Thresholds are code-only |
-| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Truncation cap on tool-result text passed to the detector pipeline. Counts UTF-8 bytes (v1.1+). Full content still forwarded to the host. |
+| `SENTINEL_MCP_REDACT` | `on` | `on` / `1` / `true` / `yes` or `off` / `0` / `false` / `no` → turn [redaction](#redaction) on or off. Anything else, or unset, falls back to `SENTINEL_HOOK_REDACT`, then to on |
+| `SENTINEL_MCP_REDACT_TTL_MIN` | `30` | Minutes a PII placeholder stays restorable into tool calls after its last use. A positive integer; anything else keeps the default |
+| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Byte cap on the content passed to the detector pipeline, per block and in total per scan of a tool result or prompt. `resources/read` applies it per item, with a default of `65536` when unset. Counts UTF-8 bytes (v1.1+). Content past the cap is not redacted. Full content still forwarded to the host. |
 | `SENTINEL_MCP_SCAN_MIMES` (v1.1) | `text/,application/json,application/xml,application/yaml` | MIME allowlist for `resources/read` scanning. Comma-separated. Trailing `/` matches any subtype. Resources outside the allowlist forward verbatim. |
 | `SENTINEL_MCP_HTTP_HEADERS` (v1.1) | (none) | `key=value;key=value` headers applied to every HTTP-transport request. For static-token auth (`Authorization=Bearer xyz`). Malformed pairs skipped silently. |
 | `SENTINEL_MCP_TIMEOUT_SEC` (v1.1) | `5` | Subprocess shutdown grace in seconds. After this window the proxy logs `transport_dispose action=grace_expired` and returns; the MCP host's own kill policy is the second line of defense. |

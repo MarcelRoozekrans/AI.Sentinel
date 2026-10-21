@@ -54,7 +54,7 @@ internal sealed record ComplianceReport(
 
     /// <summary>The Art. 10 note shown when no redactions were recorded.</summary>
     internal const string Art10NoRedactionsNote =
-        "Redaction entries come from the in-process chat client pipeline. The hook tools and the MCP proxy do not redact yet; a detection there that wanted redaction is counted as could not be redacted.";
+        "No redaction was recorded in this period. The in-process client, the hook CLIs and the MCP proxy record redactions where the host lets them rewrite content; a detection that wanted redaction where it could not is counted as could not be redacted.";
 
     /// <summary>The Art. 50 note shown when no disclosures were recorded.</summary>
     internal const string Art50NoDisclosuresNote =

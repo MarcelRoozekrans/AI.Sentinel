@@ -102,7 +102,7 @@ A strong match is `High`, and a stock `AddAISentinel()` install maps `High` to `
 opts.Configure<SensitiveBiometricCategorisationDetector>(c => c.Action = SentinelAction.Quarantine);
 ```
 
-The hook CLIs and the MCP proxy map other detectors' `High` findings through `SENTINEL_HOOK_ON_HIGH`, which defaults to `Block`. They give these four detectors the `Alert` action instead, at `Medium` as well as `High`, so a compliance finding of either severity is audited and surfaced as a warning: `sentinel-hook` and `sentinel-copilot-hook` exit 0 with the reason on stderr, and the MCP proxy forwards the call. In the hook CLIs, mapping the finding's severity to `Allow` still suppresses the warning; the audit entry is written either way.
+The hook CLIs and the MCP proxy map other detectors' `High` findings through `SENTINEL_HOOK_ON_HIGH`, which defaults to `Block`. They give these four detectors the `Alert` action instead, at `Medium` as well as `High`, so a compliance finding of either severity is audited and surfaced as a warning: `sentinel-hook` exits 0 with the reason in a `systemMessage`, `sentinel-copilot-hook` exits 0 with the reason on stderr, and the MCP proxy forwards the call. In the hook CLIs, mapping the finding's severity to `Allow` still suppresses the warning; the audit entry is written either way.
 
 ## Both legs
 

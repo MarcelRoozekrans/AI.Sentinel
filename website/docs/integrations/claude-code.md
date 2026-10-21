@@ -57,6 +57,7 @@ Both Claude Code and Copilot share the same env-var contract:
 | `SENTINEL_HOOK_ON_LOW` | `Allow` | `Block` / `Warn` / `Allow` |
 | `SENTINEL_HOOK_VERBOSE` | `false` | `1` / `true` / `yes` → grep-friendly stderr diagnostic |
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | `1` / `true` / `yes` → suppress the startup warning that semantic detection is inert. Set only after accepting that SEC-01 and SEC-05 will not fire |
+| `SENTINEL_HOOK_REDACT` | `on` | `off` / `0` / `false` / `no` → turn off [redaction](#redaction) of tool output and the placeholder guard. Anything else, or unset, keeps them on |
 | `SENTINEL_HOOK_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](../detectors/compliance), which are off by default. Their findings warn instead of following `SENTINEL_HOOK_ON_HIGH`. Needs `SENTINEL_EMBEDDING_ENDPOINT`. Thresholds are code-only |
 | `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
 | `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
@@ -64,13 +65,41 @@ Both Claude Code and Copilot share the same env-var contract:
 | `SENTINEL_EMBEDDING_DIMENSIONS` | — | Vector length, when the model allows a choice |
 | `SENTINEL_EMBEDDING_CACHE_DIR` | per-user cache dir | Where reference vectors are cached. Must not be world-writable — see below |
 
-What each action does:
+### What each action does
 
-- **`Block`** → hook exits with code 2. Claude Code surfaces "call blocked" + the detector ID and reason on stderr.
-- **`Warn`** → exit 0 with the reason on stderr (visible in Claude Code's log).
-- **`Allow`** → silent pass.
+The hook writes the output the [Claude Code hooks spec](https://docs.claude.com/en/docs/claude-code/hooks) documents:
 
-> **Redaction in 3.0:** the hook CLIs cannot rewrite the request, so a detection configured to `Redact` (the 3.0 default for PII and credentials) falls back to the action of its severity here, and its audit summary ends with `; not redacted`. See [Redaction](../redaction#fallback).
+- **`Block` on `UserPromptSubmit` or `PreToolUse`** → the hook exits 2 with the reason on stderr and writes nothing to stdout. Claude Code stops the prompt or the tool call and shows the reason.
+- **`Block` on `PostToolUse`** → the tool has already run, so the hook exits 0 and withholds its output. stdout carries `"decision": "block"`, the reason, and an `updatedToolOutput` in place of the tool's output. See [Withheld output](#withheld-output).
+- **`Warn`** → exit 0 with `{"systemMessage": "AI.Sentinel: <reason>"}` on stdout. Claude Code shows the message to the user.
+- **`Allow`** → exit 0 with `{}` on stdout.
+
+### Redaction
+
+With `SENTINEL_HOOK_REDACT` on, the default, `PostToolUse` redacts personal data and secrets in the tool output. The hook returns the redacted output as `updatedToolOutput`, so the model sees `[EMAIL_1_k3f9x2]` in place of the address, together with an `additionalContext` note such as:
+
+```text
+AI.Sentinel redacted 1 EMAIL in this tool output. Placeholders such as [EMAIL_n_tag] stand for the real values; do not write them to files or commands.
+```
+
+The redaction is recorded as a `REDACTED` audit entry with counts only. The hook does not restore placeholders: the model keeps them for the rest of the session.
+
+Not everything can be redacted. A command hook cannot rewrite the prompt on `UserPromptSubmit` or the tool arguments on `PreToolUse`, so a PII or credential finding there uses the action of its severity, and its audit summary ends with `; not redacted`. See [Redaction → Per surface](../redaction#per-surface).
+
+**Placeholder guard.** Because the hook cannot restore a placeholder, writing one into a file or a command would replace the real value. On `PreToolUse`, the hook therefore denies a `Write`, `Edit`, `MultiEdit`, `NotebookEdit` or `Bash` call whose input contains text of the exact placeholder shape, such as `[EMAIL_1_k3f9x2]`, with exit 2 and a fixed reason that asks the model to get the value from the user. Ordinary text of that shape is denied too. `SENTINEL_HOOK_REDACT=off` disables the guard.
+
+**When a tool rejects the output.** Claude Code checks `updatedToolOutput` against the tool's own output shape. Live checks with Claude Code 2.1.296 showed that `Read` accepts the redacted output, and that `Read` and `Bash` accept the withheld output. A built-in tool that rejects it has its original output shown to the model. The `additionalContext` note, which names the redacted types or the block reason, is then the only mitigation, and it does not hide the value.
+
+### Withheld output
+
+When a `PostToolUse` scan blocks, the output is withheld, also with `SENTINEL_HOOK_REDACT=off`. The withheld output keeps the shape of the tool's `tool_response`, because Claude Code rejects an output of another shape and then shows the original:
+
+- identifier-like `type` values, such as `"type": "text"`, are kept;
+- empty strings stay empty;
+- numbers, booleans, nulls and property names are kept;
+- every other string becomes `withheld by AI.Sentinel: <reason>`.
+
+A first version also replaced `"type": "text"`. Claude Code rejected it and showed the original `Read` output, which is why `type` values are kept.
 
 Set the env vars in your shell profile or directly in `settings.json`:
 
@@ -94,7 +123,7 @@ Set the env vars in your shell profile or directly in `settings.json`:
 [sentinel-hook] event=user-prompt-submit decision=Block detector=SEC-01 severity=Critical session=sess-42
 ```
 
-Useful when wiring the hook for the first time ("did it actually run?") or when a block was expected but didn't happen. Leave off in steady state — Block/Warn already emit their own reason to stderr.
+Useful when wiring the hook for the first time ("did it actually run?") or when a block was expected but didn't happen. Leave off in steady state — Block and Warn already report their reason.
 
 ## Audit destination
 
@@ -115,7 +144,7 @@ The hook records to a local SQLite file by default, with no configuration. Every
 
 **Size cap.** The cap is enforced when the hook opens the file. Usage is measured in pages in use (pages minus free pages, times page size), not in file length, so it drops as soon as rows are deleted. The oldest entries are deleted in batches of 10% of the rows, at least 100, and one trim stops after at most 8 batches. A file far over the cap can therefore need more than one open to come under it. The hook never runs `VACUUM`, because that would hold the write lock for a long time, so the file stops growing at about the cap instead of shrinking.
 
-**Failures never change a decision.** If the audit file cannot be opened or written, the hook still allows, warns or blocks exactly as it would have. On `Block` and `Warn` the audit problem is not printed to stderr, because stderr carries the reason Claude Code feeds back to the model, unless `SENTINEL_HOOK_VERBOSE` is set. On `Allow` it is printed with the prefix `[sentinel-hook] audit:`.
+**Failures never change a decision.** If the audit file cannot be opened or written, the hook still allows, warns or blocks exactly as it would have. On a `Block` that exits 2 the audit problem is not printed to stderr, because stderr carries the reason Claude Code feeds back to the model, unless `SENTINEL_HOOK_VERBOSE` is set. Otherwise it is printed with the prefix `[sentinel-hook] audit:`.
 
 ### NDJSON copy
 
@@ -181,10 +210,10 @@ Replace `linux-x64` with `win-x64`, `osx-arm64`, etc. Point the hook `command` a
 With `SENTINEL_HOOK_ON_HIGH=Block` and a typical Claude Code workflow:
 
 - **Prompt injection in user messages** (`SEC-01`) — blocked. The user said "ignore previous instructions"; the hook prevents Claude Code from acting on it.
-- **Credential leaks in tool results** (`SEC-02`) — blocked. A tool returned a file containing API keys; PostToolUse blocks the result before Claude Code processes it.
-- **PII in either direction** (`SEC-23`) — depends on severity. SSN/credit card → Block; phone numbers → Warn (default `OnMedium=Warn`).
+- **Credential leaks and PII in tool results** — redacted. A tool returned a file containing an API key or an email address; PostToolUse replaces each value with a placeholder before Claude Code processes the result. With `SENTINEL_HOOK_REDACT=off` they follow their severity: an API key blocks and the output is withheld.
+- **PII and credentials in prompts and tool arguments** — depends on severity, because these cannot be redacted. SSN/credit card → Block; phone numbers → Warn (default `OnMedium=Warn`).
 - **Borderline jailbreaks** (`SEC-05`) — depends on cosine similarity. Exact-phrase matches block; loose paraphrases warn.
-- **Repetitive output** (`OPS-02`) — the default `OnMedium=Warn` lets these pass with a stderr note.
+- **Repetitive output** (`OPS-02`) — the default `OnMedium=Warn` lets these pass with a `systemMessage`.
 
 Tune via env vars to match your risk appetite.
 

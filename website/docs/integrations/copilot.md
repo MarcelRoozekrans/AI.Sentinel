@@ -26,6 +26,9 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
     "userPromptSubmitted": [
       { "type": "command", "bash": "sentinel-copilot-hook user-prompt-submitted", "timeoutSec": 10 }
     ],
+    "userPromptTransformed": [
+      { "type": "command", "bash": "sentinel-copilot-hook user-prompt-transformed", "timeoutSec": 10 }
+    ],
     "preToolUse": [
       { "type": "command", "bash": "sentinel-copilot-hook pre-tool-use", "timeoutSec": 10 }
     ],
@@ -36,13 +39,20 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
 }
 ```
 
-Three hook points:
+Four hook points:
 
-| Hook | When it fires | What gets scanned |
-|---|---|---|
-| `userPromptSubmitted` | Every user message | The prompt text |
-| `preToolUse` | Before any tool call | Tool name + arguments |
-| `postToolUse` | After every tool call | Tool result text |
+| Hook | Verb | When it fires | What gets scanned |
+|---|---|---|---|
+| `userPromptSubmitted` | `user-prompt-submitted` | Every user message | The prompt text |
+| `userPromptTransformed` | `user-prompt-transformed` | After Copilot transforms the prompt, before the model gets it. **Experimental**, see [Prompt enforcement](#prompt-enforcement) | The transformed prompt, or the prompt when there is none |
+| `preToolUse` | `pre-tool-use` | Before any tool call | Tool name + arguments (`toolArgs`) |
+| `postToolUse` | `post-tool-use` | After every tool call | Tool result text (`toolResult`) |
+
+Wiring both prompt verbs scans the prompt twice, so without an embedding endpoint the warning that semantic detection is inert may be printed twice.
+
+**Fixed in 3.1: arguments and results are read.** Copilot sends `toolArgs` and `toolResult`. Earlier versions read `toolInput` and `toolResponse` instead, so tool scans saw empty arguments and no result. `toolArgs` is now read whether Copilot sends it as an object or as a JSON string. The old names are still accepted, and the documented names win when both are sent.
+
+**PascalCase event names.** A hook configured with a PascalCase event name, such as `PostToolUse`, gets the VS Code compatible payload, with `session_id`, `tool_name`, `tool_input` and `tool_result`. The hook reads that format too, and the [placeholder guard](#redaction) then checks the Claude Code tool names as well as the Copilot ones. Whether Copilot honours the hook's output for that configuration is not verified yet.
 
 The `timeoutSec: 10` is recommended — gives the hook plenty of headroom even on a cold start with semantic detection enabled. Lower it (2–3 seconds) once you've validated steady-state latency on your hardware.
 
@@ -58,6 +68,7 @@ Same shared env-var contract as Claude Code:
 | `SENTINEL_HOOK_ON_LOW` | `Allow` | `Block` / `Warn` / `Allow` |
 | `SENTINEL_HOOK_VERBOSE` | `false` | `1` / `true` / `yes` → grep-friendly stderr diagnostic |
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | `1` / `true` / `yes` → suppress the startup warning that semantic detection is inert. Set only after accepting that SEC-01 and SEC-05 will not fire |
+| `SENTINEL_HOOK_REDACT` | `on` | `off` / `0` / `false` / `no` → turn off [redaction](#redaction) of tool results and the transformed prompt, and the placeholder guard. Anything else, or unset, keeps them on |
 | `SENTINEL_HOOK_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](../detectors/compliance), which are off by default. Their findings warn instead of following `SENTINEL_HOOK_ON_HIGH`. Needs `SENTINEL_EMBEDDING_ENDPOINT`. Thresholds are code-only |
 | `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
 | `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
@@ -67,11 +78,32 @@ Same shared env-var contract as Claude Code:
 
 What each action does:
 
-- **`Block`** → hook exits 2. Copilot surfaces the call as blocked with the detector ID and reason on stderr.
+- **`Block` on `preToolUse`** → the hook exits 2 with the reason on stderr. Copilot surfaces the call as blocked.
+- **`Block` on `userPromptSubmitted`** → the hook exits 2 with the reason on stderr, but this is advisory: Copilot shows it as a warning and drops the hook's output. See [Prompt enforcement](#prompt-enforcement).
+- **`Block` on `postToolUse` or `userPromptTransformed`** → exit 0 with the reason on stderr. The tool result or the prompt is withheld: the model gets `withheld by AI.Sentinel: <reason>` in its place, through `modifiedResult` or `modifiedTransformedPrompt`. This holds also with `SENTINEL_HOOK_REDACT=off`.
 - **`Warn`** → exit 0 with the reason on stderr (visible in Copilot's log).
-- **`Allow`** → silent pass.
+- **`Allow`** → exit 0, with `{"decision":"Allow","reason":null}` on stdout.
 
-> **Redaction in 3.0:** the hook CLIs cannot rewrite the request, so a detection configured to `Redact` (the 3.0 default for PII and credentials) falls back to the action of its severity here, and its audit summary ends with `; not redacted`. See [Redaction](../redaction#fallback).
+## Redaction
+
+With `SENTINEL_HOOK_REDACT` on, the default, the hook redacts personal data and secrets where Copilot lets a command hook rewrite content:
+
+- **`postToolUse`** redacts the tool result's `textResultForLlm` and returns it as `modifiedResult`, so the model sees `[EMAIL_1_k3f9x2]` in place of the address. A result without a string `textResultForLlm` is scanned as before and not redacted.
+- **`userPromptTransformed`** redacts the transformed prompt and returns it as `modifiedTransformedPrompt`. This is experimental.
+
+The redaction is recorded as a `REDACTED` audit entry with counts only. The hook does not restore placeholders.
+
+**Behaviour change.** With redaction on, a secret or personal data in a tool result is now redacted and allowed, where it used to be blocked. With `SENTINEL_HOOK_REDACT=off` it still blocks.
+
+The prompt on `userPromptSubmitted` and the tool arguments on `preToolUse` cannot be rewritten, so a PII or credential finding there uses the action of its severity, and its audit summary ends with `; not redacted`. See [Redaction → Per surface](../redaction#per-surface).
+
+**Placeholder guard.** Because the hook cannot restore a placeholder, writing one into a file or a command would replace the real value. On `preToolUse`, the hook therefore denies a `create`, `edit`, `str_replace_editor`, `apply_patch`, `bash`, `powershell`, `write_bash` or `write_powershell` call whose input contains text of the exact placeholder shape, such as `[EMAIL_1_k3f9x2]`. Ordinary text of that shape is denied too. `SENTINEL_HOOK_REDACT=off` disables the guard.
+
+## Prompt enforcement
+
+A `Block` on `userPromptSubmitted` does not stop the prompt: in Copilot command hooks it shows as a warning and the hook's output is dropped. To enforce on the prompt, wire `user-prompt-transformed` as well. On a `Block` it replaces the prompt the model receives with the withheld text, and with redaction on it redacts the prompt.
+
+`userPromptTransformed` with `modifiedTransformedPrompt` is **experimental** until it is verified with the Copilot CLI. A library caller of `CopilotHookAdapter.HandleAsync` gets the decision only, not the rewritten prompt.
 
 ## Diagnostics — did the hook fire?
 
@@ -127,7 +159,7 @@ Point Copilot at the full binary path:
 | Hook event names | `UserPromptSubmit`, `PreToolUse`, `PostToolUse` (PascalCase) | `userPromptSubmitted`, `preToolUse`, `postToolUse` (camelCase) |
 | CLI binary | `sentinel-hook` | `sentinel-copilot-hook` |
 | Tool matcher syntax | `"matcher": "*"` per hook entry | `"timeoutSec": 10` per hook entry |
-| Block signaling | exit code 2 | exit code 2 |
+| Block signaling | exit 2 on `UserPromptSubmit` and `PreToolUse`; withheld output on `PostToolUse` | exit 2 on `preToolUse`, advisory on `userPromptSubmitted`; withheld result or prompt on `postToolUse` and `userPromptTransformed` |
 
 The shared env-var contract (`SENTINEL_HOOK_ON_*`) means you configure once and both adapters honor it identically.
 
