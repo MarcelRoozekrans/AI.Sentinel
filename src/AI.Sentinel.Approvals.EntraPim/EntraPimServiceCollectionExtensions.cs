@@ -67,10 +67,9 @@ public static class EntraPimServiceCollectionExtensions
         services.TryAddSingleton<IGraphRoleClient>(sp =>
             new MicrosoftGraphRoleClient(sp.GetRequiredService<GraphServiceClient>()));
 
-        // IApprovalStore stays AddSingleton: last-write-wins is the right contract for
-        // the headline approval store — operators explicitly opt in to this backend by
-        // calling this extension, and the docs above document that semantics.
-        services.AddSingleton<IApprovalStore>(sp =>
+        // The IApprovalStore DI hands out is the auditing wrapper whenever an IAuditStore is
+        // registered, before or after this call, so the PIM decisions it observes are recorded.
+        ApprovalStoreAuditing.AddApprovalStore(services, sp =>
             new EntraPimApprovalStore(
                 sp.GetRequiredService<IGraphRoleClient>(),
                 sp.GetRequiredService<EntraPimOptions>()));

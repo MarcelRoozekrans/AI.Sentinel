@@ -91,9 +91,10 @@ public class McpCliTests : McpAuditOffFixtureBase
             try
             {
                 Assert.False(configError);
-                // The proxy gets the registered store wrapped, so approval decisions reach the audit log.
-                Assert.IsType<SqliteApprovalStore>(provider!.GetService<IApprovalStore>());
+                // The proxy gets the store DI hands out, the auditing wrapper, so approval decisions reach the audit log.
                 Assert.IsType<AuditingApprovalAdminStore>(store);
+                Assert.Same(provider!.GetService<IApprovalStore>(), store);
+                Assert.IsType<SqliteApprovalStore>(provider!.GetRequiredKeyedService<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey));
                 Assert.True(File.Exists(dbPath), "SqliteApprovalStore should have created the database file.");
             }
             finally
@@ -129,8 +130,9 @@ public class McpCliTests : McpAuditOffFixtureBase
             try
             {
                 Assert.False(configError);
-                Assert.IsType<EntraPimApprovalStore>(provider!.GetService<IApprovalStore>());
                 Assert.IsType<AuditingApprovalStore>(store);
+                Assert.Same(provider!.GetService<IApprovalStore>(), store);
+                Assert.IsType<EntraPimApprovalStore>(provider!.GetRequiredKeyedService<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey));
             }
             finally
             {
