@@ -210,6 +210,25 @@ public class HookAdapterTests
         Assert.Equal(expected, config.Verbose);
     }
 
+    [Theory]
+    [InlineData("off", false)]
+    [InlineData("0", false)]
+    [InlineData("on", true)]
+    [InlineData("garbage", true)]
+    [InlineData(null, true)]
+    public void HookConfig_FromEnvironment_RedactSwitch(string? value, bool expected)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal);
+        if (value is not null)
+        {
+            env["SENTINEL_HOOK_REDACT"] = value;
+        }
+
+        var config = HookConfig.FromEnvironment(env);
+
+        Assert.Equal(expected, config.RedactToolResults);
+    }
+
     [Fact]
     public void HookConfig_FromEnvironment_VerboseMissing_DefaultsToFalse()
     {

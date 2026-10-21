@@ -6,6 +6,7 @@ using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Mcp.Authorization;
+using AI.Sentinel.Redaction;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -29,6 +30,9 @@ namespace AI.Sentinel.Mcp;
 /// When an <see cref="IToolCallGuard"/> is supplied it runs BEFORE the request
 /// pre-scan; deny decisions are written to the optional <see cref="IAuditStore"/>
 /// (when provided) and then surfaced as an <see cref="McpProtocolException"/>.
+/// When a <see cref="PlaceholderStore"/> is supplied, the result's text blocks, allowlisted embedded text resources
+/// and structured content are redacted before they reach the agent, and the redacted result is what the response
+/// scan judges. Without one, the result is scanned as in 3.0 and a finding falls back to its severity action.
 /// </remarks>
 internal static class ToolCallInterceptor
 {
@@ -45,12 +49,17 @@ internal static class ToolCallInterceptor
         IApprovalStore? approvalStore = null,
         TimeSpan? approvalWait = null,
         IReadOnlyList<IAuditForwarder>? forwarders = null,
-        SessionId? sessionId = null)
+        SessionId? sessionId = null,
+        PlaceholderStore? placeholders = null)
     {
         var forwarderSnapshot = AuditForwarding.Snapshot(forwarders);
+        var redaction = placeholders is null ? null : new RedactionSetup(placeholders, ResourceReadInterceptor.ParseMimeAllowlist());
         return next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, guard, audit, forwarderSnapshot,
-            callerResolver, approvalStore, approvalWait, sessionId, next, ctx, ct);
+            callerResolver, approvalStore, approvalWait, sessionId, redaction, next, ctx, ct);
     }
+
+    /// <summary>The proxy's placeholder store and the MIME allowlist for embedded text resources.</summary>
+    private sealed record RedactionSetup(PlaceholderStore Placeholders, HashSet<string> AllowedMimes);
 
     private static async ValueTask<CallToolResult> InvokeAsync(
         SentinelPipeline pipeline,
@@ -63,6 +72,7 @@ internal static class ToolCallInterceptor
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
         SessionId? sessionId,
+        RedactionSetup? redaction,
         McpRequestHandler<CallToolRequestParams, CallToolResult> next,
         RequestContext<CallToolRequestParams> ctx,
         CancellationToken ct)
@@ -81,6 +91,11 @@ internal static class ToolCallInterceptor
 
         var result = await next(ctx, ct).ConfigureAwait(false);
 
+        if (redaction is not null)
+        {
+            return await RedactResponseAsync(pipeline, maxScanBytes, stderr, sessionId, redaction, req, result, ct).ConfigureAwait(false);
+        }
+
         var responseMessages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes);
         var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", sessionId, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(postError, req.Name, stderr, phase: "response").ConfigureAwait(false);
@@ -89,6 +104,71 @@ internal static class ToolCallInterceptor
             $"[sentinel-mcp] event=tools/call decision=Allow tool={req.Name}"
         ).ConfigureAwait(false);
         return result;
+    }
+
+    /// <summary>
+    /// Redacts the result in place and scans the redacted copy with the arguments as context. A threat blocks and
+    /// nothing is written back or audited as redacted. Otherwise the redacted content is written back, its
+    /// placeholders are registered and the redactions are audited. A pipeline failure fails open, as the 3.0 scan
+    /// does, and logs only the exception type, because its message can carry the value.
+    /// </summary>
+    private static async ValueTask<CallToolResult> RedactResponseAsync(
+        SentinelPipeline pipeline,
+        int maxScanBytes,
+        TextWriter stderr,
+        SessionId? sessionId,
+        RedactionSetup redaction,
+        CallToolRequestParams req,
+        CallToolResult result,
+        CancellationToken ct)
+    {
+        // The result is deserialized fresh for this request, so it is rewritten in place.
+        var (content, apply, oversize) = MessageBuilder.CollectRedactable(result, maxScanBytes, redaction.AllowedMimes);
+
+        HostRedactionResult scanned;
+        try
+        {
+            scanned = await McpRedaction.RedactAndScanAsync(
+                pipeline, redaction.Placeholders, MessageBuilder.BuildToolCallRequest(req, maxScanBytes),
+                content, oversize, Microsoft.Extensions.AI.ChatRole.Assistant, sessionId, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await stderr.WriteLineAsync(
+                $"[sentinel-mcp] event=tools/call decision=FailOpen phase=response reason={ex.GetType().Name}"
+            ).ConfigureAwait(false);
+            return result;
+        }
+
+        await BlockIfThreatAsync(scanned.Error, req.Name, stderr, phase: "response").ConfigureAwait(false);
+
+        McpRedaction.WriteBack(scanned, apply, redaction.Placeholders);
+        var redactedSuffix = string.Empty;
+        if (scanned.Redacted)
+        {
+            await AppendRedactionsSafelyAsync(pipeline, scanned, stderr, ct).ConfigureAwait(false);
+            redactedSuffix = " redacted=" + McpRedaction.TotalRedacted(scanned).ToString(CultureInfo.InvariantCulture);
+        }
+
+        await stderr.WriteLineAsync(
+            $"[sentinel-mcp] event=tools/call decision=Allow tool={req.Name}{redactedSuffix}"
+        ).ConfigureAwait(false);
+        return result;
+    }
+
+    private static async ValueTask AppendRedactionsSafelyAsync(
+        SentinelPipeline pipeline, HostRedactionResult scanned, TextWriter stderr, CancellationToken ct)
+    {
+        try
+        {
+            await pipeline.AppendRedactionsAsync(scanned, scanned.SessionId, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            await stderr.WriteLineAsync(
+                $"[sentinel-mcp] event=tools/call decision=AuditFailed phase=redaction reason={ex.GetType().Name}"
+            ).ConfigureAwait(false);
+        }
     }
 
     private static async ValueTask AuthorizeAsync(

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
+using AI.Sentinel.Redaction;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Protocol;
 
@@ -77,6 +78,95 @@ internal static class MessageBuilder
             return [];
         }
         return [new ChatMessage(ChatRole.Assistant, flattened)];
+    }
+
+    /// <summary>
+    /// Collects the content of a tool result that the proxy can redact: what
+    /// <see cref="CollectRedactable(IList{ContentBlock}, int, HashSet{string})"/> collects from its blocks, then
+    /// <see cref="CallToolResult.StructuredContent"/> as JSON, whose <c>Apply</c> writes the redacted JSON back into
+    /// <paramref name="result"/>.
+    /// </summary>
+    public static (List<HostContent> Content, List<Action<HostContent>> Apply, List<ChatMessage> Oversize) CollectRedactable(
+        CallToolResult result, int maxScanBytes, HashSet<string> allowedMimes)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        var collected = CollectRedactable(result.Content, maxScanBytes, allowedMimes);
+        if (result.StructuredContent is not { ValueKind: not (JsonValueKind.Undefined or JsonValueKind.Null) } json)
+        {
+            return collected;
+        }
+
+        var raw = json.GetRawText();
+        if (Encoding.UTF8.GetByteCount(raw) > maxScanBytes)
+        {
+            collected.Oversize.Add(new ChatMessage(ChatRole.Assistant, TruncateIfNeeded(raw, maxScanBytes)));
+        }
+        else
+        {
+            collected.Content.Add(HostContent.FromJson(json));
+            collected.Apply.Add(redacted => result.StructuredContent = redacted.Json!.Value);
+        }
+        return collected;
+    }
+
+    /// <summary>
+    /// Collects the content blocks the proxy can redact: the text of each <see cref="TextContentBlock"/>, and the
+    /// text of each <see cref="EmbeddedResourceBlock"/> holding a <see cref="TextResourceContents"/> whose MIME type
+    /// is in <paramref name="allowedMimes"/>.
+    /// </summary>
+    /// <param name="blocks">The content blocks, changed in place by <c>Apply</c>.</param>
+    /// <param name="maxScanBytes">An item whose UTF-8 size exceeds this is not redacted; it goes to <c>Oversize</c>
+    /// as the truncated text the 3.0 scan judges.</param>
+    /// <param name="allowedMimes">The MIME allowlist of <see cref="ResourceReadInterceptor.ParseMimeAllowlist"/>.</param>
+    /// <returns><c>Apply[i]</c> writes the redacted <c>Content[i]</c> back. Images, audio, blobs, resource links,
+    /// non-allowlisted and empty items are left out and stay as they are.</returns>
+    public static (List<HostContent> Content, List<Action<HostContent>> Apply, List<ChatMessage> Oversize) CollectRedactable(
+        IList<ContentBlock>? blocks, int maxScanBytes, HashSet<string> allowedMimes)
+    {
+        ArgumentNullException.ThrowIfNull(allowedMimes);
+
+        var content = new List<HostContent>();
+        var apply = new List<Action<HostContent>>();
+        var oversize = new List<ChatMessage>();
+        if (blocks is null)
+        {
+            return (content, apply, oversize);
+        }
+
+        foreach (var block in blocks)
+        {
+            switch (block)
+            {
+                case TextContentBlock text when !string.IsNullOrEmpty(text.Text):
+                    AddText(text.Text, redacted => text.Text = redacted.Text!, maxScanBytes, content, apply, oversize);
+                    break;
+                case EmbeddedResourceBlock { Resource: TextResourceContents resource }
+                    when !string.IsNullOrEmpty(resource.Text) && ResourceReadInterceptor.IsAllowedMime(resource.MimeType, allowedMimes):
+                    AddText(resource.Text, redacted => resource.Text = redacted.Text!, maxScanBytes, content, apply, oversize);
+                    break;
+            }
+        }
+
+        return (content, apply, oversize);
+    }
+
+    private static void AddText(
+        string text,
+        Action<HostContent> write,
+        int maxScanBytes,
+        List<HostContent> content,
+        List<Action<HostContent>> apply,
+        List<ChatMessage> oversize)
+    {
+        if (Encoding.UTF8.GetByteCount(text) > maxScanBytes)
+        {
+            oversize.Add(new ChatMessage(ChatRole.Assistant, TruncateIfNeeded(text, maxScanBytes)));
+            return;
+        }
+
+        content.Add(HostContent.FromText(text));
+        apply.Add(write);
     }
 
     private static string SerializeArguments(IDictionary<string, JsonElement>? args, int maxScanBytes)

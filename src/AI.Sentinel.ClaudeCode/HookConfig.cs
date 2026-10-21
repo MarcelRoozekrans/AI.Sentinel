@@ -33,6 +33,12 @@ public sealed record HookConfig
     /// a finding warns instead of following <see cref="OnHigh"/>. Set by <c>SENTINEL_HOOK_COMPLIANCE=on</c>.</summary>
     public bool EnableComplianceDetectors { get; init; }
 
+    /// <summary>When true, the default, tool results, prompts and resources on their way to the model get
+    /// placeholders instead of the sensitive values they hold, where the host lets Sentinel rewrite them. When false,
+    /// a finding falls back to its severity action and is audited with <c>; not redacted</c>. Set by
+    /// <c>SENTINEL_HOOK_REDACT</c>: <c>off</c>, <c>0</c>, <c>false</c> or <c>no</c> turn it off.</summary>
+    public bool RedactToolResults { get; init; } = true;
+
     /// <summary>
     /// Resolves the caller identity from the hook input. When <c>null</c> (the default),
     /// <see cref="AnonymousSecurityContext.Instance"/> is used for authorization checks.
@@ -51,6 +57,7 @@ public sealed record HookConfig
             Verbose = ParseVerbose(env, "SENTINEL_HOOK_VERBOSE"),
             SuppressSemanticWarning = ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"),
             EnableComplianceDetectors = ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE"),
+            RedactToolResults = ParseOnByDefault(env, "SENTINEL_HOOK_REDACT"),
         };
     }
 
@@ -62,6 +69,17 @@ public sealed record HookConfig
     {
         if (!env.TryGetValue(key, out var v) || string.IsNullOrEmpty(v)) return false;
         return string.Equals(v, "on", StringComparison.OrdinalIgnoreCase) || ParseVerbose(env, key);
+    }
+
+    /// <summary>Reads a switch that is on by default: <c>off</c>, <c>0</c>, <c>false</c> or <c>no</c> turn it off;
+    /// <c>on</c>, <c>1</c>, <c>true</c>, <c>yes</c>, anything else or nothing leave it on.</summary>
+    private static bool ParseOnByDefault(IReadOnlyDictionary<string, string?> env, string key)
+    {
+        if (!env.TryGetValue(key, out var v) || string.IsNullOrEmpty(v)) return true;
+        return !(string.Equals(v, "off", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(v, "0", StringComparison.Ordinal)
+            || string.Equals(v, "false", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(v, "no", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool ParseVerbose(IReadOnlyDictionary<string, string?> env, string key)

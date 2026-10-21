@@ -7,6 +7,7 @@ using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Mcp.Logging;
+using AI.Sentinel.Redaction;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
@@ -48,6 +49,8 @@ internal static class McpProxy
     /// <param name="callerResolver">Optional resolver mapping the inbound request to an <see cref="ISecurityContext"/>. Defaults to <see cref="EnvironmentSecurityContext.FromEnvironment"/>.</param>
     /// <param name="auditStore">Optional store for audit entries; defaults to an in-memory ring buffer. The caller owns and disposes it.</param>
     /// <param name="forwarders">Optional forwarders that mirror every audit entry. The caller owns them.</param>
+    /// <param name="placeholderIdleExpiry">How long a placeholder the proxy minted stays known when unused; defaults to
+    /// <see cref="PlaceholderStore.DefaultIdleExpiry"/>. Used only when <see cref="HookConfig.RedactToolResults"/> is set.</param>
     internal static Task RunAsync(
         ITransport hostTransport,
         IClientTransport targetTransport,
@@ -62,7 +65,8 @@ internal static class McpProxy
         IApprovalStore? approvalStore = null,
         TimeSpan? approvalWait = null,
         IAuditStore? auditStore = null,
-        IReadOnlyList<IAuditForwarder>? forwarders = null)
+        IReadOnlyList<IAuditForwarder>? forwarders = null,
+        TimeSpan? placeholderIdleExpiry = null)
         => RunWithSessionAsync(
             hostTransport: hostTransport,
             targetTransport: targetTransport,
@@ -78,7 +82,8 @@ internal static class McpProxy
             approvalWait: approvalWait,
             auditStore: auditStore,
             forwarders: forwarders,
-            sessionId: null);
+            sessionId: null,
+            placeholderIdleExpiry: placeholderIdleExpiry);
 
     /// <summary>Same as <see cref="RunAsync"/> but lets tests fix the per-run session id.</summary>
     internal static async Task RunWithSessionAsync(
@@ -96,7 +101,8 @@ internal static class McpProxy
         TimeSpan? approvalWait = null,
         IAuditStore? auditStore = null,
         IReadOnlyList<IAuditForwarder>? forwarders = null,
-        SessionId? sessionId = null)
+        SessionId? sessionId = null,
+        TimeSpan? placeholderIdleExpiry = null)
     {
         ArgumentNullException.ThrowIfNull(hostTransport);
         ArgumentNullException.ThrowIfNull(targetTransport);
@@ -126,21 +132,11 @@ internal static class McpProxy
                 out var pipelineStore, out var inertSemanticWarning, embeddings?.ExampleCache,
                 ReportDetectorFailure, auditStore, forwarders);
 
-            // No logging provider here either — surface it on stderr so an inert SEC-01 isn't mistaken
-            // for a clean scan. Routed through StderrLogger because this stream is structured
-            // (key=value, or NDJSON under SENTINEL_MCP_LOG_JSON=1); raw prose would break consumers.
-            // Emitted once per proxy process. Suppressible via SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING.
-            if (!config.SuppressSemanticWarning && inertSemanticWarning is not null)
-            {
-                await stderr.WriteLineAsync(StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["event"] = "semantic_detection_inert",
-                    ["detail"] = inertSemanticWarning,
-                })).ConfigureAwait(false);
-            }
+            await WriteInertSemanticWarningAsync(config, inertSemanticWarning, stderr).ConfigureAwait(false);
+            var placeholders = CreatePlaceholderStore(config, placeholderIdleExpiry);
 
             // One session per proxy process: every scan and authorization entry of this run shares it.
-            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, pipelineStore, forwarders, callerResolver, approvalStore, approvalWait, sessionId ?? SessionId.New());
+            var serverOptions = BuildServerOptions(targetClient, pipeline, maxScanBytes, stderr, guard, pipelineStore, forwarders, callerResolver, approvalStore, approvalWait, sessionId ?? SessionId.New(), placeholders);
 
             var server = McpServer.Create(
                 hostTransport,
@@ -158,6 +154,36 @@ internal static class McpProxy
             await DisposeWithGraceAsync(targetClient, GetShutdownGrace()).ConfigureAwait(false);
         }
     }
+
+    /// <summary>
+    /// No logging provider here either — surface it on stderr so an inert SEC-01 isn't mistaken
+    /// for a clean scan. Routed through StderrLogger because this stream is structured
+    /// (key=value, or NDJSON under SENTINEL_MCP_LOG_JSON=1); raw prose would break consumers.
+    /// Emitted once per proxy process. Suppressible via SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING.
+    /// </summary>
+    private static async Task WriteInertSemanticWarningAsync(HookConfig config, string? inertSemanticWarning, TextWriter stderr)
+    {
+        if (config.SuppressSemanticWarning || inertSemanticWarning is null)
+        {
+            return;
+        }
+
+        await stderr.WriteLineAsync(StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["event"] = "semantic_detection_inert",
+            ["detail"] = inertSemanticWarning,
+        })).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One placeholder store per run, shared by the three interceptors, so a placeholder minted in one response is
+    /// known to every later one. Null when <see cref="HookConfig.RedactToolResults"/> is off, which keeps the 3.0
+    /// scan and fallback.
+    /// </summary>
+    internal static PlaceholderStore? CreatePlaceholderStore(HookConfig config, TimeSpan? placeholderIdleExpiry)
+        => config.RedactToolResults
+            ? new PlaceholderStore(placeholderIdleExpiry ?? PlaceholderStore.DefaultIdleExpiry)
+            : null;
 
     /// <summary>
     /// Subprocess shutdown grace from <c>SENTINEL_MCP_TIMEOUT_SEC</c>; defaults to 5 seconds.
@@ -232,7 +258,8 @@ internal static class McpProxy
         Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
-        SessionId sessionId)
+        SessionId sessionId,
+        PlaceholderStore? placeholders)
     {
         var targetCaps = targetClient.ServerCapabilities;
         var capabilities = new ServerCapabilities();
@@ -242,18 +269,18 @@ internal static class McpProxy
         if (targetCaps.Tools is not null)
         {
             WireTools(targetClient, pipeline, maxScanBytes, stderr, guard, auditStore, forwarders, callerResolver,
-                approvalStore, approvalWait, sessionId, capabilities, handlers, requestFilters);
+                approvalStore, approvalWait, sessionId, placeholders, capabilities, handlers, requestFilters);
         }
 
         if (targetCaps.Prompts is not null)
         {
-            WirePrompts(targetClient, pipeline, maxScanBytes, stderr, sessionId,
+            WirePrompts(targetClient, pipeline, maxScanBytes, stderr, sessionId, placeholders,
                 capabilities, handlers, requestFilters);
         }
 
         if (targetCaps.Resources is not null)
         {
-            WireResources(targetClient, pipeline, targetCaps.Resources, sessionId,
+            WireResources(targetClient, pipeline, targetCaps.Resources, sessionId, placeholders,
                 capabilities, handlers, requestFilters);
         }
 
@@ -278,6 +305,7 @@ internal static class McpProxy
         IApprovalStore? approvalStore,
         TimeSpan? approvalWait,
         SessionId sessionId,
+        PlaceholderStore? placeholders,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -295,7 +323,7 @@ internal static class McpProxy
         };
         requestFilters.CallToolFilters.Add(
             ToolCallInterceptor.Create(pipeline, maxScanBytes, stderr, guard, auditStore, callerResolver,
-                approvalStore, approvalWait, forwarders, sessionId));
+                approvalStore, approvalWait, forwarders, sessionId, placeholders));
     }
 
     private static void WirePrompts(
@@ -304,6 +332,7 @@ internal static class McpProxy
         int maxScanBytes,
         TextWriter stderr,
         SessionId sessionId,
+        PlaceholderStore? placeholders,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -320,7 +349,7 @@ internal static class McpProxy
             return new ListPromptsResult { Prompts = prompts.Select(p => p.ProtocolPrompt).ToList() };
         };
         requestFilters.GetPromptFilters.Add(
-            PromptGetInterceptor.Create(pipeline, maxScanBytes, stderr, sessionId));
+            PromptGetInterceptor.Create(pipeline, maxScanBytes, stderr, sessionId, placeholders));
     }
 
     private static void WireResources(
@@ -328,6 +357,7 @@ internal static class McpProxy
         SentinelPipeline pipeline,
         ResourcesCapability targetResources,
         SessionId sessionId,
+        PlaceholderStore? placeholders,
         ServerCapabilities capabilities,
         McpServerHandlers handlers,
         McpRequestFilters requestFilters)
@@ -344,7 +374,7 @@ internal static class McpProxy
         handlers.ReadResourceHandler = (req, c) =>
             targetClient.ReadResourceAsync(req.Params!, c);
         requestFilters.ReadResourceFilters.Add(
-            ResourceReadInterceptor.Create(pipeline, sessionId));
+            ResourceReadInterceptor.Create(pipeline, sessionId, placeholders));
     }
 
     private static Dictionary<string, object?> ToObjectDictionary(

@@ -12,7 +12,8 @@ namespace AI.Sentinel.Mcp;
 
 /// <summary>Builds a <see cref="SentinelPipeline"/> wired for MCP-proxy use.</summary>
 /// <remarks>
-/// The proxy only calls <see cref="SentinelPipeline.ScanMessagesAsync"/>, so the
+/// The proxy only calls <see cref="SentinelPipeline.ScanMessagesAsync"/> and
+/// <see cref="SentinelPipeline.RedactAndScanAsync"/>, so the
 /// inner <see cref="IChatClient"/> is never invoked — a stub that throws on use
 /// is wired in to keep the constructor happy.
 /// </remarks>
