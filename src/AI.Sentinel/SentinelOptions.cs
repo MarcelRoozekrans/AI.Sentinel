@@ -29,10 +29,13 @@ public sealed class SentinelOptions
     /// <summary>Internal hook for <c>AddDetector&lt;T&gt;</c> extension.</summary>
     internal void AddDetectorRegistration(DetectorRegistration registration) => _detectorRegistrations.Add(registration);
 
-    /// <summary>Internal accumulator entry describing a user-registered <see cref="IDetector"/>.</summary>
+    /// <summary>Internal accumulator entry describing a user-registered <see cref="IDetector"/>. Exactly one of
+    /// <paramref name="DetectorType"/> and <paramref name="Factory"/> is set: a type registration is activated
+    /// by DI and needs the type's public constructors kept, a factory registration needs no type.</summary>
     internal sealed record DetectorRegistration(
         [property: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
-        Type DetectorType,
+        [param: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        Type? DetectorType,
         Func<IServiceProvider, IDetector>? Factory);
 
     private readonly Dictionary<Type, DetectorConfiguration> _detectorConfigurations = new();

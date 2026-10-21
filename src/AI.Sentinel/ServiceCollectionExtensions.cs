@@ -174,7 +174,7 @@ public static class ServiceCollectionExtensions
     {
         foreach (var reg in opts.GetDetectorRegistrations())
         {
-            if (reg.Factory is null)
+            if (reg.DetectorType is { } detectorType)
             {
                 // A type-based registration carries no per-instance state, and Configure<T> is keyed by
                 // type, so a repeat of the same type is always redundant. This happens for real via the
@@ -182,11 +182,11 @@ public static class ServiceCollectionExtensions
                 // Action<SentinelOptions> containing AddDetector<T>(), applied to the default pipeline
                 // and to each named one. Factory registrations are left alone — two factories may
                 // legitimately produce differently-constructed instances of the same type.
-                services.TryAddEnumerable(ServiceDescriptor.Singleton(typeof(IDetector), reg.DetectorType));
+                services.TryAddEnumerable(ServiceDescriptor.Singleton(typeof(IDetector), detectorType));
             }
-            else
+            else if (reg.Factory is { } factory)
             {
-                services.AddSingleton<IDetector>(sp => reg.Factory(sp));
+                services.AddSingleton<IDetector>(sp => factory(sp));
             }
         }
     }
