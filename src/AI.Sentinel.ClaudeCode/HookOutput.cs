@@ -10,8 +10,10 @@ public sealed record HookOutput
     public string? Reason { get; init; }
 
     /// <summary>The tool output the model should see instead of the original, for a tool-result event: a copy whose
-    /// string values hold placeholders instead of sensitive values, or, on <see cref="HookDecision.Block"/>, a string
-    /// saying the output was withheld. <see langword="null"/> when the output is delivered as it is.</summary>
+    /// string values hold placeholders instead of sensitive values, or, on <see cref="HookDecision.Block"/>, the withheld
+    /// body. For Claude Code that body keeps the shape of the tool output, with its string values replaced by the
+    /// withheld text, and is the withheld text itself only when the output is not an object or an array; for Copilot it is
+    /// always the withheld text as a JSON string. <see langword="null"/> when the output is delivered as it is.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public JsonElement? UpdatedToolOutput { get; init; }
 

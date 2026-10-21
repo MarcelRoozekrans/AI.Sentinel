@@ -178,6 +178,8 @@ HookOutput output = await adapter.HandleAsync(HookEvent.UserPromptSubmit, input,
 
 `provider` is an `IServiceProvider`, `env` an `IReadOnlyDictionary<string, string?>` and `ct` a `CancellationToken`. `HookConfig` is optional; without it the defaults apply.
 
+Redaction is off in a `HookConfig` you build yourself, including the default one, so `PostToolUse` keeps the 3.0 behaviour: a secret in the tool output gives the severity decision, `Block` by default. `HookConfig.FromEnvironment`, as in the example, turns it on, as the CLI does, unless `SENTINEL_HOOK_REDACT` is off. To opt in on a config of your own, set `RedactToolResults = true`. On `PostToolUse` your host must then deliver `HookOutput.UpdatedToolOutput` instead of the original output: the redacted output on `Allow`, or on `Block` the withheld body that keeps the output's shape.
+
 The decision follows the action your `SentinelOptions` give each detection: `Quarantine` maps through `HookConfig` by severity, `Alert` surfaces as `Warn`, or as `Allow` when `HookConfig` maps that severity to `Allow`, and `Log` gives `Allow`. The hook answers the most restrictive of these per-detection decisions, so a compliance `Warn` is kept when a `Low` finding mapped to `Allow` fires alongside it; the reason names the detection behind the decision, the higher severity on a tie. With a stock `AddAISentinel()`, a `High` finding is an `Alert` and so a `Warn`; the `sentinel-hook` CLI sets every severity to `Quarantine` so that `SENTINEL_HOOK_ON_*` decides.
 
 Useful when you want a hook that ships entries to your own backend (Splunk, custom REST API, etc.) without going through file forwarders.

@@ -927,7 +927,7 @@ Replace `win-x64` with `linux-x64`, `osx-arm64`, etc. Output lands under `bin/Re
 
 ### Programmatic use
 
-The underlying libraries (`AI.Sentinel.ClaudeCode` and `AI.Sentinel.Copilot`) expose `HookAdapter` / `CopilotHookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Reference the library packages (not the `.Cli` tool packages) to write your own host integration in C#.
+The underlying libraries (`AI.Sentinel.ClaudeCode` and `AI.Sentinel.Copilot`) expose `HookAdapter` / `CopilotHookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Reference the library packages (not the `.Cli` tool packages) to write your own host integration in C#. Redaction is off in a `HookConfig` or `CopilotHookConfig` you build yourself, so a secret in a tool result still gives `Block` as in 3.0; `FromEnvironment` turns it on as the CLIs do. A host that opts in with `RedactToolResults = true` must deliver `HookOutput.UpdatedToolOutput` on `PostToolUse` instead of the original output.
 
 ---
 

@@ -89,23 +89,26 @@ Not redacted: binary attachments such as images, audio and PDF files, content re
 
 ## Per surface
 
-The in-process chat client sees the whole conversation and rewrites it. The hook CLIs and the MCP proxy can only rewrite what their host lets them rewrite, so each surface redacts a different part. Redaction is on by default everywhere. `SENTINEL_HOOK_REDACT=off` turns it off in the hook CLIs, and `SENTINEL_MCP_REDACT=off` turns it off in the MCP proxy. Unset, the proxy follows `SENTINEL_HOOK_REDACT`.
+The in-process chat client sees the whole conversation and rewrites it. The hook CLIs and the MCP proxy can only rewrite what their host lets them rewrite, so each surface redacts a different part. Redaction is on by default in the hook CLIs and the MCP proxy. `SENTINEL_HOOK_REDACT=off` turns it off in the hook CLIs, and `SENTINEL_MCP_REDACT=off` turns it off in the MCP proxy. Unset, the proxy follows `SENTINEL_HOOK_REDACT`. A host that calls `HookAdapter` or `CopilotHookAdapter` from the libraries opts in with `RedactToolResults = true`; see [Library callers](#library-callers).
 
 | Surface | What is redacted | Restored | Falls back |
 |---|---|---|---|
 | In-process client | Everything listed under [What is redacted](#what-is-redacted) | The reply, tool results, and PII in tool-call arguments; secrets never in tool calls | The response scan, and a detector that flags text without spans |
-| MCP proxy | Tool results, prompts from `prompts/get`, and text resources from `resources/read` | PII placeholders in the arguments of a later `tools/call`, until 30 minutes after their last use; secrets never | Tool-call arguments, blob and non-allowlisted resources, and content past the byte budget. A rate-limited scan or a pipeline error forwards the content unredacted |
-| Claude Code `PostToolUse` | The tool output, returned as `updatedToolOutput` | No: the model keeps the placeholders | Nothing on the tool output itself |
+| MCP proxy | Tool results, prompts from `prompts/get`, and text resources from `resources/read` | PII placeholders in the arguments of a later `tools/call`, until `SENTINEL_MCP_REDACT_TTL_MIN` minutes after their last use, 30 by default; secrets never | Tool-call arguments, blob and non-allowlisted resources, content past the byte budget, and values recognised only by their JSON key ([#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428)). A rate-limited scan or a pipeline error forwards the content unredacted |
+| Claude Code `PostToolUse` | The tool output, returned as `updatedToolOutput` | No: the model keeps the placeholders | Values recognised only by their JSON key, such as `{"password":"hunter2"}` ([#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428)) |
 | Claude Code `PreToolUse` | Nothing. The [placeholder guard](#placeholder-guard) denies writes and shell commands that carry a placeholder | No | The tool arguments |
 | Claude Code `UserPromptSubmit` | Nothing | No | The prompt |
-| Copilot `postToolUse` | The tool result's `textResultForLlm`, returned as `modifiedResult` | No | A tool result without a string `textResultForLlm` |
+| Copilot `postToolUse` | The tool result's `textResultForLlm`, returned as `modifiedResult` | No | A tool result without a string `textResultForLlm`, and values recognised only by their JSON key ([#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428)) |
 | Copilot `userPromptTransformed` | The transformed prompt, returned as `modifiedTransformedPrompt`. **Experimental**: not yet verified with the Copilot CLI | No | Nothing on the prompt itself |
 | Copilot `preToolUse` | Nothing. The [placeholder guard](#placeholder-guard) applies | No | The tool arguments |
 | Copilot `userPromptSubmitted` | Nothing | No | The prompt |
 
 "Falls back" means the detection uses the action of its severity, as described under [Fallback](#fallback). On every surface except the in-process client, a failure of the redaction itself also falls back; see [Fail closed](#fail-closed).
 
-When the hook CLIs and the MCP proxy redact JSON, such as a tool's output or `structuredContent`, they redact string values only. Personal data inside a JSON **key** is scanned but not redacted, because renaming a key would break the shape of the JSON, so such a finding falls back.
+When the hook CLIs and the MCP proxy redact JSON, such as a tool's output or `structuredContent`, they redact string values only, each on its own. Two cases fall back:
+
+- **Personal data inside a JSON key** is scanned but not redacted, because renaming a key would break the shape of the JSON.
+- **A value recognised only by its key** is not redacted either. A secret detector that needs the key to recognise a value, as in `{"password":"hunter2"}`, flags the pair, but the value `hunter2` on its own matches nothing, so no span is found and the finding uses the action of its severity. A secret finding usually blocks, so on a hook the output is withheld rather than redacted. Key-aware JSON redaction is tracked in [#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428).
 
 ### MCP proxy
 
@@ -122,8 +125,12 @@ When the hook CLIs and the MCP proxy redact JSON, such as a tool's output or `st
 - **Claude Code** gets the redacted tool output as `updatedToolOutput`, with an `additionalContext` note that names the redacted types and tells the model not to write placeholders to files or commands. See [Claude Code → What each action does](./integrations/claude-code#what-each-action-does).
 - **Copilot** gets the redacted text as `modifiedResult`. With redaction on, a secret or personal data in a Copilot tool result is now redacted and allowed, where it used to be blocked. With `SENTINEL_HOOK_REDACT=off` it is still blocked, as before.
 - **Prompts are not redacted on Claude Code or on Copilot's `userPromptSubmitted`,** because neither lets a command hook rewrite the prompt. Copilot's `userPromptTransformed` can, and is experimental. See [Copilot → Prompt enforcement](./integrations/copilot#prompt-enforcement).
-- **Withheld output.** When a `PostToolUse` scan blocks, on both hosts and also with redaction off, the output is withheld rather than delivered. For Claude Code, the withheld output keeps the shape of the tool's `tool_response`: identifier-like `type` values and empty strings are kept, and every other string becomes `withheld by AI.Sentinel: <reason>`. Claude Code rejects an output whose `type` changed and then shows the original, which is why `type` is kept. Copilot gets a `modifiedResult` with the withheld text.
+- **Withheld output.** When a `PostToolUse` scan blocks, on both hosts and also with redaction off, the output is withheld rather than delivered. For Claude Code, the withheld output keeps the shape of the tool's `tool_response`: identifier-like `type` values and empty strings are kept, and every other string becomes `withheld by AI.Sentinel: <reason>`. Claude Code rejects an output whose `type` changed and then shows the original, which is why `type` is kept. Copilot gets a `modifiedResult` with the withheld text. Copilot requires `resultType: "success"` on a `modifiedResult`, so a result whose original `resultType` was something else, such as `failure`, keeps that status as a prefix of the text: `[failure] withheld by AI.Sentinel: <reason>`. A redacted result is prefixed the same way.
 - **No restore.** A hook process runs once per event and keeps no mapping, so the model works with placeholders for the rest of the session.
+
+### Library callers
+
+A `HookConfig` or `CopilotHookConfig` you build yourself, including the default one, has `RedactToolResults` off, so `HookAdapter.HandleAsync` and `CopilotHookAdapter.HandleAsync` keep the 3.0 behaviour: a secret in a tool result gives the severity decision, `Block` by default. `FromEnvironment` turns redaction on, as the CLIs do, unless `SENTINEL_HOOK_REDACT` is off. A caller that sets `RedactToolResults = true` gets `Allow` with `HookOutput.UpdatedToolOutput` for a redacted tool result and must deliver that output instead of the original. `CopilotHookAdapter.HandleAsync` scans a `userPromptTransformed` prompt without redacting it, because it cannot return a rewritten prompt.
 
 ### Placeholder guard
 

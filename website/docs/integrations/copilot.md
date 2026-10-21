@@ -88,7 +88,7 @@ What each action does:
 
 With `SENTINEL_HOOK_REDACT` on, the default, the hook redacts personal data and secrets where Copilot lets a command hook rewrite content:
 
-- **`postToolUse`** redacts the tool result's `textResultForLlm` and returns it as `modifiedResult`, so the model sees `[EMAIL_1_k3f9x2]` in place of the address. A result without a string `textResultForLlm` is scanned as before and not redacted.
+- **`postToolUse`** redacts the tool result's `textResultForLlm` and returns it as `modifiedResult`, so the model sees `[EMAIL_1_k3f9x2]` in place of the address. A result without a string `textResultForLlm` is scanned as before and not redacted. `modifiedResult` must have `resultType: "success"`, because `failure` would send the result to `postToolUseFailure`, so an original `resultType` other than `success` is kept as a prefix of the text, such as `[failure] `.
 - **`userPromptTransformed`** redacts the transformed prompt and returns it as `modifiedTransformedPrompt`. This is experimental.
 
 The redaction is recorded as a `REDACTED` audit entry with counts only. The hook does not restore placeholders.
@@ -166,6 +166,8 @@ The shared env-var contract (`SENTINEL_HOOK_ON_*`) means you configure once and 
 ## Programmatic use
 
 `AI.Sentinel.Copilot` (the library, not the `.Cli` tool) exposes `CopilotHookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Use this when bundling AI.Sentinel inside a custom Copilot-compatible agent.
+
+Redaction is off in a `CopilotHookConfig` you build yourself, including the default one, so `HandleAsync` keeps the 3.0 behaviour: a secret in a tool result gives the severity decision, `Block` by default. `CopilotHookConfig.FromEnvironment` turns it on, as the CLI does, unless `SENTINEL_HOOK_REDACT` is off. To opt in, set `RedactToolResults = true`. On `postToolUse` your host must then deliver `HookOutput.UpdatedToolOutput` instead of the original result: the redacted result on `Allow`, or on `Block` the withheld text as a JSON string. `HandleAsync` scans a `userPromptTransformed` prompt without redacting it, because it cannot return a rewritten prompt.
 
 The decision follows the action your `SentinelOptions` give each detection: `Quarantine` maps through the hook config by severity, `Alert` surfaces as `Warn`, or as `Allow` when the config maps that severity to `Allow`, and `Log` gives `Allow`. The hook answers the most restrictive of these per-detection decisions, so a compliance `Warn` is kept when a `Low` finding mapped to `Allow` fires alongside it; the reason names the detection behind the decision, the higher severity on a tie. With a stock `AddAISentinel()`, a `High` finding is an `Alert` and so a `Warn`; the `sentinel-copilot-hook` CLI sets every severity to `Quarantine` so that `SENTINEL_HOOK_ON_*` decides.
 
