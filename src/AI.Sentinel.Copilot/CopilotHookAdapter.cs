@@ -71,7 +71,7 @@ public sealed class CopilotHookAdapter
         if (evt == CopilotHookEvent.PreToolUse && _guard is not null && !string.IsNullOrEmpty(input.ToolName))
         {
             var caller = _config.CallerContextProvider?.Invoke(input) ?? AnonymousSecurityContext.Instance;
-            var args = input.ToolInput ?? EmptyJsonObject;
+            var args = input.GuardToolArgs(EmptyJsonObject);
             var decision = await _guard.AuthorizeAsync(caller, input.ToolName, args, ct).ConfigureAwait(false);
             if (!decision.Allowed)
             {
@@ -133,13 +133,13 @@ public sealed class CopilotHookAdapter
         {
             CopilotHookEvent.UserPromptSubmitted => [new ChatMessage(ChatRole.User, input.Prompt ?? "")],
             CopilotHookEvent.PreToolUse => [new ChatMessage(ChatRole.User,
-            $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}")],
+            $"tool:{input.ToolName} input:{input.ToolArgsText()}")],
             CopilotHookEvent.PostToolUse =>
             [
                 new ChatMessage(ChatRole.User,
-                $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}"),
+                $"tool:{input.ToolName} input:{input.ToolArgsText()}"),
             new ChatMessage(ChatRole.Assistant,
-                input.ToolResponse?.GetRawText() ?? ""),
+                input.ToolResultText()),
         ],
             _ => throw new ArgumentOutOfRangeException(nameof(evt)),
         };

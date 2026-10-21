@@ -93,6 +93,33 @@ public class HookWireFormatTests
     }
 
     [Fact]
+    public void Copilot_CamelCasePayload_ReadsToolArgsAndToolResult()
+    {
+        const string json = """
+            {"sessionId":"c-1","toolName":"bash","toolArgs":{"command":"ls"},"toolResult":{"resultType":"success","textResultForLlm":"ok"}}
+            """;
+
+        var input = JsonSerializer.Deserialize(json, CopilotHookJsonContext.Default.CopilotHookInput);
+
+        Assert.NotNull(input);
+        Assert.Equal("""{"command":"ls"}""", input!.ToolArgs?.GetRawText());
+        Assert.Equal("""{"resultType":"success","textResultForLlm":"ok"}""", input.ToolResult?.GetRawText());
+    }
+
+    [Fact]
+    public void Copilot_UserPromptTransformedPayload_ReadsTransformedPrompt()
+    {
+        const string json = """
+            {"sessionId":"c-1","prompt":"hi","transformedPrompt":"hi there"}
+            """;
+
+        var input = JsonSerializer.Deserialize(json, CopilotHookJsonContext.Default.CopilotHookInput);
+
+        Assert.NotNull(input);
+        Assert.Equal("hi there", input!.TransformedPrompt);
+    }
+
+    [Fact]
     public void Copilot_Input_Serializes_CamelCase()
     {
         var input = new CopilotHookInput { SessionId = "c-1", ToolName = "Bash" };
