@@ -119,8 +119,8 @@ public static class HookPipelineRunner
     /// The body that replaces a tool output the hook blocks: <paramref name="toolResponse"/> with every non-empty string
     /// value replaced by <see cref="WithheldPrefix"/> plus <paramref name="reason"/>, and its names, numbers, booleans,
     /// nulls and nesting kept. Claude Code ignores a replacement that does not match a built-in tool's output schema and
-    /// shows the original instead, so the shape is kept, and so is the string value of every property named <c>type</c>, a
-    /// discriminator such as Read's <c>"type":"text"</c>. Empty strings stay empty, so a field such as Bash's empty
+    /// shows the original instead, so the shape is kept, and so is an identifier-like string value of every property named
+    /// <c>type</c>, a discriminator such as Read's <c>"type":"text"</c>. Empty strings stay empty, so a field such as Bash's empty
     /// <c>stderr</c> does not repeat the notice. A string, an absent response or a null gives the withheld text itself.
     /// </summary>
     internal static JsonElement WithheldOutput(JsonElement toolResponse, string? reason)
@@ -141,6 +141,26 @@ public static class HookPipelineRunner
         return doc.RootElement.Clone();
     }
 
+    /// <summary>True when <paramref name="value"/> looks like an identifier, <c>^[A-Za-z][A-Za-z0-9_.-]{0,31}$</c>,
+    /// such as <c>text</c>: the only <c>type</c> values a withheld body keeps.</summary>
+    private static bool IsDiscriminator(string? value)
+    {
+        if (string.IsNullOrEmpty(value) || value.Length > 32 || !char.IsAsciiLetter(value[0]))
+        {
+            return false;
+        }
+
+        foreach (var c in value.AsSpan(1))
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && c is not ('_' or '.' or '-'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private static void WriteWithheld(JsonElement element, string text, Utf8JsonWriter writer)
     {
         switch (element.ValueKind)
@@ -151,10 +171,11 @@ public static class HookPipelineRunner
                 {
                     writer.WritePropertyName(property.Name);
                     if (property.Value.ValueKind == JsonValueKind.String
-                        && string.Equals(property.Name, "type", StringComparison.Ordinal))
+                        && string.Equals(property.Name, "type", StringComparison.Ordinal)
+                        && IsDiscriminator(property.Value.GetString()))
                     {
-                        // A discriminator such as Read's "type":"text"; Claude Code rejects the body without it. Only a
-                        // string is kept, so an object under "type" cannot carry content past the walk.
+                        // A discriminator such as Read's "type":"text"; Claude Code rejects the body without it. Only an
+                        // identifier-like string is kept, so free text placed under "type" cannot get past the walk.
                         property.Value.WriteTo(writer);
                     }
                     else
