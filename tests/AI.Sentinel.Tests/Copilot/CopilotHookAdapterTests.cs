@@ -459,6 +459,22 @@ public class CopilotHookAdapterTests
         Assert.Contains(entries, e => e.Summary.EndsWith("; not redacted", StringComparison.Ordinal));
     }
 
+    // HandleAsync cannot hand the rewritten prompt back, so it scans as 3.0 did and records nothing as REDACTED.
+    [Fact]
+    public async Task UserPromptTransformed_HandleAsync_NotRedacted_FallsBack()
+    {
+        var (adapter, audit) = BuildAdapterWithAudit(new CopilotHookConfig { RedactToolResults = true });
+        var input = new CopilotHookInput { SessionId = "cp-t", TransformedPrompt = $"mail {Email} today" };
+
+        var output = await adapter.HandleAsync(CopilotHookEvent.UserPromptTransformed, input, TestContext.Current.CancellationToken);
+
+        Assert.Null(output.UpdatedToolOutput);
+        Assert.Null(output.Redactions);
+        var entries = await ReadAuditAsync(audit);
+        Assert.DoesNotContain(entries, IsRedacted);
+        Assert.Contains(entries, e => e.Summary.EndsWith("; not redacted", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void CopilotHookConfig_Default_RedactToolResultsOff()
     {

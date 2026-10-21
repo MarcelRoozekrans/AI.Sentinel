@@ -61,11 +61,17 @@ public sealed class CopilotHookAdapter
     }
 
     /// <summary>Handles a single hook event, returning the decision the Copilot CLI should honour.</summary>
+    /// <remarks>
+    /// On <see cref="CopilotHookEvent.PostToolUse"/> with <see cref="CopilotHookConfig.RedactToolResults"/> on, the
+    /// caller must deliver <see cref="HookOutput.UpdatedToolOutput"/> instead of the original result. A
+    /// <see cref="CopilotHookEvent.UserPromptTransformed"/> prompt is scanned, not redacted, because this method has no
+    /// way to hand a rewritten prompt back: a finding falls back to its severity action.
+    /// </remarks>
     public async Task<HookOutput> HandleAsync(
         CopilotHookEvent evt,
         CopilotHookInput input,
         CancellationToken ct)
-        => (await HandleForCliAsync(evt, input, ct).ConfigureAwait(false)).Output;
+        => (await HandleCoreAsync(evt, input, rewritePrompt: false, ct).ConfigureAwait(false)).Output;
 
     /// <summary>
     /// Handles a single hook event, returning the decision and, for <see cref="CopilotHookEvent.UserPromptTransformed"/>,
@@ -81,9 +87,19 @@ public sealed class CopilotHookAdapter
     /// <item>Every other event keeps the scan and its fallback.</item>
     /// </list>
     /// </remarks>
-    internal async Task<CopilotHookResult> HandleForCliAsync(
+    internal Task<CopilotHookResult> HandleForCliAsync(
         CopilotHookEvent evt,
         CopilotHookInput input,
+        CancellationToken ct)
+        => HandleCoreAsync(evt, input, rewritePrompt: true, ct);
+
+    /// <summary>Handles a hook event. <paramref name="rewritePrompt"/> is true when the caller delivers
+    /// <see cref="CopilotHookResult.ModifiedTransformedPrompt"/>; without it the transformed prompt is only scanned, so
+    /// nothing is audited as redacted that never reaches the model.</summary>
+    private async Task<CopilotHookResult> HandleCoreAsync(
+        CopilotHookEvent evt,
+        CopilotHookInput input,
+        bool rewritePrompt,
         CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(input);
@@ -110,7 +126,7 @@ public sealed class CopilotHookAdapter
         return evt switch
         {
             CopilotHookEvent.PostToolUse => new CopilotHookResult(await ScanToolResultAsync(input, ct).ConfigureAwait(false), null),
-            CopilotHookEvent.UserPromptTransformed => await ScanTransformedPromptAsync(input, ct).ConfigureAwait(false),
+            CopilotHookEvent.UserPromptTransformed when rewritePrompt => await ScanTransformedPromptAsync(input, ct).ConfigureAwait(false),
             _ => new CopilotHookResult(
                 await HookPipelineRunner.RunAsync(_provider, _config.ToSharedConfig(), BuildMessages(evt, input), input.SessionId, ct).ConfigureAwait(false),
                 null),
@@ -141,7 +157,7 @@ public sealed class CopilotHookAdapter
     private async Task<CopilotHookResult> ScanTransformedPromptAsync(CopilotHookInput input, CancellationToken ct)
     {
         var shared = _config.ToSharedConfig();
-        var prompt = input.TransformedPrompt ?? input.Prompt ?? "";
+        var prompt = TransformedPrompt(input);
         if (_config.RedactToolResults)
         {
             var (redacted, rewritten) = await HookPipelineRunner.RunPromptAsync(
@@ -219,6 +235,9 @@ public sealed class CopilotHookAdapter
         return null;
     }
 
+    /// <summary>The transformed prompt, or the prompt when Copilot sent no transformed one.</summary>
+    private static string TransformedPrompt(CopilotHookInput input) => input.TransformedPrompt ?? input.Prompt ?? "";
+
     private static ChatMessage ToolCallMessage(CopilotHookInput input) =>
         new(ChatRole.User, $"tool:{input.ToolName} input:{input.ToolArgsText()}");
 
@@ -227,6 +246,7 @@ public sealed class CopilotHookAdapter
         CopilotHookInput input) => evt switch
         {
             CopilotHookEvent.UserPromptSubmitted => [new ChatMessage(ChatRole.User, input.Prompt ?? "")],
+            CopilotHookEvent.UserPromptTransformed => [new ChatMessage(ChatRole.User, TransformedPrompt(input))],
             CopilotHookEvent.PreToolUse => [ToolCallMessage(input)],
             CopilotHookEvent.PostToolUse =>
             [
