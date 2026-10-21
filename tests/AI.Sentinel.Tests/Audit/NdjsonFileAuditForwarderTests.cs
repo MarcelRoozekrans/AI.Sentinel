@@ -101,17 +101,11 @@ public class NdjsonFileAuditForwarderTests : IDisposable
     [Fact]
     public async Task DisposeAsync_ConcurrentWithInFlightSend_DoesNotThrow()
     {
-        // Regression for #105. DisposeAsync used to close the FileStream without taking the
-        // write lock, so _writer.DisposeAsync (which flushes) ran concurrently with an
-        // in-flight SendAsync write and threw
-        //   InvalidOperationException: The stream is currently in use by a previous operation on the stream.
-        // — escaping DisposeAsync (SendAsync swallows its own exceptions, DisposeAsync did not).
-        //
-        // Reliable repro: a large batch makes SendAsync park at its async FlushAsync (the
-        // buffered WriteLineAsync calls mostly complete synchronously into the StreamWriter
-        // buffer), so `send` is genuinely mid-flush on the FileStream when DisposeAsync fires
-        // on this thread. Looping tightens the window. Verified to throw on the pre-fix code
-        // and pass after.
+        // Regression for #105, kept for the per-batch design: DisposeAsync must wait for an append
+        // already in flight. SendAsync takes the write semaphore synchronously and then awaits the
+        // file write, so `send` is mid-append when DisposeAsync runs on this thread. DisposeAsync
+        // must neither throw nor return before the append ends, and the batch must land in full:
+        // it was accepted before shutdown began. Looping tightens the window.
         // Same payload every iteration — build it once (also keeps the ZeroAlloc analyzer happy).
         var batch = new AuditEntry[5_000];
         for (var i = 0; i < batch.Length; i++)
@@ -126,15 +120,20 @@ public class NdjsonFileAuditForwarderTests : IDisposable
             {
                 var f = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = path });
 
-                var send = f.SendAsync(batch, TestContext.Current.CancellationToken).AsTask();   // parks at FlushAsync, un-awaited
-                await f.DisposeAsync();                            // races the in-flight flush — must NOT throw
+                var send = f.SendAsync(batch, TestContext.Current.CancellationToken).AsTask();   // mid-append, un-awaited
+                await f.DisposeAsync();                            // races the in-flight append — must NOT throw
                 await send;                                        // fail-open: never throws
 
                 await f.DisposeAsync();                            // idempotent — not ObjectDisposedException
+
+                var lines = File.ReadAllLines(path);
+                Assert.Equal(batch.Length, lines.Length);
+                Assert.Equal($"e{batch.Length - 1}", JsonDocument.Parse(lines[^1]).RootElement.GetProperty("Id").GetString());
             }
             finally
             {
-                try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+                DeleteQuietly(path);
+                DeleteQuietly(path + ".lock");
             }
         }
     }
@@ -244,7 +243,7 @@ public class NdjsonFileAuditForwarderTests : IDisposable
     public async Task SeveralProcesses_OnOneFile_AppendEveryBatchIntact()
     {
         const int Processes = 4;
-        const int Batches = 50;
+        const int Batches = 500;
         const int BatchSize = 8;
         var startFile = _tempPath + ".start";
         var helper = Path.Combine(AppContext.BaseDirectory, "AI.Sentinel.Tests.NdjsonWriter.dll");
@@ -268,11 +267,18 @@ public class NdjsonFileAuditForwarderTests : IDisposable
                 processes.Add(System.Diagnostics.Process.Start(psi)!);
             }
 
-            // Release every writer at once so their appends overlap.
-            await File.WriteAllTextAsync(startFile, "go", TestContext.Current.CancellationToken);
-
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
             timeout.CancelAfter(TimeSpan.FromMinutes(2));
+
+            // Wait until every writer has started, constructed its forwarder and warmed up, then
+            // release them all at once so their appends overlap instead of running one after another.
+            foreach (var process in processes)
+            {
+                var line = await process.StandardOutput.ReadLineAsync(timeout.Token);
+                Assert.Equal("ready", line);
+            }
+            await File.WriteAllTextAsync(startFile, "go", TestContext.Current.CancellationToken);
+
             foreach (var process in processes)
             {
                 var stderr = process.StandardError.ReadToEndAsync(timeout.Token);
@@ -399,6 +405,11 @@ public class NdjsonFileAuditForwarderTests : IDisposable
 
         await f.SendAsync([MakeEntry("e2")], TestContext.Current.CancellationToken);
         Assert.Equal("e2", JsonDocument.Parse(Assert.Single(File.ReadAllLines(_tempPath))).RootElement.GetProperty("Id").GetString());
+    }
+
+    private static void DeleteQuietly(string path)
+    {
+        try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { }
     }
 
     private static AuditEntry[] MakeBatch(string writer, int batch, int size)

@@ -109,9 +109,12 @@ public class PipelineForwarderIntegrationTests
         }
         finally
         {
-            try { File.Delete(ndjsonPath); }
-            catch (IOException) { }
-            catch (UnauthorizedAccessException) { }
+            foreach (var path in new[] { ndjsonPath, ndjsonPath + ".lock" })
+            {
+                try { File.Delete(path); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
         }
     }
 

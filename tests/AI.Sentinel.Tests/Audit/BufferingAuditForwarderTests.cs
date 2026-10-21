@@ -22,13 +22,12 @@ public class BufferingAuditForwarderTests
             await buf.SendAsync([MakeEntry($"e{i}")], TestContext.Current.CancellationToken);
         }
 
-        // The interval is far beyond the wait bound, so only the size threshold can deliver these.
-        // How the reader splits them into batches depends on scheduling; the contract is that every
-        // entry arrives, in order, and no batch exceeds MaxBatchSize.
+        // The interval is far beyond the wait bound, so only the size threshold can flush: the reader
+        // holds the entries until the third arrives and ships them as one batch, in order.
         await inner.WaitForAsync(3);
 
+        Assert.Equal(3, Assert.Single(inner.Batches).Count);
         Assert.Equal(["e0", "e1", "e2"], inner.Entries.Select(e => e.Id), StringComparer.Ordinal);
-        Assert.All(inner.Batches, b => Assert.InRange(b.Count, 1, 3));
     }
 
     [Fact]

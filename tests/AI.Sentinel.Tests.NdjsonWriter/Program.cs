@@ -3,8 +3,8 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 
 // Usage: AI.Sentinel.Tests.NdjsonWriter <file> <writer-id> <batches> <batch-size> <start-file>
-// Waits until <start-file> exists so every writer process starts appending at the same moment, then
-// sends <batches> batches of <batch-size> entries. Entry ids are "<writer>-<batch>-<index>".
+// Prints "ready" once warmed up, then waits until <start-file> exists so every writer process starts
+// appending at the same moment, and sends <batches> batches of <batch-size> entries. Entry ids are "<writer>-<batch>-<index>".
 // Exit code 0 on success; any send error reported through OnError makes the exit code 1.
 if (args.Length != 5)
 {
@@ -29,6 +29,18 @@ await using var forwarder = new NdjsonFileAuditForwarder(new NdjsonFileAuditForw
         Console.Error.WriteLine(message);
     },
 });
+
+// Warm up serialisation and the file-open path on a private file, so the timed part below is all
+// contention on the shared one. Then tell the test this writer is ready to be released.
+var warmUp = $"{file}.warmup-{writer}";
+await using (var warm = new NdjsonFileAuditForwarder(new NdjsonFileAuditForwarderOptions { FilePath = warmUp }))
+{
+    await warm.SendAsync([new AuditEntry("warm-up", DateTimeOffset.UtcNow, "h", null, Severity.Low, "T-01", "warm-up")], CancellationToken.None);
+}
+File.Delete(warmUp);
+File.Delete(warmUp + ".lock");
+Console.Out.WriteLine("ready");
+await Console.Out.FlushAsync();
 
 var deadline = DateTime.UtcNow.AddSeconds(60);
 while (!File.Exists(startFile))
