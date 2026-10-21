@@ -693,7 +693,7 @@ The Claude Code hook, the Copilot hook and the MCP proxy record every finding, a
 sentinel dashboard [--db <path>] [--port <port>]   # default: http://127.0.0.1:5170/ai-sentinel/
 ```
 
-It listens on loopback only and does not open a browser. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a missing file, never appends, and shows no approvals panel. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Audit recording in the CLIs](#audit-recording-in-the-clis) for the settings.
+It listens on loopback only and does not open a browser. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a missing file and shows no approvals panel. It opens the file read-only: it never creates the file, never upgrades an older schema (run a hook or the MCP proxy once to upgrade it), and never appends. SQLite may create `-wal` and `-shm` files next to it. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Audit recording in the CLIs](#audit-recording-in-the-clis) for the settings.
 
 ### `sentinel report` (compliance report from the audit file)
 

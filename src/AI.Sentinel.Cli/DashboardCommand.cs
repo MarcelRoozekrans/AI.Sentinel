@@ -14,7 +14,9 @@ namespace AI.Sentinel.Cli;
 
 /// <summary>
 /// <c>sentinel dashboard</c>: hosts the embedded AI.Sentinel dashboard over the local audit file on
-/// 127.0.0.1. Read-only: it never appends entries and runs no retention or size cap.
+/// 127.0.0.1. Read-only: it opens the file with <c>SqliteAuditStore.OpenReadOnly</c>, so it never creates the file,
+/// upgrades an older schema, appends entries, or runs retention or a size cap. SQLite may still create the -wal and
+/// -shm coordination files next to it. No approval store is wired, so the approve and deny endpoints write nothing.
 /// </summary>
 public static class DashboardCommand
 {
@@ -104,7 +106,7 @@ public static class DashboardCommand
         var started = false;
         try
         {
-            store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = dbPath });
+            store = SqliteAuditStore.OpenReadOnly(dbPath);
 
             var verification = await AuditHashChain.VerifyAsync(
                 store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct), ct).ConfigureAwait(false);
