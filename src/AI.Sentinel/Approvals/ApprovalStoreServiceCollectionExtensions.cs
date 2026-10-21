@@ -7,6 +7,14 @@ namespace AI.Sentinel.Approvals;
 public static class ApprovalStoreServiceCollectionExtensions
 {
     /// <summary>
+    /// The <see cref="IApprovalAdmin"/> of the active <see cref="IApprovalStore"/>, audited as AI.Sentinel's own
+    /// surfaces resolve it, so it follows a store that replaced this registration. <see langword="null"/> when the
+    /// active store has no admin surface.
+    /// </summary>
+    private static readonly Func<IServiceProvider, object> ResolveAdmin =
+        sp => (ApprovalStoreAuditing.Resolve(sp) as IApprovalAdmin)!;
+
+    /// <summary>
     /// Registers the store <paramref name="factory"/> builds as the approval store, and exposes it as
     /// <see cref="IApprovalStore"/>, and as <see cref="IApprovalAdmin"/> when <typeparamref name="TStore"/> implements
     /// it. When an <see cref="IAuditStore"/> is registered, both resolve to one wrapper over the store that records
@@ -31,11 +39,21 @@ public static class ApprovalStoreServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(factory);
 
-        if (services.Any(d => d.ServiceType == typeof(IApprovalStore)))
+        if (ApprovalStoreAuditing.IsApprovalStoreRegistered(services))
         {
             throw new InvalidOperationException(
                 "An IApprovalStore is already registered. Approval-store backends are exclusive — " +
                 "remove the existing registration before wiring AddSentinelApprovalStore.");
+        }
+
+        // An earlier call's IApprovalStore may have been removed with RemoveAll, which leaves keyed descriptors and
+        // other service types behind. This call's registrations replace them.
+        for (var i = services.Count - 1; i >= 0; i--)
+        {
+            if (IsOwnDescriptor(services[i]))
+            {
+                services.RemoveAt(i);
+            }
         }
 
         services.AddKeyedSingleton<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey, (sp, _) => factory(sp));
@@ -44,9 +62,13 @@ public static class ApprovalStoreServiceCollectionExtensions
         services.AddSingleton<IApprovalStore>(sp => sp.GetRequiredService<ApprovalStoreAuditing.RegisteredApprovalStore>().Store);
         if (typeof(TStore).IsAssignableTo(typeof(IApprovalAdmin)))
         {
-            services.AddSingleton<IApprovalAdmin>(
-                sp => (IApprovalAdmin)sp.GetRequiredService<ApprovalStoreAuditing.RegisteredApprovalStore>().Store);
+            services.Add(ServiceDescriptor.Singleton(typeof(IApprovalAdmin), ResolveAdmin));
         }
         return services;
     }
+
+    private static bool IsOwnDescriptor(ServiceDescriptor d) =>
+        (d.ServiceType == typeof(IApprovalStore) && d.IsKeyedService && ReferenceEquals(d.ServiceKey, ApprovalStoreAuditing.InnerStoreKey))
+        || d.ServiceType == typeof(ApprovalStoreAuditing.RegisteredApprovalStore)
+        || (d.ServiceType == typeof(IApprovalAdmin) && !d.IsKeyedService && ReferenceEquals(d.ImplementationFactory, ResolveAdmin));
 }

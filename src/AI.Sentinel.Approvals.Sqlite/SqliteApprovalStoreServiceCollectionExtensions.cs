@@ -27,7 +27,7 @@ public static class SqliteApprovalStoreServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configure);
 
-        if (services.Any(sd => sd.ServiceType == typeof(IApprovalStore)))
+        if (services.Any(sd => sd.ServiceType == typeof(IApprovalStore) && !sd.IsKeyedService))
         {
             throw new InvalidOperationException(
                 "An IApprovalStore is already registered. Approval-store backends are exclusive — " +

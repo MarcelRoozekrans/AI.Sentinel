@@ -26,6 +26,14 @@ internal static class ApprovalStoreAuditing
     private static readonly ConditionalWeakTable<IApprovalStore, ApprovalAuditMemory> Memories = new();
 
     /// <summary>
+    /// True when an <see cref="IApprovalStore"/> is registered. Only unkeyed descriptors count: the keyed inner store
+    /// an earlier registration leaves behind after <c>RemoveAll&lt;IApprovalStore&gt;()</c> does not.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    internal static bool IsApprovalStoreRegistered(IServiceCollection services) =>
+        services.Any(d => d.ServiceType == typeof(IApprovalStore) && !d.IsKeyedService);
+
+    /// <summary>
     /// Returns the registered <see cref="IApprovalStore"/> wrapped by <see cref="AuditingApprovalStore"/> when an
     /// <see cref="IAuditStore"/> is registered, the store itself when none is, and <see langword="null"/> when no store
     /// is registered. A store registered through <see cref="ApprovalStoreServiceCollectionExtensions.AddSentinelApprovalStore{TStore}"/> is returned as DI hands it out,

@@ -397,6 +397,83 @@ public class ApprovalAuditingTests
         Assert.Equal(2, audit.Entries.Count);
     }
 
+    /// <summary>An audit store holding one APPROVED entry of <paramref name="requestId"/>, written at <paramref name="at"/>.</summary>
+    private static RecordingAuditStore AuditWithApproval(string requestId, DateTimeOffset at)
+    {
+        var audit = new RecordingAuditStore();
+        var entry = ApprovalStoreAuditing.Decision(AuditEntryKinds.ApprovedPolicyCode, Policy, Tool, requestId);
+        audit.Entries.Add(entry with { Timestamp = at });
+        return audit;
+    }
+
+    [Fact]
+    public async Task NonAdminStore_GrantLongerThanTheSpec_FindsTheEarlierEntry()
+    {
+        // PIM granted an hour ten minutes ago, though the spec asked for 15 minutes; another process recorded it then.
+        var now = DateTimeOffset.UtcNow;
+        var audit = AuditWithApproval("pim-req-9", now.AddMinutes(-9));
+        var inner = new ExternalStore { EnsureNext = new ApprovalState.Active(now.AddMinutes(50)) { RequestId = "pim-req-9" } };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(TimeSpan.FromMinutes(15)), MakeCtx(), Ct);
+
+        Assert.Single(audit.Entries);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_ZeroGrantDuration_FindsTheEarlierEntry()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var audit = AuditWithApproval("pim-req-9", now.AddMinutes(-9));
+        var inner = new ExternalStore { EnsureNext = new ApprovalState.Active(now.AddMinutes(5)) { RequestId = "pim-req-9" } };
+        var (store, _) = Wrap(inner, audit);
+
+        await store.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(TimeSpan.Zero), MakeCtx(), Ct);
+
+        Assert.Single(audit.Entries);
+    }
+
+    [Fact]
+    public async Task NonAdminStore_UnknownGrantDuration_LooksBackOneDayFromTheExpiry()
+    {
+        // A process waits on a request it never saw opened, so the requested duration is unknown.
+        var now = DateTimeOffset.UtcNow;
+        var granted = new ApprovalState.Active(now.AddMinutes(5)) { RequestId = "pim-req-7" };
+
+        var recent = AuditWithApproval("pim-req-7", now.AddHours(-20));
+        var (waiter, _) = Wrap(new ExternalStore { Next = granted }, recent);
+        await waiter.WaitForDecisionAsync("pim-req-7", TimeSpan.FromSeconds(1), Ct);
+        Assert.Single(recent.Entries);
+
+        var stale = AuditWithApproval("pim-req-7", now.AddDays(-2));
+        var (otherWaiter, _) = Wrap(new ExternalStore { Next = granted }, stale);
+        await otherWaiter.WaitForDecisionAsync("pim-req-7", TimeSpan.FromSeconds(1), Ct);
+        Assert.Equal(2, stale.Entries.Count);
+    }
+
+    public static TheoryData<int, int?, int> LookBackCases => new()
+    {
+        // Expiry in minutes from now, requested minutes, expected start in minutes from now before the clock skew.
+        { 5, 15, -10 },          // the grant as requested
+        { 50, 15, 50 - 24 * 60 }, // a grant longer than requested
+        { 5, 0, 5 - 24 * 60 },    // a zero duration
+        { 5, -15, 5 - 24 * 60 },  // a negative duration
+        { 5, null, 5 - 24 * 60 }, // an unknown duration
+        { 30 * 60, null, 0 },     // an expiry further out than the longest grant
+    };
+
+    [Theory]
+    [MemberData(nameof(LookBackCases))]
+    public void LookBackStart_CoversTheWholeGrant(int expiresInMinutes, int? requestedMinutes, int expectedStartMinutes)
+    {
+        var now = new DateTimeOffset(2026, 10, 21, 12, 0, 0, TimeSpan.Zero);
+        TimeSpan? requested = requestedMinutes is { } m ? TimeSpan.FromMinutes(m) : null;
+
+        var since = AuditingApprovalStore.LookBackStart(now.AddMinutes(expiresInMinutes), requested, now);
+
+        Assert.Equal(now.AddMinutes(expectedStartMinutes) - AuditingApprovalStore.ClockSkew, since);
+    }
+
     [Fact]
     public async Task NonAdminStore_AuditQueryFails_StillWritesApproved()
     {

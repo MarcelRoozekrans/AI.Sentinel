@@ -21,7 +21,10 @@ internal class AuditingApprovalStore : IApprovalStore
     private const string ExpiredReason = "expired";
 
     /// <summary>How far the clocks of two processes sharing an audit store may disagree.</summary>
-    private static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(5);
+    internal static readonly TimeSpan ClockSkew = TimeSpan.FromMinutes(5);
+
+    /// <summary>The longest grant Entra PIM activates, which bounds a grant whose length is not known.</summary>
+    internal static readonly TimeSpan LongestGrant = TimeSpan.FromHours(24);
 
     private readonly IApprovalStore _inner;
     private readonly IAuditStore _audit;
@@ -260,16 +263,7 @@ internal class AuditingApprovalStore : IApprovalStore
     private async ValueTask WriteApprovedOnceAsync(
         ApprovalState.Active granted, TimeSpan? grantDuration, string policyName, string toolName, string requestId)
     {
-        // An earlier entry was written while the grant was active, so no earlier than the grant's start. The query
-        // starts there, less the clock skew, and reads the whole log only when the requested duration is unknown.
-        DateTimeOffset? since = null;
-        if (grantDuration is { } duration)
-        {
-            var start = granted.ExpiresAt - duration;
-            var now = DateTimeOffset.UtcNow;
-            since = (start < now ? start : now) - ClockSkew;
-        }
-
+        var since = LookBackStart(granted.ExpiresAt, grantDuration, DateTimeOffset.UtcNow);
         if (!await IsApprovalRecordedAsync(requestId, since).ConfigureAwait(false))
         {
             await WriteAsync(AuditEntryKinds.ApprovedPolicyCode, policyName, toolName, requestId).ConfigureAwait(false);
@@ -277,11 +271,29 @@ internal class AuditingApprovalStore : IApprovalStore
     }
 
     /// <summary>
+    /// The earliest time an earlier process can have recorded the grant that expires at <paramref name="expiresAt"/>:
+    /// the grant's start, less <see cref="ClockSkew"/>. The start is <paramref name="expiresAt"/> less the requested
+    /// duration. When that duration is unknown, not positive, or shorter than the grant turned out to be, so that the
+    /// start would lie after <paramref name="now"/>, the start is taken as <see cref="LongestGrant"/> before the
+    /// expiry instead. It never lies after <paramref name="now"/>.
+    /// </summary>
+    /// <param name="expiresAt">When the grant expires.</param>
+    /// <param name="requested">The duration the request asked for, or <see langword="null"/> when unknown.</param>
+    /// <param name="now">The current time.</param>
+    internal static DateTimeOffset LookBackStart(DateTimeOffset expiresAt, TimeSpan? requested, DateTimeOffset now)
+    {
+        var start = requested is { } duration && duration > TimeSpan.Zero && expiresAt - duration <= now
+            ? expiresAt - duration
+            : expiresAt - LongestGrant;
+        return (start < now ? start : now) - ClockSkew;
+    }
+
+    /// <summary>
     /// True when the audit store holds an <c>APPROVED</c> entry of <paramref name="requestId"/> timestamped at or after
     /// <paramref name="since"/>. A failed read is logged and returns <see langword="false"/>: a duplicate entry is
     /// better than a missing decision. Uses <see cref="CancellationToken.None"/>, as <see cref="WriteAsync"/> does.
     /// </summary>
-    private async ValueTask<bool> IsApprovalRecordedAsync(string requestId, DateTimeOffset? since)
+    private async ValueTask<bool> IsApprovalRecordedAsync(string requestId, DateTimeOffset since)
     {
         // The built-in stores filter on the detector and the policy code; a custom store may return a superset, so both
         // are checked again below. The read runs newest first and stops at the window edge, rather than passing the

@@ -5,6 +5,7 @@ using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 using ZeroAlloc.Authorization;
 
@@ -235,6 +236,40 @@ public sealed class ApprovalStoreRegistrationTests : IDisposable
         services.AddSingleton<IApprovalStore>(new CustomStore());
 
         Assert.Throws<InvalidOperationException>(() => services.AddSentinelApprovalStore(_ => new CustomAdminStore()));
+    }
+
+    [Fact]
+    public async Task RemoveAllThenAddSqlite_ReplacesTheAutoRegisteredStore_AndAdminFollowsIt()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(Gate);
+        services.RemoveAll<IApprovalStore>();
+        services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = _dbPath);
+        await using var sp = services.BuildServiceProvider();
+
+        var store = sp.GetRequiredService<IApprovalStore>();
+        Assert.Same(store, sp.GetRequiredService<IApprovalAdmin>());
+        Assert.IsType<SqliteApprovalStore>(sp.GetRequiredKeyedService<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey));
+        var requestId = await OpenRequestAsync(store);
+        await sp.GetRequiredService<IApprovalAdmin>().ApproveAsync(requestId, "approver", null, Ct);
+
+        Assert.Single(await ApprovedEntriesAsync(sp.GetRequiredService<IAuditStore>()));
+    }
+
+    [Fact]
+    public async Task CustomStoreOverridingTheAutoRegisteredOne_AdminFollowsTheActiveStore()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(Gate);
+        services.AddSingleton<IApprovalStore>(new CustomAdminStore());
+        await using var sp = services.BuildServiceProvider();
+
+        var requestId = await OpenRequestAsync(sp.GetRequiredService<IApprovalStore>());
+        await sp.GetRequiredService<IApprovalAdmin>().ApproveAsync(requestId, "approver", null, Ct);
+
+        var state = await sp.GetRequiredService<IApprovalStore>().WaitForDecisionAsync(requestId, TimeSpan.Zero, Ct);
+        Assert.IsType<ApprovalState.Active>(state);
+        Assert.Single(await ApprovedEntriesAsync(sp.GetRequiredService<IAuditStore>()));
     }
 
     /// <summary>A host's own store with an admin surface, over the in-memory store.</summary>

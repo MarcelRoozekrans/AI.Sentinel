@@ -38,7 +38,7 @@ public static class EntraPimServiceCollectionExtensions
         // Approval-store backends are exclusive — silently overwriting a prior registration
         // (e.g. AddSentinelSqliteStore + AddSentinelEntraPimApprovalStore) is almost always
         // a wiring bug. Fail fast with an operator-actionable message.
-        if (services.Any(sd => sd.ServiceType == typeof(IApprovalStore)))
+        if (services.Any(sd => sd.ServiceType == typeof(IApprovalStore) && !sd.IsKeyedService))
         {
             throw new InvalidOperationException(
                 "An IApprovalStore is already registered. Approval-store backends are exclusive — " +
