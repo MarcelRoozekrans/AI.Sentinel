@@ -67,8 +67,8 @@ public static class HookPipelineRunner
     /// The result is redacted in its string values only, so its keys, numbers and nesting stay as they are. The
     /// decision follows <see cref="Decide"/>.
     /// <list type="bullet">
-    /// <item>A Block withholds the output: <see cref="HookOutput.UpdatedToolOutput"/> is <see cref="WithheldPrefix"/>
-    /// plus the reason, and nothing is recorded as redacted, because nothing is delivered.</item>
+    /// <item>A Block withholds the output: <see cref="HookOutput.UpdatedToolOutput"/> is <see cref="WithheldOutput"/>
+    /// of the result, and nothing is recorded as redacted, because nothing is delivered.</item>
     /// <item>Otherwise, when anything was redacted, <see cref="HookOutput.UpdatedToolOutput"/> is the redacted result,
     /// <see cref="HookOutput.Redactions"/> its counts, and the redactions are audited as <c>REDACTED</c>.</item>
     /// <item>A clean result, or a redaction that fell back to the unredacted scan, leaves both null.</item>
@@ -103,7 +103,7 @@ public static class HookPipelineRunner
         var output = Decide(result.Findings, config);
         if (output.Decision == HookDecision.Block)
         {
-            return output with { UpdatedToolOutput = JsonString(WithheldPrefix + output.Reason) };
+            return output with { UpdatedToolOutput = WithheldOutput(toolResult, output.Reason) };
         }
 
         if (!result.Redacted)
@@ -113,6 +113,62 @@ public static class HookPipelineRunner
 
         await pipeline.AppendRedactionsAsync(result, result.SessionId, ct).ConfigureAwait(false);
         return output with { UpdatedToolOutput = result.Content[0].Json, Redactions = result.RedactedByType };
+    }
+
+    /// <summary>
+    /// The body that replaces a tool output the hook blocks: <paramref name="toolResponse"/> with every string value
+    /// replaced by <see cref="WithheldPrefix"/> plus <paramref name="reason"/>, and its names, numbers, booleans, nulls
+    /// and nesting kept. Claude Code ignores a replacement that does not match a built-in tool's output schema and
+    /// shows the original instead, so the shape is kept. A string, an absent response or a null gives the withheld
+    /// text itself.
+    /// </summary>
+    internal static JsonElement WithheldOutput(JsonElement toolResponse, string? reason)
+    {
+        var text = WithheldPrefix + reason;
+        if (toolResponse.ValueKind is not (JsonValueKind.Object or JsonValueKind.Array))
+        {
+            return JsonString(text);
+        }
+
+        var buffer = new System.Buffers.ArrayBufferWriter<byte>();
+        using (var writer = new Utf8JsonWriter(buffer))
+        {
+            WriteWithheld(toolResponse, text, writer);
+        }
+
+        using var doc = JsonDocument.Parse(buffer.WrittenMemory);
+        return doc.RootElement.Clone();
+    }
+
+    private static void WriteWithheld(JsonElement element, string text, Utf8JsonWriter writer)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                writer.WriteStartObject();
+                foreach (var property in element.EnumerateObject())
+                {
+                    writer.WritePropertyName(property.Name);
+                    WriteWithheld(property.Value, text, writer);
+                }
+                writer.WriteEndObject();
+                break;
+            case JsonValueKind.Array:
+                writer.WriteStartArray();
+                foreach (var item in element.EnumerateArray())
+                {
+                    WriteWithheld(item, text, writer);
+                }
+                writer.WriteEndArray();
+                break;
+            case JsonValueKind.String:
+                writer.WriteStringValue(text);
+                break;
+            default:
+                // Numbers, booleans and null hold no text.
+                element.WriteTo(writer);
+                break;
+        }
     }
 
     /// <summary>A JSON string element holding <paramref name="text"/>, built without reflection.</summary>

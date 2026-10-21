@@ -78,8 +78,9 @@ internal sealed record ClaudeCodeWireOutput
     }
 
     /// <summary>
-    /// <c>AI.Sentinel redacted 1 API_KEY, 1 EMAIL in this tool output. ...</c>: counts per type, types in ordinal
-    /// order. It names types only, never a value. It also helps when Claude Code rejects a built-in tool's rewritten
+    /// <c>AI.Sentinel redacted 1 API_KEY, 1 EMAIL in this tool output. Placeholders such as [API_KEY_n_tag],
+    /// [EMAIL_n_tag] stand for ...</c>: counts and one example shape per type, types in ordinal order. It names types
+    /// only, never a value or a real placeholder. It also helps when Claude Code rejects a built-in tool's rewritten
     /// output and the model sees the original.
     /// </summary>
     private static string RedactedContext(IReadOnlyDictionary<string, int> redactions)
@@ -97,7 +98,18 @@ internal sealed record ClaudeCodeWireOutput
             sb.Append(redactions[types[i]].ToString(CultureInfo.InvariantCulture)).Append(' ').Append(types[i]);
         }
 
-        sb.Append(" in this tool output. Placeholders such as [EMAIL_1_k3f9x2] stand for the real values; do not write them to files or commands.");
+        sb.Append(" in this tool output. Placeholders such as ");
+        for (var i = 0; i < types.Count; i++)
+        {
+            if (i > 0)
+            {
+                sb.Append(", ");
+            }
+
+            sb.Append('[').Append(types[i]).Append("_n_tag]");
+        }
+
+        sb.Append(" stand for the real values; do not write them to files or commands.");
         return sb.ToString();
     }
 }

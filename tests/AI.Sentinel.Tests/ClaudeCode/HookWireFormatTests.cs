@@ -131,7 +131,7 @@ public class HookWireFormatTests
         };
 
         Assert.Equal(
-            """{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"content":"mail [EMAIL_1_k3f9x2]","n":3},"additionalContext":"AI.Sentinel redacted 1 EMAIL in this tool output. Placeholders such as [EMAIL_1_k3f9x2] stand for the real values; do not write them to files or commands."}}""",
+            """{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"content":"mail [EMAIL_1_k3f9x2]","n":3},"additionalContext":"AI.Sentinel redacted 1 EMAIL in this tool output. Placeholders such as [EMAIL_n_tag] stand for the real values; do not write them to files or commands."}}""",
             Wire(HookEvent.PostToolUse, output));
     }
 
@@ -147,10 +147,9 @@ public class HookWireFormatTests
 
         var wire = ClaudeCodeWireOutput.From(HookEvent.PostToolUse, output);
 
-        Assert.StartsWith(
-            "AI.Sentinel redacted 1 API_KEY, 1 EMAIL in this tool output.",
-            wire!.HookSpecificOutput!.AdditionalContext,
-            StringComparison.Ordinal);
+        Assert.Equal(
+            "AI.Sentinel redacted 1 API_KEY, 1 EMAIL in this tool output. Placeholders such as [API_KEY_n_tag], [EMAIL_n_tag] stand for the real values; do not write them to files or commands.",
+            wire!.HookSpecificOutput!.AdditionalContext);
     }
 
     [Fact]
@@ -165,7 +164,7 @@ public class HookWireFormatTests
         };
 
         Assert.Equal(
-            """{"systemMessage":"AI.Sentinel: r","hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"x","additionalContext":"AI.Sentinel redacted 1 EMAIL in this tool output. Placeholders such as [EMAIL_1_k3f9x2] stand for the real values; do not write them to files or commands."}}""",
+            """{"systemMessage":"AI.Sentinel: r","hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"x","additionalContext":"AI.Sentinel redacted 1 EMAIL in this tool output. Placeholders such as [EMAIL_n_tag] stand for the real values; do not write them to files or commands."}}""",
             Wire(HookEvent.PostToolUse, output));
     }
 
@@ -182,6 +181,26 @@ public class HookWireFormatTests
         Assert.Equal(
             """{"decision":"block","reason":"r","hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"withheld by AI.Sentinel: r","additionalContext":"r"}}""",
             Wire(HookEvent.PostToolUse, output));
+    }
+
+    [Fact]
+    public void WithheldOutput_KeepsShape_ReplacesEveryStringLeaf()
+    {
+        var response = JsonDocument.Parse("""{"type":"text","file":{"filePath":"/a/.env","content":"secret","numLines":2,"ok":true,"none":null,"lines":["a",1]}}""").RootElement;
+
+        var withheld = HookPipelineRunner.WithheldOutput(response, "r");
+
+        Assert.Equal(
+            """{"type":"withheld by AI.Sentinel: r","file":{"filePath":"withheld by AI.Sentinel: r","content":"withheld by AI.Sentinel: r","numLines":2,"ok":true,"none":null,"lines":["withheld by AI.Sentinel: r",1]}}""",
+            withheld.GetRawText());
+    }
+
+    [Fact]
+    public void WithheldOutput_BareStringOrAbsent_IsTheWithheldString()
+    {
+        Assert.Equal("withheld by AI.Sentinel: r", HookPipelineRunner.WithheldOutput(HookPipelineRunner.JsonString("secret"), "r").GetString());
+        Assert.Equal("withheld by AI.Sentinel: r", HookPipelineRunner.WithheldOutput(default, "r").GetString());
+        Assert.Equal("withheld by AI.Sentinel: r", HookPipelineRunner.WithheldOutput(JsonDocument.Parse("null").RootElement, "r").GetString());
     }
 
     [Fact]

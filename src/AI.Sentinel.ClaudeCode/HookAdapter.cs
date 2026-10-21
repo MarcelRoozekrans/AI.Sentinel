@@ -134,7 +134,13 @@ public sealed class HookAdapter
         }
 
         var messages = BuildMessages(evt, input);
-        return await HookPipelineRunner.RunAsync(_provider, _config, messages, input.SessionId, ct).ConfigureAwait(false);
+        var output = await HookPipelineRunner.RunAsync(_provider, _config, messages, input.SessionId, ct).ConfigureAwait(false);
+
+        // A blocked tool result is withheld also when redaction is off: the tool already ran, so replacing its output
+        // is the only way to keep it from the model.
+        return evt == HookEvent.PostToolUse && output.Decision == HookDecision.Block
+            ? output with { UpdatedToolOutput = HookPipelineRunner.WithheldOutput(input.ToolResponse ?? default, output.Reason) }
+            : output;
     }
 
     private static ChatMessage ToolCallMessage(HookInput input) =>
