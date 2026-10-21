@@ -8,13 +8,15 @@ namespace AI.Sentinel.Tests.Aot;
 /// <summary>Publishes tests/AI.Sentinel.Aot.Probe with Native AOT and reads ILC's warnings.
 /// <c>AddDetector&lt;T&gt;</c> stores <c>typeof(T)</c> in <c>SentinelOptions.DetectorRegistration</c>, whose
 /// <c>DetectorType</c> property carries <c>PublicConstructors</c>; without the same annotation on the
-/// constructor parameter, ILC reports IL2069 at the record's constructor.</summary>
+/// constructor parameter, ILC reports IL2069 at the record's constructor. The factory overload of
+/// <c>AddDetector&lt;T&gt;</c> has an unannotated <c>T</c>, so if it passed <c>typeof(T)</c> as the detector type,
+/// ILC would report IL2087 at that call; the probe roots both overloads.</summary>
 public partial class DetectorRegistrationTrimTests
 {
     private const string ProbeProject = "AI.Sentinel.Aot.Probe";
 
     [Fact]
-    public async Task Publishing_the_probe_reports_no_IL2069_for_DetectorRegistration()
+    public async Task Publishing_the_probe_reports_no_trim_warning_for_detector_registration()
     {
         if (!OperatingSystem.IsLinux() || RuntimeInformation.OSArchitecture != Architecture.X64)
         {
@@ -55,8 +57,8 @@ public partial class DetectorRegistrationTrimTests
             // publish never counts as zero warnings.
             Assert.True(exitCode == 0, $"The probe publish failed with exit code {exitCode}:\n{Tail(output)}");
 
-            // Red: drop the param: DynamicallyAccessedMembers on DetectorRegistration's DetectorType:
-            // ILC reports IL2069 at SentinelOptions.DetectorRegistration..ctor.
+            // Red: drop DynamicallyAccessedMembers from the detectorType parameter of DetectorRegistration's
+            // constructor: ILC reports IL2069 at SentinelOptions.DetectorRegistration..ctor.
             var il2069 = ilLines
                 .Where(line => line.Contains("IL2069", StringComparison.Ordinal)
                     && line.Contains("DetectorRegistration", StringComparison.Ordinal))
@@ -115,7 +117,17 @@ public partial class DetectorRegistrationTrimTests
         var stderr = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         timeout.CancelAfter(TimeSpan.FromMinutes(20));
-        await process.WaitForExitAsync(timeout.Token);
+        try
+        {
+            await process.WaitForExitAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // A timed-out or cancelled publish must not outlive the test, with ILC still running under it.
+            process.Kill(entireProcessTree: true);
+            throw;
+        }
+
         return (process.ExitCode, await stdout + await stderr);
     }
 
