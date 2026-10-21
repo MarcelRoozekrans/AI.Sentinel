@@ -270,6 +270,36 @@ public class HookAdapterTests
         Assert.Equal(HookDecision.Allow, output.Decision);
     }
 
+    // The authorization guard runs first: a call it denies is audited as AUTHZ-DENY even when it also carries a placeholder.
+    [Fact]
+    public async Task PreToolUse_AuthzDenyAndPlaceholder_AuthzWins()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        var provider = services.BuildServiceProvider();
+        var adapter = HookAdapter.CreateForTests(provider, null, new DenyGuard());
+        var input = new HookInput
+        {
+            SessionId = "sess-g",
+            ToolName = "Write",
+            ToolInput = Json("""{"file_path":"/a/b.txt","content":"mail [EMAIL_1_k3f9x2] today"}"""),
+        };
+
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Authorization denied [policy_denied] by policy 'no-writes'", output.Reason, StringComparison.Ordinal);
+        Assert.Contains(await ReadAuditAsync(provider.GetRequiredService<IAuditStore>()),
+            e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+    }
+
+    private sealed class DenyGuard : AI.Sentinel.Authorization.IToolCallGuard
+    {
+        public ValueTask<AI.Sentinel.Authorization.AuthorizationDecision> AuthorizeAsync(
+            ZeroAlloc.Authorization.ISecurityContext caller, string toolName, JsonElement args, CancellationToken ct = default) =>
+            new(AI.Sentinel.Authorization.AuthorizationDecision.Deny("no-writes", "writes are off", "policy_denied"));
+    }
+
     // Controller ruling: a hook process has no placeholder store, so placeholder-shaped tokens already in the hook
     // input are known placeholders. Content that echoes one is neither wrapped again nor flagged.
     [Fact]

@@ -15,9 +15,12 @@ internal static class PlaceholderGuard
     public static readonly FrozenSet<string> ClaudeCodeTools =
         FrozenSet.ToFrozenSet(["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash"], StringComparer.Ordinal);
 
-    /// <summary>Copilot tools that write files or run commands.</summary>
+    /// <summary>Copilot tools that write files, run commands or send input to a running shell, as the Copilot CLI
+    /// hooks and command references name them.</summary>
     public static readonly FrozenSet<string> CopilotTools =
-        FrozenSet.ToFrozenSet(["create", "edit", "str_replace_editor", "apply_patch", "bash", "powershell"], StringComparer.Ordinal);
+        FrozenSet.ToFrozenSet(
+            ["create", "edit", "str_replace_editor", "apply_patch", "bash", "powershell", "write_bash", "write_powershell"],
+            StringComparer.Ordinal);
 
     /// <summary>Fixed copy: it never echoes the placeholder or any other part of the input.</summary>
     public const string Reason = "AI.Sentinel denied this call: its input contains a redaction placeholder such as [EMAIL_1_k3f9x2]. The real value was redacted and must not be written to a file or a command. Ask the user for the value if you need it.";

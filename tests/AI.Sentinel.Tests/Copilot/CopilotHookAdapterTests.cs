@@ -149,6 +149,74 @@ public class CopilotHookAdapterTests
     }
 
     [Fact]
+    public async Task CopilotGuard_RedactOff_NotGuarded()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        var adapter = new CopilotHookAdapter(services.BuildServiceProvider(), new CopilotHookConfig { RedactToolResults = false });
+        var input = new CopilotHookInput
+        {
+            SessionId = "s",
+            ToolName = "edit",
+            ToolArgs = Json("""{"path":"/a/b.txt","new_str":"mail [EMAIL_1_k3f9x2] today"}"""),
+        };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+        Assert.NotEqual(PlaceholderGuard.Reason, output.Reason, StringComparer.Ordinal);
+        Assert.Equal(HookDecision.Allow, output.Decision);
+    }
+
+    [Theory]
+    [InlineData("write_bash")]
+    [InlineData("write_powershell")]
+    public async Task CopilotGuard_ShellInputWithPlaceholder_Denies(string toolName)
+    {
+        var adapter = BuildAdapter();
+        var input = new CopilotHookInput
+        {
+            SessionId = "s",
+            ToolName = toolName,
+            ToolArgs = Json("""{"shellId":"1","input":"echo [EMAIL_1_k3f9x2]\n"}"""),
+        };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Equal(PlaceholderGuard.Reason, output.Reason);
+    }
+
+    // The authorization guard runs first: a call it denies is audited as AUTHZ-DENY even when it also carries a placeholder.
+    [Fact]
+    public async Task CopilotGuard_AuthzDenyAndPlaceholder_AuthzWins()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        var provider = services.BuildServiceProvider();
+        var adapter = CopilotHookAdapter.CreateForTests(provider, null, new DenyGuard());
+        var input = new CopilotHookInput
+        {
+            SessionId = "s",
+            ToolName = "edit",
+            ToolArgs = Json("""{"path":"/a/b.txt","new_str":"mail [EMAIL_1_k3f9x2] today"}"""),
+        };
+
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Authorization denied [policy_denied] by policy 'no-writes'", output.Reason, StringComparison.Ordinal);
+        var entries = new List<AI.Sentinel.Audit.AuditEntry>();
+        await foreach (var e in provider.GetRequiredService<AI.Sentinel.Audit.IAuditStore>().QueryAsync(
+            new AI.Sentinel.Audit.AuditQuery { PageSize = int.MaxValue }, TestContext.Current.CancellationToken))
+            entries.Add(e);
+        Assert.Contains(entries, e => string.Equals(
+            e.DetectorId, AI.Sentinel.Audit.AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+    }
+
+    private sealed class DenyGuard : AI.Sentinel.Authorization.IToolCallGuard
+    {
+        public ValueTask<AI.Sentinel.Authorization.AuthorizationDecision> AuthorizeAsync(
+            ZeroAlloc.Authorization.ISecurityContext caller, string toolName, JsonElement args, CancellationToken ct = default) =>
+            new(AI.Sentinel.Authorization.AuthorizationDecision.Deny("no-writes", "writes are off", "policy_denied"));
+    }
+
+    [Fact]
     public void CopilotHookConfig_FromEnvironment_RedactSwitch()
     {
         Assert.True(CopilotHookConfig.FromEnvironment(new Dictionary<string, string?>(StringComparer.Ordinal)).RedactToolResults);
