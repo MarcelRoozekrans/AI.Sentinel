@@ -50,6 +50,26 @@ public class JsonScanTextTests
         Assert.False(JsonScanText.RenderMember("k", "a\"b").TryMapToValue(start, end, out _, out _));
     }
 
+    // "k": "a\"b\\c\"d", three added backslashes at 7, 10 and 13, so the escapes before an offset are counted
+    // by the binary search: a at 6, its escaped quote at 8, b at 9, the escaped backslash at 11, c at 12, the
+    // escaped quote at 14, d at 15. The value itself is a"b\c"d.
+    [Theory]
+    [InlineData(9, 10, 2, 3)]   // b, after one escape
+    [InlineData(10, 12, 3, 4)]  // the second escape and the backslash it stands for
+    [InlineData(11, 13, 3, 5)]  // starts after the second escape, ends on the third
+    [InlineData(12, 13, 4, 5)]  // c, after two escapes
+    [InlineData(13, 16, 5, 7)]  // starts on the third escape
+    [InlineData(15, 16, 6, 7)]  // d, after all three
+    [InlineData(6, 16, 0, 7)]   // the whole value
+    public void TryMapToValue_SeveralEscapes_MapsOntoTheValue(int start, int end, int from, int to)
+    {
+        var member = JsonScanText.RenderMember("k", "a\"b\\c\"d");
+        Assert.Equal("\"k\": \"a\\\"b\\\\c\\\"d\"", member.Text);
+
+        Assert.True(member.TryMapToValue(start, end, out var f, out var t));
+        Assert.Equal((from, to), (f, t));
+    }
+
     [Fact]
     public void TryMapToValue_NoEscapes_IsAnOffset()
     {
