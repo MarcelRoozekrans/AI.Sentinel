@@ -344,7 +344,7 @@ internal static class ToolCallInterceptor
     {
         try
         {
-            return await pipeline.ScanMessagesExemptingAsync(messages, sessionId, exemptPlaceholders, ct).ConfigureAwait(false);
+            return await pipeline.ScanMessagesExemptingAsync(messages, sessionId, exemptPlaceholders, newMessagesFrom: 0, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

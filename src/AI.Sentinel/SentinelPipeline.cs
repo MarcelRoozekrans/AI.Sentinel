@@ -223,9 +223,11 @@ public sealed class SentinelPipeline
         var (scanned, systemPrompt) = WithInstructions(messageList, redacted.Options?.Instructions);
 
         // The request holds this call's placeholders and those of any enclosing Sentinel call; none is a value.
+        // What follows the last assistant message is new: the earlier messages were judged on an earlier turn.
         var promptError = await ScanAsync(scanned, sessionId,
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
-            new Exemptions(RedactionScope.ExemptPlaceholders(session, parent)), chatOptions?.ModelId).ConfigureAwait(false);
+            new Exemptions(RedactionScope.ExemptPlaceholders(session, parent)), chatOptions?.ModelId,
+            newMessagesFrom: NewFromAfterLastAssistant(scanned)).ConfigureAwait(false);
         if (promptError is not null)
             return (default, promptError);
 
@@ -474,7 +476,7 @@ public sealed class SentinelPipeline
         ChatOptions? chatOptions = null,
         SessionId? sessionId = null,
         CancellationToken ct = default)
-        => ScanMessagesCoreAsync(messages, chatOptions, sessionId, findings: null, exemptPlaceholders: null, ct);
+        => ScanMessagesCoreAsync(messages, chatOptions, sessionId, findings: null, exemptPlaceholders: null, newMessagesFrom: 0, ct);
 
     /// <summary>As <see cref="ScanMessagesAsync"/>, but returns every detection of the scan with its effective
     /// action, so a host with no response to gate, such as a hook, can decide per detection.</summary>
@@ -482,25 +484,33 @@ public sealed class SentinelPipeline
     /// refused by the rate limit, returns an empty list. <see cref="ScanMessagesAsync"/> reports only the most
     /// restrictive action's representative, which loses a weaker-ranked detection a hook still has to surface,
     /// such as an Alert that co-fires with a Quarantine detection the hook maps to Allow.</remarks>
+    /// <param name="messages">The messages to scan.</param>
+    /// <param name="sessionId">The session the scan belongs to; <see langword="null"/> mints a fresh id.</param>
+    /// <param name="newMessagesFrom">The index from which <paramref name="messages"/> are new in this scan, see
+    /// <see cref="SentinelContext.NewMessagesFrom"/>; 0 marks every message new.</param>
+    /// <param name="ct">Cancellation token.</param>
     internal async ValueTask<IReadOnlyList<ScanFinding>> ScanMessagesForFindingsAsync(
         IEnumerable<ChatMessage> messages,
         SessionId? sessionId,
+        int newMessagesFrom,
         CancellationToken ct)
     {
         var findings = new List<ScanFinding>();
-        await ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings, exemptPlaceholders: null, ct).ConfigureAwait(false);
+        await ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings, exemptPlaceholders: null, newMessagesFrom, ct).ConfigureAwait(false);
         return findings;
     }
 
     /// <summary>As <see cref="ScanMessagesAsync"/>, but no detector flags the placeholders in
     /// <paramref name="exemptPlaceholders"/>: tokens a host such as the MCP proxy minted on earlier calls, which are
-    /// no values. Null exempts nothing.</summary>
+    /// no values. Null exempts nothing. <paramref name="newMessagesFrom"/> is the index from which
+    /// <paramref name="messages"/> are new in this scan, see <see cref="SentinelContext.NewMessagesFrom"/>.</summary>
     internal ValueTask<SentinelError?> ScanMessagesExemptingAsync(
         IEnumerable<ChatMessage> messages,
         SessionId? sessionId,
         IReadOnlySet<string>? exemptPlaceholders,
+        int newMessagesFrom,
         CancellationToken ct)
-        => ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings: null, exemptPlaceholders, ct);
+        => ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings: null, exemptPlaceholders, newMessagesFrom, ct);
 
     /// <summary>
     /// Redacts content a host hands Sentinel on its way to the model, such as a tool result in the MCP proxy or a
@@ -548,8 +558,9 @@ public sealed class SentinelPipeline
             exempt.UnionWith(request.KnownPlaceholders);
 
         var findings = new List<ScanFinding>();
+        // The context is what the content answers; only the content and the unredactable content are new.
         var error = await ScanCollectingAsync(
-            HostScanMessages(host.Context, host.Content, request), sid, findings, exempt, ct).ConfigureAwait(false);
+            HostScanMessages(host.Context, host.Content, request), sid, findings, exempt, host.Context.Count, ct).ConfigureAwait(false);
 
         return new HostRedactionResult(host.Content, findings, error, SumByType(host.CountsByDetector), host.Minted, FellBack: false)
         {
@@ -627,7 +638,8 @@ public sealed class SentinelPipeline
 
         var findings = new List<ScanFinding>();
         var error = await ScanCollectingAsync(
-            HostScanMessages(request.Context, request.Content, request), sessionId, findings, request.KnownPlaceholders, ct).ConfigureAwait(false);
+            HostScanMessages(request.Context, request.Content, request), sessionId, findings, request.KnownPlaceholders,
+            request.Context.Count, ct).ConfigureAwait(false);
         return new HostRedactionResult(request.Content, findings, error, EmptyCounts, [], fellBack) { SessionId = sessionId.Value };
     }
 
@@ -665,6 +677,7 @@ public sealed class SentinelPipeline
         SessionId? sessionId,
         List<ScanFinding>? findings,
         IReadOnlySet<string>? exemptPlaceholders,
+        int newMessagesFrom,
         CancellationToken ct)
     {
         var rateError = CheckRateLimit(chatOptions);
@@ -672,19 +685,21 @@ public sealed class SentinelPipeline
 
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var (scanned, systemPrompt) = WithInstructions(messageList, chatOptions?.Instructions);
+        // A leading instructions message shifts the caller's messages, and so the index, by one.
         return await ScanAsync(scanned, sessionId ?? SessionIdFor(chatOptions),
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, new Exemptions(exemptPlaceholders),
-            llmId: chatOptions?.ModelId, findings: findings).ConfigureAwait(false);
+            llmId: chatOptions?.ModelId, findings: findings,
+            newMessagesFrom: newMessagesFrom + (scanned.Count - messageList.Count)).ConfigureAwait(false);
     }
 
     /// <summary>One scan with no rate-limit check, collecting every finding.</summary>
     private ValueTask<SentinelError?> ScanCollectingAsync(
         IReadOnlyList<ChatMessage> messages, SessionId sessionId, List<ScanFinding> findings,
-        IReadOnlySet<string>? exemptPlaceholders, CancellationToken ct)
+        IReadOnlySet<string>? exemptPlaceholders, int newMessagesFrom, CancellationToken ct)
     {
         var systemPrompt = SystemPromptOf(messages);
         return ScanAsync(messages, sessionId, options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
-            new Exemptions(exemptPlaceholders), findings: findings);
+            new Exemptions(exemptPlaceholders), findings: findings, newMessagesFrom: newMessagesFrom);
     }
 
     /// <summary>
@@ -736,6 +751,21 @@ public sealed class SentinelPipeline
         return null;
     }
 
+    /// <summary>
+    /// The index after the last <see cref="ChatRole.Assistant"/> message, or 0 when there is none. On a prompt scan
+    /// the messages from there on are new: the caller's earlier messages were judged on the turn they arrived.
+    /// </summary>
+    internal static int NewFromAfterLastAssistant(IReadOnlyList<ChatMessage> messages)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i].Role == ChatRole.Assistant) return i + 1;
+        }
+
+        return 0;
+    }
+
     private async ValueTask<SentinelError?> ScanAsync(
         IReadOnlyList<ChatMessage> msgs,
         SessionId sessionId,
@@ -745,9 +775,10 @@ public sealed class SentinelPipeline
         string? systemPrompt = null,
         Exemptions exemptions = default,
         string? llmId = null,
-        List<ScanFinding>? findings = null)
+        List<ScanFinding>? findings = null,
+        int newMessagesFrom = 0)
     {
-        var ctx = BuildContext(msgs, sessionId, sender, receiver, systemPrompt, in exemptions, llmId);
+        var ctx = BuildContext(msgs, sessionId, sender, receiver, systemPrompt, in exemptions, llmId, newMessagesFrom);
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
         await AppendAuditAsync(pipelineResult, sessionId, ct).ConfigureAwait(false);
@@ -806,13 +837,19 @@ public sealed class SentinelPipeline
 
     private static SentinelContext BuildContext(
         IReadOnlyList<ChatMessage> msgs, SessionId sessionId, AgentId sender, AgentId receiver,
-        string? systemPrompt, in Exemptions exemptions, string? llmId)
+        string? systemPrompt, in Exemptions exemptions, string? llmId, int newMessagesFrom)
         => exemptions.Minted is null
-            ? new SentinelContext(sender, receiver, sessionId, msgs, []) { SystemPrompt = systemPrompt, LlmId = llmId }
+            ? new SentinelContext(sender, receiver, sessionId, msgs, [])
+            {
+                SystemPrompt = systemPrompt,
+                LlmId = llmId,
+                NewMessagesFrom = newMessagesFrom,
+            }
             : new SentinelContext(sender, receiver, sessionId, msgs, [])
             {
                 SystemPrompt = systemPrompt,
                 LlmId = llmId,
+                NewMessagesFrom = newMessagesFrom,
                 RedactionPlaceholders = exemptions.Minted,
                 RequestPlaceholders = exemptions.Request ?? NoStrings,
                 RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,

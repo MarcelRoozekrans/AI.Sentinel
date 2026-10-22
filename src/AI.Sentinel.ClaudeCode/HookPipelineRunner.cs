@@ -49,7 +49,7 @@ public static class HookPipelineRunner
         // detection with its action, so the hook decides per detection.
         var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
         var findings = await pipeline.ScanMessagesForFindingsAsync(
-            messages, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), ct).ConfigureAwait(false);
+            messages, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), newMessagesFrom: 0, ct).ConfigureAwait(false);
 
         // A clean scan, or one refused by the rate limit, allows. Hook invocations don't
         // honor rate limits (they're not real LLM calls), so the latter is unreachable in practice.
