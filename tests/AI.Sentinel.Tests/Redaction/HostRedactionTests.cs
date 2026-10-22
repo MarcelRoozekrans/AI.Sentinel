@@ -195,6 +195,22 @@ public class HostRedactionTests
         Assert.DoesNotContain("hunter2", result.Content[0].ScanText(), StringComparison.Ordinal);
     }
 
+    // A JSON literal under a secret key names no secret, so it is neither redacted nor flagged.
+    [Theory]
+    [InlineData("""{"password":null}""")]
+    [InlineData("""{"password":true}""")]
+    [InlineData("""{"api_key":false,"n":1}""")]
+    public async Task JsonContent_LiteralUnderASecretKey_NoFinding(string json)
+    {
+        var (pipeline, _) = Build();
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromJson(Json(json))] });
+
+        Assert.Empty(result.Findings);
+        Assert.False(result.Redacted);
+        Assert.Equal(json, result.Content[0].Json!.Value.GetRawText());
+    }
+
     [Fact]
     public void JsonContent_ScanText_SeparatesMembersWithWhitespace()
     {

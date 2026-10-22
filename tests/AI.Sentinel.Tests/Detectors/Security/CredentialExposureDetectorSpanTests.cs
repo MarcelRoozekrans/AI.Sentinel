@@ -154,6 +154,31 @@ public class CredentialExposureDetectorSpanTests
         Assert.Equal(value, text.Substring(span.Start, span.Length));
     }
 
+    // A bare JSON literal is no secret: {"password": null} names no password.
+    [Theory]
+    [InlineData("{\"password\": null}")]
+    [InlineData("{\"password\": true, \"n\": 1}")]
+    [InlineData("{\"api_key\": false}")]
+    [InlineData("password=NULL")]
+    [InlineData("secret_key: True;")]
+    public async Task JsonLiteral_IsNotASecret(string text)
+    {
+        var detector = new CredentialExposureDetector();
+        Assert.Empty(detector.FindSpans(text));
+        Assert.Equal(Severity.None, (await detector.AnalyzeAsync(Ctx(text), CancellationToken.None)).Severity);
+    }
+
+    [Theory]
+    [InlineData("password: nullify123", "nullify123")]
+    [InlineData("password=truefalse9", "truefalse9")]
+    [InlineData("api_key=false-positive-7", "false-positive-7")]
+    [InlineData("password: \"null\"", "null")]
+    public void UnquotedSecret_StartingLikeALiteral_StillMatches(string text, string value)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
     // An unclosed quote still ends at its line: the next line's opening quote never closes it.
     [Fact]
     public void FindSpans_UnclosedQuotesOnTwoLines_EachLineItsOwnSecret()

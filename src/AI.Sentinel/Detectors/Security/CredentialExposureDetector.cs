@@ -28,13 +28,16 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     // yield the original `abc`. The unquoted form backtracks only over trailing punctuation, the
     // quoted forms use disjoint alternatives, and the multi-line form stops at the first unescaped
     // quote, so every form stays linear.
+    // An unquoted value that is a bare JSON literal, null, true or false, ending where a value
+    // ends, is no secret: {"password": null} names none. A secret that only starts like one,
+    // such as `nullify123` or `false-positive-7`, still matches; a quoted "null" is a string.
     // Between the separator and the value: horizontal whitespace, plus one line break and
     // indentation only when the value is quoted, so YAML `password:\n  "abc"` is caught while
     // `password:\n  min_length: 8` is not.
     private const string Gap = @"[ \t]*(?:\r?\n[ \t]*(?=[""']))?";
 
     private const string Value =
-        @"(?:""(?<value>(?:[^""\\]|\\[\s\S])+)""(?=[ \t]*(?:[,;)}\]\r\n]|$))|""(?<value>(?:[^""\\\r\n]|\\[^\r\n])+)""?|'(?<value>(?:[^'\\\r\n]|\\[^\r\n])+)'?|[(\[{]*(?<value>[^\s""'(\[{](?:\S*[^\s.,;""')\]}])?))";
+        @"(?:""(?<value>(?:[^""\\]|\\[\s\S])+)""(?=[ \t]*(?:[,;)}\]\r\n]|$))|""(?<value>(?:[^""\\\r\n]|\\[^\r\n])+)""?|'(?<value>(?:[^'\\\r\n]|\\[^\r\n])+)'?|[(\[{]*(?!(?:null|true|false)(?:[\s.,;""')\]}]|$))(?<value>[^\s""'(\[{](?:\S*[^\s.,;""')\]}])?))";
 
     [GeneratedRegex(
         @"password[""']?\s*[=:]" + Gap + Value,
