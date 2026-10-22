@@ -20,7 +20,8 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     // keeps the key name. A quoted value takes the text between the quotes, may contain spaces
     // and backslash escapes, and runs to the end of the line when the closing quote is missing
     // (a truncated or streamed chunk), so nothing leaks. A double-quoted value whose closing quote
-    // ends the value, followed by a comma, a closing bracket, a line break or the end of the text,
+    // ends the value, followed by optional spaces or tabs and then a comma, a semicolon, a closing
+    // parenthesis, a closing bracket or brace, a line break or the end of the text,
     // may span lines, as a JSON string holding a line break does in the scan text; otherwise only
     // its first line would be redacted. An unclosed quote never runs on to the next line's quote,
     // which is followed by more text, not by the end of a value. An unquoted value stops at whitespace,
