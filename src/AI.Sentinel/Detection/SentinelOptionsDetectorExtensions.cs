@@ -15,7 +15,7 @@ public static class SentinelOptionsDetectorExtensions
         this SentinelOptions opts) where T : class, IDetector
     {
         ArgumentNullException.ThrowIfNull(opts);
-        opts.AddDetectorRegistration(new SentinelOptions.DetectorRegistration(typeof(T), Factory: null));
+        opts.AddDetectorRegistration(new SentinelOptions.DetectorRegistration(typeof(T), factory: null));
         return opts;
     }
 
@@ -28,7 +28,7 @@ public static class SentinelOptionsDetectorExtensions
     {
         ArgumentNullException.ThrowIfNull(opts);
         ArgumentNullException.ThrowIfNull(factory);
-        opts.AddDetectorRegistration(new SentinelOptions.DetectorRegistration(typeof(T), sp => factory(sp)));
+        opts.AddDetectorRegistration(new SentinelOptions.DetectorRegistration(detectorType: null, sp => factory(sp)));
         return opts;
     }
 }

@@ -30,11 +30,36 @@ public sealed class SentinelOptions
     /// <summary>Internal hook for <c>AddDetector&lt;T&gt;</c> extension.</summary>
     internal void AddDetectorRegistration(DetectorRegistration registration) => _detectorRegistrations.Add(registration);
 
-    /// <summary>Internal accumulator entry describing a user-registered <see cref="IDetector"/>.</summary>
-    internal sealed record DetectorRegistration(
-        [property: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
-        Type DetectorType,
-        Func<IServiceProvider, IDetector>? Factory);
+    /// <summary>Internal accumulator entry describing a user-registered <see cref="IDetector"/>. Exactly one of
+    /// <see cref="DetectorType"/> and <see cref="Factory"/> is set: a type registration is activated by DI and
+    /// needs the type's public constructors kept, a factory registration needs no type.</summary>
+    internal sealed record DetectorRegistration
+    {
+        /// <summary>Creates a registration from exactly one of a detector type and a factory.</summary>
+        /// <exception cref="ArgumentException">Both or neither of <paramref name="detectorType"/> and
+        /// <paramref name="factory"/> are set.</exception>
+        public DetectorRegistration(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type? detectorType,
+            Func<IServiceProvider, IDetector>? factory)
+        {
+            if ((detectorType is null) == (factory is null))
+            {
+                throw new ArgumentException(
+                    "A detector registration needs exactly one of a detector type and a factory.",
+                    nameof(detectorType));
+            }
+
+            DetectorType = detectorType;
+            Factory = factory;
+        }
+
+        /// <summary>The type DI activates, or null for a factory registration.</summary>
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        public Type? DetectorType { get; }
+
+        /// <summary>The factory that builds the detector, or null for a type registration.</summary>
+        public Func<IServiceProvider, IDetector>? Factory { get; }
+    }
 
     private readonly Dictionary<Type, DetectorConfiguration> _detectorConfigurations = new();
 
