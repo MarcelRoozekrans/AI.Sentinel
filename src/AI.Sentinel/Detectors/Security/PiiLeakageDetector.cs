@@ -36,8 +36,10 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex IbanPattern();
 
+    // The keyword-prefixed patterns allow a quote after the keyword and before the value, so the JSON
+    // `"BSN": "123456789"` matches as `BSN: 123456789` does; a JSON value is judged with its key.
     [GeneratedRegex(
-        @"(?:BSN|burgerservicenummer)\s*[:=]?\s*(?<value>\d{9})\b",
+        @"(?:BSN|burgerservicenummer)[""']?\s*[:=]?\s*[""']?(?<value>\d{9})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex BsnPattern();
@@ -49,13 +51,13 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     private static partial Regex UkNinoPattern();
 
     [GeneratedRegex(
-        @"passport\s*[:=]?\s*(?<value>[A-Z]{1,2}\d{6,9})\b",
+        @"passport[""']?\s*[:=]?\s*[""']?(?<value>[A-Z]{1,2}\d{6,9})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex PassportPattern();
 
     [GeneratedRegex(
-        @"(?:Steuer-?ID|tax\s+id)\s*[:=]?\s*(?<value>\d{2}\s?\d{3}\s?\d{5})\b",
+        @"(?:Steuer-?ID|tax\s+id)[""']?\s*[:=]?\s*[""']?(?<value>\d{2}\s?\d{3}\s?\d{5})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex DeTaxIdPattern();
@@ -75,7 +77,7 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     private static partial Regex PhonePattern();
 
     [GeneratedRegex(
-        @"(?:born|DOB|date\s+of\s+birth)\s*[:=]?\s*(?<value>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b",
+        @"(?:born|DOB|date\s+of\s+birth)[""']?\s*[:=]?\s*[""']?(?<value>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex DobPattern();

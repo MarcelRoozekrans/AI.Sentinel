@@ -68,6 +68,16 @@ public class KeyAwareRedactionTests
         Assert.Equal("hun\"ter\\2", session.Restore("[PASSWORD_1_abc123]"));
     }
 
+    [Theory]
+    [InlineData("""{"BSN":"123456789"}""", """{"BSN":"[BSN_1_abc123]"}""")]
+    [InlineData("""{"passport":"AB123456"}""", """{"passport":"[PASSPORT_1_abc123]"}""")]
+    [InlineData("""{"Steuer-ID":"12 345 67890"}""", """{"Steuer-ID":"[TAX_ID_1_abc123]"}""")]
+    [InlineData("""{"DOB":"01/02/1990"}""", """{"DOB":"[DATE_OF_BIRTH_1_abc123]"}""")]
+    public void KeywordPrefixedPii_IsRedactedByItsKey(string input, string expected)
+    {
+        Assert.Equal(expected, RedactJson(Session(), input));
+    }
+
     // A value holding a line break is redacted as a whole, not up to the break.
     [Theory]
     [InlineData("""{"password":"line1\nline2"}""", "line1\nline2")]

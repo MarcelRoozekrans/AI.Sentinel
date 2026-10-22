@@ -9,6 +9,10 @@ namespace AI.Sentinel.Tests.Detectors.Security;
 
 public class PiiLeakageDetectorSpanTests
 {
+    private static SentinelContext Ctx(string text) => new(
+        new AgentId("a"), new AgentId("b"), SessionId.New(),
+        new List<ChatMessage> { new(ChatRole.User, text) }, new List<AuditEntry>());
+
     [Fact]
     public void FindSpans_BareEmail_ReturnsEmailSpan()
     {
@@ -95,6 +99,23 @@ public class PiiLeakageDetectorSpanTests
     [InlineData("a+")]
     public void FindSpans_LongInputWithoutAt_IsEmpty(string unit)
         => Assert.Empty(new PiiLeakageDetector().FindSpans(string.Concat(Enumerable.Repeat(unit, 50_000))));
+
+    // JSON, as the scan renders it: a quote between the keyword and the colon, and around the value.
+    [Theory]
+    [InlineData("{\"BSN\": \"123456789\"}", "123456789", "BSN")]
+    [InlineData("\"burgerservicenummer\": \"123456789\"", "123456789", "BSN")]
+    [InlineData("{\"passport\": \"AB123456\"}", "AB123456", "PASSPORT")]
+    [InlineData("{\"Steuer-ID\": \"12 345 67890\"}", "12 345 67890", "TAX_ID")]
+    [InlineData("{\"tax id\": \"12345 67890\"}", "12345 67890", "TAX_ID")]
+    [InlineData("{\"DOB\": \"01/02/1990\"}", "01/02/1990", "DATE_OF_BIRTH")]
+    [InlineData("{'born': '01-02-1990'}", "01-02-1990", "DATE_OF_BIRTH")]
+    public async Task FindSpans_KeywordPrefixedTypesInJson_SpanCoversValueOnly(string text, string value, string entity)
+    {
+        var detector = new PiiLeakageDetector();
+        var span = Assert.Single(detector.FindSpans(text));
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span);
+        Assert.NotEqual(Severity.None, (await detector.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken)).Severity);
+    }
 
     [Theory]
     [InlineData("bsn: 123456789", "123456789", "BSN")]
