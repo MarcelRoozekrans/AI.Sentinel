@@ -155,6 +155,231 @@ public class ToolTrafficDetectionTests
         Assert.False(r.IsClean);
     }
 
+    // --- AIContent results ---
+
+    /// <summary>An image result is binary: it is left out, so no base64 data URI reaches SEC-08.</summary>
+    [Fact]
+    public async Task ImageResult_IsLeftOut_AndDoesNotTriggerEntropy()
+    {
+        var png = new byte[3000];
+        new Random(7).NextBytes(png);
+        var message = Result(new DataContent(png, "image/png"));
+
+        Assert.Equal(string.Empty, SentinelContext.MessageText(message));
+        Assert.True((await new EntropyCovertChannelDetector().AnalyzeAsync(Ctx(message), TestContext.Current.CancellationToken)).IsClean);
+    }
+
+    [Fact]
+    public void TextDataContentResult_IsDecoded()
+    {
+        var data = new DataContent(System.Text.Encoding.UTF8.GetBytes($"token {GithubToken}"), "text/plain; charset=utf-8");
+
+        Assert.Equal($"token {GithubToken}", SentinelContext.MessageText(Result(data)));
+    }
+
+    [Fact]
+    public void ListOfContentsResult_ReadsAsTheTextOfEach()
+    {
+        AIContent[] contents =
+        [
+            new TextContent("first"),
+            new DataContent(new byte[] { 1, 2, 3 }, "image/png"),
+            new DataContent(System.Text.Encoding.UTF8.GetBytes("{\"a\":1}"), "application/json"),
+        ];
+
+        Assert.Equal("first {\"a\":1}", SentinelContext.MessageText(Result(contents)));
+    }
+
+    // --- Hosted content ---
+
+    [Fact]
+    public void ImageGenerationResult_ReadsAsItsTextOutputs_AndSkipsTheImage()
+    {
+        var message = new ChatMessage(ChatRole.Assistant,
+            [new ImageGenerationToolResultContent("i1") { Outputs = [new DataContent(new byte[] { 1, 2 }, "image/png"), new TextContent("revised prompt")] }]);
+
+        Assert.Equal("revised prompt", SentinelContext.MessageText(message));
+    }
+
+    [Fact]
+    public void ToolContentNestedInHostedOutputs_IsRead()
+    {
+        var message = new ChatMessage(ChatRole.Assistant,
+        [
+            new McpServerToolResultContent("m1")
+            {
+                Outputs = [new FunctionResultContent("inner", "nested result"), new WebSearchToolCallContent("w1") { Queries = ["nested query"] }],
+            },
+        ]);
+
+        Assert.Equal("nested result nested query", SentinelContext.MessageText(message));
+    }
+
+    // --- Approval requests ---
+
+    /// <summary>An approval request stands in for a call the caller has not approved yet: its call is read.</summary>
+    [Fact]
+    public void ApprovalRequest_WithoutItsCall_ReadsAsTheCall()
+    {
+        var call = new FunctionCallContent("c1", "deploy", new Dictionary<string, object?>(StringComparer.Ordinal) { ["token"] = "t" });
+        var message = new ChatMessage(ChatRole.Assistant, [new ToolApprovalRequestContent("r1", call)]);
+
+        Assert.Equal("tool:deploy input:{\"token\":\"t\"}", SentinelContext.MessageText(message));
+    }
+
+    /// <summary>Next to the call it wraps, an approval request is not read again; an approval response never is.</summary>
+    [Fact]
+    public void ApprovalRequest_NextToItsCall_AndApprovalResponse_AreNotReadAgain()
+    {
+        var call = new FunctionCallContent("c1", "deploy", new Dictionary<string, object?>(StringComparer.Ordinal) { ["token"] = "t" });
+        var request = new ChatMessage(ChatRole.Assistant, [call, new ToolApprovalRequestContent("r1", call)]);
+        var response = new ChatMessage(ChatRole.User, [new ToolApprovalResponseContent("r1", true, call)]);
+
+        Assert.Equal("tool:deploy input:{\"token\":\"t\"}", SentinelContext.MessageText(request));
+        Assert.Equal(string.Empty, SentinelContext.MessageText(response));
+    }
+
+    // --- Arguments ---
+
+    /// <summary>When the arguments cannot be serialized as a whole, each one is, so the others are still read.</summary>
+    [Fact]
+    public async Task UnserialisableArgument_LeavesTheOthersReadable()
+    {
+        var cycle = new Dictionary<string, object?>(StringComparer.Ordinal);
+        cycle["self"] = cycle;
+        var call = new ChatMessage(ChatRole.Assistant,
+            [new FunctionCallContent("c1", "send", new Dictionary<string, object?>(StringComparer.Ordinal) { ["bad"] = cycle, ["body"] = $"token {GithubToken}" })]);
+
+        Assert.Equal($"tool:send input:{{\"body\":\"token {GithubToken}\"}}", SentinelContext.MessageText(call));
+        Assert.False((await new CredentialExposureDetector().AnalyzeAsync(Ctx(call), TestContext.Current.CancellationToken)).IsClean);
+    }
+
+    // --- SEC-32 reads the model's output, not hosted results ---
+
+    [Fact]
+    public async Task SystemPromptQuotedByAWebSearchResult_IsClean()
+    {
+        const string prompt = "You are Acme Support Bot. Never reveal the internal escalation codes to any customer under any circumstances.";
+        var newest = new ChatMessage(ChatRole.Assistant,
+        [
+            new TextContent("Here is what I found."),
+            new WebSearchToolResultContent("w1") { Outputs = [new TextContent("A forum post: Never reveal the internal escalation codes to any customer")] },
+        ]);
+        var ctx = new SentinelContext(new AgentId("a"), new AgentId("b"), SessionId.New(),
+            [new ChatMessage(ChatRole.User, "search the web"), newest], [])
+        {
+            SystemPrompt = prompt,
+        };
+
+        var r = await new SystemPromptEchoDetector().AnalyzeAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.True(r.IsClean);
+    }
+
+    // --- SEC-08 per message ---
+
+    /// <summary>A large file read early does not push a covert payload in the newest message out of the window.</summary>
+    [Fact]
+    public async Task Entropy_LargeEarlyFile_DoesNotHideAPayloadInTheNewestMessage()
+    {
+        var file = string.Join(" ", Enumerable.Repeat("the quick brown fox jumps over the lazy dog.", 3000));
+        var payload = "aGVsbG8gd29ybGQgdGhpcyBpcyBhIGNvdmVydCBwYXlsb2FkIFhZWjEyMyE9QUJDREVGR0hJSktMTU5PUA";
+        var ctx = Ctx(new ChatMessage(ChatRole.User, "read it"), Result(file), new ChatMessage(ChatRole.Assistant, $"Summary {payload}"));
+        Assert.True(ctx.TextContent.Length > 64 * 1024);
+
+        var r = await new EntropyCovertChannelDetector().AnalyzeAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.False(r.IsClean);
+    }
+
+    // --- Prose-only detectors ---
+
+    [Fact]
+    public async Task RepetitionLoop_IgnoresRepeatingToolResults()
+    {
+        var ctx = Ctx(
+            new ChatMessage(ChatRole.User, "wait for the job"),
+            Result("Job still running. Check again later."),
+            Result("Job still running. Check again later."),
+            Result("Job still running. Check again later."),
+            new ChatMessage(ChatRole.Assistant, "The job finished."));
+
+        Assert.True((await new RepetitionLoopDetector().AnalyzeAsync(ctx, TestContext.Current.CancellationToken)).IsClean);
+    }
+
+    [Fact]
+    public async Task PlaceholderText_IgnoresTodoInAToolResult()
+    {
+        var ctx = Ctx(new ChatMessage(ChatRole.User, "read main.cs"), Result("// TODO: remove this"), new ChatMessage(ChatRole.Assistant, "The file has one comment."));
+
+        Assert.True((await new PlaceholderTextDetector().AnalyzeAsync(ctx, TestContext.Current.CancellationToken)).IsClean);
+    }
+
+    [Fact]
+    public async Task BlankResponse_ToolCallOnlyReply_IsNotBlank()
+    {
+        var r = await new BlankResponseDetector().AnalyzeAsync(Ctx(Call("hello")), TestContext.Current.CancellationToken);
+
+        Assert.True(r.IsClean);
+    }
+
+    [Fact]
+    public async Task IncompleteCodeBlock_IgnoresAFenceInAToolResult()
+    {
+        var ctx = Ctx(new ChatMessage(ChatRole.User, "read README"), Result("```csharp\nvar x = 1;"), new ChatMessage(ChatRole.Assistant, "It declares x."));
+
+        Assert.True((await new IncompleteCodeBlockDetector().AnalyzeAsync(ctx, TestContext.Current.CancellationToken)).IsClean);
+    }
+
+    [Fact]
+    public async Task TruncatedOutput_IgnoresHostedResultsInTheReply()
+    {
+        var reply = new ChatMessage(ChatRole.Assistant,
+            [new TextContent("Done."), new McpServerToolResultContent("m1") { Outputs = [new TextContent("partial output and then,")] }]);
+
+        Assert.True((await new TruncatedOutputDetector().AnalyzeAsync(Ctx(new ChatMessage(ChatRole.User, "run it"), reply), TestContext.Current.CancellationToken)).IsClean);
+    }
+
+    [Fact]
+    public async Task WrongLanguage_IgnoresToolCallArguments()
+    {
+        var reply = new ChatMessage(ChatRole.Assistant,
+        [
+            new TextContent("Here is the translation you asked me to send."),
+            new FunctionCallContent("c1", "send", new Dictionary<string, object?>(StringComparer.Ordinal) { ["body"] = string.Concat(Enumerable.Repeat("这是翻译后的文本内容", 20)) }),
+        ]);
+
+        var r = await new WrongLanguageDetector().AnalyzeAsync(
+            Ctx(new ChatMessage(ChatRole.User, "Please translate this paragraph into Chinese and send it."), reply), TestContext.Current.CancellationToken);
+
+        Assert.True(r.IsClean);
+    }
+
+    // --- SEC-24 legitimate joiners ---
+
+    [Theory]
+    [InlineData("Family: \U0001F468\u200D\U0001F469\u200D\U0001F467 at home")]
+    [InlineData("Heart on fire: \u2764\uFE0F\u200D\U0001F525")]
+    [InlineData("Persian: \u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645")]
+    [InlineData("Hindi: \u0915\u094D\u200C\u0937")]
+    public async Task AdversarialUnicode_LegitimateJoiners_AreClean(string text)
+    {
+        var r = await new AdversarialUnicodeDetector().AnalyzeAsync(Ctx(new ChatMessage(ChatRole.User, text)), TestContext.Current.CancellationToken);
+
+        Assert.True(r.IsClean);
+    }
+
+    [Theory]
+    [InlineData("ig\u200Dnore")]
+    [InlineData("ig\u200Cnore")]
+    [InlineData("\U0001F468\u200Dx")]
+    public async Task AdversarialUnicode_JoinerBetweenLatinLetters_IsFlagged(string text)
+    {
+        var r = await new AdversarialUnicodeDetector().AnalyzeAsync(Ctx(new ChatMessage(ChatRole.User, text)), TestContext.Current.CancellationToken);
+
+        Assert.False(r.IsClean);
+    }
+
     /// <summary>Regression guard: a conversation of text only reads exactly as before.</summary>
     [Fact]
     public void TextContent_OfTextOnlyMessages_IsUnchanged()

@@ -93,6 +93,13 @@ public sealed class SentinelContext(
     public string TextContent =>
         _textContent ??= string.Join(" ", Messages.Select(MessageText));
 
+    private string? _proseContent;
+
+    /// <summary>The <see cref="ChatMessage.Text"/> of all messages, joined by a single space: prose only, without tool
+    /// calls or tool results. For detectors that judge output quality, which tool traffic would only add noise to.</summary>
+    internal string ProseContent =>
+        _proseContent ??= string.Join(" ", Messages.Select(m => m.Text ?? string.Empty));
+
     /// <summary>
     /// The text a detector judges for <paramref name="message"/>: its <see cref="ChatMessage.Text"/>, followed by each
     /// tool call and tool result it carries, in content order, separated by a single space.
@@ -103,18 +110,29 @@ public sealed class SentinelContext(
     /// detectors would see neither.</para>
     /// <list type="bullet">
     /// <item><description>A <see cref="FunctionCallContent"/> or <see cref="McpServerToolCallContent"/> reads
-    /// <c>tool:{name} input:{arguments}</c>, with the arguments as compact JSON: see <see cref="ToolCallText"/>.</description></item>
+    /// <c>tool:{name} input:{arguments}</c>, with the arguments as compact JSON: see <see cref="ToolCallText"/>. When the
+    /// arguments cannot be serialized as a whole, each one is, and those that cannot are left out.</description></item>
     /// <item><description>A <see cref="FunctionResultContent"/> reads as its result: a string as it is, a
-    /// <see cref="JsonElement"/> as its raw text, anything else as compact JSON.</description></item>
+    /// <see cref="JsonElement"/> as its raw text, an <see cref="AIContent"/> or a list of them as the text they carry,
+    /// anything else as compact JSON.</description></item>
     /// <item><description>A hosted tool call or result, of an MCP server, code interpreter, web search or image
-    /// generation tool, reads as the text it carries: the queries of a web search call, and the text content of the
-    /// inputs or outputs of the others.</description></item>
+    /// generation tool, reads as the text it carries: the queries of a web search call, and the text of the inputs
+    /// or outputs of the others.</description></item>
+    /// <item><description>A <see cref="ToolApprovalRequestContent"/> reads as the call it wraps, unless the message also
+    /// carries that call: outside the tool loop the request is all a scan sees of a call awaiting approval. A
+    /// <see cref="ToolApprovalResponseContent"/> is not read: it repeats a call already judged as a request.</description></item>
     /// </list>
-    /// <para>A value that cannot be serialized is left out rather than failing the scan: the pipeline turns a
-    /// detector exception into a Clean result for the whole scan, so letting it escape would hide every other
-    /// message. A message with no tool content returns its <see cref="ChatMessage.Text"/> instance unchanged.</para>
+    /// <para>Content reads as text when it is a <see cref="TextContent"/> or text-typed <see cref="DataContent"/>,
+    /// such as <c>text/plain</c> or <c>application/json</c>; binary data, such as an image, is left out. A value that
+    /// cannot be serialized is left out rather than failing the scan: the pipeline turns a detector exception into a
+    /// Clean result for the whole scan, so letting it escape would hide every other message. A message with no tool
+    /// content returns its <see cref="ChatMessage.Text"/> instance unchanged.</para>
     /// </remarks>
-    internal static string MessageText(ChatMessage message)
+    internal static string MessageText(ChatMessage message) => MessageText(message, includeResults: true);
+
+    /// <summary>As <see cref="MessageText(ChatMessage)"/>; with <paramref name="includeResults"/> false, tool results
+    /// are left out, so only the message's own output is read: its text and the tool calls it makes.</summary>
+    internal static string MessageText(ChatMessage message, bool includeResults)
     {
         ArgumentNullException.ThrowIfNull(message);
 
@@ -123,8 +141,11 @@ public sealed class SentinelContext(
         foreach (var content in message.Contents)
         {
             if (content is TextContent) continue;
+            if (!includeResults && IsToolResult(content)) continue;
 
-            var toolText = ToolText(content);
+            var toolText = content is ToolApprovalRequestContent request
+                ? ApprovalRequestText(message, request)
+                : ToolText(content);
             if (string.IsNullOrEmpty(toolText)) continue;
 
             builder ??= new StringBuilder(text);
@@ -140,6 +161,25 @@ public sealed class SentinelContext(
     /// sees the same text whichever surface the call came through.</remarks>
     internal static string ToolCallText(string? name, string? arguments) => $"tool:{name} input:{arguments}";
 
+    private static bool IsToolResult(AIContent content) =>
+        content is FunctionResultContent or McpServerToolResultContent or CodeInterpreterToolResultContent
+            or WebSearchToolResultContent or ImageGenerationToolResultContent;
+
+    private static string? ApprovalRequestText(ChatMessage message, ToolApprovalRequestContent request)
+    {
+        if (request.ToolCall is not { } call) return null;
+
+        foreach (var content in message.Contents)
+        {
+            if (content is ToolCallContent other && string.Equals(other.CallId, call.CallId, StringComparison.Ordinal))
+            {
+                return null;
+            }
+        }
+
+        return ToolText(call);
+    }
+
     private static string? ToolText(AIContent content) => content switch
     {
         FunctionCallContent call => ToolCallText(call.Name, ArgumentsText(call.Arguments)),
@@ -154,15 +194,16 @@ public sealed class SentinelContext(
         _ => null,
     };
 
-    /// <summary>The text content of the inputs or outputs of a hosted tool, with any tool content nested in them.</summary>
-    private static string? ContentsText(IList<AIContent>? contents)
+    /// <summary>The text of a list of contents, such as the inputs or outputs of a hosted tool or a result made of
+    /// contents: text content, text-typed data, and any tool content nested in them.</summary>
+    private static string? ContentsText(IEnumerable<AIContent>? contents)
     {
-        if (contents is null || contents.Count == 0) return null;
+        if (contents is null) return null;
 
         StringBuilder? builder = null;
         foreach (var content in contents)
         {
-            var text = content is TextContent t ? t.Text : ToolText(content);
+            var text = ContentText(content);
             if (string.IsNullOrEmpty(text)) continue;
 
             builder ??= new StringBuilder();
@@ -172,6 +213,14 @@ public sealed class SentinelContext(
 
         return builder?.ToString();
     }
+
+    private static string? ContentText(AIContent? content) => content switch
+    {
+        null => null,
+        TextContent text => text.Text,
+        DataContent data => TextData.Decode(data),
+        _ => ToolText(content),
+    };
 
     /// <summary><see cref="AIJsonUtilities.DefaultOptions"/> without indentation, so a value reads as compact JSON.</summary>
     private static readonly JsonSerializerOptions CompactJsonOptions = CreateCompactJsonOptions();
@@ -183,17 +232,39 @@ public sealed class SentinelContext(
         return options;
     }
 
-    private static string ArgumentsText(IDictionary<string, object?>? arguments) =>
-        arguments is null ? string.Empty : Serialize(arguments, typeof(IDictionary<string, object?>));
+    /// <summary>The arguments as one compact JSON object. When they cannot be serialized as a whole, the object is
+    /// built from the arguments that can, so one unserializable value does not hide the others.</summary>
+    private static string ArgumentsText(IDictionary<string, object?>? arguments)
+    {
+        if (arguments is null) return string.Empty;
 
-    /// <summary>A string result as it is, a <see cref="JsonElement"/> as its raw text, anything else as compact JSON;
-    /// an empty string for a result that cannot be serialized.</summary>
-    /// <remarks>Results that <see cref="FunctionInvokingChatClient"/> produces are already a <see cref="JsonElement"/>.</remarks>
+        var whole = Serialize(arguments, typeof(IDictionary<string, object?>));
+        if (whole.Length > 0) return whole;
+
+        var builder = new StringBuilder("{");
+        foreach (var (name, value) in arguments)
+        {
+            var json = value is null ? "null" : Serialize(value, value.GetType());
+            if (json.Length == 0) continue;
+
+            if (builder.Length > 1) builder.Append(',');
+            builder.Append(Serialize(name, typeof(string))).Append(':').Append(json);
+        }
+
+        return builder.Append('}').ToString();
+    }
+
+    /// <summary>A string result as it is, a <see cref="JsonElement"/> as its raw text, content as the text it carries,
+    /// anything else as compact JSON; an empty string for a result that cannot be serialized.</summary>
+    /// <remarks>Results that <see cref="FunctionInvokingChatClient"/> produces are usually a <see cref="JsonElement"/>;
+    /// a tool that returns <see cref="AIContent"/>, such as an image, keeps it as it is.</remarks>
     private static string ResultText(object result) => result switch
     {
         string text => text,
         JsonElement { ValueKind: JsonValueKind.Undefined } => string.Empty,
         JsonElement element => element.GetRawText(),
+        AIContent content => ContentText(content) ?? string.Empty,
+        IEnumerable<AIContent> contents => ContentsText(contents) ?? string.Empty,
         _ => Serialize(result, result.GetType()),
     };
 

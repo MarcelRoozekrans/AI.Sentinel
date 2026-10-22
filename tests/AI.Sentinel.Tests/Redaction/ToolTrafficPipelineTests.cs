@@ -68,4 +68,37 @@ public class ToolTrafficPipelineTests
         var entries = await RecordingAuditForwarder.ReadAllAsync(h.Audit);
         Assert.Contains(entries, e => string.Equals(e.DetectorId, "SEC-02", StringComparison.Ordinal) && e.Severity == Severity.Critical);
     }
+
+    /// <summary>An approval-required tool: <see cref="FunctionInvokingChatClient"/> hands the caller a
+    /// <see cref="ToolApprovalRequestContent"/> in place of the call. Outside the loop, S>F, that request is all Sentinel
+    /// sees of the call, so its arguments are judged there, before anyone approves the call; inside it, F>S, Sentinel
+    /// sees the model's call itself.</summary>
+    [Theory]
+    [MemberData(nameof(Orders), MemberType = typeof(RedactionPipelineTests))]
+    public async Task SecretInApprovalRequiredToolCallArguments_IsFoundBeforeApproval(string order)
+    {
+        var ran = false;
+        var tool = new ApprovalRequiredAIFunction(AIFunctionFactory.Create((string token) => { ran = true; return "ok"; }, "Deploy"));
+        var options = new ChatOptions { Tools = [tool] };
+        var h = Build(order, RecordingModel.CallsTool("Deploy", "token", GithubToken, "done"), o => o.RedactByDefault = false);
+
+        await Assert.ThrowsAsync<SentinelException>(() => AskAsync(h, "deploy please", options));
+
+        Assert.False(ran);
+        var entries = await RecordingAuditForwarder.ReadAllAsync(h.Audit);
+        Assert.Contains(entries, e => string.Equals(e.DetectorId, "SEC-02", StringComparison.Ordinal) && e.Severity == Severity.Critical);
+    }
+
+    /// <summary>Without a finding, S>F hands the caller the approval request, not the call: the case the test above covers.</summary>
+    [Fact]
+    public async Task ApprovalRequiredTool_OutsideTheLoop_CallerGetsAnApprovalRequest()
+    {
+        var tool = new ApprovalRequiredAIFunction(AIFunctionFactory.Create((string id) => "ok", "Lookup"));
+        var h = Build("S>F", RecordingModel.CallsTool("Lookup", "id", "42", "done"));
+
+        var response = await AskAsync(h, "look up 42", new ChatOptions { Tools = [tool] });
+
+        Assert.Contains(response.Messages.SelectMany(m => m.Contents), c => c is ToolApprovalRequestContent);
+        Assert.DoesNotContain(response.Messages.SelectMany(m => m.Contents), c => c is FunctionCallContent);
+    }
 }

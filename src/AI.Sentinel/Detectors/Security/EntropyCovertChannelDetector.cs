@@ -38,7 +38,7 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
     /// excludes digests, commit ids and decimal runs while still catching encoded payloads.</summary>
     private const double MinimumEntropyBitsPerChar = 4.5;
 
-    /// <summary>Bounds the work on a very large scan.</summary>
+    /// <summary>Bounds the work on a very large message: each message is examined up to this many characters.</summary>
     private const int MaximumCharactersExamined = 64 * 1024;
 
     private static readonly DetectorId _id = new("SEC-08");
@@ -51,9 +51,19 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
     {
         ArgumentNullException.ThrowIfNull(ctx);
 
-        var text = ctx.TextContent;
-        if (string.IsNullOrEmpty(text)) return ValueTask.FromResult(_clean);
+        // Each message on its own, newest first, so one large message, such as a file read early, cannot push later
+        // ones out of the examined window.
+        for (var m = ctx.Messages.Count - 1; m >= 0; m--)
+        {
+            var finding = Examine(SentinelContext.MessageText(ctx.Messages[m]));
+            if (finding is not null) return ValueTask.FromResult(finding);
+        }
 
+        return ValueTask.FromResult(_clean);
+    }
+
+    private static DetectionResult? Examine(string text)
+    {
         var span = text.AsSpan(0, Math.Min(text.Length, MaximumCharactersExamined));
         var start = -1;
 
@@ -74,10 +84,10 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
                     var entropy = ShannonEntropy(run);
                     if (entropy >= MinimumEntropyBitsPerChar)
                     {
-                        return ValueTask.FromResult(DetectionResult.WithSeverity(
+                        return DetectionResult.WithSeverity(
                             _id,
                             Severity.Medium,
-                            $"High-entropy run of {run.Length} characters ({entropy:F1} bits/char) — possible encoded payload"));
+                            $"High-entropy run of {run.Length} characters ({entropy:F1} bits/char) — possible encoded payload");
                     }
                 }
 
@@ -85,7 +95,7 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
             }
         }
 
-        return ValueTask.FromResult(_clean);
+        return null;
     }
 
     /// <summary>Characters an encoder emits. Excluding punctuation and separators is what keeps URLs,
