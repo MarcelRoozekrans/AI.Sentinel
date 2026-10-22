@@ -280,7 +280,7 @@ internal static class McpProxy
 
         if (targetCaps.Resources is not null)
         {
-            WireResources(targetClient, pipeline, targetCaps.Resources, sessionId, placeholders,
+            WireResources(targetClient, pipeline, targetCaps.Resources, maxScanBytes, sessionId, placeholders,
                 capabilities, handlers, requestFilters);
         }
 
@@ -356,6 +356,7 @@ internal static class McpProxy
         McpClient targetClient,
         SentinelPipeline pipeline,
         ResourcesCapability targetResources,
+        int maxScanBytes,
         SessionId sessionId,
         PlaceholderStore? placeholders,
         ServerCapabilities capabilities,
@@ -374,7 +375,7 @@ internal static class McpProxy
         handlers.ReadResourceHandler = (req, c) =>
             targetClient.ReadResourceAsync(req.Params!, c);
         requestFilters.ReadResourceFilters.Add(
-            ResourceReadInterceptor.Create(pipeline, sessionId, placeholders));
+            ResourceReadInterceptor.Create(pipeline, maxScanBytes, sessionId, placeholders));
     }
 
     private static Dictionary<string, object?> ToObjectDictionary(
