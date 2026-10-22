@@ -297,7 +297,7 @@ AI.Sentinel provides runtime building blocks for several technical obligations o
 | Article | Requirement | What AI.Sentinel provides | Active by default |
 |---|---|---|---|
 | Art. 5 | Prohibited practices | Four opt-in [Compliance detectors](#compliance-4), off until `opts.EnableComplianceDetectors()` or `SENTINEL_HOOK_COMPLIANCE` / `SENTINEL_MCP_COMPLIANCE=on`, flag requests to use the model for social scoring (`CMP‑01`), emotion recognition at work or in education (`CMP‑02`), biometric categorisation of sensitive traits (`CMP‑03`) and predicting crime from profiling (`CMP‑04`), on both the request and the reply. In an `AddAISentinel()` app a strong match is `High`, so the default action is `Alert`: it is logged and alerted, not blocked; a weaker match is `Medium` and is logged. `opts.Configure<T>(c => c.Action = SentinelAction.Quarantine)` blocks it. The hook CLIs and the MCP proxy give these four detectors the `Alert` action at both `High` and `Medium`, so they warn rather than follow `SENTINEL_HOOK_ON_HIGH`, which defaults to `Block`; in the hook CLIs, setting that variable to `Allow` still suppresses the warning. Subliminal manipulation, exploiting vulnerabilities, untargeted facial-image scraping and real-time remote biometric identification are not covered | ❌ none: off by default, and all four are semantic and need an `EmbeddingGenerator`; their thresholds are tuned on `all-MiniLM-L6-v2`, are model-dependent and can be set per detector. They flag attempts to use the model for these practices; they do not establish that a system is or is not prohibited |
-| Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses and, by default, [redact](#redaction) them so they never reach the model; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors. Redaction applies to the in-process client; the hook CLIs and the MCP proxy do not redact yet and fall back to the severity action ([#364](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/364)). They detect and keep the values away from the model, they do not make a system's training, validation and test data compliant |
+| Art. 10 | Data and data governance | `PiiLeakageDetector` and `CredentialExposureDetector` find personal data and secrets in prompts and responses and, by default, [redact](#redaction) them so they never reach the model; `DataExfiltrationDetector` and `InformationFlowDetector` cover encoded and cross-context leakage | ⚠️ partial (2/4): the two rule-based detectors. The hook CLIs and the MCP proxy redact tool results, and the proxy also prompts and resources, but not tool-call arguments, nor the prompt on Claude Code `UserPromptSubmit` or Copilot `userPromptSubmitted`, and Copilot `userPromptTransformed` prompt redaction is experimental; there a finding falls back to the severity action. They detect and keep the values away from the model, they do not make a system's training, validation and test data compliant |
 | Art. 12 | Record-keeping (automatic logging) | Every detection, authorization denial and approval decision is written to `IAuditStore` and linked into a SHA-256 hash chain, so an edited, inserted or deleted entry is detectable with `AuditHashChain.VerifyAsync`. `AI.Sentinel.Sqlite` persists it with `RetentionPeriod`, and the `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` CLIs use it by default, recording a `Source` on each entry; forwarders mirror it, chain hashes included, to NDJSON, Azure Sentinel or OpenTelemetry | ⚠️ partial: hash-chained. The hook CLIs and the MCP proxy record findings, denials and approval holds durably to a local SQLite file by default. An in-process app still defaults to the in-memory ring buffer, capped at `opts.AuditCapacity` entries and lost on restart, until it registers `AI.Sentinel.Sqlite` |
 | Art. 14 | Human oversight | [Tool-call authorization](#tool-call-authorization) and the [approval workflow](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview): `RequireApproval` holds a tool call until a person approves it in the dashboard or in Entra PIM (`AI.Sentinel.Approvals.Sqlite`, `AI.Sentinel.Approvals.EntraPim`). The dashboard shows detections live. Denials, approval holds and approval decisions are recorded in the audit log and reported by `sentinel report` | ❌ none: every tool call is allowed until policies or approvals are configured |
 | Art. 15 | Accuracy, robustness and cybersecurity | The [56 Security, Hallucination and Operational detectors](#detectors-60), [OWASP LLM Top 10 coverage](#owasp-llm-top-10-2025-coverage) and [prompt hardening](#prompt-hardening-owasp-llm01--preventive) | ⚠️ partial: 15 rule-based detectors; the 39 semantic ones need an `EmbeddingGenerator` and `SystemPrefix` is opt-in |
@@ -569,7 +569,9 @@ services.AddAISentinel(opts =>
 });
 ```
 
-`Redact` is invalid on `OnCritical`, `OnHigh`, `OnMedium` and `OnLow`, and on a detector that cannot redact; `AddAISentinel` throws an `ArgumentException` for either. The placeholder mapping lives in memory for one call and is never logged, audited or forwarded. A redaction is audited as one informational `REDACTED` entry with counts only, and never counts as a threat. When redaction is not possible (the response scan, the hook CLIs and the MCP proxy in 3.0) the detection uses its severity action and the audit summary ends with `; not redacted`. Full details, including what is not redacted and the known limitation with `UseFunctionInvocation`: [Redaction](https://marcelroozekrans.github.io/AI.Sentinel/docs/redaction).
+`Redact` is invalid on `OnCritical`, `OnHigh`, `OnMedium` and `OnLow`, and on a detector that cannot redact; `AddAISentinel` throws an `ArgumentException` for either. In an app, the placeholder mapping lives in memory for one call and is never logged, audited or forwarded. A redaction is audited as one informational `REDACTED` entry with counts only, and never counts as a threat. When redaction is not possible, the detection uses its severity action and the audit summary ends with `; not redacted`. That covers the response scan, and in the hook CLIs and the MCP proxy, tool-call arguments and the Claude Code `UserPromptSubmit` and Copilot `userPromptSubmitted` prompts.
+
+**Hook CLIs and MCP proxy (3.1).** With `SENTINEL_HOOK_REDACT` and `SENTINEL_MCP_REDACT` on, the default, `sentinel-hook` redacts Claude Code `PostToolUse` output through `updatedToolOutput`, `sentinel-copilot-hook` redacts Copilot `postToolUse` results through `modifiedResult` and, experimentally, the `userPromptTransformed` prompt, and `sentinel-mcp` redacts tool results, prompts and text resources. The proxy keeps the PII placeholders it minted in memory, never logged, and restores them into later tool calls for `SENTINEL_MCP_REDACT_TTL_MIN` minutes after their last use, 30 by default; secrets never. The hooks keep no mapping, so they deny writes and shell commands that carry a placeholder. Full details, including what is not redacted and the known limitation with `UseFunctionInvocation`: [Redaction](https://marcelroozekrans.github.io/AI.Sentinel/docs/redaction).
 
 ### Tuning individual detectors
 
@@ -799,7 +801,9 @@ The proxy spawns the target command as a subprocess, intercepts `tools/call` and
 |---|---|---|
 | `SENTINEL_MCP_DETECTORS` | `security` | `security` (13 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on`) or `all` (every detector — higher false-positive rate on structured data) |
 | `SENTINEL_MCP_COMPLIANCE` | `off` | `on` → run the four Art. 5 compliance detectors, which are off by default; unset falls back to `SENTINEL_HOOK_COMPLIANCE` |
-| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Truncation cap on tool-result text passed to the detector pipeline. Counts UTF-8 bytes (see v1.1 note below). Full content still forwarded to the host. |
+| `SENTINEL_MCP_REDACT` | `on` | `off` → stop redacting tool results, prompts and resources; unset falls back to `SENTINEL_HOOK_REDACT`, then to on |
+| `SENTINEL_MCP_REDACT_TTL_MIN` | `30` | Minutes a PII placeholder stays restorable into tool calls after its last use |
+| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Byte cap on the content passed to the detector pipeline, per block and in total per scan; `resources/read` applies it per item, `65536` when unset. Counts UTF-8 bytes (see v1.1 note below). Content past the cap is not redacted. Full content still forwarded to the host. |
 
 #### MCP proxy v1.1
 
@@ -855,6 +859,7 @@ Both adapters share the same env-var contract — configure once, applies to bot
 | `SENTINEL_HOOK_ON_LOW` | `Allow` | `Block` / `Warn` / `Allow` |
 | `SENTINEL_HOOK_VERBOSE` | `false` | `1` / `true` / `yes` → emit a one-line diagnostic to stderr on every invocation |
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | `1` / `true` / `yes` → suppress the startup warning that semantic detection is inert. Set only after accepting that SEC-01 and SEC-05 will not fire |
+| `SENTINEL_HOOK_REDACT` | `on` | `off` / `0` / `false` / `no` → stop redacting tool results and turn off the placeholder guard |
 | `SENTINEL_HOOK_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](#compliance-4), which are off by default. Their findings warn instead of following `SENTINEL_HOOK_ON_HIGH` |
 | `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
 | `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
@@ -883,7 +888,7 @@ A misconfigured setting is reported on stderr by name rather than leaving detect
 
 > **The cache file is not authenticated.** Anyone who can write `SENTINEL_EMBEDDING_CACHE_DIR` can replace the reference vectors with noise, which would push every detector below threshold and silently disable semantic detection. The default is a per-user directory (`%LOCALAPPDATA%\ai-sentinel\embeddings`, or `$XDG_CACHE_HOME/ai-sentinel/embeddings`); if you override it, do not point it at a shared or world-writable path.
 
-`Block` → hook exits 2, which both Claude Code and Copilot surface as "call blocked" with the detector ID + reason on stderr. `Warn` → exit 0 with the reason on stderr (visible in the agent's log). `Allow` → silent pass.
+`Block` on a prompt or before a tool call → hook exits 2 with the reason on stderr; on Copilot's `userPromptSubmitted` that is only a warning. `Block` after a tool call → exit 0, and the tool's output is withheld from the model. `Warn` → exit 0; Claude Code gets a `systemMessage` shown to the user, Copilot gets the reason on stderr. `Allow` → exit 0; Claude Code gets `{}`. Details per host: [Claude Code](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#what-each-action-does), [Copilot](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/copilot#prompt-enforcement).
 
 ### Diagnostics: did the hook fire?
 
@@ -894,7 +899,7 @@ Set `SENTINEL_HOOK_VERBOSE=1` to emit a grep-friendly one-liner to stderr on eve
 [sentinel-hook] event=user-prompt-submit decision=Block detector=SEC-01 severity=Critical session=sess-42
 ```
 
-Useful when wiring the hook for the first time ("did it run?") or when a block was expected but didn't happen. Leave off in steady state — the normal Block/Warn reason is already on stderr.
+Useful when wiring the hook for the first time ("did it run?") or when a block was expected but didn't happen. Leave off in steady state — Block and Warn already report their reason.
 
 ### Audit recording in the CLIs
 
@@ -906,7 +911,7 @@ Useful when wiring the hook for the first time ("did it run?") or when a block w
 | `SENTINEL_HOOK_AUDIT_NDJSON` | `SENTINEL_MCP_AUDIT_NDJSON` | — | A file path; adds an NDJSON copy. Several processes can share one path |
 | `SENTINEL_HOOK_AUDIT_MAX_MB` | `SENTINEL_MCP_AUDIT_MAX_MB` | `100` | Size cap in MB, enforced when the CLI opens the file; `0` means no cap. The CLIs never `VACUUM`, so the file stops growing at about the cap instead of shrinking |
 
-An audit failure never changes a decision. A hook prints it to stderr with the prefix `[sentinel-hook] audit:` only on Allow, or on any decision when `SENTINEL_HOOK_VERBOSE` is set; the MCP proxy logs it as the `audit_unavailable` event.
+An audit failure never changes a decision. `sentinel-hook` prints it to stderr with the prefix `[sentinel-hook] audit:` unless the decision is a Block that exits 2, `sentinel-copilot-hook` only on Allow, and both on any decision when `SENTINEL_HOOK_VERBOSE` is set; the MCP proxy logs it as the `audit_unavailable` event.
 
 ### Native binary (optional, faster cold start)
 
@@ -922,7 +927,7 @@ Replace `win-x64` with `linux-x64`, `osx-arm64`, etc. Output lands under `bin/Re
 
 ### Programmatic use
 
-The underlying libraries (`AI.Sentinel.ClaudeCode` and `AI.Sentinel.Copilot`) expose `HookAdapter` / `CopilotHookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Reference the library packages (not the `.Cli` tool packages) to write your own host integration in C#.
+The underlying libraries (`AI.Sentinel.ClaudeCode` and `AI.Sentinel.Copilot`) expose `HookAdapter` / `CopilotHookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Reference the library packages (not the `.Cli` tool packages) to write your own host integration in C#. Redaction is off in a `HookConfig` or `CopilotHookConfig` you build yourself, so a secret in a tool result still gives `Block` as in 3.0; `FromEnvironment` turns it on as the CLIs do. A host that opts in with `RedactToolResults = true` must deliver `HookOutput.UpdatedToolOutput` on `PostToolUse` instead of the original output.
 
 ---
 

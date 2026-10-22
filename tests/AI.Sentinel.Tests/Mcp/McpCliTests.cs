@@ -219,4 +219,37 @@ public class McpCliTests : McpAuditOffFixtureBase
 
         Assert.Equal(expected, config.EnableComplianceDetectors);
     }
+
+    // SENTINEL_MCP_REDACT turns proxy redaction on or off; unset, it falls back to SENTINEL_HOOK_REDACT, and both
+    // unset leave it on.
+    [Theory]
+    [InlineData("off", "on", false)]
+    [InlineData("on", "off", true)]
+    [InlineData(null, "off", false)]
+    [InlineData(null, null, true)]
+    public void ResolveHookConfig_McpRedactOverridesHookRedact(string? mcp, string? hook, bool expected)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["SENTINEL_MCP_REDACT"] = mcp,
+            ["SENTINEL_HOOK_REDACT"] = hook,
+        };
+
+        var config = ProxyCommand.ResolveHookConfig(["proxy", "--target", "x"], env);
+
+        Assert.Equal(expected, config.RedactToolResults);
+    }
+
+    // SENTINEL_MCP_REDACT_TTL_MIN is a positive number of minutes; anything else keeps the 30-minute default.
+    [Theory]
+    [InlineData("5", 5)]
+    [InlineData("0", 30)]
+    [InlineData("x", 30)]
+    [InlineData(null, 30)]
+    public void ParseRedactionIdleExpiry(string? value, int expectedMinutes)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { ["SENTINEL_MCP_REDACT_TTL_MIN"] = value };
+
+        Assert.Equal(TimeSpan.FromMinutes(expectedMinutes), ProxyCommand.ParseRedactionIdleExpiry(env));
+    }
 }

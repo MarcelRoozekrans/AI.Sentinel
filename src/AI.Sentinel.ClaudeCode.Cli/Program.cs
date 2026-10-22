@@ -78,25 +78,26 @@ public static class Program
         var adapter = new HookAdapter(provider, config);
         var output = await adapter.HandleAsync(evt, input, default).ConfigureAwait(false);
 
-        var outputJson = JsonSerializer.Serialize(output, HookJsonContext.Default.HookOutput);
-        await stdout.WriteAsync(outputJson).ConfigureAwait(false);
+        await WriteWireOutputAsync(stdout, evt, output).ConfigureAwait(false);
 
         if (config.Verbose)
         {
             await EmitVerboseAsync(stderr, "sentinel-hook", args[0], input.SessionId, output).ConfigureAwait(false);
         }
 
-        // On Block and Warn stderr carries the reason fed back to the model, so audit and semantic
-        // diagnostics stay off it. An audit failure never changes the decision.
-        var allowed = output.Decision == HookDecision.Allow;
-        var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || allowed, stderr).ConfigureAwait(false);
-        if (allowed && evt == HookEvent.UserPromptSubmit && !config.SuppressSemanticWarning
+        // Only a Block that exits 2, on UserPromptSubmit or PreToolUse, puts its reason on stderr, which is fed
+        // back to the model, so audit and semantic diagnostics stay off it then. A Warn goes to stdout's
+        // systemMessage and a PostToolUse Block to stdout's decision, so they leave stderr free, as Allow does.
+        // An audit failure never changes the decision.
+        var reasonOnStderr = BlocksWithExitTwo(evt, output);
+        var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || !reasonOnStderr, stderr).ConfigureAwait(false);
+        if (output.Decision == HookDecision.Allow && evt == HookEvent.UserPromptSubmit && !config.SuppressSemanticWarning
             && provider.DescribeInertSemanticDetection() is { } semanticWarning)
         {
             await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
         }
 
-        var exit = await ExitCodeAsync(stderr, output).ConfigureAwait(false);
+        var exit = await ExitCodeAsync(stderr, evt, output).ConfigureAwait(false);
         await CloseAuditAsync(audit, reported, config.Verbose, stderr).ConfigureAwait(false);
         return exit;
     }
@@ -141,13 +142,26 @@ public static class Program
         }
     }
 
-    private static async Task<int> ExitCodeAsync(TextWriter stderr, HookOutput output) =>
-        output.Decision switch
+    /// <summary>Writes the documented Claude Code hook output to stdout; a Block that exits 2 writes none.</summary>
+    private static async Task WriteWireOutputAsync(TextWriter stdout, HookEvent evt, HookOutput output)
+    {
+        if (ClaudeCodeWireOutput.From(evt, output) is { } wire)
         {
-            HookDecision.Block => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 2).ConfigureAwait(false),
-            HookDecision.Warn => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 0).ConfigureAwait(false),
-            _ => 0,
-        };
+            await stdout.WriteAsync(
+                JsonSerializer.Serialize(wire, ClaudeCodeWireJsonContext.Default.ClaudeCodeWireOutput)).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Exit 2 with the reason on stderr for a Block on UserPromptSubmit or PreToolUse, which stops the prompt
+    /// or the tool call. Exit 0 otherwise: a PostToolUse Block and a Warn are carried by stdout, and the tool of a
+    /// PostToolUse has already run.</summary>
+    private static async Task<int> ExitCodeAsync(TextWriter stderr, HookEvent evt, HookOutput output) =>
+        BlocksWithExitTwo(evt, output)
+            ? await WriteReasonAndReturn(stderr, output.Reason, exitCode: 2).ConfigureAwait(false)
+            : 0;
+
+    private static bool BlocksWithExitTwo(HookEvent evt, HookOutput output) =>
+        output.Decision == HookDecision.Block && evt != HookEvent.PostToolUse;
 
     private static async Task<(HookInput? Input, int Exit)> ReadInputAsync(TextReader stdin, TextWriter stderr)
     {

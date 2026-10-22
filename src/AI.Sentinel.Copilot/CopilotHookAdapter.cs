@@ -61,86 +61,201 @@ public sealed class CopilotHookAdapter
     }
 
     /// <summary>Handles a single hook event, returning the decision the Copilot CLI should honour.</summary>
+    /// <remarks>
+    /// On <see cref="CopilotHookEvent.PostToolUse"/> with <see cref="CopilotHookConfig.RedactToolResults"/> on, the
+    /// caller must deliver <see cref="HookOutput.UpdatedToolOutput"/> instead of the original result. A
+    /// <see cref="CopilotHookEvent.UserPromptTransformed"/> prompt is scanned, not redacted, because this method has no
+    /// way to hand a rewritten prompt back: a finding falls back to its severity action.
+    /// </remarks>
     public async Task<HookOutput> HandleAsync(
         CopilotHookEvent evt,
         CopilotHookInput input,
         CancellationToken ct)
+        => (await HandleCoreAsync(evt, input, rewritePrompt: false, ct).ConfigureAwait(false)).Output;
+
+    /// <summary>
+    /// Handles a single hook event, returning the decision and, for <see cref="CopilotHookEvent.UserPromptTransformed"/>,
+    /// the prompt the model should receive instead.
+    /// </summary>
+    /// <remarks>
+    /// <list type="bullet">
+    /// <item>On <see cref="CopilotHookEvent.PostToolUse"/> a <c>toolResult</c> holding <c>textResultForLlm</c> is redacted;
+    /// <see cref="HookOutput.UpdatedToolOutput"/> carries the redacted result. A Block withholds the result, also with
+    /// redaction off: <see cref="HookOutput.UpdatedToolOutput"/> is then the withheld text as a JSON string.</item>
+    /// <item>On <see cref="CopilotHookEvent.UserPromptTransformed"/> the transformed prompt, or the prompt when there is
+    /// none, is redacted, and a Block withholds it, also with redaction off.</item>
+    /// <item>Every other event keeps the scan and its fallback.</item>
+    /// </list>
+    /// </remarks>
+    internal Task<CopilotHookResult> HandleForCliAsync(
+        CopilotHookEvent evt,
+        CopilotHookInput input,
+        CancellationToken ct)
+        => HandleCoreAsync(evt, input, rewritePrompt: true, ct);
+
+    /// <summary>Handles a hook event. <paramref name="rewritePrompt"/> is true when the caller delivers
+    /// <see cref="CopilotHookResult.ModifiedTransformedPrompt"/>; without it the transformed prompt is only scanned, so
+    /// nothing is audited as redacted that never reaches the model.</summary>
+    private async Task<CopilotHookResult> HandleCoreAsync(
+        CopilotHookEvent evt,
+        CopilotHookInput input,
+        bool rewritePrompt,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(input);
 
-        if (evt == CopilotHookEvent.PreToolUse && _guard is not null && !string.IsNullOrEmpty(input.ToolName))
+        // A hook configured with a PascalCase event name sends snake_case fields; read them as their camelCase names.
+        input = input.WithVsCodeAliases();
+
+        if (evt == CopilotHookEvent.PreToolUse && await AuthorizeAsync(input, ct).ConfigureAwait(false) is { } unauthorized)
         {
-            var caller = _config.CallerContextProvider?.Invoke(input) ?? AnonymousSecurityContext.Instance;
-            var args = input.ToolInput ?? EmptyJsonObject;
-            var decision = await _guard.AuthorizeAsync(caller, input.ToolName, args, ct).ConfigureAwait(false);
-            if (!decision.Allowed)
+            return new CopilotHookResult(unauthorized, null);
+        }
+
+        // A redaction placeholder written into a file or a command would replace the real value there. Denied
+        // without an audit entry: nothing was detected, and the call never runs. toolArgs sent as a JSON string is
+        // parsed first, so the guard walks the same shape either way. The VS Code compatible payload gives a tool its
+        // Claude name when it has one and keeps its Copilot name otherwise, so it is checked against both lists.
+        var guardedTools = input.UsesClaudeToolNames ? PlaceholderGuard.CopilotVsCodeTools : PlaceholderGuard.CopilotTools;
+        if (evt == CopilotHookEvent.PreToolUse && _config.RedactToolResults
+            && PlaceholderGuard.Check(input.ToolName, input.GuardToolArgs(default), guardedTools) is { } denied)
+        {
+            return new CopilotHookResult(denied, null);
+        }
+
+        return evt switch
+        {
+            CopilotHookEvent.PostToolUse => new CopilotHookResult(
+                await ScanToolResultAsync(input, ct).ConfigureAwait(false),
+                null,
+                input.ToolResult is { } original ? CopilotToolResult.ResultType(original) : null),
+            CopilotHookEvent.UserPromptTransformed when rewritePrompt => await ScanTransformedPromptAsync(input, ct).ConfigureAwait(false),
+            _ => new CopilotHookResult(
+                await HookPipelineRunner.RunAsync(_provider, _config.ToSharedConfig(), BuildMessages(evt, input), input.SessionId, ct).ConfigureAwait(false),
+                null),
+        };
+    }
+
+    /// <summary>Redacts a <c>toolResult</c> that holds <c>textResultForLlm</c>, the only shape Copilot's
+    /// <c>modifiedResult</c> can carry back; any other result, and every result with redaction off, keeps the scan
+    /// and its fallback. A Block withholds the result either way.</summary>
+    private async Task<HookOutput> ScanToolResultAsync(CopilotHookInput input, CancellationToken ct)
+    {
+        var shared = _config.ToSharedConfig();
+        var output = _config.RedactToolResults && input.ToolResult is { } toolResult && CopilotToolResult.TextForLlm(toolResult) is not null
+            ? await HookPipelineRunner.RunToolResultAsync(
+                _provider, shared, [ToolCallMessage(input)], toolResult, input.SessionId, ct).ConfigureAwait(false)
+            : await HookPipelineRunner.RunAsync(
+                _provider, shared, BuildMessages(CopilotHookEvent.PostToolUse, input), input.SessionId, ct).ConfigureAwait(false);
+
+        // The tool already ran, so replacing its result is the only way to keep it from the model. modifiedResult
+        // carries text only, so the withheld body is the withheld text itself.
+        return output.Decision == HookDecision.Block
+            ? output with { UpdatedToolOutput = HookPipelineRunner.JsonString(HookPipelineRunner.WithheldText(output.Reason)) }
+            : output;
+    }
+
+    /// <summary>Redacts the transformed prompt, or the prompt when Copilot sent no transformed one. With redaction off
+    /// the prompt is scanned as it is, and a Block still withholds it: exit code 2 is only a warning on this event.</summary>
+    private async Task<CopilotHookResult> ScanTransformedPromptAsync(CopilotHookInput input, CancellationToken ct)
+    {
+        var shared = _config.ToSharedConfig();
+        var prompt = TransformedPrompt(input);
+        if (_config.RedactToolResults)
+        {
+            var (redacted, rewritten) = await HookPipelineRunner.RunPromptAsync(
+                _provider, shared, prompt, input.SessionId, ct).ConfigureAwait(false);
+            return new CopilotHookResult(redacted, rewritten);
+        }
+
+        var output = await HookPipelineRunner.RunAsync(
+            _provider, shared, [new ChatMessage(ChatRole.User, prompt)], input.SessionId, ct).ConfigureAwait(false);
+        return new CopilotHookResult(
+            output, output.Decision == HookDecision.Block ? HookPipelineRunner.WithheldText(output.Reason) : null);
+    }
+
+    /// <summary>Asks the <see cref="IToolCallGuard"/>, when one is registered, whether the tool call may run. A Block
+    /// with the denial or approval receipt when it may not, audited as AUTHZ-DENY; otherwise <see langword="null"/>.</summary>
+    private async Task<HookOutput?> AuthorizeAsync(CopilotHookInput input, CancellationToken ct)
+    {
+        if (_guard is null || string.IsNullOrEmpty(input.ToolName))
+        {
+            return null;
+        }
+
+        var caller = _config.CallerContextProvider?.Invoke(input) ?? AnonymousSecurityContext.Instance;
+        var args = input.GuardToolArgs(EmptyJsonObject);
+        var decision = await _guard.AuthorizeAsync(caller, input.ToolName, args, ct).ConfigureAwait(false);
+        if (!decision.Allowed)
+        {
+            // RequireApproval: surface the receipt so the operator can find and approve the
+            // pending request out of band, then retry. Audit as AUTHZ-DENY with the request id
+            // so log readers can correlate Sentinel decisions with PIM activations.
+            if (decision is AuthorizationDecision.RequireApprovalDecision r)
             {
-                // RequireApproval: surface the receipt so the operator can find and approve the
-                // pending request out of band, then retry. Audit as AUTHZ-DENY with the request id
-                // so log readers can correlate Sentinel decisions with PIM activations.
-                if (decision is AuthorizationDecision.RequireApprovalDecision r)
-                {
-                    if (_audit is not null)
-                    {
-                        var approvalEntry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
-                            sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
-                            receiver: new AgentId(input.ToolName),
-                            session: new SessionId(string.IsNullOrWhiteSpace(input.SessionId) ? Guid.NewGuid().ToString("N") : input.SessionId),
-                            callerId: caller.Id,
-                            roles: caller.Roles,
-                            toolName: input.ToolName,
-                            policyName: r.PolicyName,
-                            reason: $"approval required (requestId={r.RequestId})",
-                            policyCode: SentinelDenyCodes.ApprovalRequired);
-                        await _audit.AppendAndForwardAsync(approvalEntry, _forwarders, ct).ConfigureAwait(false);
-                    }
-
-                    return new HookOutput { Decision = HookDecision.Block, Reason = ApprovalReceipt.Format(input.ToolName, r) };
-                }
-
-                var deny = decision as AuthorizationDecision.DenyDecision;  // defensive `??` below — see AuthorizationChatClient.AuditDenyAsync
-                var policyName = deny?.PolicyName ?? "?";
-                var denyReason = deny?.Reason ?? "?";
-                var denyCode = deny?.Code ?? SentinelDenyCodes.PolicyDenied;
-
                 if (_audit is not null)
                 {
-                    var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+                    var approvalEntry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
                         sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
                         receiver: new AgentId(input.ToolName),
                         session: new SessionId(string.IsNullOrWhiteSpace(input.SessionId) ? Guid.NewGuid().ToString("N") : input.SessionId),
                         callerId: caller.Id,
                         roles: caller.Roles,
                         toolName: input.ToolName,
-                        policyName: policyName,
-                        reason: denyReason,
-                        policyCode: denyCode);
-                    await _audit.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
+                        policyName: r.PolicyName,
+                        reason: $"approval required (requestId={r.RequestId})",
+                        policyCode: SentinelDenyCodes.ApprovalRequired);
+                    await _audit.AppendAndForwardAsync(approvalEntry, _forwarders, ct).ConfigureAwait(false);
                 }
 
-                var reason = $"Authorization denied [{denyCode}] by policy '{policyName}': {denyReason}";
-                return new HookOutput { Decision = HookDecision.Block, Reason = reason };
+                return new HookOutput { Decision = HookDecision.Block, Reason = ApprovalReceipt.Format(input.ToolName, r) };
             }
+
+            var deny = decision as AuthorizationDecision.DenyDecision;  // defensive `??` below — see AuthorizationChatClient.AuditDenyAsync
+            var policyName = deny?.PolicyName ?? "?";
+            var denyReason = deny?.Reason ?? "?";
+            var denyCode = deny?.Code ?? SentinelDenyCodes.PolicyDenied;
+
+            if (_audit is not null)
+            {
+                var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
+                    sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
+                    receiver: new AgentId(input.ToolName),
+                    session: new SessionId(string.IsNullOrWhiteSpace(input.SessionId) ? Guid.NewGuid().ToString("N") : input.SessionId),
+                    callerId: caller.Id,
+                    roles: caller.Roles,
+                    toolName: input.ToolName,
+                    policyName: policyName,
+                    reason: denyReason,
+                    policyCode: denyCode);
+                await _audit.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
+            }
+
+            var reason = $"Authorization denied [{denyCode}] by policy '{policyName}': {denyReason}";
+            return new HookOutput { Decision = HookDecision.Block, Reason = reason };
         }
 
-        var messages = BuildMessages(evt, input);
-        return await HookPipelineRunner.RunAsync(_provider, _config.ToSharedConfig(), messages, input.SessionId, ct).ConfigureAwait(false);
+        return null;
     }
+
+    /// <summary>The transformed prompt, or the prompt when Copilot sent no transformed one.</summary>
+    private static string TransformedPrompt(CopilotHookInput input) => input.TransformedPrompt ?? input.Prompt ?? "";
+
+    private static ChatMessage ToolCallMessage(CopilotHookInput input) =>
+        new(ChatRole.User, $"tool:{input.ToolName} input:{input.ToolArgsText()}");
 
     private static IReadOnlyList<ChatMessage> BuildMessages(
         CopilotHookEvent evt,
         CopilotHookInput input) => evt switch
         {
             CopilotHookEvent.UserPromptSubmitted => [new ChatMessage(ChatRole.User, input.Prompt ?? "")],
-            CopilotHookEvent.PreToolUse => [new ChatMessage(ChatRole.User,
-            $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}")],
+            CopilotHookEvent.UserPromptTransformed => [new ChatMessage(ChatRole.User, TransformedPrompt(input))],
+            CopilotHookEvent.PreToolUse => [ToolCallMessage(input)],
             CopilotHookEvent.PostToolUse =>
             [
-                new ChatMessage(ChatRole.User,
-                $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}"),
-            new ChatMessage(ChatRole.Assistant,
-                input.ToolResponse?.GetRawText() ?? ""),
-        ],
+                ToolCallMessage(input),
+                new ChatMessage(ChatRole.Assistant, input.ToolResultText()),
+            ],
             _ => throw new ArgumentOutOfRangeException(nameof(evt)),
         };
 }

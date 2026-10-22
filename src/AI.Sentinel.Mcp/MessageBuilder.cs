@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
+using AI.Sentinel.Redaction;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Protocol;
 
@@ -77,6 +78,102 @@ internal static class MessageBuilder
             return [];
         }
         return [new ChatMessage(ChatRole.Assistant, flattened)];
+    }
+
+    /// <summary>
+    /// Collects the content of a tool result that the proxy can redact: what
+    /// <see cref="CollectRedactable(IList{ContentBlock}, int, HashSet{string})"/> collects from its blocks, then
+    /// <see cref="CallToolResult.StructuredContent"/> as JSON, whose <c>Apply</c> writes the redacted JSON back into
+    /// <paramref name="result"/>. The structured content draws on the same <paramref name="maxScanBytes"/> budget,
+    /// after the blocks.
+    /// </summary>
+    public static (List<HostContent> Content, List<Action<HostContent>> Apply, List<ChatMessage> Oversize) CollectRedactable(
+        CallToolResult result, int maxScanBytes, HashSet<string> allowedMimes)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(allowedMimes);
+
+        var collector = new RedactableCollector(maxScanBytes);
+        collector.AddBlocks(result.Content, allowedMimes);
+        if (result.StructuredContent is { ValueKind: not (JsonValueKind.Undefined or JsonValueKind.Null) } json)
+        {
+            collector.Add(json.GetRawText(), HostContent.FromJson(json), redacted => result.StructuredContent = redacted.Json!.Value);
+        }
+        return collector.ToTuple();
+    }
+
+    /// <summary>
+    /// Collects the content blocks the proxy can redact: the text of each <see cref="TextContentBlock"/>, and the
+    /// text of each <see cref="EmbeddedResourceBlock"/> holding a <see cref="TextResourceContents"/> whose MIME type
+    /// is in <paramref name="allowedMimes"/>.
+    /// </summary>
+    /// <param name="blocks">The content blocks, changed in place by <c>Apply</c>.</param>
+    /// <param name="maxScanBytes">The total UTF-8 budget of the scan, as in 3.0. Items are taken in order while they
+    /// fit in what is left. The first item that does not fit goes to <c>Oversize</c>, truncated to what is left, and
+    /// is not redacted; items after it are neither redacted nor scanned, as the 3.0 truncation dropped them.</param>
+    /// <param name="allowedMimes">The MIME allowlist of <see cref="ResourceReadInterceptor.ParseMimeAllowlist"/>.</param>
+    /// <returns><c>Apply[i]</c> writes the redacted <c>Content[i]</c> back. Images, audio, blobs, resource links,
+    /// non-allowlisted and empty items are left out and stay as they are.</returns>
+    public static (List<HostContent> Content, List<Action<HostContent>> Apply, List<ChatMessage> Oversize) CollectRedactable(
+        IList<ContentBlock>? blocks, int maxScanBytes, HashSet<string> allowedMimes)
+    {
+        ArgumentNullException.ThrowIfNull(allowedMimes);
+
+        var collector = new RedactableCollector(maxScanBytes);
+        collector.AddBlocks(blocks, allowedMimes);
+        return collector.ToTuple();
+    }
+
+    /// <summary>Collects redactable items against one running byte budget.</summary>
+    private sealed class RedactableCollector(int maxScanBytes)
+    {
+        private readonly List<HostContent> _content = [];
+        private readonly List<Action<HostContent>> _apply = [];
+        private readonly List<ChatMessage> _oversize = [];
+        private int _remaining = Math.Max(maxScanBytes, 0);
+
+        public void AddBlocks(IList<ContentBlock>? blocks, HashSet<string> allowedMimes)
+        {
+            if (blocks is null) return;
+
+            foreach (var block in blocks)
+            {
+                switch (block)
+                {
+                    case TextContentBlock text when !string.IsNullOrEmpty(text.Text):
+                        Add(text.Text, HostContent.FromText(text.Text), redacted => text.Text = redacted.Text!);
+                        break;
+                    case EmbeddedResourceBlock { Resource: TextResourceContents resource }
+                        when !string.IsNullOrEmpty(resource.Text) && ResourceReadInterceptor.IsAllowedMime(resource.MimeType, allowedMimes):
+                        Add(resource.Text, HostContent.FromText(resource.Text), redacted => resource.Text = redacted.Text!);
+                        break;
+                }
+            }
+        }
+
+        /// <summary>Takes <paramref name="item"/> when <paramref name="text"/> fits in what is left of the budget.
+        /// Otherwise the text is truncated to what is left and scanned unredacted, or dropped when nothing is left,
+        /// and the budget is spent.</summary>
+        public void Add(string text, HostContent item, Action<HostContent> write)
+        {
+            var bytes = Encoding.UTF8.GetByteCount(text);
+            if (bytes <= _remaining)
+            {
+                _content.Add(item);
+                _apply.Add(write);
+                _remaining -= bytes;
+                return;
+            }
+
+            if (_remaining > 0)
+            {
+                _oversize.Add(new ChatMessage(ChatRole.Assistant, TruncateIfNeeded(text, _remaining)));
+            }
+            _remaining = 0;
+        }
+
+        public (List<HostContent> Content, List<Action<HostContent>> Apply, List<ChatMessage> Oversize) ToTuple()
+            => (_content, _apply, _oversize);
     }
 
     private static string SerializeArguments(IDictionary<string, JsonElement>? args, int maxScanBytes)

@@ -17,7 +17,7 @@ This page lists, article by article, what AI.Sentinel provides, what is active b
 | Article | Requirement | Active by default |
 |---|---|---|
 | [Art. 5](#art-5-prohibited-practices) | Prohibited practices | ❌ none: the four detectors are opt-in |
-| [Art. 10](#art-10-data-and-data-governance) | Data and data governance | ⚠️ partial: PII and credential redaction in the in-process client |
+| [Art. 10](#art-10-data-and-data-governance) | Data and data governance | ⚠️ partial: PII and credential redaction, with limits in the hook CLIs and the MCP proxy |
 | [Art. 12](#art-12-record-keeping) | Record-keeping | ⚠️ partial: hash-chained, durable in the CLIs, in memory in an app |
 | [Art. 14](#art-14-human-oversight) | Human oversight | ❌ none: every tool call is allowed until policies or approvals are configured |
 | [Art. 15](#art-15-accuracy-robustness-and-cybersecurity) | Accuracy, robustness and cybersecurity | ⚠️ partial: the rule-based detectors |
@@ -45,7 +45,7 @@ Once enabled, a strong match in an `AddAISentinel()` app is `High`, so the defau
 
 **Limits.**
 
-- Redaction applies to the in-process chat client. The hook CLIs and the MCP proxy do not redact yet ([#364](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/364)); there a PII or credential finding falls back to the action of its severity.
+- The hook CLIs and the MCP proxy redact tool results, and the MCP proxy also prompts and resources, but they cannot redact everything ([per surface](./redaction#per-surface)). Tool-call arguments are not redacted, and neither is the prompt on Claude Code `UserPromptSubmit` or Copilot `userPromptSubmitted`. Prompt redaction through Copilot `userPromptTransformed` is experimental. Where they cannot redact, a PII or credential finding falls back to the action of its severity.
 - The response scan cannot redact either, since redaction only applies to what goes to the model.
 - These detectors keep values away from the model. They do not make a system's training, validation and test data compliant, which is what Art. 10 is mainly about.
 

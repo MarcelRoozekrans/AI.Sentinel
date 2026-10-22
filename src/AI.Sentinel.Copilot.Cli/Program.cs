@@ -45,7 +45,7 @@ public static class Program
     {
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
-            await stderr.WriteAsync("Usage: sentinel-copilot-hook <user-prompt-submitted|pre-tool-use|post-tool-use>\n").ConfigureAwait(false);
+            await stderr.WriteAsync("Usage: sentinel-copilot-hook <user-prompt-submitted|user-prompt-transformed|pre-tool-use|post-tool-use>\n").ConfigureAwait(false);
             return 1;
         }
 
@@ -77,9 +77,10 @@ public static class Program
         await using var _ = provider.ConfigureAwait(false);
 
         var adapter = new CopilotHookAdapter(provider, config);
-        var output = await adapter.HandleAsync(evt, input, default).ConfigureAwait(false);
+        var result = await adapter.HandleForCliAsync(evt, input, default).ConfigureAwait(false);
+        var output = result.Output;
 
-        var outputJson = JsonSerializer.Serialize(output, CopilotHookJsonContext.Default.HookOutput);
+        var outputJson = JsonSerializer.Serialize(CopilotWireOutput.From(evt, result), CopilotWireJsonContext.Default.CopilotWireOutput);
         await stdout.WriteAsync(outputJson).ConfigureAwait(false);
 
         if (config.Verbose)
@@ -91,13 +92,13 @@ public static class Program
         // diagnostics stay off it. An audit failure never changes the decision.
         var allowed = output.Decision == HookDecision.Allow;
         var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || allowed, stderr).ConfigureAwait(false);
-        if (allowed && evt == CopilotHookEvent.UserPromptSubmitted && !config.SuppressSemanticWarning
+        if (allowed && evt is (CopilotHookEvent.UserPromptSubmitted or CopilotHookEvent.UserPromptTransformed) && !config.SuppressSemanticWarning
             && provider.DescribeInertSemanticDetection() is { } semanticWarning)
         {
             await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
         }
 
-        var exit = await ExitCodeAsync(stderr, output).ConfigureAwait(false);
+        var exit = await ExitCodeAsync(stderr, evt, output).ConfigureAwait(false);
         await CloseAuditAsync(audit, reported, config.Verbose, stderr).ConfigureAwait(false);
         return exit;
     }
@@ -142,10 +143,19 @@ public static class Program
         }
     }
 
-    private static async Task<int> ExitCodeAsync(TextWriter stderr, HookOutput output) =>
+    /// <summary>
+    /// A Block exits 2 on userPromptSubmitted and preToolUse. On preToolUse exit 2 denies the call. On userPromptSubmitted
+    /// it is advisory: Copilot treats it as a warning and drops a command hook's output, so the prompt still reaches the
+    /// model; enforcing on the prompt needs the user-prompt-transformed hook. On postToolUse and userPromptTransformed a
+    /// Block exits 0: Copilot parses stdout only on exit 0, where <c>modifiedResult</c> or
+    /// <c>modifiedTransformedPrompt</c> withholds the content, and exit 2 there is only a warning. The reason goes to
+    /// stderr in every non-Allow case.
+    /// </summary>
+    private static async Task<int> ExitCodeAsync(TextWriter stderr, CopilotHookEvent evt, HookOutput output) =>
         output.Decision switch
         {
-            HookDecision.Block => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 2).ConfigureAwait(false),
+            HookDecision.Block => await WriteReasonAndReturn(
+                stderr, output.Reason, exitCode: evt is CopilotHookEvent.PostToolUse or CopilotHookEvent.UserPromptTransformed ? 0 : 2).ConfigureAwait(false),
             HookDecision.Warn => await WriteReasonAndReturn(stderr, output.Reason, exitCode: 0).ConfigureAwait(false),
             _ => 0,
         };
@@ -157,7 +167,7 @@ public static class Program
             var json = await stdin.ReadToEndAsync().ConfigureAwait(false);
             var input = JsonSerializer.Deserialize(json, CopilotHookJsonContext.Default.CopilotHookInput)
                 ?? throw new InvalidDataException("Empty input.");
-            return (input, 0);
+            return (input.WithVsCodeAliases(), 0);
         }
         catch (JsonException ex)
         {
@@ -313,6 +323,7 @@ public static class Program
         switch (arg)
         {
             case "user-prompt-submitted": evt = CopilotHookEvent.UserPromptSubmitted; return true;
+            case "user-prompt-transformed": evt = CopilotHookEvent.UserPromptTransformed; return true;
             case "pre-tool-use": evt = CopilotHookEvent.PreToolUse; return true;
             case "post-tool-use": evt = CopilotHookEvent.PostToolUse; return true;
             default: return false;

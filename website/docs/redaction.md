@@ -27,7 +27,7 @@ These detection changes apply in 3.0 whatever `RedactByDefault` is set to, and o
 - `CredentialExposureDetector` matches quoted keys and values, such as `"password": "hunter2"`, a private key of any PEM type (`EC`, `OPENSSH`, `ENCRYPTED` and so on, not only `RSA`), `AWS_SECRET_ACCESS_KEY:` as well as `AWS_SECRET_ACCESS_KEY=`, and a quoted YAML value on the line after its key. An unquoted value on the next line no longer matches.
 - A credential reason names the type only, such as `Credential exposure: API_KEY`. Before 3.0 it quoted the first 20 characters of the match, part of the secret.
 
-So if Medium findings block in your setup, a prompt or reply that contains any email address is now blocked: with `RedactByDefault = false` and `OnMedium = Quarantine` in an app, and with `SENTINEL_HOOK_ON_MEDIUM=Block` or `SENTINEL_MCP_ON_MEDIUM=Block` in the hook CLIs and the MCP proxy, which cannot redact in 3.0. With redaction on, the response scan still flags an email address the model writes itself.
+So if Medium findings block in your setup, a prompt or reply that contains any email address is now blocked: with `RedactByDefault = false` and `OnMedium = Quarantine` in an app, and with `SENTINEL_HOOK_ON_MEDIUM=Block` or `SENTINEL_MCP_ON_MEDIUM=Block` wherever the hook CLIs and the MCP proxy cannot redact, such as a Claude Code prompt or the arguments of a tool call. See [Per surface](#per-surface). With redaction on, the response scan still flags an email address the model writes itself.
 
 There is no option that brings back the 2.x patterns. In an app you can stop the wider matches from blocking with a setting for the detector itself; each applies to every type of personal data it finds, not only email addresses:
 
@@ -80,13 +80,70 @@ Not only the latest prompt. Without this, a value restored for one turn would go
 - the text of every message in every role, including the system message and earlier turns in the history;
 - `ChatOptions.Instructions`, which providers send as a system prompt. It is redacted in a copy of your options, which are never changed;
 - tool-call arguments and tool results: strings, JSON, `AIContent` and serialized objects, including the results of tools the model calls during the call;
-- the call inside a tool approval request or response, and the reason of an approval response;
+- hosted tool calls and their results: the arguments of an MCP server tool call (`McpServerToolCallContent`), the code of a code interpreter call, the queries of a web search call, and the outputs of their results;
+- the tool call inside a tool approval request or response, including a hosted call, and the reason of an approval response;
 - reasoning text;
 - attachments of a text type: `text/*`, JSON, XML and any `+json` or `+xml` type, NDJSON, YAML, JavaScript and form data.
 
-Not redacted: binary attachments such as images, audio and PDF files, content referenced by URI, hosted tool content such as `McpServerToolCallContent` or code interpreter calls, tool definitions, and the other `ChatOptions` fields such as `AdditionalProperties`. Keep personal data out of those.
+Not redacted: binary attachments such as images, audio and PDF files, content referenced by URI, image generation calls, which carry no text, tool definitions, and the other `ChatOptions` fields such as `AdditionalProperties`. Keep personal data out of those.
+
+## Per surface
+
+The in-process chat client sees the whole conversation and rewrites it. The hook CLIs and the MCP proxy can only rewrite what their host lets them rewrite, so each surface redacts a different part. Redaction is on by default in the hook CLIs and the MCP proxy. `SENTINEL_HOOK_REDACT=off` turns it off in the hook CLIs, and `SENTINEL_MCP_REDACT=off` turns it off in the MCP proxy. Unset, the proxy follows `SENTINEL_HOOK_REDACT`. A host that calls `HookAdapter` or `CopilotHookAdapter` from the libraries opts in with `RedactToolResults = true`; see [Library callers](#library-callers).
+
+| Surface | What is redacted | Restored | Falls back |
+|---|---|---|---|
+| In-process client | Everything listed under [What is redacted](#what-is-redacted) | The reply, tool results, and PII in tool-call arguments; secrets never in tool calls | The response scan, and a detector that flags text without spans |
+| MCP proxy | Tool results, prompts from `prompts/get`, and text resources from `resources/read` | PII placeholders in the arguments of a later `tools/call`, until `SENTINEL_MCP_REDACT_TTL_MIN` minutes after their last use, 30 by default; secrets never | Tool-call arguments, blob and non-allowlisted resources, content past the byte budget, and values recognised only by their JSON key ([#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428)). A rate-limited scan or a pipeline error forwards the content unredacted |
+| Claude Code `PostToolUse` | The tool output, returned as `updatedToolOutput` | No: the model keeps the placeholders | Values recognised only by their JSON key, such as `{"password":"hunter2"}` ([#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428)) |
+| Claude Code `PreToolUse` | Nothing. The [placeholder guard](#placeholder-guard) denies writes and shell commands that carry a placeholder | No | The tool arguments |
+| Claude Code `UserPromptSubmit` | Nothing | No | The prompt |
+| Copilot `postToolUse` | The tool result's `textResultForLlm`, returned as `modifiedResult` | No | A tool result without a string `textResultForLlm`, and values recognised only by their JSON key ([#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428)) |
+| Copilot `userPromptTransformed` | The transformed prompt, returned as `modifiedTransformedPrompt`. **Experimental**: not yet verified with the Copilot CLI | No | Nothing on the prompt itself |
+| Copilot `preToolUse` | Nothing. The [placeholder guard](#placeholder-guard) applies | No | The tool arguments |
+| Copilot `userPromptSubmitted` | Nothing | No | The prompt |
+
+"Falls back" means the detection uses the action of its severity, as described under [Fallback](#fallback). On every surface except the in-process client, a failure of the redaction itself also falls back; see [Fail closed](#fail-closed).
+
+When the hook CLIs and the MCP proxy redact JSON, such as a tool's output or `structuredContent`, they redact string values only, each on its own. Two cases fall back:
+
+- **Personal data inside a JSON key** is scanned but not redacted, because renaming a key would break the shape of the JSON.
+- **A value recognised only by its key** is not redacted either. A secret detector that needs the key to recognise a value, as in `{"password":"hunter2"}`, flags the pair, but the value `hunter2` on its own matches nothing, so no span is found and the finding uses the action of its severity. A secret finding usually blocks, so on a hook the output is withheld rather than redacted. Key-aware JSON redaction is tracked in [#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428).
+
+### MCP proxy
+
+- **What is scanned.** With redaction on, the proxy redacts the text blocks of a tool result, embedded text resources whose MIME type is in `SENTINEL_MCP_SCAN_MIMES`, and the tool result's `structuredContent`. 3.0 did not scan embedded resources or `structuredContent` at all, so these can produce findings that 3.0 did not. A value that appears in both `structuredContent` and a text block is counted once per occurrence in the `REDACTED` summary.
+- **The byte budget.** `SENTINEL_MCP_MAX_SCAN_BYTES` limits each block and is also the total budget for one scan of a tool result or prompt. The first item that does not fit in what is left is scanned truncated and is not redacted. The items after it pass unredacted and unscanned, as 3.0's truncation passed them unscanned. Resource items are budgeted one by one, and an oversize item is skipped, as in 3.0.
+- **Restoring into tool calls.** When the agent calls a tool with a PII placeholder the proxy minted earlier in the same run, the tool gets the real value. A placeholder stays restorable until `SENTINEL_MCP_REDACT_TTL_MIN` minutes after its last use, 30 by default. The proxy holds up to 10,000 placeholders and evicts the least recently used. An expired or evicted placeholder reaches the tool as literal text. Secrets are never restored: the tool gets the placeholder.
+- **Restored values are not scanned.** The request scan judges the arguments as the agent sent them, with placeholders. A restored email address sent to an outbound tool is therefore not flagged by the PII detector on the way out. An [authorization policy](./authorization/overview) sees the restored arguments and is the control for outbound tools.
+- **Approvals store real values.** With `RequireApproval`, the approval store, SQLite included, keeps the restored real arguments, so an approver judges the actual call.
+- **Only `tools/call` is restored.** A placeholder in the arguments of `prompts/get` or in a resource URI stays literal text.
+- **Fallbacks.** When a scan is rate limited, or the pipeline throws, the content is forwarded unredacted, as 3.0 forwarded it unscanned. The rate-limited case is logged with `reason=rate_limited`.
+
+### Hook CLIs
+
+- **Claude Code** gets the redacted tool output as `updatedToolOutput`, with an `additionalContext` note that names the redacted types and tells the model not to write placeholders to files or commands. See [Claude Code → What each action does](./integrations/claude-code#what-each-action-does).
+- **Copilot** gets the redacted text as `modifiedResult`. With redaction on, a secret or personal data in a Copilot tool result is now redacted and allowed, where it used to be blocked. With `SENTINEL_HOOK_REDACT=off` it is still blocked, as before.
+- **Prompts are not redacted on Claude Code or on Copilot's `userPromptSubmitted`,** because neither lets a command hook rewrite the prompt. Copilot's `userPromptTransformed` can, and is experimental. See [Copilot → Prompt enforcement](./integrations/copilot#prompt-enforcement).
+- **Withheld output.** When a `PostToolUse` scan blocks, on both hosts and also with redaction off, the output is withheld rather than delivered. For Claude Code, the withheld output keeps the shape of the tool's `tool_response`: identifier-like `type` values and empty strings are kept, and every other string becomes `withheld by AI.Sentinel: <reason>`. Claude Code rejects an output whose `type` changed and then shows the original, which is why `type` is kept. Copilot gets a `modifiedResult` with the withheld text. Copilot requires `resultType: "success"` on a `modifiedResult`, so a result whose original `resultType` was something else, such as `failure`, keeps that status as a prefix of the text: `[failure] withheld by AI.Sentinel: <reason>`. A redacted result is prefixed the same way.
+- **No restore.** A hook process runs once per event and keeps no mapping, so the model works with placeholders for the rest of the session.
+
+### Library callers
+
+A `HookConfig` or `CopilotHookConfig` you build yourself, including the default one, has `RedactToolResults` off, so `HookAdapter.HandleAsync` and `CopilotHookAdapter.HandleAsync` keep the 3.0 behaviour: a secret in a tool result gives the severity decision, `Block` by default. `FromEnvironment` turns redaction on, as the CLIs do, unless `SENTINEL_HOOK_REDACT` is off. A caller that sets `RedactToolResults = true` gets `Allow` with `HookOutput.UpdatedToolOutput` for a redacted tool result and must deliver that output instead of the original. `CopilotHookAdapter.HandleAsync` scans a `userPromptTransformed` prompt without redacting it, because it cannot return a rewritten prompt.
+
+### Placeholder guard
+
+Because the hook CLIs cannot restore a placeholder, a placeholder written into a file or a command would replace the real value. The guard denies such calls on `PreToolUse`:
+
+- on Claude Code, a `Write`, `Edit`, `MultiEdit`, `NotebookEdit` or `Bash` call;
+- on Copilot, a `create`, `edit`, `str_replace_editor`, `apply_patch`, `bash`, `powershell`, `write_bash` or `write_powershell` call;
+
+whose input contains text of the exact placeholder shape, such as `[EMAIL_1_k3f9x2]`. The guard does not know which placeholders were minted, so ordinary text of that shape is denied too. The deny reason is fixed text and never echoes the input. `SENTINEL_HOOK_REDACT=off` disables the guard.
 
 ## Restoring
+
+This section describes the in-process client. For the MCP proxy, see [Per surface → MCP proxy](#mcp-proxy).
 
 The response scan runs on the reply as the model produced it, still with placeholders. Restoring happens afterwards, so restored values never trigger a response detection.
 
@@ -97,6 +154,7 @@ The response scan runs on the reply as the model produced it, still with placeho
 | Tool-call arguments for PII | Yes, before the tool runs |
 | Tool-call arguments for secrets | **Never** |
 | The call in a tool approval request | PII yes, secrets **never**, because the call runs once approved |
+| Hosted tool calls and their results | As tool-call arguments and tool results |
 
 Streaming works the same way. A placeholder split across chunks (`[EMA` + `IL_1_k3f9x2]`) is handled.
 
@@ -152,16 +210,23 @@ If any detection's effective action is `Quarantine`, the call is quarantined and
 When redaction is not possible, the detection uses the action of its severity, as before, and its audit summary ends with `; not redacted`. That happens:
 
 - in the **response scan**, because redaction only applies to what goes to the model;
-- in the **hook CLIs and the MCP proxy** in 3.0, which cannot rewrite the request;
+- for **tool-call arguments** in the hook CLIs and the MCP proxy, which judge a call before it runs and cannot rewrite it;
+- for the **prompt** on Claude Code `UserPromptSubmit` and Copilot `userPromptSubmitted`, where a command hook cannot rewrite it. Copilot's `userPromptTransformed` can, and is experimental;
+- for **MCP content the proxy does not redact**: blob resources, resources whose MIME type is not allowlisted, and content past `SENTINEL_MCP_MAX_SCAN_BYTES`;
+- for **personal data in a JSON key** on the hook CLIs and the MCP proxy;
 - when a detector **flags text without spans**.
 
 ## Fail closed
 
-If redaction itself fails, the call fails with a pipeline failure. AI.Sentinel never sends unredacted text because redaction broke.
+In the in-process client, if redaction itself fails, the call fails with a pipeline failure. AI.Sentinel never sends unredacted text there because redaction broke.
+
+The hook CLIs and the MCP proxy cannot fail the host's call, so when redaction fails there, the content is scanned unredacted, as in 3.0, and the detections fall back with `; not redacted`. The exception is not kept, because its message can carry the value.
 
 ## The mapping is never stored
 
-The placeholder to value mapping lives in memory for one `GetResponseAsync` or `GetStreamingResponseAsync` call. It is never logged, audited, forwarded or put in an exception, and it is not shared across calls. Every request is redacted afresh from your history, which holds the real values, with a new tag, so a placeholder from an earlier turn is text in a later one.
+In the in-process client, the placeholder to value mapping lives in memory for one `GetResponseAsync` or `GetStreamingResponseAsync` call. It is never logged, audited, forwarded or put in an exception, and it is not shared across calls. Every request is redacted afresh from your history, which holds the real values, with a new tag, so a placeholder from an earlier turn is text in a later one.
+
+The MCP proxy keeps the PII placeholders it minted in memory for the run, so it can [restore them into later tool calls](#mcp-proxy). It keeps no secret values, holds at most 10,000 entries, drops an entry 30 minutes after its last use by default, and never logs or audits the mapping. The hook CLIs keep no mapping at all.
 
 ## Audit and notifications
 
