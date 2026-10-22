@@ -106,6 +106,16 @@ public abstract class SemanticDetectorBase : IDetector
     internal float EvaluationHighThreshold => HighThreshold;
     /// <summary>The Medium threshold, for the offline threshold evaluation.</summary>
     internal float EvaluationMediumThreshold => MediumThreshold;
+    /// <summary>The Low examples, for the offline threshold evaluation.</summary>
+    internal string[] EvaluationLowExamples => LowExamples;
+    /// <summary>The Low threshold, for the offline threshold evaluation.</summary>
+    internal float EvaluationLowThreshold => LowThreshold;
+    /// <summary>The severity of the High bucket, for the offline threshold evaluation.</summary>
+    internal Severity EvaluationHighSeverity => HighSeverity;
+    /// <summary>The severity of the Medium bucket, for the offline threshold evaluation.</summary>
+    internal Severity EvaluationMediumSeverity => MediumSeverity;
+    /// <summary>The severity of the Low bucket, for the offline threshold evaluation.</summary>
+    internal Severity EvaluationLowSeverity => LowSeverity;
 
     /// <summary>High-precision pattern checked before any embedding call. A match returns
     /// <see cref="FastPathSeverity"/> immediately.</summary>

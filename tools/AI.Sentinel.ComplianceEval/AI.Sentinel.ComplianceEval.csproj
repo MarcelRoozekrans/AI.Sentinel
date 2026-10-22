@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Offline evaluation of the Art. 5 compliance detectors against a real embedding model.
+  <!-- Offline evaluation of the Art. 5 compliance detectors against a real embedding model, with a spot-check
+       of the security detectors SEC-01, SEC-05 and SEC-09.
        Not part of AI.Sentinel.slnx and not run by `dotnet test`: it downloads a model on first run.
        CI builds it, without running it, because it reads AI.Sentinel internals.
        See docs/superpowers/evaluations/2026-10-17-compliance-detectors.md. -->

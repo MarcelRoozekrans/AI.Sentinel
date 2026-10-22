@@ -1,18 +1,24 @@
-// Scores the Art. 5 compliance detectors, CMP-01 to CMP-04, against a real embedding model.
+// Scores the Art. 5 compliance detectors, CMP-01 to CMP-04, against a real embedding model, and spot-checks the
+// security detectors SEC-01, SEC-05 and SEC-09.
 //
 //   dotnet run --project tools/AI.Sentinel.ComplianceEval -- [--model all-MiniLM-L6-v2|bge-base-en-v1.5]
 //       [--model-dir <dir>] [--phrases <compliance-phrases.json>] [--everyday <everyday-prompts.json>]
-//       [--out <results.md>]
+//       [--security-phrases <security-phrases.json>] [--out <results.md>]
 //
 // Positives are scored against the detector they were written for; near-misses and everyday prompts against all
-// four, because a legitimate request must not trip any of them. Exit code 1 means a legitimate request reached
-// High with the detectors' current thresholds, or a detector disagreed with the tool's own scoring.
+// four, because a legitimate request must not trip any of them. Each compliance phrase is scored a second time as
+// the last of six new user messages, after the first five everyday prompts, and the detector must return the most
+// severe single-message verdict. The security spot-check scores its positives against their own detector and its
+// benign texts against all three, each as one tool message so the rule layer stays silent.
+// Exit code 1 means a legitimate request reached High with the detectors' current thresholds, or a detector
+// disagreed with the tool's own scoring, on one message or several, in either part.
 using System.Globalization;
 using System.Text;
 using AI.Sentinel;
 using AI.Sentinel.ComplianceEval;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Compliance;
+using AI.Sentinel.Detectors.Security;
 
 var ct = CancellationToken.None;
 var modelName = Option(args, "--model") ?? EmbeddingModel.Known[0].Name;
@@ -28,6 +34,8 @@ var phrasesPath = Option(args, "--phrases") ?? Path.Combine(
     RepositoryRoot(), "tests", "AI.Sentinel.Tests", "Detectors", "Compliance", "compliance-phrases.json");
 var everydayPath = Option(args, "--everyday") ?? Path.Combine(
     RepositoryRoot(), "tools", "AI.Sentinel.ComplianceEval", "everyday-prompts.json");
+var securityPath = Option(args, "--security-phrases") ?? Path.Combine(
+    RepositoryRoot(), "tools", "AI.Sentinel.ComplianceEval", "security-phrases.json");
 var outPath = Option(args, "--out");
 
 var directory = await model.EnsureAsync(Option(args, "--model-dir"), ct).ConfigureAwait(false);
@@ -68,14 +76,16 @@ SemanticDetectorBase[] detectors =
     new ProfilingCrimePredictionDetector(options),
 ];
 
-Phrase[] phrases = [.. Phrase.Load(phrasesPath), .. Phrase.Load(everydayPath)];
+var everyday = Phrase.Load(everydayPath);
+string[] history = [.. everyday.Take(5).Select(p => p.Text)];
+Phrase[] phrases = [.. Phrase.Load(phrasesPath), .. everyday];
 var summary = new StringBuilder();
-summary.AppendLine("| Detector | High / Medium threshold | Lowest positive, High set | Highest legitimate, High set | Highest legitimate, Medium set | Positives at High / Medium / missed | Legitimate at High / Medium | Rule's thresholds for this model: positives at High / Medium / missed |");
-summary.AppendLine("|---|---|---|---|---|---|---|---|");
+summary.AppendLine("| Detector | High / Medium threshold | Lowest positive, High set | Highest legitimate, High set | Highest legitimate, Medium set | Positives at High / Medium / missed | Legitimate at High / Medium | Rule's thresholds for this model: positives at High / Medium / missed | Multi-message agrees |");
+summary.AppendLine("|---|---|---|---|---|---|---|---|---|");
 var tables = new StringBuilder();
 foreach (var detector in detectors)
 {
-    var (row, table) = await evaluator.EvaluateAsync(detector, phrases).ConfigureAwait(false);
+    var (row, table) = await evaluator.EvaluateAsync(detector, phrases, history).ConfigureAwait(false);
     summary.AppendLine(row);
     tables.Append(table);
 }
@@ -85,6 +95,31 @@ report.AppendLine();
 report.Append(summary);
 report.AppendLine();
 report.Append(tables);
+
+SemanticDetectorBase[] securityDetectors =
+[
+    new PromptInjectionDetector(options),
+    new JailbreakDetector(options),
+    new IndirectInjectionDetector(options),
+];
+var spotCheck = new SecuritySpotCheck(generator, evaluator.Failures, ct);
+var securityPhrases = Phrase.Load(securityPath);
+var securitySummary = new StringBuilder();
+securitySummary.AppendLine("| Detector | High / Medium / Low threshold | Lowest positive, High set | Highest benign, High set | Highest benign, Medium set | Positives at High / Medium / Low / missed | Benign at High / Medium / Low |");
+securitySummary.AppendLine("|---|---|---|---|---|---|---|");
+var securityTables = new StringBuilder();
+foreach (var detector in securityDetectors)
+{
+    var (row, table) = await spotCheck.EvaluateAsync(detector, securityPhrases).ConfigureAwait(false);
+    securitySummary.AppendLine(row);
+    securityTables.Append(table);
+}
+
+report.AppendLine(CultureInfo.InvariantCulture, $"## Security spot-check: {model.Name}");
+report.AppendLine();
+report.Append(securitySummary);
+report.AppendLine();
+report.Append(securityTables);
 
 if (evaluator.Failures.Count > 0)
 {
