@@ -14,7 +14,7 @@ namespace AI.Sentinel.Detection;
 /// and cached in-process.
 /// <para>
 /// Each scan scores the messages that are new in it, from <see cref="SentinelContext.NewMessagesFrom"/> on,
-/// one by one: the newest <see cref="MaxMessagesToScore"/> non-blank ones, with redaction placeholders such as
+/// one by one: the newest 16 non-blank ones, with redaction placeholders such as
 /// <c>[EMAIL_1_k3f9x2]</c> normalised to <c>[EMAIL]</c>. A message's text is its <see cref="ChatMessage.Text"/>
 /// plus the result of each <see cref="FunctionResultContent"/> it carries. Each text is embedded and compared by
 /// cosine similarity against the reference vectors; for each text the first bucket, High, then Medium, then Low,
@@ -36,6 +36,7 @@ public abstract class SemanticDetectorBase : IDetector
     private ReadOnlyMemory<float>[]? _lowVectors;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private volatile bool _initialized;
+    private readonly bool _overridesGetText;
 
     protected SemanticDetectorBase(SentinelOptions options)
     {
@@ -43,6 +44,13 @@ public abstract class SemanticDetectorBase : IDetector
         _generator = options.EmbeddingGenerator;
         _cache = options.EmbeddingCache ?? new InMemoryLruEmbeddingCache();
         _exampleCache = options.ExampleEmbeddingCache;
+
+        // A delegate to a virtual method binds to the most derived override, so its declaring type tells whether a
+        // subclass overrides the pre-3.1 hook. Comparing the returned string with TextContent cannot: on a
+        // one-message context string.Join returns that message's own instance.
+#pragma warning disable SENTINEL001
+        _overridesGetText = new Func<SentinelContext, string>(GetText).Method.DeclaringType != typeof(SemanticDetectorBase);
+#pragma warning restore SENTINEL001
     }
 
     public abstract DetectorId Id { get; }
@@ -129,25 +137,26 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>Extracts the text to embed from the context. Override to scan a specific message role.</summary>
     /// <remarks>Before 3.1 this was the one text of the scan, by default the whole conversation joined. An override
     /// is still honoured: <see cref="GetTextsToScore"/> scores what it returns as the only text.</remarks>
-    [Obsolete("Semantic detectors score each new message since 3.1. Override GetTextsToScore instead; an override of GetText is still scored as the one text of the scan.")]
+    [Obsolete("Semantic detectors score each new message since 3.1. Override GetTextsToScore instead; an override of GetText is still scored as the one text of the scan.",
+        DiagnosticId = "SENTINEL001",
+        UrlFormat = "https://marcelroozekrans.github.io/AI.Sentinel/docs/detectors/overview#how-semantic-detectors-score")]
     protected virtual string GetText(SentinelContext ctx) => ctx.TextContent;
 
     /// <summary>The texts this scan scores, oldest first. By default, the text of each new message, from
     /// <see cref="SentinelContext.NewMessagesFrom"/> to the end: its <see cref="ChatMessage.Text"/> plus the result of
     /// each <see cref="FunctionResultContent"/> it carries.</summary>
     /// <remarks>Override to score, for example, one role only. Blank texts are skipped, and only the newest
-    /// <see cref="MaxMessagesToScore"/> of the rest are embedded.</remarks>
+    /// 16 of the rest are embedded.</remarks>
     protected virtual IEnumerable<string> GetTextsToScore(SentinelContext ctx)
     {
         ArgumentNullException.ThrowIfNull(ctx);
 
-        // Honours a legacy GetText override: anything but the default's own string is scored as the one text.
-#pragma warning disable CS0618
-        var legacy = GetText(ctx);
-#pragma warning restore CS0618
-        if (!ReferenceEquals(legacy, ctx.TextContent))
+        if (_overridesGetText)
         {
-            return [legacy];
+            // Honours a legacy GetText override: what it returns is scored as the one text of the scan.
+#pragma warning disable SENTINEL001
+            return [GetText(ctx)];
+#pragma warning restore SENTINEL001
         }
 
         return NewMessageTexts(ctx);
@@ -172,22 +181,58 @@ public abstract class SemanticDetectorBase : IDetector
         {
             if (content is not FunctionResultContent { Result: { } result }) continue;
 
+            var resultText = ResultText(result);
+            if (resultText.Length == 0) continue;
+
             builder ??= new StringBuilder(text);
             if (builder.Length > 0) builder.Append(' ');
-            builder.Append(ResultText(result));
+            builder.Append(resultText);
         }
 
         return builder?.ToString() ?? text;
     }
 
-    /// <summary>A string result as it is; anything else as JSON.</summary>
-    /// <remarks><see cref="AIJsonUtilities.DefaultOptions"/> resolves through reflection where it is enabled. Under
-    /// native AOT a type that no source-generated context covers throws here, and the pipeline reports the detector
-    /// as failed for the scan rather than scoring the message as clean. Results that
-    /// <see cref="FunctionInvokingChatClient"/> produces are already a <see cref="JsonElement"/>.</remarks>
-    private static string ResultText(object result) =>
-        result as string
-        ?? JsonSerializer.Serialize(result, AIJsonUtilities.DefaultOptions.GetTypeInfo(result.GetType()));
+    /// <summary><see cref="AIJsonUtilities.DefaultOptions"/> without indentation, so a result embeds as compact JSON.</summary>
+    private static readonly JsonSerializerOptions CompactJsonOptions = CreateCompactJsonOptions();
+
+    private static JsonSerializerOptions CreateCompactJsonOptions()
+    {
+        var options = new JsonSerializerOptions(AIJsonUtilities.DefaultOptions) { WriteIndented = false };
+        options.MakeReadOnly();
+        return options;
+    }
+
+    /// <summary>A string result as it is, a <see cref="JsonElement"/> as its raw text, anything else as compact JSON;
+    /// an empty string for a result that cannot be serialized.</summary>
+    /// <remarks>
+    /// The options resolve through reflection where it is enabled. Under native AOT a type that no source-generated
+    /// context covers throws <see cref="NotSupportedException"/>, and a cycle throws <see cref="JsonException"/>
+    /// anywhere. Such a result is left out and the rest of the scan is still scored: the pipeline turns a detector
+    /// exception into a Clean result for the whole scan, so letting it escape would hide every other message,
+    /// a malicious one included. Results that <see cref="FunctionInvokingChatClient"/> produces are already a
+    /// <see cref="JsonElement"/>.
+    /// </remarks>
+    private static string ResultText(object result)
+    {
+        switch (result)
+        {
+            case string text:
+                return text;
+            case JsonElement { ValueKind: JsonValueKind.Undefined }:
+                return string.Empty;
+            case JsonElement element:
+                return element.GetRawText();
+        }
+
+        try
+        {
+            return JsonSerializer.Serialize(result, CompactJsonOptions.GetTypeInfo(result.GetType()));
+        }
+        catch (Exception ex) when (ex is NotSupportedException or JsonException)
+        {
+            return string.Empty;
+        }
+    }
 
     /// <summary>Text the rule layer examines: the newest message, and only when it is incoming input.</summary>
     /// <remarks>
@@ -276,7 +321,7 @@ public abstract class SemanticDetectorBase : IDetector
         return null;
     }
 
-    /// <summary>The newest <see cref="MaxMessagesToScore"/> non-blank texts of <see cref="GetTextsToScore"/>,
+    /// <summary>The newest 16 non-blank texts of <see cref="GetTextsToScore"/>,
     /// placeholders normalised, without duplicates, in order.</summary>
     private List<string> SelectTextsToScore(SentinelContext ctx)
     {

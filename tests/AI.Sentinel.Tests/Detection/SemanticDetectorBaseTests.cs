@@ -47,6 +47,14 @@ public class SemanticDetectorBaseTests
         protected override string GetText(SentinelContext ctx) => HighText;
     }
 
+    /// <summary>Returns the newest message's own string. On a one-message context that is the very instance
+    /// <see cref="SentinelContext.TextContent"/> holds, so an identity check cannot tell it from the default.</summary>
+    private sealed class LegacyNewestMessageDetector(SentinelOptions options) : TestDetector(options)
+    {
+        [Obsolete("legacy hook test")]
+        protected override string GetText(SentinelContext ctx) => ctx.Messages[^1].Text;
+    }
+
     // Subclass with empty High/Medium buckets, only Low defined
     private sealed class LowOnlyDetector(SentinelOptions options) : SemanticDetectorBase(options)
     {
@@ -307,11 +315,42 @@ public class SemanticDetectorBaseTests
 
         await detector.AnalyzeAsync(Ctx(0, tool), TestContext.Current.CancellationToken);
 
-        // Rendered through AIJsonUtilities.DefaultOptions, which indents; compare the JSON, not its layout.
-        var scored = Assert.Single(Scored(gen));
-        using var json = JsonDocument.Parse(scored);
-        Assert.Equal("hello", json.RootElement.GetProperty("note").GetString());
-        Assert.Equal(2, json.RootElement.GetProperty("count").GetInt32());
+        Assert.Equal(["{\"note\":\"hello\",\"count\":2}"], Scored(gen));
+    }
+
+    [Fact]
+    public async Task FunctionResultOnlyToolMessage_JsonElementResult_IsScoredAsItsRawText()
+    {
+        const string raw = "{\"note\": \"hello\"}";
+        using var document = JsonDocument.Parse(raw);
+        var gen = Recording();
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        var tool = new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", document.RootElement.Clone())]);
+
+        await detector.AnalyzeAsync(Ctx(0, tool), TestContext.Current.CancellationToken);
+
+        Assert.Equal([raw], Scored(gen));
+    }
+
+    /// <summary>A result that cannot be serialized, here a cycle, is left out; the scan still scores the rest.</summary>
+    [Fact]
+    public async Task UnserialisableResult_NextToHighMessage_IsHigh()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var cycle = new Dictionary<string, object?>(StringComparer.Ordinal);
+        cycle["self"] = cycle;
+
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = Recording() });
+
+        // In its own message, next to a High user message.
+        var separate = await detector.AnalyzeAsync(
+            Ctx(0, User(HighText), new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", cycle)])), ct);
+        Assert.Equal(Severity.High, separate.Severity);
+
+        // In the same message as the High text: the text is scored as it is, with nothing appended.
+        var same = await detector.AnalyzeAsync(
+            Ctx(0, new ChatMessage(ChatRole.Assistant, [new TextContent(HighText), new FunctionResultContent("c1", cycle)])), ct);
+        Assert.Equal(Severity.High, same.Severity);
     }
 
     [Fact]
@@ -381,6 +420,17 @@ public class SemanticDetectorBaseTests
         var detector = new LegacyGetTextDetector(new SentinelOptions { EmbeddingGenerator = Recording() });
 
         var r = await detector.AnalyzeAsync(Ctx(0, User("hello there")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(Severity.High, r.Severity);
+    }
+
+    [Fact]
+    public async Task ObsoleteGetTextOverride_ReturningTheOnlyMessage_IsStillScored()
+    {
+        var detector = new LegacyNewestMessageDetector(new SentinelOptions { EmbeddingGenerator = Recording() });
+
+        // Nothing is new, so the default would score nothing; the override's text must still be scored.
+        var r = await detector.AnalyzeAsync(Ctx(1, User(HighText)), TestContext.Current.CancellationToken);
 
         Assert.Equal(Severity.High, r.Severity);
     }
