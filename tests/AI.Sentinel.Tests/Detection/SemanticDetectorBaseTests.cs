@@ -55,6 +55,17 @@ public class SemanticDetectorBaseTests
         protected override string GetText(SentinelContext ctx) => ctx.Messages[^1].Text;
     }
 
+    /// <summary>A pre-3.1 detector whose <c>GetText</c> returns blank to opt a scan out, with a rule layer that would
+    /// match the newest message. As in 3.0, the blank text makes the scan Clean before the rule layer runs.</summary>
+    private sealed class LegacyBlankGetTextDetector(SentinelOptions options) : TestDetector(options)
+    {
+        protected override System.Text.RegularExpressions.Regex? FastPathPattern { get; } =
+            new("ignore all previous instructions", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+
+        [Obsolete("legacy hook test")]
+        protected override string GetText(SentinelContext ctx) => "   ";
+    }
+
     // Subclass with empty High/Medium buckets, only Low defined
     private sealed class LowOnlyDetector(SentinelOptions options) : SemanticDetectorBase(options)
     {
@@ -478,6 +489,18 @@ public class SemanticDetectorBaseTests
         var r = await detector.AnalyzeAsync(Ctx(1, User(HighText)), TestContext.Current.CancellationToken);
 
         Assert.Equal(Severity.High, r.Severity);
+    }
+
+    [Fact]
+    public async Task ObsoleteGetTextOverride_ReturningBlank_IsClean_BeforeTheRuleLayer()
+    {
+        var gen = Recording();
+        var detector = new LegacyBlankGetTextDetector(new SentinelOptions { EmbeddingGenerator = gen });
+
+        var r = await detector.AnalyzeAsync(Ctx(0, User(HighText)), TestContext.Current.CancellationToken);
+
+        Assert.True(r.IsClean);
+        Assert.Empty(gen.Inputs);
     }
 
     [Fact]

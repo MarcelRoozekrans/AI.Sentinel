@@ -276,6 +276,12 @@ public abstract class SemanticDetectorBase : IDetector
     /// arrive with each call from <see cref="DetectionPipeline"/> instead of being stored on the detector.</remarks>
     internal async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, DetectorConfiguration? configuration, CancellationToken ct)
     {
+        // As in 3.0, a legacy GetText override that returns blank opts the scan out, before the rule layer runs.
+#pragma warning disable SENTINEL001
+        if (_overridesGetText && string.IsNullOrWhiteSpace(GetText(ctx)))
+            return DetectionResult.Clean(Id);
+#pragma warning restore SENTINEL001
+
         // Rule layer first: it needs no generator, so it works in a default install, and it saves a
         // round-trip on the unambiguous cases when a generator is configured.
         if (FastPathPattern is { } pattern)
