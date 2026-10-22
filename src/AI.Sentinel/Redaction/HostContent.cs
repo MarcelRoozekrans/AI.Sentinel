@@ -67,7 +67,7 @@ internal readonly record struct HostContent
         switch (element.ValueKind)
         {
             case JsonValueKind.String:
-                AppendString(element.GetString()!, sb);
+                JsonScanText.AppendString(element.GetString()!, sb);
                 break;
             case JsonValueKind.Object:
                 sb.Append('{');
@@ -79,8 +79,7 @@ internal readonly record struct HostContent
                         sb.Append(", ");
                     }
                     firstProperty = false;
-                    AppendString(property.Name, sb);
-                    sb.Append(": ");
+                    JsonScanText.AppendPropertyName(property.Name, sb);
                     Render(property.Value, sb);
                 }
                 sb.Append('}');
@@ -104,19 +103,5 @@ internal readonly record struct HostContent
                 sb.Append(element.GetRawText());
                 break;
         }
-    }
-
-    private static void AppendString(string value, StringBuilder sb)
-    {
-        sb.Append('"');
-        foreach (var c in value)
-        {
-            if (c is '"' or '\\')
-            {
-                sb.Append('\\');
-            }
-            sb.Append(c);
-        }
-        sb.Append('"');
     }
 }

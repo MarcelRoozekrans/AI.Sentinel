@@ -223,6 +223,28 @@ public class HookAdapterTests
         Assert.DoesNotContain(ApiKey, output.UpdatedToolOutput!.Value.GetRawText(), StringComparison.Ordinal);
     }
 
+    // #428: the value alone matches nothing; it is redacted in the context of its key instead of withheld.
+    [Fact]
+    public async Task PostToolUse_ValueRecognisedByItsKey_RedactedAndAllowed()
+    {
+        var (adapter, audit) = BuildAdapterWithAudit();
+        var response = """{"stdout":"done","config":{"password":"hunter2","retries":3}}""";
+
+        var output = await adapter.HandleAsync(
+            HookEvent.PostToolUse, PostToolUse(response), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Allow, output.Decision);
+        var updated = output.UpdatedToolOutput!.Value;
+        AssertSameShape(Json(response), updated);
+        Assert.Equal(
+            """{"stdout":"done","config":{"password":"[PASSWORD_1]","retries":3}}""",
+            AI.Sentinel.Tests.Redaction.Placeholders.Untag(updated.GetRawText()));
+        Assert.Equal(1, output.Redactions!["PASSWORD"]);
+        var entries = await ReadAuditAsync(audit);
+        Assert.Single(entries, IsRedacted);
+        Assert.All(entries, e => Assert.DoesNotContain("hunter2", JsonSerializer.Serialize(e, AuditJsonContext.Default.AuditEntry), StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task PostToolUse_InjectionInResponse_BlockWithWithheldBody()
     {

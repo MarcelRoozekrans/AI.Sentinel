@@ -365,6 +365,45 @@ public class RedactionPipelineTests
         Assert.Equal(Email, call.Arguments["to"]?.ToString());
     }
 
+    // #428: an api_key argument whose value matches nothing on its own is redacted by its key on the way to the
+    // model, and the tool the model then calls with its placeholder gets the placeholder, never the secret.
+    [Theory]
+    [MemberData(nameof(Orders))]
+    public async Task ToolArguments_ValueRecognisedByItsKey_RedactedForTheModel_NeverRestoredIntoToolArguments(string order)
+    {
+        const string secret = "zebra-orchid-velvet";
+        var h = Build(order, new RecordingModel(messages =>
+            messages.Any(m => m.Contents.Any(c => c is FunctionResultContent { CallId: "c1" }))
+                ? new ChatMessage(ChatRole.Assistant, "done")
+                : new ChatMessage(ChatRole.Assistant, [
+                    new FunctionCallContent("c1", "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["key"] = "[API_KEY_1]" }),
+                ])));
+        var seen = new List<string>();
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string key) => { seen.Add(key); return "ok"; }, "Lookup")] };
+        var history = new List<ChatMessage>
+        {
+            new(ChatRole.User, "look it up"),
+            new(ChatRole.Assistant, [
+                new FunctionCallContent("c0", "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["api_key"] = secret,
+                    ["body"] = JsonDocument.Parse($$"""{"api_key":"{{secret}}"}""").RootElement.Clone(),
+                }),
+            ]),
+            new(ChatRole.Tool, [new FunctionResultContent("c0", "ok")]),
+            new(ChatRole.User, "again"),
+        };
+
+        var response = await AskAsync(h, history, options);
+
+        Assert.Equal("done", response.Text);
+        Assert.DoesNotContain(secret, h.Model.RawSeen, StringComparison.Ordinal);
+        Assert.Contains("[API_KEY_1]", h.Model.AllSeen, StringComparison.Ordinal);
+        Assert.Equal("[API_KEY_1]", Placeholders.Untag(Assert.Single(seen)));
+        var entries = await RecordingAuditForwarder.ReadAllAsync(h.Audit);
+        Assert.All(entries, e => Assert.DoesNotContain(secret, JsonSerializer.Serialize(e, AuditJsonContext.Default.AuditEntry), StringComparison.Ordinal));
+    }
+
     [Theory]
     [MemberData(nameof(Orders))]
     public async Task ReturnedHistory_HoldsRealToolResults_SoASecondTurnCanUseThem(string order)
