@@ -107,8 +107,15 @@ The in-process chat client sees the whole conversation and rewrites it. The hook
 
 When the hook CLIs and the MCP proxy redact JSON, such as a tool's output or `structuredContent`, they redact string values only, and keep every key, number and the nesting as they are.
 
-- **A value recognised by its key** is redacted. The detectors judge a JSON value the way the scan renders it, together with its key: `"password": "hunter2"`. The value `hunter2` on its own matches nothing, but the pair does, so the value becomes `{"password":"[PASSWORD_1_k3f9x2]"}` and the key stays. When a span covers part of the key, only the part in the value is redacted, so `{"Authorization":"Bearer abc"}` becomes `{"Authorization":"Bearer [BEARER_TOKEN_1_k3f9x2]"}`. The in-process client does the same for tool-call arguments, tool results and other JSON it sends to the model. An item of an array and a bare string have no key and are judged on their own.
-- **Personal data inside a JSON key** is scanned but not redacted, because renaming a key would break the shape of the JSON. It falls back.
+- **A value recognised by its key** is redacted. The detectors judge a JSON value the way the scan renders it, together with its key: `"password": "hunter2"`. The value `hunter2` on its own matches nothing, but the pair does, so the value becomes `{"password":"[PASSWORD_1_k3f9x2]"}` and the key stays. Personal data named by its key, such as `{"BSN":"123456789"}`, is redacted the same way. When a span covers part of the key, only the part in the value is redacted, so `{"Authorization":"Bearer abc"}` becomes `{"Authorization":"Bearer [BEARER_TOKEN_1_k3f9x2]"}`. The in-process client does the same for tool-call arguments, tool results and other JSON it sends to the model. An item of an array and a bare string have no key and are judged on their own.
+- **A value that holds a line break** is redacted as a whole, not up to the break.
+- **A JSON literal** under a secret key, a bare `null`, `true` or `false` as in `{"password": null}`, names no secret and is not flagged.
+
+Three cases fall back:
+
+- **Personal data inside a JSON key** is scanned but not redacted, because renaming a key would break the shape of the JSON.
+- **A value that is not a string** under a secret key, such as the number in `{"password": 12345678}`, is flagged but not redacted, because a placeholder in its place would change its type.
+- **A match that spans two members** in the scan text, such as one that runs from the value of one member into the next, is flagged but not redacted, because each value is redacted together with its own key only.
 
 ### MCP proxy
 
@@ -213,7 +220,7 @@ When redaction is not possible, the detection uses the action of its severity, a
 - for **tool-call arguments** in the hook CLIs and the MCP proxy, which judge a call before it runs and cannot rewrite it;
 - for the **prompt** on Claude Code `UserPromptSubmit` and Copilot `userPromptSubmitted`, where a command hook cannot rewrite it. Copilot's `userPromptTransformed` can, and is experimental;
 - for **MCP content the proxy does not redact**: blob resources, resources whose MIME type is not allowlisted, and content past `SENTINEL_MCP_MAX_SCAN_BYTES`;
-- for **personal data in a JSON key** on the hook CLIs and the MCP proxy;
+- for **personal data in a JSON key**, a **non-string value under a secret key**, and a **match that spans two JSON members** on the hook CLIs and the MCP proxy;
 - when a detector **flags text without spans**.
 
 ## Fail closed
