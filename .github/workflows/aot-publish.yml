@@ -180,9 +180,9 @@ jobs:
           $env:SENTINEL_HOOK_ON_MEDIUM   = 'Allow'
           $env:SENTINEL_HOOK_ON_LOW      = 'Allow'
 
-          # Spawn the proxy with the python stub as target. Pipe the host transcript via stdin.
-          # Shut down after a short wait: the host transcript ends without an explicit shutdown,
-          # so we kill the proxy after responses settle.
+          # Spawn the proxy with the python stub as target and pipe the host transcript via stdin.
+          # Then behave like a real MCP host: keep stdin open until the tools/call response arrives,
+          # and only then close it, which is the stdio shutdown signal.
           $py = (Get-Command python -ErrorAction SilentlyContinue) ?? (Get-Command python3 -ErrorAction SilentlyContinue)
           if (-not $py) { Write-Error 'Python not available on runner'; exit 1 }
           Write-Host "Using python: $($py.Source)"
@@ -196,32 +196,54 @@ jobs:
           $psi.UseShellExecute        = $false
 
           $proc = [System.Diagnostics.Process]::Start($psi)
-          $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
           $stderrTask = $proc.StandardError.ReadToEndAsync()
 
           $payload = Get-Content $hostInput -Raw
           $proc.StandardInput.Write($payload)
           $proc.StandardInput.Flush()
-          # The python stub reads its stdin via `for line in sys.stdin` and only
-          # responds to `tools/call` *while stdin is open*. If we close our stdin
-          # too soon, the EOF cascades to the python child before it has read and
-          # responded to all 3 messages — proxy exits with empty stdout.
-          # Give the full pipeline (proxy startup -> forward to python -> python
-          # response -> proxy forwards back) generous headroom on cold Windows
-          # runners (Defender scan of fresh AOT .exe + python cold start). We
-          # poll the proxy's HasExited so a fast happy path doesn't pay the full
-          # ceiling.
-          $deadline = (Get-Date).AddSeconds(20)
-          while (((Get-Date) -lt $deadline) -and -not $proc.HasExited) {
-            Start-Sleep -Milliseconds 250
+
+          # Closing stdin is the host's shutdown signal. The MCP SDK's stdio transport marks itself
+          # disconnected on stdin EOF and from then on silently drops every response, so closing
+          # stdin before the proxy has answered yields an empty stdout even though the proxy works.
+          # The proxy reads stdin from its first moment but answers only once it has started the
+          # target and built its pipeline, which a cold Windows runner can stretch past 20 seconds.
+          # A fixed wait therefore made this step flaky; instead, read stdout line by line until
+          # the tools/call response (id 2) arrives, with a generous ceiling for a proxy that hangs.
+          $stdoutText = [System.Text.StringBuilder]::new()
+          $clock = [System.Diagnostics.Stopwatch]::StartNew()
+          $ceiling = [TimeSpan]::FromSeconds(120)
+          $gotResponse = $false
+          $lineTask = $proc.StandardOutput.ReadLineAsync()
+          while ($clock.Elapsed -lt $ceiling) {
+            if (-not $lineTask.Wait(250)) { continue }
+            $line = $lineTask.Result
+            $lineTask = $null
+            if ($null -eq $line) { break }   # the proxy closed stdout
+            [void]$stdoutText.AppendLine($line)
+            if ($line -match '"id"\s*:\s*2\b') { $gotResponse = $true; break }
+            $lineTask = $proc.StandardOutput.ReadLineAsync()
           }
+          if ($gotResponse) {
+            Write-Host "tools/call response received after $([int]$clock.Elapsed.TotalMilliseconds) ms."
+          } else {
+            Write-Host "No tools/call response after $([int]$clock.Elapsed.TotalSeconds) s."
+          }
+
           $proc.StandardInput.Close()
           if (-not $proc.WaitForExit(15000)) {
             Write-Host 'Proxy did not exit within 15s after stdin close; killing.'
             $proc.Kill($true)
+            $proc.WaitForExit()
           }
 
-          $stdout = $stdoutTask.Result
+          # Collect whatever the proxy wrote after the last line read.
+          if ($null -ne $lineTask) {
+            $line = $lineTask.Result
+            if ($null -ne $line) { [void]$stdoutText.AppendLine($line) }
+          }
+          [void]$stdoutText.Append($proc.StandardOutput.ReadToEnd())
+
+          $stdout = $stdoutText.ToString()
           $stderr = $stderrTask.Result
           Set-Content -Path $hostOutput -Value $stdout -Encoding ASCII
           Set-Content -Path $hostErr    -Value $stderr -Encoding ASCII
