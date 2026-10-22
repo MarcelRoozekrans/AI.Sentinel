@@ -118,4 +118,14 @@ public class HookPipelineRunnerAlertTests
         public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
             => ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Medium, "probe"));
     }
+
+    // The public overload is async, so a null argument faults the returned task instead of throwing on the call.
+    [Fact]
+    public async Task RunAsync_NullArgument_FaultsTheTask()
+    {
+        var task = HookPipelineRunner.RunAsync(
+            provider: null!, new HookConfig(), CmpPrompt, "s", TestContext.Current.CancellationToken);
+
+        await Assert.ThrowsAsync<ArgumentNullException>(() => task);
+    }
 }

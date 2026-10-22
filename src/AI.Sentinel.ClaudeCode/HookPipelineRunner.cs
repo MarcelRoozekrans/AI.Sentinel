@@ -33,18 +33,19 @@ public static class HookPipelineRunner
     /// The pipeline itself takes the <see cref="SessionId"/> domain type; this method converts.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Allow when nothing was detected, otherwise the most restrictive per-detection decision.</returns>
-    public static Task<HookOutput> RunAsync(
+    public static async Task<HookOutput> RunAsync(
         IServiceProvider provider,
         HookConfig config,
         IReadOnlyList<ChatMessage> messages,
         string? sessionId,
         CancellationToken ct)
     {
+        // Async, as in 3.0: a null argument faults the returned task rather than throwing on the call.
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(messages);
 
-        return RunAsync(provider, config, messages, sessionId, newMessagesFrom: 0, ct);
+        return await RunAsync(provider, config, messages, sessionId, newMessagesFrom: 0, ct).ConfigureAwait(false);
     }
 
     /// <summary>Scans <paramref name="messages"/> like the public overload, telling the detectors that the messages
