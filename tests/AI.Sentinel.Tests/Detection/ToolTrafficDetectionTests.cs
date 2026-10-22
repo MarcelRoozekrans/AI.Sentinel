@@ -190,6 +190,33 @@ public class ToolTrafficDetectionTests
         Assert.Equal("first {\"a\":1}", SentinelContext.MessageText(Result(contents)));
     }
 
+    [Fact]
+    public void ErrorReasoningAndUriContentsInAResult_ReadAsTheirText()
+    {
+        AIContent[] contents =
+        [
+            new ErrorContent("tool failed") { ErrorCode = "E42", Details = "disk full" },
+            new ErrorContent("bare failure"),
+            new TextReasoningContent("thinking it over"),
+            new UriContent(new Uri("https://example.com/report"), "text/html"),
+        ];
+
+        Assert.Equal("tool failed E42 disk full bare failure thinking it over https://example.com/report",
+            SentinelContext.MessageText(Result(contents)));
+    }
+
+    /// <summary>For detection, text data with a charset that is not supported is read as UTF-8, with replacement
+    /// characters where it does not decode, rather than skipped.</summary>
+    [Fact]
+    public async Task TextDataWithAnUnknownCharset_IsReadAsUtf8()
+    {
+        var data = new DataContent(System.Text.Encoding.UTF8.GetBytes($"token {GithubToken} \u00e9"), "text/plain; charset=x-unknown-charset");
+        var message = Result(data);
+
+        Assert.Equal($"token {GithubToken} \u00e9", SentinelContext.MessageText(message));
+        Assert.False((await new CredentialExposureDetector().AnalyzeAsync(Ctx(message), TestContext.Current.CancellationToken)).IsClean);
+    }
+
     // --- Hosted content ---
 
     [Fact]
@@ -373,7 +400,9 @@ public class ToolTrafficDetectionTests
     [InlineData("ig\u200Dnore")]
     [InlineData("ig\u200Cnore")]
     [InlineData("\U0001F468\u200Dx")]
-    public async Task AdversarialUnicode_JoinerBetweenLatinLetters_IsFlagged(string text)
+    [InlineData("\U0001F3F4\u200D\U000E0067")]
+    [InlineData("\U000E007F\u200D\U0001F525")]
+    public async Task AdversarialUnicode_JoinerOutsideAnEmojiOrJoiningScriptSequence_IsFlagged(string text)
     {
         var r = await new AdversarialUnicodeDetector().AnalyzeAsync(Ctx(new ChatMessage(ChatRole.User, text)), TestContext.Current.CancellationToken);
 

@@ -6,12 +6,16 @@ namespace AI.Sentinel.Detection;
 /// <summary>Recognises and decodes <see cref="DataContent"/> that a model reads as text, for redaction and detection alike.</summary>
 internal static class TextData
 {
-    /// <summary>The text of <paramref name="data"/> when it is text-typed and its charset is supported; otherwise
-    /// <see langword="null"/>, as for binary data such as an image.</summary>
+    /// <summary>The text of text-typed <paramref name="data"/>, for detection; <see langword="null"/> for binary data
+    /// such as an image.</summary>
+    /// <remarks>A charset that is not supported is read as UTF-8, with replacement characters where the bytes do not
+    /// decode, so the detectors still see most of the text. Redaction does not use this: it fails closed on such a
+    /// charset, because it must write the text back.</remarks>
     internal static string? Decode(DataContent data)
     {
         if (!IsText(data) || data.Data.IsEmpty) return null;
-        return EncodingOf(data, failClosed: false) is { } encoding ? encoding.GetString(data.Data.Span) : null;
+        var encoding = EncodingOf(data, failClosed: false) ?? Encoding.UTF8;
+        return encoding.GetString(data.Data.Span);
     }
 
     internal static Encoding? EncodingOf(DataContent data, bool failClosed)

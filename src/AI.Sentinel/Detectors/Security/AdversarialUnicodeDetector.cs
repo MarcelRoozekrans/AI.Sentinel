@@ -51,14 +51,14 @@ public sealed class AdversarialUnicodeDetector : IDetector
     private static bool TryNext(string text, int index, out Rune rune) =>
         Rune.DecodeFromUtf16(text.AsSpan(index + 1), out rune, out _) == OperationStatus.Done;
 
-    /// <summary>Pictographic and symbol blocks emoji are drawn from, skin-tone modifiers included.</summary>
+    /// <summary>Pictographic and symbol blocks emoji are drawn from, skin-tone modifiers included. Tag characters, which
+    /// close a flag sequence, are not: they never sit on either side of a joiner.</summary>
     private static bool IsEmoji(Rune rune) => rune.Value is
         (>= 0x1F000 and <= 0x1FAFF)
         or (>= 0x2600 and <= 0x27BF)
         or (>= 0x2B00 and <= 0x2BFF)
         or (>= 0x2190 and <= 0x21FF)
-        or (>= 0x2300 and <= 0x23FF)
-        or (>= 0xE0020 and <= 0xE007F);
+        or (>= 0x2300 and <= 0x23FF);
 
     /// <summary>Arabic-script and Indic blocks, combining marks such as a virama included.</summary>
     private static bool IsJoiningScript(Rune rune) => rune.Value is

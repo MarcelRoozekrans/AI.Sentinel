@@ -123,7 +123,9 @@ public sealed class SentinelContext(
     /// <see cref="ToolApprovalResponseContent"/> is not read: it repeats a call already judged as a request.</description></item>
     /// </list>
     /// <para>Content reads as text when it is a <see cref="TextContent"/> or text-typed <see cref="DataContent"/>,
-    /// such as <c>text/plain</c> or <c>application/json</c>; binary data, such as an image, is left out. A value that
+    /// such as <c>text/plain</c> or <c>application/json</c>; binary data, such as an image, is left out. Inside a
+    /// result or a hosted tool's inputs and outputs, an <see cref="ErrorContent"/> reads as its message, error code
+    /// and details, a <see cref="TextReasoningContent"/> as its text and a <see cref="UriContent"/> as its URI. A value that
     /// cannot be serialized is left out rather than failing the scan: the pipeline turns a detector exception into a
     /// Clean result for the whole scan, so letting it escape would hide every other message. A message with no tool
     /// content returns its <see cref="ChatMessage.Text"/> instance unchanged.</para>
@@ -219,8 +221,17 @@ public sealed class SentinelContext(
         null => null,
         TextContent text => text.Text,
         DataContent data => TextData.Decode(data),
+        ErrorContent error => JoinPresent(error.Message, error.ErrorCode, error.Details),
+        TextReasoningContent reasoning => reasoning.Text,
+        UriContent uri => uri.Uri.ToString(),
         _ => ToolText(content),
     };
+
+    private static string? JoinPresent(params string?[] parts)
+    {
+        var present = parts.Where(p => !string.IsNullOrEmpty(p)).ToArray();
+        return present.Length == 0 ? null : string.Join(" ", present);
+    }
 
     /// <summary><see cref="AIJsonUtilities.DefaultOptions"/> without indentation, so a value reads as compact JSON.</summary>
     private static readonly JsonSerializerOptions CompactJsonOptions = CreateCompactJsonOptions();
