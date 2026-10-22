@@ -14,8 +14,8 @@ namespace AI.Sentinel.Detection;
 /// and cached in-process.
 /// <para>
 /// Each scan scores the messages that are new in it, from <see cref="SentinelContext.NewMessagesFrom"/> on,
-/// one by one: the newest 16 non-blank ones, with redaction placeholders such as
-/// <c>[EMAIL_1_k3f9x2]</c> normalised to <c>[EMAIL]</c>. A message's text is its <see cref="ChatMessage.Text"/>
+/// one by one: the non-blank ones, at most 16, with redaction placeholders such as
+/// <c>[EMAIL_1_k3f9x2]</c> normalised to <c>[EMAIL]</c>. Past 16, the oldest are joined into one text. A message's text is its <see cref="ChatMessage.Text"/>
 /// plus the result of each <see cref="FunctionResultContent"/> it carries. Each text is embedded and compared by
 /// cosine similarity against the reference vectors; for each text the first bucket, High, then Medium, then Low,
 /// whose max similarity reaches its threshold gives a severity, and the most severe of those is reported.
@@ -141,7 +141,7 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>Severity reported when <see cref="FastPathPattern"/> matches.</summary>
     protected virtual Severity FastPathSeverity => HighSeverity;
 
-    /// <summary>The most texts one scan embeds: the newest ones that are not blank.</summary>
+    /// <summary>The most texts one scan embeds. Past it, the oldest texts are joined into the first one.</summary>
     internal const int MaxMessagesToScore = 16;
 
     /// <summary>Extracts the text to embed from the context. Override to scan a specific message role.</summary>
@@ -155,8 +155,8 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>The texts this scan scores, oldest first. By default, the text of each new message, from
     /// <see cref="SentinelContext.NewMessagesFrom"/> to the end: its <see cref="ChatMessage.Text"/> plus the result of
     /// each <see cref="FunctionResultContent"/> it carries.</summary>
-    /// <remarks>Override to score, for example, one role only. Blank texts are skipped, and only the newest
-    /// 16 of the rest are embedded.</remarks>
+    /// <remarks>Override to score, for example, one role only. Blank texts and duplicates are skipped. At most
+    /// 16 texts are embedded: past that, the oldest are joined into one.</remarks>
     protected virtual IEnumerable<string> GetTextsToScore(SentinelContext ctx)
     {
         ArgumentNullException.ThrowIfNull(ctx);
@@ -331,27 +331,32 @@ public abstract class SemanticDetectorBase : IDetector
         return null;
     }
 
-    /// <summary>The newest 16 non-blank texts of <see cref="GetTextsToScore"/>,
-    /// placeholders normalised, without duplicates, in order.</summary>
+    /// <summary>The non-blank texts of <see cref="GetTextsToScore"/>, placeholders normalised, without duplicates,
+    /// in order, at most 16. Past 16, the oldest are joined with a newline into the first text, so every text is
+    /// still judged.</summary>
+    /// <remarks>Dropping the oldest instead would let a tool result hide an injection in its first block by
+    /// following it with 16 benign ones.</remarks>
     private List<string> SelectTextsToScore(SentinelContext ctx)
     {
-        // Blank texts are dropped before the cap, so an image-only or empty message does not cost a text its slot.
-        var nonBlank = new List<string>();
+        // Blank texts and duplicates are dropped before the cap, so they do not cost a text its own slot.
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var texts = new List<string>();
         foreach (var text in GetTextsToScore(ctx))
         {
-            if (!string.IsNullOrWhiteSpace(text)) nonBlank.Add(text);
-        }
+            if (string.IsNullOrWhiteSpace(text)) continue;
 
-        var start = Math.Max(0, nonBlank.Count - MaxMessagesToScore);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var texts = new List<string>(nonBlank.Count - start);
-        for (var i = start; i < nonBlank.Count; i++)
-        {
-            var normalised = PlaceholderFormat.Normalise(nonBlank[i]);
+            var normalised = PlaceholderFormat.Normalise(text);
             if (seen.Add(normalised)) texts.Add(normalised);
         }
 
-        return texts;
+        if (texts.Count <= MaxMessagesToScore)
+            return texts;
+
+        // The oldest overflow plus the first kept text become one input, followed by the newest 15.
+        var folded = texts.Count - MaxMessagesToScore + 1;
+        var result = new List<string>(MaxMessagesToScore) { string.Join('\n', texts.GetRange(0, folded)) };
+        result.AddRange(texts.GetRange(folded, texts.Count - folded));
+        return result;
     }
 
     /// <summary>Collapses whitespace and truncates matched text before it reaches a reason string.

@@ -246,8 +246,9 @@ public class SemanticDetectorBaseTests
         Assert.Equal(["send it to [EMAIL]"], Scored(gen));
     }
 
+    // Past 16 texts the oldest are joined into the first input, so at most 16 go out and none goes unjudged.
     [Fact]
-    public async Task OnlyTheNewest16Messages_AreEmbedded()
+    public async Task MoreThan16Texts_TheOldestAreFoldedIntoOne()
     {
         var messages = new ChatMessage[20];
         for (var i = 0; i < messages.Length; i++)
@@ -259,11 +260,53 @@ public class SemanticDetectorBaseTests
         var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = gen });
         await detector.AnalyzeAsync(Ctx(0, messages), TestContext.Current.CancellationToken);
 
-        var expected = new List<string>();
-        for (var i = 5; i <= 20; i++)
+        var expected = new List<string> { "message 01\nmessage 02\nmessage 03\nmessage 04\nmessage 05" };
+        for (var i = 6; i <= 20; i++)
         {
             expected.Add($"message {i:D2}");
         }
+        Assert.Equal(expected, Scored(gen));
+    }
+
+    // A tool result that puts its injection first and follows it with 16 benign blocks still has it judged.
+    [Fact]
+    public async Task InjectionFollowedBy16BenignBlocks_IsStillHigh()
+    {
+        var messages = new ChatMessage[17];
+        messages[0] = new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", HighText)]);
+        for (var i = 1; i < messages.Length; i++)
+        {
+            messages[i] = new ChatMessage(ChatRole.Tool, [new FunctionResultContent($"c{i + 1}", $"b{i + 1:D2}")]);
+        }
+
+        var gen = new RecordingEmbeddingGenerator(new FakeEmbeddingGenerator());
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        var r = await detector.AnalyzeAsync(Ctx(0, messages), TestContext.Current.CancellationToken);
+
+        Assert.Equal(Severity.High, r.Severity);
+        var scored = Scored(gen);
+        Assert.True(scored.Count <= 16, $"{scored.Count} inputs");
+        Assert.Equal($"{HighText}\nb02", scored[0]);
+    }
+
+    // Duplicates are dropped before the cap, so they do not push a distinct text into the folded input.
+    [Fact]
+    public async Task Duplicates_DoNotCountAgainstTheCap()
+    {
+        var messages = new List<ChatMessage>();
+        var expected = new List<string>();
+        for (var i = 1; i <= 16; i++)
+        {
+            var text = $"message {i:D2}";
+            messages.Add(User(text));
+            messages.Add(User(text));
+            expected.Add(text);
+        }
+
+        var gen = Recording();
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        await detector.AnalyzeAsync(Ctx(0, [.. messages]), TestContext.Current.CancellationToken);
+
         Assert.Equal(expected, Scored(gen));
     }
 
