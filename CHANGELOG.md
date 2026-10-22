@@ -9,6 +9,18 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.1.0...v3.2.0) (2026-10-22)
+
+
+### Features
+
+* **detectors:** score each new message in the semantic detectors ([c3b2a68](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/c3b2a681df7f0af987af447245bb2732c04c38ba))
+
+
+### Bug Fixes
+
+* **mcp:** use one SENTINEL_MCP_MAX_SCAN_BYTES default for resources too ([#437](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/437)) ([f88dd46](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/f88dd46caf972d0e77886f713e6680639cfb889f)), closes [#427](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/427)
+
 ## [3.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.0.0...v3.1.0) (2026-10-22)
 
 
