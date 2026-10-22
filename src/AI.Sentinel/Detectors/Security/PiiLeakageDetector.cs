@@ -40,8 +40,11 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     // `"BSN": "123456789"` matches as `BSN: 123456789` does; a JSON value is judged with its key.
     // A multi-word keyword also matches written as an identifier, as JSON keys usually are:
     // `date_of_birth`, `date-of-birth`, `dateOfBirth`, `tax_id`, `taxId`.
+    // Whitespace after the keyword is taken once, before the optional separator, and again only
+    // after a separator: two adjacent runs that could split one stretch of whitespace between
+    // them made a keyword followed by a long run of spaces quadratic.
     [GeneratedRegex(
-        @"(?:BSN|burgerservicenummer)[""']?\s*[:=]?\s*[""']?(?<value>\d{9})\b",
+        @"(?:BSN|burgerservicenummer)[""']?\s*(?:[:=]\s*)?[""']?(?<value>\d{9})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex BsnPattern();
@@ -53,13 +56,13 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     private static partial Regex UkNinoPattern();
 
     [GeneratedRegex(
-        @"passport[""']?\s*[:=]?\s*[""']?(?<value>[A-Z]{1,2}\d{6,9})\b",
+        @"passport[""']?\s*(?:[:=]\s*)?[""']?(?<value>[A-Z]{1,2}\d{6,9})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex PassportPattern();
 
     [GeneratedRegex(
-        @"(?:Steuer(?:\s+|[_-])?ID|tax(?:\s+|[_-])?id)[""']?\s*[:=]?\s*[""']?(?<value>\d{2}\s?\d{3}\s?\d{5})\b",
+        @"(?:Steuer(?:\s+|[_-])?ID|tax(?:\s+|[_-])?id)[""']?\s*(?:[:=]\s*)?[""']?(?<value>\d{2}\s?\d{3}\s?\d{5})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex DeTaxIdPattern();
@@ -79,7 +82,7 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     private static partial Regex PhonePattern();
 
     [GeneratedRegex(
-        @"(?:born|DOB|date(?:\s+|[_-])?of(?:\s+|[_-])?birth)[""']?\s*[:=]?\s*[""']?(?<value>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b",
+        @"(?:born|DOB|date(?:\s+|[_-])?of(?:\s+|[_-])?birth)[""']?\s*(?:[:=]\s*)?[""']?(?<value>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex DobPattern();

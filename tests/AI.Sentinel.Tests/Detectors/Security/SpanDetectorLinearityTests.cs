@@ -23,6 +23,27 @@ public class SpanDetectorLinearityTests
             n: 25_000);
     }
 
+    // A keyword followed by a long run of whitespace, with or without a separator in it, and no value.
+    [Theory]
+    [InlineData("BSN", "")]
+    [InlineData("burgerservicenummer", "")]
+    [InlineData("passport", "")]
+    [InlineData("Steuer-ID", "")]
+    [InlineData("tax id", "")]
+    [InlineData("born", "")]
+    [InlineData("DOB", "")]
+    [InlineData("date of birth", "")]
+    [InlineData("BSN", ":")]
+    [InlineData("\"date_of_birth\"", "=")]
+    public void PiiLeakage_KeywordThenLongWhitespace_StaysLinear(string keyword, string separator)
+    {
+        var detector = new PiiLeakageDetector();
+        LinearTime.Assert(
+            chars => keyword + new string(' ', chars / 2) + separator + new string(' ', chars / 2),
+            text => detector.FindSpans(text),
+            n: 10_000);
+    }
+
     [Theory]
     [InlineData("password=")]
     [InlineData("password=\"")]
