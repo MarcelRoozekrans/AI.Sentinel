@@ -118,6 +118,29 @@ public class McpRedactionTests
             Placeholders.Untag(structured.GetRawText()));
     }
 
+    // #428: a secret recognised only by its key is redacted, not blocked, even when a Critical finding blocks.
+    [Fact]
+    public async Task ToolResult_StructuredContent_ValueRecognisedByItsKey_RedactedNotBlocked()
+    {
+        var (pipeline, store) = Build(blockCritical: true);
+        var placeholders = NewStore();
+
+        var result = await CallAsync(pipeline, new CallToolResult
+        {
+            Content = [],
+            StructuredContent = Json("""{"user":"jan","config":{"password":"hunter2","port":5432}}"""),
+        }, placeholders);
+
+        var structured = Assert.NotNull(result.StructuredContent);
+        Assert.Equal(
+            """{"user":"jan","config":{"password":"[PASSWORD_1]","port":5432}}""",
+            Placeholders.Untag(structured.GetRawText()));
+        Assert.Contains(structured.GetProperty("config").GetProperty("password").GetString()!, placeholders.KnownTokens());
+        var entries = await RecordingAuditForwarder.ReadAllAsync(store);
+        Assert.Single(entries, IsRedactedEntry);
+        Assert.All(entries, e => Assert.DoesNotContain("hunter2", JsonSerializer.Serialize(e, AuditJsonContext.Default.AuditEntry), StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task ToolResult_ImageBlockAndBlobResource_Untouched()
     {

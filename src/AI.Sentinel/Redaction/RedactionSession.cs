@@ -111,10 +111,11 @@ internal sealed class RedactionSession
     }
 
     /// <summary>
-    /// Redacts the string values of <paramref name="element"/>. Property names, numbers, booleans, nulls and the
-    /// nesting are written unchanged, so a host that validates the shape of what it gets back accepts the copy.
+    /// Redacts the string values of <paramref name="element"/>, each value of a member in the context of its name; see
+    /// <see cref="RedactMember"/>. Property names, numbers, booleans, nulls and the nesting are written unchanged, so
+    /// a host that validates the shape of what it gets back accepts the copy.
     /// </summary>
-    public JsonElement RedactJsonValues(JsonElement element) => MapJson(element, Redact, mapNames: false);
+    public JsonElement RedactJsonValues(JsonElement element) => MapJson(element, RedactMap, mapNames: false);
 
     public string Redact(string text)
     {
@@ -125,21 +126,76 @@ internal sealed class RedactionSession
 
         // Detectors run outside the lock; any exception (including regex timeouts) propagates to the caller.
         var found = new List<Found>();
+        Collect(text, found, member: null);
+        return Apply(text, found);
+    }
+
+    /// <summary>
+    /// Redacts <paramref name="value"/>, the string value of the member <paramref name="name"/>, in the context of
+    /// that name, as the scan judges it: the detectors also see the member rendered as <c>"name": "value"</c>, and
+    /// the part of each span they report there that lies in the value is redacted in the value. A value only its name
+    /// makes sensitive, such as <c>hunter2</c> in <c>{"password":"hunter2"}</c>, is redacted rather than left for the
+    /// scan to flag; the name is never changed. Spans in the value on its own are found as by <see cref="Redact(string)"/>,
+    /// and overlapping spans merge as they do there.
+    /// </summary>
+    private string RedactMember(string name, string value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            return value;
+        }
+
+        var found = new List<Found>();
+        Collect(value, found, member: null);
+        var member = JsonScanText.RenderMember(name, value);
+        Collect(member.Text, found, member);
+        return Apply(value, found);
+    }
+
+    /// <summary>Redacts a string of a walked value: in the context of its member's name when it has one.</summary>
+    private string RedactMap(string text, string? name) => name is null ? Redact(text) : RedactMember(name, text);
+
+    private string RestoreMap(string text, string? name) => Restore(text);
+
+    private string RestoreToolArgumentMap(string text, string? name) => RestoreToolArgument(text);
+
+    /// <summary>
+    /// Adds the spans every redactor reports for <paramref name="scanned"/>. With <paramref name="member"/>, the
+    /// scanned text is that rendered member, and each span is mapped onto the member's value; a span with no part
+    /// in the value, such as one over the name only, is dropped.
+    /// </summary>
+    private void Collect(string scanned, List<Found> found, RenderedMember? member)
+    {
         for (var order = 0; order < _redactors.Count; order++)
         {
             var redactor = _redactors[order];
             var id = redactor.Id.Value;
-            foreach (var span in redactor.FindSpans(text))
+            foreach (var span in redactor.FindSpans(scanned))
             {
-                if (span.Start < 0 || span.Length <= 0 || span.Start > text.Length - span.Length)
+                if (span.Start < 0 || span.Length <= 0 || span.Start > scanned.Length - span.Length)
                 {
                     throw new InvalidOperationException(
                         $"Detector {id} reported a span outside the scanned text; refusing to redact with unreliable offsets.");
                 }
-                found.Add(new Found(span.Start, span.Length, NormalizeType(span.EntityType), id, redactor.RestoreIntoToolArguments, order, found.Count));
+
+                var start = span.Start;
+                var length = span.Length;
+                if (member is { } m)
+                {
+                    if (!m.TryMapToValue(span.Start, span.Start + span.Length, out var valueStart, out var valueEnd))
+                    {
+                        continue;
+                    }
+                    start = valueStart;
+                    length = valueEnd - valueStart;
+                }
+                found.Add(new Found(start, length, NormalizeType(span.EntityType), id, redactor.RestoreIntoToolArguments, order, found.Count));
             }
         }
+    }
 
+    private string Apply(string text, List<Found> found)
+    {
         if (found.Count == 0)
         {
             return text;
@@ -224,9 +280,9 @@ internal sealed class RedactionSession
     {
         ArgumentNullException.ThrowIfNull(messages);
         var placeholders = new HashSet<string>(StringComparer.Ordinal);
-        string Map(string text)
+        string Map(string text, string? name)
         {
-            var redacted = Redact(text);
+            var redacted = RedactMap(text, name);
             CollectPlaceholders(redacted, placeholders);
             return redacted;
         }
@@ -236,14 +292,14 @@ internal sealed class RedactionSession
         {
             result.Add(MapMessage(message, Map, redact: true));
         }
-        return new RedactedRequest(result, instructions is null ? null : Map(instructions), placeholders);
+        return new RedactedRequest(result, instructions is null ? null : Map(instructions, null), placeholders);
     }
 
     /// <summary>Redacted copies of <paramref name="messages"/>; see <see cref="RedactRequest"/>.</summary>
     public IReadOnlyList<ChatMessage> Redact(IReadOnlyList<ChatMessage> messages) => RedactRequest(messages).Messages;
 
     /// <summary>Redacts a tool result before it goes to the model. Each value is converted and walked once.</summary>
-    public object? RedactResult(object? result) => MapValue(result, Redact, redact: true);
+    public object? RedactResult(object? result) => MapValue(result, RedactMap, redact: true);
 
     private static void CollectPlaceholders(string text, HashSet<string> into)
     {
@@ -310,7 +366,7 @@ internal sealed class RedactionSession
         var result = new List<ChatMessage>(messages.Count);
         foreach (var message in messages)
         {
-            result.Add(MapMessage(message, Restore, redact: false, answered));
+            result.Add(MapMessage(message, RestoreMap, redact: false, answered));
         }
         return result;
     }
@@ -380,7 +436,7 @@ internal sealed class RedactionSession
                         contents.Add(_lastReasoning);
                         break;
                     default:
-                        contents.Add(session.MapContent(content, session.Restore, redact: false, answered));
+                        contents.Add(session.MapContent(content, session.RestoreMap, redact: false, answered));
                         break;
                 }
             }
@@ -489,7 +545,7 @@ internal sealed class RedactionSession
                 throw new InvalidOperationException(
                     "Two argument names are identical under the given comparer; refusing to drop one.");
             }
-            restored[key] = MapValue(value, RestoreToolArgument, redact: false);
+            restored[key] = MapValue(value, RestoreToolArgumentMap, redact: false);
         }
         return restored;
     }
@@ -583,7 +639,7 @@ internal sealed class RedactionSession
         return answered;
     }
 
-    private ChatMessage MapMessage(ChatMessage message, Func<string, string> map, bool redact, HashSet<ToolCallContent>? answered = null)
+    private ChatMessage MapMessage(ChatMessage message, TextMap map, bool redact, HashSet<ToolCallContent>? answered = null)
     {
         var copy = message.Clone();
         var contents = new List<AIContent>(message.Contents.Count);
@@ -597,18 +653,18 @@ internal sealed class RedactionSession
 
     // answered: the calls followed by their result in the list being restored; null when redacting, or for
     // content nested in a value, which follows the tool rule.
-    private AIContent MapContent(AIContent content, Func<string, string> map, bool redact, HashSet<ToolCallContent>? answered = null)
+    private AIContent MapContent(AIContent content, TextMap map, bool redact, HashSet<ToolCallContent>? answered = null)
     {
         switch (content)
         {
             case TextContent text:
-                return CopyMetadata(text, new TextContent(text.Text is null ? null : map(text.Text)));
+                return CopyMetadata(text, new TextContent(text.Text is null ? null : map(text.Text, null)));
             case ToolCallContent call when CarriesText(call):
                 // Arguments of a call that may still be invoked are what a tool would receive, so restoring
                 // them follows the tool rule; an answered call is history and is restored like text. Calls to
                 // hosted tools, such as an MCP server or web search, follow the same rule as function calls.
                 var restoreAll = redact || (answered is not null && answered.Contains(call));
-                return MapToolCall(call, restoreAll ? map : RestoreToolArgument, redact);
+                return MapToolCall(call, restoreAll ? map : RestoreToolArgumentMap, redact);
             case FunctionResultContent fr:
                 return CopyMetadata(fr, new FunctionResultContent(fr.CallId, MapValue(fr.Result, map, redact))
                 {
@@ -624,7 +680,7 @@ internal sealed class RedactionSession
             case ImageGenerationToolResultContent image:
                 return CopyMetadata(image, new ImageGenerationToolResultContent(image.CallId) { Outputs = MapOutputs(image.Outputs, map, redact) });
             case TextReasoningContent reasoning:
-                return CopyMetadata(reasoning, new TextReasoningContent(reasoning.Text is null ? null : map(reasoning.Text))
+                return CopyMetadata(reasoning, new TextReasoningContent(reasoning.Text is null ? null : map(reasoning.Text, null))
                 {
                     ProtectedData = reasoning.ProtectedData,
                 });
@@ -634,7 +690,7 @@ internal sealed class RedactionSession
                 // The reason is text even when the call carries none, such as an image generation call.
                 return CopyMetadata(response, new ToolApprovalResponseContent(response.RequestId, response.Approved, MapApprovalCall(response.ToolCall, map, redact))
                 {
-                    Reason = response.Reason is null ? null : map(response.Reason),
+                    Reason = response.Reason is null ? null : map(response.Reason, null),
                 });
             case DataContent data when IsText(data) && !data.Data.IsEmpty:
                 return MapTextData(data, map, redact);
@@ -646,7 +702,7 @@ internal sealed class RedactionSession
     // Text data, such as the code a code interpreter call carries, is mapped both ways. Redacting fails closed on a
     // charset it cannot decode. Restoring can leak nothing, so such data is returned as it is, and data with
     // nothing to restore is returned unchanged rather than decoded and encoded again.
-    private DataContent MapTextData(DataContent data, Func<string, string> map, bool redact)
+    private DataContent MapTextData(DataContent data, TextMap map, bool redact)
     {
         var encoding = redact ? EncodingOf(data) : EncodingOf(data, failClosed: false);
         if (encoding is null)
@@ -655,7 +711,7 @@ internal sealed class RedactionSession
         }
 
         var text = encoding.GetString(data.Data.Span);
-        var mapped = map(text);
+        var mapped = map(text, null);
         if (!redact && string.Equals(text, mapped, StringComparison.Ordinal))
         {
             return data;
@@ -736,8 +792,8 @@ internal sealed class RedactionSession
     // The call inside an approval request or response: redacted like any call on the way to the model. On the way
     // back it is a call that runs once approved, so it follows the tool rule whether or not a result follows it.
     // A call that carries no text, such as an image generation call, is kept as it is.
-    private ToolCallContent MapApprovalCall(ToolCallContent call, Func<string, string> map, bool redact) =>
-        CarriesText(call) ? MapToolCall(call, redact ? map : RestoreToolArgument, redact) : call;
+    private ToolCallContent MapApprovalCall(ToolCallContent call, TextMap map, bool redact) =>
+        CarriesText(call) ? MapToolCall(call, redact ? map : RestoreToolArgumentMap, redact) : call;
 
     // The calls whose text is mapped: function calls and calls to MCP server, code interpreter and web search tools.
     // An image generation call carries no text, and an unknown call type is not known to.
@@ -749,7 +805,7 @@ internal sealed class RedactionSession
     /// inputs or queries mapped. The copy keeps the call id, the name and server name where the type has them,
     /// and the metadata.
     /// </summary>
-    private ToolCallContent MapToolCall(ToolCallContent call, Func<string, string> map, bool redact) => call switch
+    private ToolCallContent MapToolCall(ToolCallContent call, TextMap map, bool redact) => call switch
     {
         FunctionCallContent function => CopyMetadata(function, MapCall(function, map, redact)),
         McpServerToolCallContent mcp => CopyMetadata(mcp, new McpServerToolCallContent(mcp.CallId, mcp.Name, mcp.ServerName)
@@ -806,14 +862,14 @@ internal sealed class RedactionSession
         return CopyMetadata(request, copy);
     }
 
-    private FunctionCallContent MapCall(FunctionCallContent call, Func<string, string> map, bool redact) =>
+    private FunctionCallContent MapCall(FunctionCallContent call, TextMap map, bool redact) =>
         new(call.CallId, call.Name, MapArguments(call.Arguments, map, redact))
         {
             Exception = call.Exception,
             InformationalOnly = call.InformationalOnly,
         };
 
-    private Dictionary<string, object?>? MapArguments(IDictionary<string, object?>? arguments, Func<string, string> map, bool redact)
+    private Dictionary<string, object?>? MapArguments(IDictionary<string, object?>? arguments, TextMap map, bool redact)
     {
         if (arguments is null)
         {
@@ -823,16 +879,16 @@ internal sealed class RedactionSession
         var mapped = new Dictionary<string, object?>(arguments.Count, ComparerOf(arguments));
         foreach (var (key, value) in arguments)
         {
-            mapped[key] = MapValue(value, map, redact);
+            mapped[key] = MapValue(value, map, redact, key);
         }
         return mapped;
     }
 
     // Inputs and outputs of hosted tools; a content nested here follows the tool rule when it is a call.
-    private List<AIContent>? MapOutputs(IList<AIContent>? contents, Func<string, string> map, bool redact) =>
+    private List<AIContent>? MapOutputs(IList<AIContent>? contents, TextMap map, bool redact) =>
         contents is null ? null : MapContents(contents, map, redact);
 
-    private static List<string>? MapQueries(IList<string>? queries, Func<string, string> map)
+    private static List<string>? MapQueries(IList<string>? queries, TextMap map)
     {
         if (queries is null)
         {
@@ -842,7 +898,7 @@ internal sealed class RedactionSession
         var mapped = new List<string>(queries.Count);
         foreach (var query in queries)
         {
-            mapped.Add(query is null ? query! : map(query));
+            mapped.Add(query is null ? query! : map(query, null));
         }
         return mapped;
     }
@@ -855,18 +911,20 @@ internal sealed class RedactionSession
         return target;
     }
 
-    private object? MapValue(object? value, Func<string, string> map, bool redact)
+    // name: the member the value is the value of, such as an argument's name, so a string is mapped in its context;
+    // null for a value with no name, such as an item of a list.
+    private object? MapValue(object? value, TextMap map, bool redact, string? name = null)
     {
         switch (value)
         {
             case null:
                 return null;
             case string s:
-                return map(s);
+                return map(s, name);
             case JsonElement e:
-                return MapJson(e, map);
+                return MapJson(e, map, name: name);
             case JsonNode node:
-                var nodeElement = MapJson(JsonElementOf(node), map);
+                var nodeElement = MapJson(JsonElementOf(node), map, name: name);
                 return redact ? nodeElement : JsonNode.Parse(nodeElement.GetRawText());
             case AIContent content:
                 return MapContent(content, map, redact);
@@ -875,7 +933,7 @@ internal sealed class RedactionSession
             case IEnumerable<AIContent> contents:
                 return MapContents(contents, map, redact);
             case char[] chars when redact:
-                return map(new string(chars)).ToCharArray();
+                return map(new string(chars), name).ToCharArray();
             case Array array when array.GetType().GetElementType()!.IsPrimitive:
                 return value; // binary or numeric data, not text
             // Typed collections such as List<string> or string[] are not restored in arguments: model-parsed
@@ -883,16 +941,16 @@ internal sealed class RedactionSession
             case IList list when redact || value is object[] or List<object?>:
                 return MapList(list, map, redact);
             default:
-                return redact && !IsPrimitive(value) ? MapJson(ToJson(value), map) : value;
+                return redact && !IsPrimitive(value) ? MapJson(ToJson(value), map, name: name) : value;
         }
     }
 
-    private Dictionary<string, object?> MapDictionary(IDictionary<string, object?> dict, Func<string, string> map, bool redact)
+    private Dictionary<string, object?> MapDictionary(IDictionary<string, object?> dict, TextMap map, bool redact)
     {
         var result = new Dictionary<string, object?>(dict.Count, ComparerOf(dict));
         foreach (var (key, item) in dict)
         {
-            if (!result.TryAdd(map(key), MapValue(item, map, redact)))
+            if (!result.TryAdd(map(key, null), MapValue(item, map, redact, key)))
             {
                 throw new InvalidOperationException("Mapping made two names identical.");
             }
@@ -900,7 +958,7 @@ internal sealed class RedactionSession
         return result;
     }
 
-    private List<AIContent> MapContents(IEnumerable<AIContent> contents, Func<string, string> map, bool redact)
+    private List<AIContent> MapContents(IEnumerable<AIContent> contents, TextMap map, bool redact)
     {
         var result = new List<AIContent>();
         foreach (var content in contents)
@@ -910,7 +968,7 @@ internal sealed class RedactionSession
         return result;
     }
 
-    private object MapList(IList list, Func<string, string> map, bool redact)
+    private object MapList(IList list, TextMap map, bool redact)
     {
         var result = new List<object?>(list.Count);
         foreach (var item in list)
@@ -958,7 +1016,7 @@ internal sealed class RedactionSession
     // never embedded in HTML, so the relaxed encoder is safe here; it still escapes quotes, backslashes and controls.
     private static readonly JsonWriterOptions MappedJsonOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    private static JsonElement MapJson(JsonElement element, Func<string, string> map, bool mapNames = true)
+    private static JsonElement MapJson(JsonElement element, TextMap map, bool mapNames = true, string? name = null)
     {
         if (element.ValueKind == JsonValueKind.Undefined)
         {
@@ -968,25 +1026,26 @@ internal sealed class RedactionSession
         var buffer = new ArrayBufferWriter<byte>();
         using (var writer = new Utf8JsonWriter(buffer, MappedJsonOptions))
         {
-            WriteMapped(writer, element, map, mapNames);
+            WriteMapped(writer, element, map, mapNames, name);
         }
         using var doc = JsonDocument.Parse(buffer.WrittenMemory);
         return doc.RootElement.Clone();
     }
 
-    private static void WriteMapped(Utf8JsonWriter writer, JsonElement element, Func<string, string> map, bool mapNames)
+    // name: the member element is the value of, or null for an item of an array or the root without a name.
+    private static void WriteMapped(Utf8JsonWriter writer, JsonElement element, TextMap map, bool mapNames, string? name)
     {
         switch (element.ValueKind)
         {
             case JsonValueKind.String:
-                writer.WriteStringValue(map(element.GetString()!));
+                writer.WriteStringValue(map(element.GetString()!, name));
                 break;
             case JsonValueKind.Object:
                 writer.WriteStartObject();
                 foreach (var property in element.EnumerateObject())
                 {
-                    writer.WritePropertyName(mapNames ? map(property.Name) : property.Name);
-                    WriteMapped(writer, property.Value, map, mapNames);
+                    writer.WritePropertyName(mapNames ? map(property.Name, null) : property.Name);
+                    WriteMapped(writer, property.Value, map, mapNames, property.Name);
                 }
                 writer.WriteEndObject();
                 break;
@@ -994,7 +1053,7 @@ internal sealed class RedactionSession
                 writer.WriteStartArray();
                 foreach (var item in element.EnumerateArray())
                 {
-                    WriteMapped(writer, item, map, mapNames);
+                    WriteMapped(writer, item, map, mapNames, name: null);
                 }
                 writer.WriteEndArray();
                 break;
@@ -1003,6 +1062,10 @@ internal sealed class RedactionSession
                 break;
         }
     }
+
+    /// <summary>Maps one string of a walked value. <paramref name="name"/> is the name of the member the string is
+    /// the value of, or null for a string with no name: text, an item of a list, a name itself.</summary>
+    private delegate string TextMap(string text, string? name);
 
     private readonly record struct Found(int Start, int Length, string EntityType, string DetectorId, bool ToolRestorable, int DetectorOrder, int Sequence);
 }

@@ -144,6 +144,55 @@ public class HostRedactionTests
         Assert.Null(result.Error);
     }
 
+    // #428: the value alone matches nothing, the scan text "password": "hunter2" does. The value is redacted in the
+    // context of its key, so the scan after redaction finds nothing left and nothing falls back.
+    [Fact]
+    public async Task JsonContent_ValueRecognisedByItsKey_IsRedacted_NoFinding_NoValueInAudit()
+    {
+        var (pipeline, audit) = Build();
+        var input = Json("""{"user":"jan","db":{"password":"hunter2"},"api_key":"zebra-orchid"}""");
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromJson(input)] });
+        await pipeline.AppendRedactionsAsync(result, result.SessionId, TestContext.Current.CancellationToken);
+
+        Assert.Empty(result.Findings);
+        Assert.Null(result.Error);
+        Assert.False(result.FellBack);
+        Assert.Equal(
+            """{"user":"jan","db":{"password":"[PASSWORD_1]"},"api_key":"[API_KEY_1]"}""",
+            Placeholders.Untag(result.Content[0].Json!.Value.GetRawText()));
+        Assert.Equal(1, result.RedactedByType["PASSWORD"]);
+        Assert.Equal(1, result.RedactedByType["API_KEY"]);
+        Assert.All(result.Minted, m => Assert.False(m.RestoreIntoToolArguments));
+        var entries = await RecordingAuditForwarder.ReadAllAsync(audit);
+        Assert.Contains(entries, e => string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal));
+        foreach (var e in entries)
+        {
+            var json = JsonSerializer.Serialize(e, AuditJsonContext.Default.AuditEntry);
+            Assert.DoesNotContain("hunter2", json, StringComparison.Ordinal);
+            Assert.DoesNotContain("zebra-orchid", json, StringComparison.Ordinal);
+        }
+    }
+
+    // The scan after redaction finds nothing left: not in a value the key and the value both flag, not past an
+    // escaped quote, and not after a "Bearer " the key keeps.
+    [Theory]
+    [InlineData("""{"password":"password: hunter2"}""")]
+    [InlineData("""{"password":"hunter2 jan@example.com"}""")]
+    [InlineData("""{"password":"hun\"ter2"}""")]
+    [InlineData("""{"headers":{"Authorization":"Bearer hunter2"}}""")]
+    public async Task JsonContent_KeyedSecret_NothingLeftForTheScan(string json)
+    {
+        var (pipeline, _) = Build();
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromJson(Json(json))] });
+
+        Assert.Empty(result.Findings);
+        Assert.False(result.FellBack);
+        Assert.True(result.Redacted);
+        Assert.DoesNotContain("hunter2", result.Content[0].ScanText(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public void JsonContent_ScanText_SeparatesMembersWithWhitespace()
     {

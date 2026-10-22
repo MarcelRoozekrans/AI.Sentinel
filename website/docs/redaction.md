@@ -94,21 +94,21 @@ The in-process chat client sees the whole conversation and rewrites it. The hook
 | Surface | What is redacted | Restored | Falls back |
 |---|---|---|---|
 | In-process client | Everything listed under [What is redacted](#what-is-redacted) | The reply, tool results, and PII in tool-call arguments; secrets never in tool calls | The response scan, and a detector that flags text without spans |
-| MCP proxy | Tool results, prompts from `prompts/get`, and text resources from `resources/read` | PII placeholders in the arguments of a later `tools/call`, until `SENTINEL_MCP_REDACT_TTL_MIN` minutes after their last use, 30 by default; secrets never | Tool-call arguments, blob and non-allowlisted resources, content past the byte budget, and values recognised only by their JSON key ([#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428)). A rate-limited scan or a pipeline error forwards the content unredacted |
-| Claude Code `PostToolUse` | The tool output, returned as `updatedToolOutput` | No: the model keeps the placeholders | Values recognised only by their JSON key, such as `{"password":"hunter2"}` ([#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428)) |
+| MCP proxy | Tool results, prompts from `prompts/get`, and text resources from `resources/read` | PII placeholders in the arguments of a later `tools/call`, until `SENTINEL_MCP_REDACT_TTL_MIN` minutes after their last use, 30 by default; secrets never | Tool-call arguments, blob and non-allowlisted resources, content past the byte budget, and personal data inside a JSON key. A rate-limited scan or a pipeline error forwards the content unredacted |
+| Claude Code `PostToolUse` | The tool output, returned as `updatedToolOutput` | No: the model keeps the placeholders | Personal data inside a JSON key |
 | Claude Code `PreToolUse` | Nothing. The [placeholder guard](#placeholder-guard) denies writes and shell commands that carry a placeholder | No | The tool arguments |
 | Claude Code `UserPromptSubmit` | Nothing | No | The prompt |
-| Copilot `postToolUse` | The tool result's `textResultForLlm`, returned as `modifiedResult` | No | A tool result without a string `textResultForLlm`, and values recognised only by their JSON key ([#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428)) |
+| Copilot `postToolUse` | The tool result's `textResultForLlm`, returned as `modifiedResult` | No | A tool result without a string `textResultForLlm` |
 | Copilot `userPromptTransformed` | The transformed prompt, returned as `modifiedTransformedPrompt`. **Experimental**: not yet verified with the Copilot CLI | No | Nothing on the prompt itself |
 | Copilot `preToolUse` | Nothing. The [placeholder guard](#placeholder-guard) applies | No | The tool arguments |
 | Copilot `userPromptSubmitted` | Nothing | No | The prompt |
 
 "Falls back" means the detection uses the action of its severity, as described under [Fallback](#fallback). On every surface except the in-process client, a failure of the redaction itself also falls back; see [Fail closed](#fail-closed).
 
-When the hook CLIs and the MCP proxy redact JSON, such as a tool's output or `structuredContent`, they redact string values only, each on its own. Two cases fall back:
+When the hook CLIs and the MCP proxy redact JSON, such as a tool's output or `structuredContent`, they redact string values only, and keep every key, number and the nesting as they are.
 
-- **Personal data inside a JSON key** is scanned but not redacted, because renaming a key would break the shape of the JSON.
-- **A value recognised only by its key** is not redacted either. A secret detector that needs the key to recognise a value, as in `{"password":"hunter2"}`, flags the pair, but the value `hunter2` on its own matches nothing, so no span is found and the finding uses the action of its severity. A secret finding usually blocks, so on a hook the output is withheld rather than redacted. Key-aware JSON redaction is tracked in [#428](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/428).
+- **A value recognised by its key** is redacted. The detectors judge a JSON value the way the scan renders it, together with its key: `"password": "hunter2"`. The value `hunter2` on its own matches nothing, but the pair does, so the value becomes `{"password":"[PASSWORD_1_k3f9x2]"}` and the key stays. When a span covers part of the key, only the part in the value is redacted, so `{"Authorization":"Bearer abc"}` becomes `{"Authorization":"Bearer [BEARER_TOKEN_1_k3f9x2]"}`. The in-process client does the same for tool-call arguments, tool results and other JSON it sends to the model. An item of an array and a bare string have no key and are judged on their own.
+- **Personal data inside a JSON key** is scanned but not redacted, because renaming a key would break the shape of the JSON. It falls back.
 
 ### MCP proxy
 
