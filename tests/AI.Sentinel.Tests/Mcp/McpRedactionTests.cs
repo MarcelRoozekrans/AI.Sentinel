@@ -252,7 +252,7 @@ public class McpRedactionTests
         var (pipeline, store) = Build();
         var allowed = new TextResourceContents { Uri = "file:///a.txt", MimeType = "text/plain", Text = $"a {Email}" };
         var other = new TextResourceContents { Uri = "file:///a.bin", MimeType = "application/x-custom", Text = $"b {Email}" };
-        var filter = ResourceReadInterceptor.Create(pipeline, placeholders: NewStore());
+        var filter = ResourceReadInterceptor.Create(pipeline, MaxScanBytes, placeholders: NewStore());
         var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult { Contents = [allowed, other] }));
 
         _ = await handler(Context(new ReadResourceRequestParams { Uri = "file:///a.txt" }), TestContext.Current.CancellationToken);
@@ -281,7 +281,7 @@ public class McpRedactionTests
         {
             items.Add(new TextResourceContents { Uri = $"file:///{i}.txt", MimeType = "text/plain", Text = $"line {i}" });
         }
-        var filter = ResourceReadInterceptor.Create(pipeline, placeholders: NewStore());
+        var filter = ResourceReadInterceptor.Create(pipeline, MaxScanBytes, placeholders: NewStore());
         var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult { Contents = items }));
 
         var result = await handler(Context(new ReadResourceRequestParams { Uri = "file:///dir" }), TestContext.Current.CancellationToken);
@@ -296,7 +296,7 @@ public class McpRedactionTests
         var (pipeline, store) = Build();
         var first = new TextResourceContents { Uri = "file:///a.txt", MimeType = "text/plain", Text = $"a {Email}" };
         var second = new TextResourceContents { Uri = "file:///b.txt", MimeType = "text/plain", Text = $"b {Email}" };
-        var filter = ResourceReadInterceptor.Create(pipeline, placeholders: NewStore());
+        var filter = ResourceReadInterceptor.Create(pipeline, MaxScanBytes, placeholders: NewStore());
         var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult { Contents = [first, second] }));
 
         _ = await handler(Context(new ReadResourceRequestParams { Uri = "file:///dir" }), TestContext.Current.CancellationToken);

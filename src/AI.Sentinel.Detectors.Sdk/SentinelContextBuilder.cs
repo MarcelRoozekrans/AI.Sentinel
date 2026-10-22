@@ -11,7 +11,7 @@ namespace AI.Sentinel.Detectors.Sdk;
 /// <remarks>
 /// Defaults: <c>SenderId</c> = <c>"user"</c>, <c>ReceiverId</c> = <c>"assistant"</c>,
 /// <c>SessionId</c> = a fresh <see cref="SessionId.New()"/>, empty <c>Messages</c>, empty <c>History</c>,
-/// <c>LlmId</c> = <c>null</c>. Override any of these with the <c>WithXxx</c> methods.
+/// <c>LlmId</c> = <c>null</c>, <c>NewMessagesFrom</c> = 0. Override any of these with the <c>WithXxx</c> methods.
 /// </remarks>
 public sealed class SentinelContextBuilder
 {
@@ -21,6 +21,7 @@ public sealed class SentinelContextBuilder
     private readonly List<ChatMessage> _messages = new();
     private readonly List<AuditEntry> _history = new();
     private string? _llmId;
+    private int _newMessagesFrom;
 
     /// <summary>Appends a <see cref="ChatRole.User"/> message with the given text.</summary>
     public SentinelContextBuilder WithUserMessage(string text)
@@ -90,7 +91,17 @@ public sealed class SentinelContextBuilder
         return this;
     }
 
+    /// <summary>Sets <see cref="SentinelContext.NewMessagesFrom"/>, the index of the first message that is new in the
+    /// scan. Messages before it are history: semantic detectors score only the messages from this index on.</summary>
+    /// <param name="index">Zero-based message index; the built context clamps it to the message count. Defaults to 0,
+    /// every message new.</param>
+    public SentinelContextBuilder WithNewMessagesFrom(int index)
+    {
+        _newMessagesFrom = index;
+        return this;
+    }
+
     /// <summary>Builds an immutable <see cref="SentinelContext"/> from the configured values.</summary>
     public SentinelContext Build()
-        => new(_sender, _receiver, _session, _messages.ToArray(), _history.ToArray()) { LlmId = _llmId };
+        => new(_sender, _receiver, _session, _messages.ToArray(), _history.ToArray()) { LlmId = _llmId, NewMessagesFrom = _newMessagesFrom };
 }

@@ -20,7 +20,7 @@ namespace AI.Sentinel.Mcp;
 /// matches the configured allowlist (<c>SENTINEL_MCP_SCAN_MIMES</c>, comma-separated; suffix
 /// wildcards via trailing <c>/</c> are supported) are scanned. <see cref="BlobResourceContents"/>
 /// and other MIME types are forwarded verbatim. Per-content-item UTF-8 byte budgets are gated
-/// by <c>SENTINEL_MCP_MAX_SCAN_BYTES</c> (default 65 536); oversize text items are skipped with
+/// by <c>SENTINEL_MCP_MAX_SCAN_BYTES</c> (default 262 144, read once by the proxy and shared with tool results and prompts); oversize text items are skipped with
 /// a structured stderr log line.
 /// </para>
 /// <para>
@@ -43,19 +43,17 @@ internal static class ResourceReadInterceptor
         "text/", "application/json", "application/xml", "application/yaml",
     ];
 
-    private const int DefaultMaxScanBytes = 65_536;
-
     public static McpRequestFilter<ReadResourceRequestParams, ReadResourceResult> Create(
         SentinelPipeline pipeline,
+        int maxScanBytes,
         SessionId? sessionId = null,
         PlaceholderStore? placeholders = null)
     {
         ArgumentNullException.ThrowIfNull(pipeline);
 
         var allowedMimes = ParseMimeAllowlist();
-        var maxBytes = ParseMaxBytes();
 
-        return next => (ctx, ct) => InvokeAsync(pipeline, allowedMimes, maxBytes, sessionId, placeholders, next, ctx, ct);
+        return next => (ctx, ct) => InvokeAsync(pipeline, allowedMimes, maxScanBytes, sessionId, placeholders, next, ctx, ct);
     }
 
     private static async ValueTask<ReadResourceResult> InvokeAsync(
@@ -288,14 +286,6 @@ internal static class ResourceReadInterceptor
             set.Add(m);
         }
         return set;
-    }
-
-    private static int ParseMaxBytes()
-    {
-        var raw = Environment.GetEnvironmentVariable("SENTINEL_MCP_MAX_SCAN_BYTES");
-        return int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v > 0
-            ? v
-            : DefaultMaxScanBytes;
     }
 
     internal static bool IsAllowedMime(string? mime, HashSet<string> allowed)

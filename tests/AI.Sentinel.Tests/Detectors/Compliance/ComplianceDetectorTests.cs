@@ -12,6 +12,7 @@ using AI.Sentinel.AspNetCore;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Compliance;
+using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Tests.Helpers;
@@ -174,11 +175,12 @@ public class ComplianceDetectorTests
     /// of <c>{ detector, phrase, expected }</c>, where <c>expected</c> is <c>positive</c> or
     /// <c>near-miss</c>, and every detector has both kinds. A paraphrased positive must not reuse an
     /// example's wording, or the evaluation would measure recall on text the detector already holds:
-    /// no positive may share a run of four words with any of its detector's examples.</summary>
+    /// no positive may share a run of four words with any of its detector's examples. A phrase added after
+    /// the 3.0 evaluation carries <c>"added": "3.1"</c>, so the report can mark it.</summary>
     [Fact]
     public void PhraseFile_HasPositivesAndNearMissesForEveryDetector()
     {
-        var phrases = ReadPhrases();
+        var phrases = ReadPhrases("tests", "AI.Sentinel.Tests", "Detectors", "Compliance", "compliance-phrases.json");
         var detectors = Detectors(new SentinelOptions())
             .ToDictionary(d => d.Id.Value, StringComparer.Ordinal);
         var positives = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -187,6 +189,7 @@ public class ComplianceDetectorTests
         foreach (var p in phrases)
         {
             Assert.True(detectors.TryGetValue(p.Detector, out var detector), $"unknown detector {p.Detector}");
+            Assert.True(p.Added is null || string.Equals(p.Added, "3.1", StringComparison.Ordinal), $"added must be 3.1 when present: {p.Phrase}");
             if (string.Equals(p.Expected, "near-miss", StringComparison.Ordinal))
             {
                 nearMisses[p.Detector] = nearMisses.GetValueOrDefault(p.Detector) + 1;
@@ -206,12 +209,56 @@ public class ComplianceDetectorTests
         }
     }
 
-    /// <summary>The detector's High and Medium examples. They are protected, so a test reads them by
-    /// reflection rather than widening the detector API for the evaluation.</summary>
-    private static List<string> Examples(IDetector detector)
+    /// <summary>Guards the labelled set the security spot-check in <c>tools/AI.Sentinel.ComplianceEval</c> reads.
+    /// It has the shape of the compliance file, with <c>expected</c> <c>positive</c> or <c>benign</c>: at least six
+    /// paraphrased positives for each of SEC-01, SEC-05 and SEC-09, and at least twelve benign texts with detector
+    /// <c>-</c>. A positive shares no run of four words with its detector's High, Medium or Low examples.</summary>
+    [Fact]
+    public void SecurityPhraseFile_HasPositivesPerDetectorAndBenigns()
+    {
+        var phrases = ReadPhrases("tools", "AI.Sentinel.ComplianceEval", "security-phrases.json");
+        var options = new SentinelOptions();
+        var detectors = new Dictionary<string, IDetector>(StringComparer.Ordinal)
+        {
+            ["SEC-01"] = new PromptInjectionDetector(options),
+            ["SEC-05"] = new JailbreakDetector(options),
+            ["SEC-09"] = new IndirectInjectionDetector(options),
+        };
+        var positives = new Dictionary<string, int>(StringComparer.Ordinal);
+        var benign = 0;
+
+        foreach (var p in phrases)
+        {
+            if (string.Equals(p.Expected, "benign", StringComparison.Ordinal))
+            {
+                Assert.Equal("-", p.Detector);
+                benign++;
+                continue;
+            }
+
+            Assert.Equal("positive", p.Expected);
+            Assert.True(detectors.TryGetValue(p.Detector, out var detector), $"unknown detector {p.Detector}");
+            positives[p.Detector] = positives.GetValueOrDefault(p.Detector) + 1;
+            var shared = SharedFourWordRuns(p.Phrase, Examples(detector!, includeLow: true));
+            Assert.True(shared.Count == 0, $"{p.Detector} positive reuses example wording '{string.Join("', '", shared)}': {p.Phrase}");
+        }
+
+        foreach (var id in detectors.Keys)
+        {
+            Assert.True(positives.GetValueOrDefault(id) >= 6, $"{id} needs at least 6 paraphrased positives");
+        }
+
+        Assert.True(benign >= 12, $"needs at least 12 benign phrases, found {benign}");
+    }
+
+    /// <summary>The detector's High and Medium examples, and its Low examples when <paramref name="includeLow"/> is
+    /// set. They are protected, so a test reads them by reflection rather than widening the detector API for the
+    /// evaluation.</summary>
+    private static List<string> Examples(IDetector detector, bool includeLow = false)
     {
         var all = new List<string>();
-        foreach (var name in new[] { "HighExamples", "MediumExamples" })
+        string[] names = includeLow ? ["HighExamples", "MediumExamples", "LowExamples"] : ["HighExamples", "MediumExamples"];
+        foreach (var name in names)
         {
             var property = typeof(SemanticDetectorBase).GetProperty(name, BindingFlags.Instance | BindingFlags.NonPublic);
             all.AddRange((string[])property!.GetValue(detector)!);
@@ -246,9 +293,10 @@ public class ComplianceDetectorTests
         }
     }
 
-    private sealed record PhraseRow(string Detector, string Phrase, string Expected);
+    private sealed record PhraseRow(string Detector, string Phrase, string Expected, string? Added);
 
-    private static List<PhraseRow> ReadPhrases()
+    /// <summary>Reads a phrase file at <paramref name="relativePath"/> under the repository root.</summary>
+    private static List<PhraseRow> ReadPhrases(params string[] relativePath)
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "AI.Sentinel.slnx")))
@@ -257,13 +305,14 @@ public class ComplianceDetectorTests
         }
 
         Assert.SkipWhen(dir is null, "Repository root not found.");
-        var path = Path.Combine(dir!.FullName, "tests", "AI.Sentinel.Tests", "Detectors", "Compliance", "compliance-phrases.json");
+        var path = Path.Combine([dir!.FullName, .. relativePath]);
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         return doc.RootElement.GetProperty("phrases").EnumerateArray()
             .Select(e => new PhraseRow(
                 e.GetProperty("detector").GetString()!,
                 e.GetProperty("phrase").GetString()!,
-                e.GetProperty("expected").GetString()!))
+                e.GetProperty("expected").GetString()!,
+                e.TryGetProperty("added", out var added) ? added.GetString() : null))
             .ToList();
     }
 

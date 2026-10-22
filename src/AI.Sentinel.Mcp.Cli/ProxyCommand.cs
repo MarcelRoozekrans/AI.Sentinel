@@ -203,13 +203,15 @@ internal static class ProxyCommand
             : McpDetectorPreset.Security;
     }
 
-    private static int ParseMaxScanBytes(IReadOnlyDictionary<string, string?> env)
+    /// <summary>Reads <c>SENTINEL_MCP_MAX_SCAN_BYTES</c>, the per-item UTF-8 byte cap shared by tool results, prompts and
+    /// resource reads. A positive integer is taken; anything else keeps the 262144 byte default.</summary>
+    internal static int ParseMaxScanBytes(IReadOnlyDictionary<string, string?> env)
     {
         if (env.TryGetValue("SENTINEL_MCP_MAX_SCAN_BYTES", out var value)
             && int.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
             && parsed > 0)
             return parsed;
-        return 262144; // 256 KB default
+        return 262144; // 256 KB default, shared by every interceptor
     }
 
     /// <summary>Reads <c>SENTINEL_MCP_REDACT_TTL_MIN</c>, how many minutes a placeholder the proxy minted stays

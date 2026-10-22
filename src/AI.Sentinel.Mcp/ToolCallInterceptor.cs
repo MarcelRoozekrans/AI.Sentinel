@@ -93,7 +93,7 @@ internal static class ToolCallInterceptor
 
         var requestMessages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes);
         var preError = await ScanSafelyAsync(
-            pipeline, requestMessages, stderr, phase: "request", sessionId, redaction?.Placeholders.KnownTokens(), ct).ConfigureAwait(false);
+            pipeline, requestMessages, stderr, phase: "request", sessionId, redaction?.Placeholders.KnownTokens(), newMessagesFrom: 0, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(preError, req.Name, stderr, phase: "request").ConfigureAwait(false);
 
         ctx.Params = forwarded;
@@ -105,7 +105,7 @@ internal static class ToolCallInterceptor
         }
 
         var responseMessages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes);
-        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", sessionId, exemptPlaceholders: null, ct).ConfigureAwait(false);
+        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", sessionId, exemptPlaceholders: null, newMessagesFrom: 1, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(postError, req.Name, stderr, phase: "response").ConfigureAwait(false);
 
         await stderr.WriteLineAsync(
@@ -340,11 +340,12 @@ internal static class ToolCallInterceptor
         string phase,
         SessionId? sessionId,
         IReadOnlySet<string>? exemptPlaceholders,
+        int newMessagesFrom,
         CancellationToken ct)
     {
         try
         {
-            return await pipeline.ScanMessagesExemptingAsync(messages, sessionId, exemptPlaceholders, ct).ConfigureAwait(false);
+            return await pipeline.ScanMessagesExemptingAsync(messages, sessionId, exemptPlaceholders, newMessagesFrom, ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

@@ -8,10 +8,12 @@ namespace AI.Sentinel.ComplianceEval;
 
 /// <summary>Scores phrases against one detector's High and Medium examples with
 /// <see cref="SemanticDetectorBase.MaxSimilarity"/>, the detector's own math, and confirms the detector's
-/// <see cref="IDetector.AnalyzeAsync"/> reaches the same verdict.</summary>
+/// <see cref="IDetector.AnalyzeAsync"/> reaches the same verdict, for the phrase on its own and as the last of
+/// several new messages.</summary>
 internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> generator, CancellationToken ct)
 {
-    /// <summary>Problems that fail the run: a near-miss or everyday prompt at High, or a detector that disagrees with the tool.</summary>
+    /// <summary>Problems that fail the run: a near-miss or everyday prompt at High, or a detector that disagrees with the
+    /// tool, on one message or on several.</summary>
     public List<string> Failures { get; } = [];
 
     /// <summary>Cosine similarity of two sentences, for the pipeline check.</summary>
@@ -22,14 +24,23 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
     }
 
     /// <summary>Evaluates <paramref name="detector"/>: positives written for it, and every near-miss and everyday prompt.</summary>
+    /// <param name="history">Benign prompts that precede each phrase in the multi-message pass. Each phrase is also
+    /// scored as the last of these, all as new user messages, and the detector must return the most severe of the
+    /// verdicts the tool computes for the phrase and for each history prompt on its own.</param>
     /// <returns>The summary row, and the per-phrase table.</returns>
-    public async Task<(string SummaryRow, string Table)> EvaluateAsync(SemanticDetectorBase detector, Phrase[] phrases)
+    public async Task<(string SummaryRow, string Table)> EvaluateAsync(SemanticDetectorBase detector, Phrase[] phrases, IReadOnlyList<string> history)
     {
+        ArgumentNullException.ThrowIfNull(detector);
+        ArgumentNullException.ThrowIfNull(history);
         var id = detector.Id.Value;
         var high = await VectorsAsync(detector.EvaluationHighExamples).ConfigureAwait(false);
         var medium = await VectorsAsync(detector.EvaluationMediumExamples).ConfigureAwait(false);
         var highThreshold = detector.EvaluationHighThreshold;
         var mediumThreshold = detector.EvaluationMediumThreshold;
+
+        var strongestHistory = await StrongestVerdictAsync(history, high, medium, highThreshold, mediumThreshold).ConfigureAwait(false);
+        var multiAgrees = 0;
+        var multiTotal = 0;
 
         var table = new StringBuilder();
         table.AppendLine(CultureInfo.InvariantCulture, $"### {id}: High {highThreshold:0.00}, Medium {mediumThreshold:0.00}");
@@ -56,6 +67,10 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
                     $"{id}: detector returned {actual}, tool computed {computed} for \"{row.Text}\""));
             }
 
+            multiTotal++;
+            var strongest = computed > strongestHistory ? computed : strongestHistory;
+            if (await MultiMessageAgreesAsync(detector, history, row.Text, strongest).ConfigureAwait(false)) multiAgrees++;
+
             tally.Record(row.IsPositive, actual, highSimilarity, mediumSimilarity);
             if (!row.IsPositive && actual == Severity.High)
             {
@@ -64,16 +79,45 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
             }
 
             table.AppendLine(CultureInfo.InvariantCulture,
-                $"| {row.Text} | {row.Detector} | {row.Expected} | {highSimilarity:0.000} | {mediumSimilarity:0.000} | {Label(actual, row.IsPositive)} |");
+                $"| {row.Display} | {row.Detector} | {row.Expected} | {highSimilarity:0.000} | {mediumSimilarity:0.000} | {Label(actual, row.IsPositive)} |");
         }
 
         table.AppendLine();
         var summary = string.Create(CultureInfo.InvariantCulture,
-            $"| {id} | {highThreshold:0.00} / {mediumThreshold:0.00} | {Format(tally.LowestPositive)} | {tally.HighestLegitimateHigh:0.000} | {tally.HighestLegitimateMedium:0.000} | {tally.PositiveHigh} / {tally.PositiveMedium} / {tally.PositiveMissed} | {tally.LegitimateHigh} / {tally.LegitimateMedium} | {tally.Suggestion()} |");
+            $"| {id} | {highThreshold:0.00} / {mediumThreshold:0.00} | {Format(tally.LowestPositive)} | {tally.HighestLegitimateHigh:0.000} | {tally.HighestLegitimateMedium:0.000} | {tally.PositiveHigh} / {tally.PositiveMedium} / {tally.PositiveMissed} | {tally.LegitimateHigh} / {tally.LegitimateMedium} | {tally.Suggestion()} | {multiAgrees} / {multiTotal} |");
         return (summary, table.ToString());
     }
 
-    private static string Format(float value) =>
+    /// <summary>The most severe verdict the tool computes for any of <paramref name="texts"/> on its own.</summary>
+    private async Task<Severity> StrongestVerdictAsync(
+        IReadOnlyList<string> texts, ReadOnlyMemory<float>[] high, ReadOnlyMemory<float>[] medium, float highThreshold, float mediumThreshold)
+    {
+        var strongest = Severity.None;
+        foreach (var vector in await VectorsAsync([.. texts]).ConfigureAwait(false))
+        {
+            var verdict = Verdict(
+                SemanticDetectorBase.MaxSimilarity(vector.Span, high) >= highThreshold,
+                SemanticDetectorBase.MaxSimilarity(vector.Span, medium) >= mediumThreshold);
+            if (verdict > strongest) strongest = verdict;
+        }
+
+        return strongest;
+    }
+
+    /// <summary>Runs <paramref name="detector"/> on <paramref name="history"/> followed by <paramref name="text"/>, and
+    /// records a failure when it does not return <paramref name="expected"/>, the strongest single-message verdict.</summary>
+    private async Task<bool> MultiMessageAgreesAsync(SemanticDetectorBase detector, IReadOnlyList<string> history, string text, Severity expected)
+    {
+        var actual = (await detector.AnalyzeAsync(Context(history, text), ct).ConfigureAwait(false)).Severity;
+        if (actual == expected) return true;
+
+        Failures.Add(string.Create(CultureInfo.InvariantCulture,
+            $"{detector.Id.Value}: multi-message context returned {actual}, strongest single message {expected} for \"{text}\""));
+        return false;
+    }
+
+    /// <summary>A similarity to three decimals, or <c>n/a</c> when no value was recorded.</summary>
+    internal static string Format(float value) =>
         value == float.MaxValue ? "n/a" : value.ToString("0.000", CultureInfo.InvariantCulture);
 
     private static Severity Verdict(bool high, bool medium) =>
@@ -91,6 +135,7 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
 
     private async Task<ReadOnlyMemory<float>[]> VectorsAsync(string[] examples)
     {
+        if (examples.Length == 0) return [];
         var embeddings = await generator.GenerateAsync(examples, cancellationToken: ct).ConfigureAwait(false);
         return [.. embeddings.Select(e => e.Vector)];
     }
@@ -99,6 +144,18 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
     private static SentinelContext Context(string text) => new(
         new AgentId("user"), new AgentId("assistant"), SessionId.New(),
         [new ChatMessage(ChatRole.User, text)], []);
+
+    /// <summary><paramref name="history"/> followed by <paramref name="text"/>, all user messages, all new.</summary>
+    private static SentinelContext Context(IReadOnlyList<string> history, string text)
+    {
+        var messages = new List<ChatMessage>(history.Count + 1);
+        foreach (var prompt in history) messages.Add(new ChatMessage(ChatRole.User, prompt));
+        messages.Add(new ChatMessage(ChatRole.User, text));
+        return new SentinelContext(new AgentId("user"), new AgentId("assistant"), SessionId.New(), messages, [])
+        {
+            NewMessagesFrom = 0,
+        };
+    }
 
     /// <summary>Per-detector counts and extremes for the summary row, and the thresholds the tuning rule gives.</summary>
     /// <remarks>The rule: High is the highest legitimate similarity to the High set plus 0.05, Medium the highest
