@@ -1,3 +1,5 @@
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Domain;
@@ -9,9 +11,16 @@ namespace AI.Sentinel.Detection;
 /// Subclasses declare <see cref="HighExamples"/>, <see cref="MediumExamples"/>, and
 /// <see cref="LowExamples"/> representative phrases. At first scan, all examples are
 /// embedded via <see cref="Microsoft.Extensions.AI.IEmbeddingGenerator{TInput,TEmbedding}"/>
-/// and cached in-process. Each incoming message is embedded and compared by cosine similarity
-/// against the reference vectors; the first bucket whose max similarity exceeds its threshold
-/// returns the corresponding severity.
+/// and cached in-process.
+/// <para>
+/// Each scan scores the messages that are new in it, from <see cref="SentinelContext.NewMessagesFrom"/> on,
+/// one by one: the newest <see cref="MaxMessagesToScore"/> non-blank ones, with redaction placeholders such as
+/// <c>[EMAIL_1_k3f9x2]</c> normalised to <c>[EMAIL]</c>. A message's text is its <see cref="ChatMessage.Text"/>
+/// plus the result of each <see cref="FunctionResultContent"/> it carries. Each text is embedded and compared by
+/// cosine similarity against the reference vectors; for each text the first bucket, High, then Medium, then Low,
+/// whose max similarity reaches its threshold gives a severity, and the most severe of those is reported.
+/// Override <see cref="GetTextsToScore"/> to choose other texts.
+/// </para>
 /// <para>
 /// When <see cref="SentinelOptions.EmbeddingGenerator"/> is <see langword="null"/>,
 /// all scans return <see cref="DetectionResult.Clean"/>.
@@ -114,8 +123,71 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>Severity reported when <see cref="FastPathPattern"/> matches.</summary>
     protected virtual Severity FastPathSeverity => HighSeverity;
 
+    /// <summary>The most texts one scan embeds: the newest ones that are not blank.</summary>
+    internal const int MaxMessagesToScore = 16;
+
     /// <summary>Extracts the text to embed from the context. Override to scan a specific message role.</summary>
+    /// <remarks>Before 3.1 this was the one text of the scan, by default the whole conversation joined. An override
+    /// is still honoured: <see cref="GetTextsToScore"/> scores what it returns as the only text.</remarks>
+    [Obsolete("Semantic detectors score each new message since 3.1. Override GetTextsToScore instead; an override of GetText is still scored as the one text of the scan.")]
     protected virtual string GetText(SentinelContext ctx) => ctx.TextContent;
+
+    /// <summary>The texts this scan scores, oldest first. By default, the text of each new message, from
+    /// <see cref="SentinelContext.NewMessagesFrom"/> to the end: its <see cref="ChatMessage.Text"/> plus the result of
+    /// each <see cref="FunctionResultContent"/> it carries.</summary>
+    /// <remarks>Override to score, for example, one role only. Blank texts are skipped, and only the newest
+    /// <see cref="MaxMessagesToScore"/> of the rest are embedded.</remarks>
+    protected virtual IEnumerable<string> GetTextsToScore(SentinelContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(ctx);
+
+        // Honours a legacy GetText override: anything but the default's own string is scored as the one text.
+#pragma warning disable CS0618
+        var legacy = GetText(ctx);
+#pragma warning restore CS0618
+        if (!ReferenceEquals(legacy, ctx.TextContent))
+        {
+            return [legacy];
+        }
+
+        return NewMessageTexts(ctx);
+    }
+
+    private static IEnumerable<string> NewMessageTexts(SentinelContext ctx)
+    {
+        for (var i = ctx.NewMessagesFrom; i < ctx.Messages.Count; i++)
+        {
+            yield return MessageText(ctx.Messages[i]);
+        }
+    }
+
+    /// <summary>A message's <see cref="ChatMessage.Text"/>, followed by the result of each
+    /// <see cref="FunctionResultContent"/> it carries. In an agent loop a tool result arrives as
+    /// <see cref="FunctionResultContent"/> only, with an empty <see cref="ChatMessage.Text"/>.</summary>
+    private static string MessageText(ChatMessage message)
+    {
+        var text = message.Text ?? string.Empty;
+        StringBuilder? builder = null;
+        foreach (var content in message.Contents)
+        {
+            if (content is not FunctionResultContent { Result: { } result }) continue;
+
+            builder ??= new StringBuilder(text);
+            if (builder.Length > 0) builder.Append(' ');
+            builder.Append(ResultText(result));
+        }
+
+        return builder?.ToString() ?? text;
+    }
+
+    /// <summary>A string result as it is; anything else as JSON.</summary>
+    /// <remarks><see cref="AIJsonUtilities.DefaultOptions"/> resolves through reflection where it is enabled. Under
+    /// native AOT a type that no source-generated context covers throws here, and the pipeline reports the detector
+    /// as failed for the scan rather than scoring the message as clean. Results that
+    /// <see cref="FunctionInvokingChatClient"/> produces are already a <see cref="JsonElement"/>.</remarks>
+    private static string ResultText(object result) =>
+        result as string
+        ?? JsonSerializer.Serialize(result, AIJsonUtilities.DefaultOptions.GetTypeInfo(result.GetType()));
 
     /// <summary>Text the rule layer examines: the newest message, and only when it is incoming input.</summary>
     /// <remarks>
@@ -149,10 +221,6 @@ public abstract class SemanticDetectorBase : IDetector
     /// arrive with each call from <see cref="DetectionPipeline"/> instead of being stored on the detector.</remarks>
     internal async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, DetectorConfiguration? configuration, CancellationToken ct)
     {
-        var text = GetText(ctx);
-        if (string.IsNullOrWhiteSpace(text))
-            return DetectionResult.Clean(Id);
-
         // Rule layer first: it needs no generator, so it works in a default install, and it saves a
         // round-trip on the unambiguous cases when a generator is configured.
         if (FastPathPattern is { } pattern)
@@ -167,18 +235,68 @@ public abstract class SemanticDetectorBase : IDetector
         if (_generator is null)
             return DetectionResult.Clean(Id);
 
+        var texts = SelectTextsToScore(ctx);
+        if (texts.Count == 0)
+            return DetectionResult.Clean(Id);
+
         await EnsureInitializedAsync(ct).ConfigureAwait(false);
 
-        var vector = await GetEmbeddingAsync(text, ct).ConfigureAwait(false);
+        var vectors = await GetEmbeddingsAsync(texts, ct).ConfigureAwait(false);
 
-        if (_highVectors is { Length: > 0 } && MaxSimilarity(vector.Span, _highVectors) >= EffectiveHighThreshold(configuration))
+        var highThreshold = EffectiveHighThreshold(configuration);
+        var mediumThreshold = EffectiveMediumThreshold(configuration);
+        var ceiling = Max(HighSeverity, Max(MediumSeverity, LowSeverity));
+        var best = DetectionResult.Clean(Id);
+        foreach (var vector in vectors)
+        {
+            var result = Classify(vector.Span, highThreshold, mediumThreshold);
+            if (result is not null && result.Severity > best.Severity)
+            {
+                best = result;
+                if (best.Severity == ceiling) break;
+            }
+        }
+
+        return best;
+    }
+
+    private static Severity Max(Severity a, Severity b) => a >= b ? a : b;
+
+    /// <summary>The first bucket, High, then Medium, then Low, that <paramref name="vector"/> reaches, or
+    /// <see langword="null"/>.</summary>
+    private DetectionResult? Classify(ReadOnlySpan<float> vector, float highThreshold, float mediumThreshold)
+    {
+        if (_highVectors is { Length: > 0 } && MaxSimilarity(vector, _highVectors) >= highThreshold)
             return DetectionResult.WithSeverity(Id, HighSeverity, "Semantic match — high-severity threat pattern");
-        if (_mediumVectors is { Length: > 0 } && MaxSimilarity(vector.Span, _mediumVectors) >= EffectiveMediumThreshold(configuration))
+        if (_mediumVectors is { Length: > 0 } && MaxSimilarity(vector, _mediumVectors) >= mediumThreshold)
             return DetectionResult.WithSeverity(Id, MediumSeverity, "Semantic match — medium-severity threat pattern");
-        if (_lowVectors is { Length: > 0 } && MaxSimilarity(vector.Span, _lowVectors) >= LowThreshold)
+        if (_lowVectors is { Length: > 0 } && MaxSimilarity(vector, _lowVectors) >= LowThreshold)
             return DetectionResult.WithSeverity(Id, LowSeverity, "Semantic match — low-severity threat pattern");
 
-        return DetectionResult.Clean(Id);
+        return null;
+    }
+
+    /// <summary>The newest <see cref="MaxMessagesToScore"/> non-blank texts of <see cref="GetTextsToScore"/>,
+    /// placeholders normalised, without duplicates, in order.</summary>
+    private List<string> SelectTextsToScore(SentinelContext ctx)
+    {
+        // Blank texts are dropped before the cap, so an image-only or empty message does not cost a text its slot.
+        var nonBlank = new List<string>();
+        foreach (var text in GetTextsToScore(ctx))
+        {
+            if (!string.IsNullOrWhiteSpace(text)) nonBlank.Add(text);
+        }
+
+        var start = Math.Max(0, nonBlank.Count - MaxMessagesToScore);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var texts = new List<string>(nonBlank.Count - start);
+        for (var i = start; i < nonBlank.Count; i++)
+        {
+            var normalised = PlaceholderFormat.Normalise(nonBlank[i]);
+            if (seen.Add(normalised)) texts.Add(normalised);
+        }
+
+        return texts;
     }
 
     /// <summary>Collapses whitespace and truncates matched text before it reaches a reason string.
@@ -273,15 +391,45 @@ public abstract class SemanticDetectorBase : IDetector
         return vectors;
     }
 
-    private async Task<ReadOnlyMemory<float>> GetEmbeddingAsync(string text, CancellationToken ct)
+    /// <summary>The vector of each of <paramref name="texts"/>, in order: cached ones from the scan cache, and all
+    /// misses from one generator call.</summary>
+    private async Task<ReadOnlyMemory<float>[]> GetEmbeddingsAsync(IReadOnlyList<string> texts, CancellationToken ct)
     {
-        if (_cache.TryGet(text, out var cached))
-            return cached.Vector;
+        var vectors = new ReadOnlyMemory<float>[texts.Count];
+        var missingText = new List<string>();
+        var missingIndex = new List<int>();
 
-        var results = await _generator!.GenerateAsync([text], cancellationToken: ct).ConfigureAwait(false);
-        var embedding = results[0];
-        _cache.Set(text, embedding);
-        return embedding.Vector;
+        for (var i = 0; i < texts.Count; i++)
+        {
+            if (_cache.TryGet(texts[i], out var cached))
+            {
+                vectors[i] = cached.Vector;
+            }
+            else
+            {
+                missingText.Add(texts[i]);
+                missingIndex.Add(i);
+            }
+        }
+
+        if (missingText.Count == 0) return vectors;
+
+        var fresh = await _generator!.GenerateAsync(missingText, cancellationToken: ct).ConfigureAwait(false);
+        if (fresh.Count != missingText.Count)
+        {
+            // A provider that batches, dedupes or drops inputs would otherwise pair vectors with the wrong
+            // messages and cache them under the wrong keys.
+            throw new InvalidOperationException(
+                $"Embedding generator returned {fresh.Count} vectors for {missingText.Count} inputs; results must correspond one-to-one and in order.");
+        }
+
+        for (var i = 0; i < missingIndex.Count; i++)
+        {
+            _cache.Set(missingText[i], fresh[i]);
+            vectors[missingIndex[i]] = fresh[i].Vector;
+        }
+
+        return vectors;
     }
 
     /// <summary>The highest cosine similarity between <paramref name="query"/> and any reference vector.
