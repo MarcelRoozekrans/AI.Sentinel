@@ -170,7 +170,7 @@ A prompt-injected model could try to exfiltrate a pasted key by calling a tool w
 
 ### Tool calls
 
-When the model calls `send_email(to: "[EMAIL_1_k3f9x2]")`, the tool runs with the real address. This works in either builder order: `UseAISentinel`, `UseFunctionInvocation` and `UseToolCallAuthorization` can be added in any order. Tool-call authorization judges the real values. A tool's exception message is redacted before it can reach the model. `InnerException` keeps the original for your application, so logging the whole exception logs the original.
+When the model calls `send_email(to: "[EMAIL_1_k3f9x2]")`, the tool runs with the real address. This works in either builder order: `UseAISentinel`, `UseFunctionInvocation` and `UseToolCallAuthorization` can be added in any order. The order matters for detection, though: findings on tool traffic are judged before the model sees a result or a tool runs only with Sentinel inside the tool loop; see [Builder order and tool traffic](./detectors/overview#builder-order-and-tool-traffic). Tool-call authorization judges the real values. A tool's exception message is redacted before it can reach the model. `InnerException` keeps the original for your application, so logging the whole exception logs the original.
 
 :::note Known limitation
 With Sentinel placed inside `UseFunctionInvocation`, every model round trip is a separate Sentinel call with its own tag. A secret placeholder left in a tool call keeps the tag of the round trip that made it, so the next round trip gives the secret another token and the old one stays text. A reply that quotes the old token shows the placeholder to the user. Nothing leaks, and the old token never resolves to another value.

@@ -18,7 +18,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-05** | `JailbreakDetector` | Rule + Semantic ⚠️ | Jailbreak attempt phrases. Unambiguous ones (`DAN mode`, `unrestricted AI mode`) are matched by rule; roleplay exploits need a generator |
 | **SEC-06** | `PrivilegeEscalationDetector` | Semantic ⚠️ | Role / permission escalation requests |
 | **SEC-07** | `CovertChannelDetector` | Semantic ⚠️ | Encoding-based hidden payloads |
-| **SEC-08** | `EntropyCovertChannelDetector` | Rule-based | Long, structureless, high-entropy runs — the shape encoded or encrypted data takes when smuggled through text. Tuned to exclude hashes, identifiers and URLs |
+| **SEC-08** | `EntropyCovertChannelDetector` | Rule-based | Long, structureless, high-entropy runs — the shape encoded or encrypted data takes when smuggled through text. Tuned to exclude hashes, identifiers and URLs. Examines each message, tool calls and results included, newest first, up to 64 KiB of each |
 | **SEC-09** | `IndirectInjectionDetector` | Semantic ⚠️ | Injection via retrieved documents or tool results |
 | **SEC-10** | `AgentImpersonationDetector` | Semantic ⚠️ | Model claiming to be a different agent or system |
 | **SEC-11** | `MemoryCorruptionDetector` | Semantic ⚠️ | Attempts to corrupt agent memory / context |
@@ -34,7 +34,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-21** | `ExcessiveAgencyDetector` | Semantic ⚠️ | Autonomous-action language ("I deleted", "I deployed", "I executed") |
 | **SEC-22** | `HumanTrustManipulationDetector` | Semantic ⚠️ | Rapport / authority manipulation ("you can trust me", "I am your advisor") |
 | **SEC-23** | `PiiLeakageDetector` | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email + name, phone, DOB |
-| **SEC-24** | `AdversarialUnicodeDetector` | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions, in message text, tool calls and tool results |
+| **SEC-24** | `AdversarialUnicodeDetector` | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions, in message text, tool calls and tool results. A joiner between emoji, or a non-joiner between Arabic-script or Indic letters, is not counted |
 | **SEC-25** | `CodeInjectionDetector` | Semantic ⚠️ | SQL injection, shell metacharacters, path traversal in LLM-generated code |
 | **SEC-26** | `PromptTemplateLeakageDetector` | Semantic ⚠️ | Prompt scaffolding markers — `{{variable}}`, `<SYSTEM>`, `[INST]` |
 | **SEC-27** | `LanguageSwitchAttackDetector` | Semantic ⚠️ | Abrupt script / language switch mid-response — injection vector via non-Latin text |

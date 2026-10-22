@@ -28,15 +28,39 @@ Every detector falls into one of these execution modes:
 
 ## What detectors read
 
-Every detector reads the same text for a message: its text, followed by the tool calls and tool results it carries, in content order. The rule-based detectors read it through `SentinelContext.TextContent`, and the semantic detectors score it message by message.
+By default, every detector reads the same text for a message: its text, followed by the tool calls and tool results it carries, in content order. The rule-based detectors read it through `SentinelContext.TextContent`, and the semantic detectors score it message by message. The detectors listed below as prose-only are the exceptions.
 
-- A tool call reads `tool:{name} input:{arguments}`, with the arguments as compact JSON. The Claude Code and Copilot hooks and the MCP proxy scan a tool call in the same shape, so a detector sees the same text on every surface.
-- A tool result carried as `FunctionResultContent` reads as its result: a string as it is, a `JsonElement` as its raw text, anything else as compact JSON. A result that cannot be serialised is left out, and the rest of the scan still runs.
-- A hosted tool call or result, of an MCP server, code interpreter, web search or image generation tool, reads as the text it carries: the queries of a web search call, and the text content of the inputs or outputs of the others. Binary or text data inside them, such as code sent as a data file, is not read.
+- A tool call reads `tool:{name} input:{arguments}`, with the arguments as compact JSON. The Claude Code and Copilot hooks and the MCP proxy scan a tool call in the same shape, so a detector sees the same text on every surface. When the arguments cannot be serialised as a whole, each one is, and only those that cannot are left out.
+- A tool result carried as `FunctionResultContent` reads as its result: a string as it is, a `JsonElement` as its raw text, an `AIContent` or a list of them as the text they carry, anything else as compact JSON. A result that cannot be serialised is left out, and the rest of the scan still runs.
+- A hosted tool call or result, of an MCP server, code interpreter, web search or image generation tool, reads as the text it carries: the queries of a web search call, and the text of the inputs or outputs of the others, tool content nested in them included.
+- Content reads as text when it is text or text-typed data, such as `text/plain` or `application/json`. Binary data, such as an image, is not read.
+- A tool approval request reads as the call it wraps, unless the message also carries that call. With `UseAISentinel()` outside the tool loop, the request is all the scan sees of a call to an approval-required tool, so its arguments are judged before anyone approves it. An approval response is not read: it repeats a call already judged.
 
-**Behaviour change ([#434](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/434)).** In the in-process `IChatClient` pipeline the rule-based detectors used to see neither tool calls nor tool results, because an agent loop carries them as `FunctionCallContent` and `FunctionResultContent` with no message text. They now do, so an application can get findings, and Quarantine blocks, on tool traffic. With redaction on, the default, a secret or personal data in a tool result is redacted instead; with it off, a credential in a tool result is a Critical finding and quarantines the call by default. Where `UseAISentinel()` sits inside `UseFunctionInvocation()`, each round trip is scanned, so a tool result is judged before the model sees it and a tool call before the tool runs. Where it sits outside, the request and the whole loop's response are scanned once, so tool traffic is judged after the loop. Redaction of a tool result happens before the model sees it in either order.
+**Behaviour change ([#434](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/434)).** In the in-process `IChatClient` pipeline the rule-based detectors used to see neither tool calls nor tool results, because an agent loop carries them as `FunctionCallContent` and `FunctionResultContent` with no message text. They now do, so an application can get findings, and Quarantine blocks, on tool traffic. With redaction on, the default, a secret or personal data in a tool result is redacted instead; with it off, a credential in a tool result is a Critical finding and quarantines the call by default.
 
-Some detectors keep reading prose only, because tool traffic would distort what they measure: `OPS-01` BlankResponse, `OPS-03` IncompleteCodeBlock, `OPS-09` TruncatedOutput, `OPS-11` UnboundedConsumption, `OPS-15` WrongLanguage and `SEC-29` OutputSchema. `SEC-24` AdversarialUnicode and `SEC-32` SystemPromptEcho read tool calls and results too, and LLM escalation shows the classifier the newest message's full text. Prompt injection's rule layer still reads only the newest user message's text.
+### Builder order and tool traffic
+
+Where Sentinel sits relative to `UseFunctionInvocation()` decides when tool traffic is judged. In a `ChatClientBuilder` the first `Use` is the outermost client.
+
+- **Inside the tool loop**, with `UseFunctionInvocation()` before `UseAISentinel()`: each model round trip is scanned, so a tool result is judged before the model sees it and a tool call before the tool runs.
+- **Outside it**, with `UseAISentinel()` first: the request and the whole loop's response are scanned once, so tool traffic is judged after the loop, when the model has seen the results and the tools have run.
+
+When tool traffic must be judged before the model sees it or before a tool runs, put Sentinel inside the loop:
+
+```csharp
+IChatClient client = new ChatClientBuilder(innerClient)
+    .UseFunctionInvocation()
+    .UseAISentinel()
+    .Build(services);
+```
+
+Redaction works in either order, as [Redaction](../redaction#tool-calls) describes: a tool result is redacted before the model sees it wherever Sentinel sits. That holds for redaction only, not for findings and the actions they trigger.
+
+### Prose-only detectors
+
+Some detectors read only the messages' text, because tool traffic would distort what they measure: `OPS-01` BlankResponse, `OPS-02` RepetitionLoop, `OPS-03` IncompleteCodeBlock, `OPS-04` PlaceholderText, `OPS-09` TruncatedOutput, `OPS-11` UnboundedConsumption, `OPS-15` WrongLanguage and `SEC-29` OutputSchema. A tool polled until it is done repeats its result, and a file read by a tool can hold a `TODO`; neither is a fault in the model's output.
+
+`SEC-08` EntropyCovertChannel examines each message, newest first, up to 64 KiB of each, so a large file read early cannot push a later message out of the window. `SEC-24` AdversarialUnicode reads tool calls and results too, and ignores the joiners writing systems need: a zero width joiner between emoji, and a zero width non-joiner between Arabic-script or Indic letters. `SEC-32` SystemPromptEcho reads the newest assistant message's text and tool calls, not the hosted tool results in it, which are retrieved content rather than the model's output. LLM escalation shows the classifier the newest message's full text, up to its last 64 KiB. Prompt injection's rule layer still reads only the newest user message's text.
 
 ## How semantic detectors score
 
