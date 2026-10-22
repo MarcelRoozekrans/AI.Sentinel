@@ -5,6 +5,7 @@ using AI.Sentinel;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Copilot;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
 using AI.Sentinel.Tests.Helpers;
 
 namespace AI.Sentinel.Tests.Copilot;
@@ -58,6 +59,46 @@ public class CopilotHookAdapterTests
     }
 
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+    private sealed class CapturingDetector : IDetector
+    {
+        public List<SentinelContext> Seen { get; } = [];
+        public DetectorId Id { get; } = new("TEST-CAPTURE");
+        public DetectorCategory Category => DetectorCategory.Operational;
+
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+        {
+            Seen.Add(ctx);
+            return ValueTask.FromResult(DetectionResult.Clean(Id));
+        }
+    }
+
+    // #424. A tool result is the only new message in the PostToolUse scan; the tool call stays as context.
+    [Fact]
+    public async Task PostToolUse_WithoutRedaction_ResultIsTheOnlyNewMessage()
+    {
+        var capture = new CapturingDetector();
+        var services = new ServiceCollection();
+        services.AddAISentinel(opts =>
+        {
+            opts.AddDetector(_ => capture);
+            opts.EmbeddingGenerator = new FakeEmbeddingGenerator();
+        });
+        var adapter = new CopilotHookAdapter(services.BuildServiceProvider(), new CopilotHookConfig { RedactToolResults = false });
+        var input = new CopilotHookInput
+        {
+            SessionId = "s",
+            ToolName = "bash",
+            ToolArgs = Json("""{"command":"ls"}"""),
+            ToolResult = Json("""{"textResultForLlm":"done"}"""),
+        };
+
+        _ = await adapter.HandleAsync(CopilotHookEvent.PostToolUse, input, TestContext.Current.CancellationToken);
+
+        var ctx = Assert.Single(capture.Seen);
+        Assert.Equal(2, ctx.Messages.Count);
+        Assert.Equal(1, ctx.NewMessagesFrom);
+    }
 
     [Fact]
     public async Task PreToolUse_InjectionInToolArgs_Blocks()

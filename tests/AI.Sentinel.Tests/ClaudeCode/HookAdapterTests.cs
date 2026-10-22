@@ -6,6 +6,7 @@ using AI.Sentinel;
 using AI.Sentinel.Audit;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
 using AI.Sentinel.Tests.Helpers;
 
 namespace AI.Sentinel.Tests.ClaudeCode;
@@ -57,6 +58,59 @@ public class HookAdapterTests
         ToolInput = Json(toolInput),
         ToolResponse = Json(toolResponse),
     };
+
+    private sealed class CapturingDetector : IDetector
+    {
+        public List<SentinelContext> Seen { get; } = [];
+        public DetectorId Id { get; } = new("TEST-CAPTURE");
+        public DetectorCategory Category => DetectorCategory.Operational;
+
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
+        {
+            Seen.Add(ctx);
+            return ValueTask.FromResult(DetectionResult.Clean(Id));
+        }
+    }
+
+    private static HookAdapter BuildCapturingAdapter(CapturingDetector capture, HookConfig config)
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(opts =>
+        {
+            opts.AddDetector(_ => capture);
+            opts.EmbeddingGenerator = new FakeEmbeddingGenerator();
+        });
+        return new HookAdapter(services.BuildServiceProvider(), config);
+    }
+
+    // #424. A tool result is the only new message in the PostToolUse scan; the tool call stays as context.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PostToolUse_ResultIsTheOnlyNewMessage(bool redact)
+    {
+        var capture = new CapturingDetector();
+        var adapter = BuildCapturingAdapter(capture, new HookConfig { RedactToolResults = redact });
+
+        _ = await adapter.HandleAsync(
+            HookEvent.PostToolUse, PostToolUse("""{"content":"plain text"}"""), TestContext.Current.CancellationToken);
+
+        var ctx = Assert.Single(capture.Seen);
+        Assert.Equal(2, ctx.Messages.Count);
+        Assert.Equal(1, ctx.NewMessagesFrom);
+    }
+
+    [Fact]
+    public async Task UserPromptSubmit_NewFromIsZero()
+    {
+        var capture = new CapturingDetector();
+        var adapter = BuildCapturingAdapter(capture, new HookConfig { RedactToolResults = false });
+
+        _ = await adapter.HandleAsync(
+            HookEvent.UserPromptSubmit, new HookInput { SessionId = "s", Prompt = "hello there" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, Assert.Single(capture.Seen).NewMessagesFrom);
+    }
 
     [Fact]
     public async Task PostToolUse_EmailInResponse_UpdatedToolOutputHasPlaceholder()

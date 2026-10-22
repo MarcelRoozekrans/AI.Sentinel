@@ -33,7 +33,7 @@ public static class HookPipelineRunner
     /// The pipeline itself takes the <see cref="SessionId"/> domain type; this method converts.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Allow when nothing was detected, otherwise the most restrictive per-detection decision.</returns>
-    public static async Task<HookOutput> RunAsync(
+    public static Task<HookOutput> RunAsync(
         IServiceProvider provider,
         HookConfig config,
         IReadOnlyList<ChatMessage> messages,
@@ -44,12 +44,32 @@ public static class HookPipelineRunner
         ArgumentNullException.ThrowIfNull(config);
         ArgumentNullException.ThrowIfNull(messages);
 
+        return RunAsync(provider, config, messages, sessionId, newMessagesFrom: 0, ct);
+    }
+
+    /// <summary>Scans <paramref name="messages"/> like the public overload, telling the detectors that the messages
+    /// from <paramref name="newMessagesFrom"/> on are the ones to judge and the earlier ones are context.</summary>
+    /// <param name="provider">Service provider with AI.Sentinel registered.</param>
+    /// <param name="config">Severity-to-decision mapping and verbosity.</param>
+    /// <param name="messages">The messages mapped from the hook payload.</param>
+    /// <param name="sessionId">The raw session id string from the hook input.</param>
+    /// <param name="newMessagesFrom">Index of the first new message, see <see cref="SentinelContext.NewMessagesFrom"/>.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>Allow when nothing was detected, otherwise the most restrictive per-detection decision.</returns>
+    internal static async Task<HookOutput> RunAsync(
+        IServiceProvider provider,
+        HookConfig config,
+        IReadOnlyList<ChatMessage> messages,
+        string? sessionId,
+        int newMessagesFrom,
+        CancellationToken ct)
+    {
         // Build a pipeline bound to an unused inner client — a prompt-only scan
         // never invokes it, so the client shape is irrelevant. This scan returns every
         // detection with its action, so the hook decides per detection.
         var pipeline = provider.BuildSentinelPipeline(UnusedChatClient.Instance);
         var findings = await pipeline.ScanMessagesForFindingsAsync(
-            messages, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), newMessagesFrom: 0, ct).ConfigureAwait(false);
+            messages, string.IsNullOrWhiteSpace(sessionId) ? null : new SessionId(sessionId), newMessagesFrom, ct).ConfigureAwait(false);
 
         // A clean scan, or one refused by the rate limit, allows. Hook invocations don't
         // honor rate limits (they're not real LLM calls), so the latter is unreachable in practice.
