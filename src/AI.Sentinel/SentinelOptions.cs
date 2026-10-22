@@ -145,8 +145,9 @@ public sealed class SentinelOptions
     public IEmbeddingGenerator<string, Embedding<float>>? EmbeddingGenerator { get; set; }
 
     /// <summary>
-    /// Cache for scan-time message embeddings. Defaults to an in-memory LRU
-    /// cache (1024 entries). Implement <see cref="IEmbeddingCache"/> to plug in
+    /// Cache for scan-time message embeddings, shared by every semantic detector. When it is not set, each
+    /// detector creates its own in-memory LRU cache (1024 entries), so the same text is embedded once per
+    /// detector; setting it is recommended. Implement <see cref="IEmbeddingCache"/> to plug in
     /// a persistent store (Redis, SQLite, etc.).
     /// </summary>
     public IEmbeddingCache? EmbeddingCache { get; set; }

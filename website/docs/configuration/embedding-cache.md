@@ -9,17 +9,21 @@ Semantic detectors call `IEmbeddingGenerator<string, Embedding<float>>` for ever
 
 ## Default behavior
 
-`AddAISentinel` registers an `InMemoryLruEmbeddingCache` automatically — 1024-entry LRU, in-process. Hits are sub-microsecond; misses fall through to your `IEmbeddingGenerator`.
+When `opts.EmbeddingCache` is not set, each semantic detector creates its own `InMemoryLruEmbeddingCache`: a 1024-entry LRU, in-process. Hits are sub-microsecond; misses fall through to your `IEmbeddingGenerator`. Because the caches are separate, a message that one detector has embedded is a miss for every other detector, so the same text is embedded once per semantic detector.
+
+**Set `opts.EmbeddingCache` to share one cache across all detectors.** We recommend it whenever you configure an `EmbeddingGenerator`:
 
 ```csharp
 services.AddAISentinel(opts =>
 {
     opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(/* ... */);
-    // opts.EmbeddingCache is auto-wired to InMemoryLruEmbeddingCache(1024)
+    opts.EmbeddingCache = new InMemoryLruEmbeddingCache(capacity: 4096); // one cache for every detector
 });
 ```
 
-You only need to think about the cache when you want to:
+A shared cache still costs one generator call per detector on a text's first scan, because the detectors embed concurrently; embedding each text once per scan is tracked in [#435](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/435).
+
+Beyond sharing it, you only need to think about the cache when you want to:
 
 - Resize the in-memory LRU
 - Share cache across processes (Redis, SQLite, etc.)
@@ -30,8 +34,9 @@ You only need to think about the cache when you want to:
 Every `SemanticDetectorBase` subclass goes through this path on each scan:
 
 ```
-1. take the text of each new message, at most the newest 16, and normalise
-   redaction placeholders: [EMAIL_1_k3f9x2] becomes [EMAIL]
+1. take the text of each new message, at most 16 (past that, the oldest are
+   joined into one), and normalise redaction placeholders: [EMAIL_1_k3f9x2]
+   becomes [EMAIL]
 2. for each text: cache.TryGet(normalisedText, out vector)
 3. on any miss: vectors = await embeddingGenerator.GenerateAsync(allMissedTexts)
 4. for each miss: cache.Set(normalisedText, vector)

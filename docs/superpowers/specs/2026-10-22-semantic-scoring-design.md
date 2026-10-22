@@ -37,9 +37,9 @@ Issue: #424. Target: 3.1.0. The maintainer made two decisions on 2026-10-22, mar
 
 | Path | Messages in the context | New from |
 |---|---|---|
-| Pipeline prompt scan, streaming and not | The caller's history, with `Instructions` as a leading System message | After the last `Assistant` message: the trailing user and tool messages of this turn. 0 when there is no assistant message. |
+| Pipeline prompt scan, streaming and not | The caller's history, with `Instructions` as a leading System message | After the last `Assistant` message that precedes the latest non-assistant message: the trailing user and tool messages of this turn. A trailing assistant prefill is skipped first. 0 when there is no such assistant message. |
 | Pipeline response scan | The response messages only | 0: all of it is new |
-| `ScanMessagesAsync` and its internal wrappers, used by the hooks and the MCP proxy without redaction | The caller's list | The caller passes the index. The default is 0, so the public API judges every message of the list it was given. |
+| `ScanMessagesAsync` and its internal wrappers, used by the hooks and the MCP proxy without redaction | The caller's list | The caller passes the index. The default is 0, so the public API judges every message of the list it was given, and `ChatOptions.Instructions` too. A non-zero index is shifted past the instructions message. |
 | Host redaction path, `RedactAndScanAsync` | Context, then content items, then unredactable items | `Context.Count`: only the content is new |
 | MCP tools/call response without redaction | `[User request, Assistant result]` | 1 |
 | Claude Code and Copilot PostToolUse without redaction | `[User tool call, Assistant result]` | 1 |
@@ -47,7 +47,7 @@ Issue: #424. Target: 3.1.0. The maintainer made two decisions on 2026-10-22, mar
 
 ### How a semantic detector scores
 
-- **Which messages.** Take the messages from `NewMessagesFrom` onward that have non-blank text, the newest 16 at most, so cost stays bounded.
+- **Which messages.** Take the messages from `NewMessagesFrom` onward that have non-blank text, without duplicates, 16 at most, so cost stays bounded. Past 16, the oldest are joined with a newline into the first input, so none goes unjudged.
 - **Normalise.** Replace each placeholder, `PlaceholderFormat.Pattern()`, with `[TYPE]`.
 - **Score.** Embed each message through the existing cache, compute its maximum similarity against the High, Medium and Low example vectors, and report the most severe level any message reaches.
 - **`GetText`.** It stays as a virtual hook, but its default is no longer used for scoring. Add `protected virtual IEnumerable<string> GetTextsToScore(SentinelContext ctx)` for detectors that want a specific role. Mark `GetText` obsolete, and don't remove it, because 3.1 is not breaking. No built-in detector overrides `GetText`.
@@ -82,14 +82,14 @@ None for now. The 16-message cap is a constant. It becomes an option only if som
 - **No re-fire:** an old malicious message followed by a benign new turn is clean on the prompt path.
 - **Response path:** each response message is scored.
 - **Placeholder normalisation:** the same text with different tags embeds once.
-- **Cap:** only the 16 newest messages are embedded.
+- **Cap:** at most 16 inputs are embedded; past that, the oldest new texts are joined into the first input.
 - **MCP and hooks:** the result message is judged and the repeated request message is not.
 - **Evaluation:** the single-message and the multi-message checks.
 
 ## Calls made after the builder check (controller's calls)
 
 - **Scope across detectors.** One rule applies to all semantic detectors and is implemented in the base class. No detector is changed individually. In an agent loop, a user request is judged on the turn it arrives; later turns judge only the new tool results.
-- **Empty new range.** It is Clean. For example, a history ending in an assistant prefill has nothing new to judge. A client that resends history with no assistant message gets every message scored, from index 0.
+- **Empty new range.** It is Clean. A history ending in an assistant prefill is not empty: the prefill is skipped and the user turn before it is new. A client that resends history with no assistant message gets every message scored, from index 0.
 - **The index is internal.** The public `ScanMessagesAsync` keeps its signature and judges every message of its list. Only the internal wrappers used by the hooks and the MCP proxy take a new-from index. An out-of-range index is clamped.
 - **Fast path.** It is unchanged on every path, MCP and PostToolUse included. There, the newest message is not from the user, so the rule layer stays silent, as it does today.
 - **Placeholder normalisation.** It runs in the base class for every semantic detector. The embedding cache is keyed by the normalised text. The example embedding cache is not affected.
