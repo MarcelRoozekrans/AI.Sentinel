@@ -29,8 +29,9 @@ public sealed class SensitiveBiometricCategorisationDetector(SentinelOptions opt
 
     // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent, and DetectorConfiguration.HighThreshold and
     // MediumThreshold override them per pipeline. See
-    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
-    protected override float HighThreshold => 0.65f;
+    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval. Re-tuned
+    // for 3.1 over a larger set of legitimate requests; refined examples did not improve recall, so these are the 3.0 ones.
+    protected override float HighThreshold => 0.66f;
     protected override float MediumThreshold => 0.55f;
 
     protected override string[] HighExamples =>

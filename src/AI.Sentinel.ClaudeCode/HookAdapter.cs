@@ -161,7 +161,8 @@ public sealed class HookAdapter
         }
 
         var messages = BuildMessages(evt, input);
-        var output = await HookPipelineRunner.RunAsync(_provider, _config, messages, input.SessionId, ct).ConfigureAwait(false);
+        var output = await HookPipelineRunner.RunAsync(
+            _provider, _config, messages, input.SessionId, evt == HookEvent.PostToolUse ? 1 : 0, ct).ConfigureAwait(false);
 
         // A blocked tool result is withheld also when redaction is off: the tool already ran, so replacing its output
         // is the only way to keep it from the model.

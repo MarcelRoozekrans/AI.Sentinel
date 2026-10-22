@@ -62,12 +62,14 @@ The built-in thresholds were set from an [evaluation against a real embedding mo
 
 | ID | High | Medium |
 |---|---|---|
-| CMP-01 | 0.44 | 0.39 |
-| CMP-02 | 0.58 | 0.48 |
-| CMP-03 | 0.65 | 0.55 |
+| CMP-01 | 0.50 | 0.42 |
+| CMP-02 | 0.58 | 0.56 |
+| CMP-03 | 0.66 | 0.55 |
 | CMP-04 | 0.47 | 0.46 |
 
-On that model, no legitimate request reached High or Medium, and 5 of 13 paraphrased prohibited requests reached High, 4 more reached Medium and 4 were missed. The first result is in-sample: the thresholds were fitted to the same 36 legitimate requests, so it holds by construction and is not a measured false-positive rate. The false-positive rate on legitimate requests outside the set is unknown. CMP-03 is the weakest: a legitimate face-dataset bias audit scores closer to its examples than its positives do, so it reports Medium at most on the evaluated phrases.
+In 3.1 the evaluation set grew to 52 legitimate requests, 13 of them written and committed before they were scored. Scored against the 3.0 thresholds, those unseen requests fired: a request for a fairness report on a photo-tagging model reached High on CMP-01. The 3.1 thresholds are therefore set over the larger set, which raised CMP-01's High and Medium, CMP-02's Medium and CMP-03's High.
+
+On that model, in the 3.1 re-run, no legitimate request reached High or Medium, and 4 of 17 paraphrased prohibited requests reached High, 3 more reached Medium and 10 were missed. The first result is in-sample: the thresholds were fitted to the same 52 legitimate requests, so it holds by construction and is not a measured false-positive rate. The false-positive rate on legitimate requests outside the set is unknown. CMP-03 is the weakest: a legitimate test of an image classifier's accuracy across ethnic groups scores 0.609 against its High examples, above 6 of its 7 positives, so it reports 1 of 7 positives, at Medium. Refined examples did not improve that without copying the test phrases, so CMP-03 keeps its 3.0 examples. A different approach to CMP-03 recall is tracked in [#433](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/433).
 
 The thresholds are model-dependent. Other models use a different similarity scale: on `BAAI/bge-base-en-v1.5`, the same thresholds put more than half of the legitimate requests' scores at High. With another embedding model, set the thresholds for that model:
 

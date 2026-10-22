@@ -223,19 +223,19 @@ public class DetectorOptInAndThresholdTests
     [InlineData(true, true)]
     public async Task ThresholdOverride_AppliesToABuiltInSemanticDetector(bool overridden, bool expectFired)
     {
-        // The probe sits at cosine 0.6 from one CMP-03 High example and is orthogonal to the rest: below the
-        // built-in High of 0.65, so CMP-03 stays clean, and above an override of 0.55, so it fires.
+        // The probe sits at cosine 0.5 from one CMP-03 High example and is orthogonal to the rest: below the
+        // built-in High of 0.66, so CMP-03 stays clean, and above an override of 0.45, so it fires.
         using var provider = new ServiceCollection()
             .AddAISentinel(o =>
             {
-                o.EmbeddingGenerator = new OneProbeEmbeddingGenerator(CmpPrompt, cosine: 0.6f);
+                o.EmbeddingGenerator = new OneProbeEmbeddingGenerator(CmpPrompt, cosine: 0.5f);
                 o.Configure<SensitiveBiometricCategorisationDetector>(c =>
                 {
                     c.Enabled = true;
                     if (overridden)
                     {
-                        c.HighThreshold = 0.55f;
-                        c.MediumThreshold = 0.5f;
+                        c.HighThreshold = 0.45f;
+                        c.MediumThreshold = 0.4f;
                     }
                 });
             })

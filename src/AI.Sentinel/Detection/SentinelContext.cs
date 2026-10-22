@@ -50,6 +50,19 @@ public sealed class SentinelContext(
     /// <summary>Ids of the detectors that redacted the request of this call.</summary>
     public IReadOnlySet<string> RedactingDetectorIds { get; init; } = NoPlaceholders;
 
+    private readonly int _newMessagesFrom;
+
+    /// <summary>
+    /// The index in <see cref="Messages"/> from which the messages are new in this scan. The messages before it are
+    /// history, which a detector may read for context. 0, the default, means every message is new. Out-of-range
+    /// values are clamped: below 0 to 0, and above the message count to the count, which means nothing is new.
+    /// </summary>
+    public int NewMessagesFrom
+    {
+        get => _newMessagesFrom;
+        init => _newMessagesFrom = Math.Clamp(value, 0, Messages.Count);
+    }
+
     /// <summary>
     /// The placeholders <paramref name="detector"/> must not flag as a value: <see cref="RedactionPlaceholders"/>,
     /// plus <see cref="RequestPlaceholders"/> when that detector redacted this call's request.

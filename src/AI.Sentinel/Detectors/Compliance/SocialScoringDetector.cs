@@ -28,9 +28,10 @@ public sealed class SocialScoringDetector(SentinelOptions options) : SemanticDet
 
     // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent, and DetectorConfiguration.HighThreshold and
     // MediumThreshold override them per pipeline. See
-    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
-    protected override float HighThreshold => 0.44f;
-    protected override float MediumThreshold => 0.39f;
+    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval. Re-tuned
+    // for 3.1 over a larger set of legitimate requests.
+    protected override float HighThreshold => 0.50f;
+    protected override float MediumThreshold => 0.42f;
 
     protected override string[] HighExamples =>
     [

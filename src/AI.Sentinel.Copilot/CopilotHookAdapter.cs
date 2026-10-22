@@ -146,7 +146,7 @@ public sealed class CopilotHookAdapter
             ? await HookPipelineRunner.RunToolResultAsync(
                 _provider, shared, [ToolCallMessage(input)], toolResult, input.SessionId, ct).ConfigureAwait(false)
             : await HookPipelineRunner.RunAsync(
-                _provider, shared, BuildMessages(CopilotHookEvent.PostToolUse, input), input.SessionId, ct).ConfigureAwait(false);
+                _provider, shared, BuildMessages(CopilotHookEvent.PostToolUse, input), input.SessionId, newMessagesFrom: 1, ct).ConfigureAwait(false);
 
         // The tool already ran, so replacing its result is the only way to keep it from the model. modifiedResult
         // carries text only, so the withheld body is the withheld text itself.

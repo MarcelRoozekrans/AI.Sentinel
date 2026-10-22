@@ -105,4 +105,21 @@ public class SentinelContextBuilderTests
 
         Assert.Equal("gpt-4o", ctx.LlmId, StringComparer.Ordinal);
     }
+
+    [Fact]
+    public void WithNewMessagesFrom_SetsValue()
+    {
+        var ctx = new SentinelContextBuilder()
+            .WithUserMessage("old")
+            .WithAssistantMessage("reply")
+            .WithUserMessage("new")
+            .WithNewMessagesFrom(2)
+            .Build();
+
+        Assert.Equal(2, ctx.NewMessagesFrom);
+    }
+
+    [Fact]
+    public void WithNewMessagesFrom_Default_IsZero() =>
+        Assert.Equal(0, new SentinelContextBuilder().WithUserMessage("hi").Build().NewMessagesFrom);
 }

@@ -35,6 +35,30 @@ internal static partial class PlaceholderFormat
     public static string Format(string type, int n, string tag) =>
         string.Create(CultureInfo.InvariantCulture, $"[{type}_{n}_{tag}]");
 
+    /// <summary>
+    /// Replaces each placeholder-shaped token in <paramref name="text"/> with <c>[TYPE]</c>, so <c>[API_KEY_2_k3f9x2]</c>
+    /// becomes <c>[API_KEY]</c>. Goes by shape, not by the tokens a call minted, so text that only looks like a
+    /// placeholder is normalised too. Returns <paramref name="text"/> itself when it contains no <c>[</c>.
+    /// </summary>
+    /// <remarks>The counter and the tag differ between calls for the same value, so without this the same message
+    /// would embed differently, and miss the cache, on every turn.</remarks>
+    public static string Normalise(string text)
+    {
+        if (!text.Contains('[', StringComparison.Ordinal))
+        {
+            return text;
+        }
+
+        return Pattern().Replace(text, static match =>
+        {
+            // The inner text is TYPE_n_tag; TYPE may itself hold underscores, so strip the last two parts.
+            var inner = match.ValueSpan[1..^1];
+            var type = inner[..inner.LastIndexOf('_')];
+            type = type[..type.LastIndexOf('_')];
+            return string.Concat("[", type, "]");
+        });
+    }
+
     /// <summary>True when <paramref name="tag"/> has the shape of a tag.</summary>
     public static bool IsTag(ReadOnlySpan<char> tag)
     {
