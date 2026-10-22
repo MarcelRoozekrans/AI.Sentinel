@@ -15,8 +15,16 @@ internal sealed record Phrase(string Detector, string Text, string Expected, str
     /// <summary>Whether the phrase is a prohibited request that should fire.</summary>
     public bool IsPositive => string.Equals(Expected, "positive", StringComparison.Ordinal);
 
-    /// <summary>The text as the report shows it, marked <c>(new in 3.1)</c> when the phrase was added later.</summary>
-    public string Display => Added is null ? Text : $"{Text} (new in {Added})";
+    /// <summary>The text as a Markdown table cell shows it, marked <c>(new in 3.1)</c> when the phrase was added later.
+    /// A <c>|</c> in the text is escaped as <c>\|</c>, or it would split the cell.</summary>
+    public string Display
+    {
+        get
+        {
+            var text = Text.Replace("|", "\\|", StringComparison.Ordinal);
+            return Added is null ? text : $"{text} (new in {Added})";
+        }
+    }
 
     /// <summary>Reads a phrase file: <c>compliance-phrases.json</c> and <c>security-phrases.json</c>, which the unit
     /// tests also guard, or <c>everyday-prompts.json</c>. The <c>added</c> property is optional.</summary>
