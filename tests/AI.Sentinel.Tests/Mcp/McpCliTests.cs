@@ -252,4 +252,18 @@ public class McpCliTests : McpAuditOffFixtureBase
 
         Assert.Equal(TimeSpan.FromMinutes(expectedMinutes), ProxyCommand.ParseRedactionIdleExpiry(env));
     }
+
+    // SENTINEL_MCP_MAX_SCAN_BYTES is a positive byte count; anything else keeps the single 262144 default.
+    [Theory]
+    [InlineData("100", 100)]
+    [InlineData("0", 262144)]
+    [InlineData("-5", 262144)]
+    [InlineData("x", 262144)]
+    [InlineData(null, 262144)]
+    public void ParseMaxScanBytes(string? value, int expected)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { ["SENTINEL_MCP_MAX_SCAN_BYTES"] = value };
+
+        Assert.Equal(expected, ProxyCommand.ParseMaxScanBytes(env));
+    }
 }

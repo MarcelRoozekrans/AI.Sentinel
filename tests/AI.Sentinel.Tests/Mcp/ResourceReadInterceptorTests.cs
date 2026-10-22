@@ -1,6 +1,7 @@
 using System.IO.Pipelines;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp;
+using AI.Sentinel.Mcp.Cli;
 using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -132,36 +133,73 @@ public class ResourceReadInterceptorTests
     [Fact]
     public async Task OversizeText_Skipped_WithStderrLog()
     {
+        // The cap is the one the proxy was started with, not a second read of the environment.
+        await using var h = await StartHarnessAsync(maxScanBytes: 100);
+        // 80 unicorns (4 UTF-8 bytes each) = 320 bytes > 100.
+        var oversized = string.Concat(Enumerable.Repeat("🦄", 80));
+        h.Fake.EnqueueResourceResult(new ReadResourceResult
+        {
+            Contents =
+            [
+                new TextResourceContents
+                {
+                    Uri = "file:///big.txt",
+                    MimeType = "text/plain",
+                    Text = oversized,
+                },
+            ],
+        });
+
+        var (_, stderr) = await CaptureStderrAsync(() =>
+            h.DriverClient.ReadResourceAsync("file:///big.txt", cancellationToken: h.Cts.Token));
+
+        Assert.Contains("action=skipped", stderr, StringComparison.Ordinal);
+        Assert.Contains("reason=oversize", stderr, StringComparison.Ordinal);
+        Assert.Contains("bytes=320", stderr, StringComparison.Ordinal);
+        Assert.Contains("max=100", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ResourceRead_IgnoresTheEnvironmentVariable_UsesTheSharedValue()
+    {
+        // ProxyCommand reads SENTINEL_MCP_MAX_SCAN_BYTES once and hands it over; the interceptor must not read it again.
         Environment.SetEnvironmentVariable("SENTINEL_MCP_MAX_SCAN_BYTES", "100");
         try
         {
-            await using var h = await StartHarnessAsync();
-            // 80 unicorns (4 UTF-8 bytes each) = 320 bytes > 100.
-            var oversized = string.Concat(Enumerable.Repeat("🦄", 80));
+            await using var h = await StartHarnessAsync(maxScanBytes: 262144);
             h.Fake.EnqueueResourceResult(new ReadResourceResult
             {
-                Contents =
-                [
-                    new TextResourceContents
-                    {
-                        Uri = "file:///big.txt",
-                        MimeType = "text/plain",
-                        Text = oversized,
-                    },
-                ],
+                Contents = [new TextResourceContents { Uri = "file:///a.txt", MimeType = "text/plain", Text = new string('a', 500) }],
             });
 
             var (_, stderr) = await CaptureStderrAsync(() =>
-                h.DriverClient.ReadResourceAsync("file:///big.txt", cancellationToken: h.Cts.Token));
+                h.DriverClient.ReadResourceAsync("file:///a.txt", cancellationToken: h.Cts.Token));
 
-            Assert.Contains("action=skipped", stderr, StringComparison.Ordinal);
-            Assert.Contains("reason=oversize", stderr, StringComparison.Ordinal);
-            Assert.Contains("bytes=320", stderr, StringComparison.Ordinal);
+            Assert.Contains("action=allow", stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("reason=oversize", stderr, StringComparison.Ordinal);
         }
         finally
         {
             Environment.SetEnvironmentVariable("SENTINEL_MCP_MAX_SCAN_BYTES", null);
         }
+    }
+
+    [Fact]
+    public async Task ResourceRead_ItemOverTheOldDefault_IsScannedUnderTheSharedDefault()
+    {
+        // 100 000 bytes is over the former 65 536 resource default and under the 262 144 default every path now shares.
+        Assert.Equal(262144, ProxyCommand.ParseMaxScanBytes(new Dictionary<string, string?>(StringComparer.Ordinal)));
+        await using var h = await StartHarnessAsync(maxScanBytes: ProxyCommand.ParseMaxScanBytes(new Dictionary<string, string?>(StringComparer.Ordinal)));
+        h.Fake.EnqueueResourceResult(new ReadResourceResult
+        {
+            Contents = [new TextResourceContents { Uri = "file:///big.txt", MimeType = "text/plain", Text = new string('a', 100_000) }],
+        });
+
+        var (_, stderr) = await CaptureStderrAsync(() =>
+            h.DriverClient.ReadResourceAsync("file:///big.txt", cancellationToken: h.Cts.Token));
+
+        Assert.Contains("action=allow", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("reason=oversize", stderr, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -298,11 +336,11 @@ public class ResourceReadInterceptorTests
         }
     }
 
-    private static Task<ProxyHarness> StartHarnessAsync()
-        => StartHarnessAsync(new FakeEmbeddingGenerator());
+    private static Task<ProxyHarness> StartHarnessAsync(int maxScanBytes = 262144)
+        => StartHarnessAsync(new FakeEmbeddingGenerator(), maxScanBytes);
 
     private static async Task<ProxyHarness> StartHarnessAsync(
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator)
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator, int maxScanBytes = 262144)
     {
         var fake = new FakeMcpServer
         {
@@ -328,7 +366,7 @@ public class ResourceReadInterceptorTests
             targetTransport: targetTransport,
             config: DefaultConfig(),
             preset: McpDetectorPreset.Security,
-            maxScanBytes: 262144,
+            maxScanBytes: maxScanBytes,
             stderr: TextWriter.Null,
             ct: cts.Token,
             embeddingGenerator: embeddingGenerator);
