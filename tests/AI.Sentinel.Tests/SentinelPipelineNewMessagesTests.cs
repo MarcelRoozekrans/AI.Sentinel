@@ -131,6 +131,18 @@ public class SentinelPipelineNewMessagesTests
     }
 
     [Fact]
+    public async Task ScanMessagesAsync_WithInstructions_ShiftsTheIndex()
+    {
+        var capture = new CapturingDetector();
+        _ = await Build([capture]).ScanMessagesAsync(
+            UserAssistantUser(), new ChatOptions { Instructions = "x" }, ct: TestContext.Current.CancellationToken);
+
+        var ctx = Assert.Single(capture.Seen);
+        Assert.Equal(4, ctx.Messages.Count);
+        Assert.Equal(1, ctx.NewMessagesFrom);
+    }
+
+    [Fact]
     public async Task ScanMessagesForFindings_PassesTheIndex()
     {
         var capture = new CapturingDetector();
@@ -165,10 +177,13 @@ public class SentinelPipelineNewMessagesTests
     public async Task RedactAndScan_Redacting_NewFromIsTheContextCount()
     {
         var capture = new CapturingDetector();
-        _ = await Build([capture, new CredentialExposureDetector()]).RedactAndScanAsync(
+        var result = await Build([capture, new CredentialExposureDetector()]).RedactAndScanAsync(
             HostRequest(), sessionId: null, TestContext.Current.CancellationToken);
 
-        Assert.Equal(2, Assert.Single(capture.Seen).NewMessagesFrom);
+        Assert.False(result.FellBack);
+        var ctx = Assert.Single(capture.Seen);
+        Assert.Equal(4, ctx.Messages.Count);
+        Assert.Equal(2, ctx.NewMessagesFrom);
     }
 
     private sealed class RecordingClient : IChatClient
