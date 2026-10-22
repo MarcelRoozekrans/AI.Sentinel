@@ -114,7 +114,7 @@ When the hook CLIs and the MCP proxy redact JSON, such as a tool's output or `st
 Three cases fall back:
 
 - **Personal data inside a JSON key** is scanned but not redacted, because renaming a key would break the shape of the JSON.
-- **A value that is not a string** under a secret key, such as the number in `{"password": 12345678}`, is flagged but not redacted, because a placeholder in its place would change its type.
+- **A value that is not a string** under a key that names a secret or personal data, such as the number in `{"password": 12345678}`, is flagged but not redacted, because a placeholder in its place would change its type.
 - **A match that spans two members** in the scan text, such as one that runs from the value of one member into the next, is flagged but not redacted, because each value is redacted together with its own key only.
 
 ### MCP proxy
@@ -220,7 +220,7 @@ When redaction is not possible, the detection uses the action of its severity, a
 - for **tool-call arguments** in the hook CLIs and the MCP proxy, which judge a call before it runs and cannot rewrite it;
 - for the **prompt** on Claude Code `UserPromptSubmit` and Copilot `userPromptSubmitted`, where a command hook cannot rewrite it. Copilot's `userPromptTransformed` can, and is experimental;
 - for **MCP content the proxy does not redact**: blob resources, resources whose MIME type is not allowlisted, and content past `SENTINEL_MCP_MAX_SCAN_BYTES`;
-- for **personal data in a JSON key**, a **non-string value under a secret key**, and a **match that spans two JSON members** on the hook CLIs and the MCP proxy;
+- for **personal data in a JSON key**, a **non-string value under a key that names a secret or personal data**, and a **match that spans two JSON members** on the hook CLIs and the MCP proxy;
 - when a detector **flags text without spans**.
 
 ## Fail closed
