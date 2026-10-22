@@ -167,8 +167,9 @@ public class SentinelPipelineNewMessagesTests
         Assert.Equal(0, Assert.Single(capture.Seen).NewMessagesFrom);
     }
 
+    // The public API marks every message new, and the instructions message it prepends is new too.
     [Fact]
-    public async Task ScanMessagesAsync_WithInstructions_ShiftsTheIndex()
+    public async Task ScanMessagesAsync_WithInstructions_ScoresTheInstructions()
     {
         var capture = new CapturingDetector();
         _ = await Build([capture]).ScanMessagesAsync(
@@ -176,8 +177,17 @@ public class SentinelPipelineNewMessagesTests
 
         var ctx = Assert.Single(capture.Seen);
         Assert.Equal(4, ctx.Messages.Count);
-        Assert.Equal(1, ctx.NewMessagesFrom);
+        Assert.Equal(0, ctx.NewMessagesFrom);
     }
+
+    // A caller's non-zero index moves past a prepended instructions message; zero stays zero.
+    [Theory]
+    [InlineData(0, 0, 0)]
+    [InlineData(0, 1, 0)]
+    [InlineData(2, 0, 2)]
+    [InlineData(2, 1, 3)]
+    public void ShiftForInstructions_ShiftsOnlyANonZeroIndex(int newMessagesFrom, int shift, int expected) =>
+        Assert.Equal(expected, SentinelPipeline.ShiftForInstructions(newMessagesFrom, shift));
 
     [Fact]
     public async Task ScanMessagesForFindings_PassesTheIndex()

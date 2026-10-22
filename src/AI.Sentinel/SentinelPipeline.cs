@@ -466,9 +466,12 @@ public sealed class SentinelPipeline
     /// Otherwise runs a single detection pass and returns <see langword="null"/> on clean,
     /// <see cref="SentinelError.ThreatDetected"/> on detection.
     /// When <paramref name="sessionId"/> is supplied the audit entries carry it; otherwise a fresh id is minted per call.
+    /// Every message is judged as new, and so is <see cref="ChatOptions.Instructions"/>, which the scan sees as a
+    /// leading system message.
     /// </remarks>
     /// <param name="messages">The messages to scan.</param>
-    /// <param name="chatOptions">Options used for the rate-limit check; <see langword="null"/> for none.</param>
+    /// <param name="chatOptions">Options used for the rate-limit check and whose
+    /// <see cref="ChatOptions.Instructions"/> are scanned; <see langword="null"/> for none.</param>
     /// <param name="sessionId">The session recorded on the audit entries, as the <see cref="SessionId"/> domain type;
     /// <see langword="null"/> mints a fresh id for this call.</param>
     /// <param name="ct">Cancellation token.</param>
@@ -686,12 +689,17 @@ public sealed class SentinelPipeline
 
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
         var (scanned, systemPrompt) = WithInstructions(messageList, chatOptions?.Instructions);
-        // A leading instructions message shifts the caller's messages, and so the index, by one.
+        // A leading instructions message shifts the caller's messages, and so a non-zero index, by one.
         return await ScanAsync(scanned, sessionId ?? SessionIdFor(chatOptions),
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt, new Exemptions(exemptPlaceholders),
             llmId: chatOptions?.ModelId, findings: findings,
-            newMessagesFrom: newMessagesFrom + (scanned.Count - messageList.Count)).ConfigureAwait(false);
+            newMessagesFrom: ShiftForInstructions(newMessagesFrom, scanned.Count - messageList.Count)).ConfigureAwait(false);
     }
+
+    /// <summary>The caller's index moved past <paramref name="shift"/> prepended instructions messages. An index of
+    /// 0 marks every message new, the instructions included, so it stays 0.</summary>
+    internal static int ShiftForInstructions(int newMessagesFrom, int shift) =>
+        newMessagesFrom == 0 ? 0 : newMessagesFrom + shift;
 
     /// <summary>One scan with no rate-limit check, collecting every finding.</summary>
     private ValueTask<SentinelError?> ScanCollectingAsync(
