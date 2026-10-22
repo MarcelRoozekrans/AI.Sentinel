@@ -34,14 +34,14 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-21** | `ExcessiveAgencyDetector` | Semantic ⚠️ | Autonomous-action language ("I deleted", "I deployed", "I executed") |
 | **SEC-22** | `HumanTrustManipulationDetector` | Semantic ⚠️ | Rapport / authority manipulation ("you can trust me", "I am your advisor") |
 | **SEC-23** | `PiiLeakageDetector` | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email + name, phone, DOB |
-| **SEC-24** | `AdversarialUnicodeDetector` | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions |
+| **SEC-24** | `AdversarialUnicodeDetector` | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions, in message text, tool calls and tool results |
 | **SEC-25** | `CodeInjectionDetector` | Semantic ⚠️ | SQL injection, shell metacharacters, path traversal in LLM-generated code |
 | **SEC-26** | `PromptTemplateLeakageDetector` | Semantic ⚠️ | Prompt scaffolding markers — `{{variable}}`, `<SYSTEM>`, `[INST]` |
 | **SEC-27** | `LanguageSwitchAttackDetector` | Semantic ⚠️ | Abrupt script / language switch mid-response — injection vector via non-Latin text |
 | **SEC-28** | `RefusalBypassDetector` | Semantic ⚠️ | Model complied with a request it should have refused (caller-supplied forbidden patterns) |
 | **SEC-29** | `OutputSchemaDetector` | Rule-based | Response doesn't deserialize as the caller-supplied `ExpectedResponseType` (OWASP LLM05). **Inactive unless** `SentinelOptions.ExpectedResponseType` *and* an `ISerializerDispatcher` are supplied — neither is registered by default |
 | **SEC-30** | `ShorthandEmergenceDetector` | Semantic ⚠️ | Unknown all-caps tokens that may signal emergent covert language |
-| **SEC-32** | `SystemPromptEchoDetector` | Rule-based | The system prompt appearing verbatim in the model's output. Compares the generated message against the conversation's system prompt, including `ChatOptions.Instructions`; SEC-20 covers *requests* to reveal it |
+| **SEC-32** | `SystemPromptEchoDetector` | Rule-based | The system prompt appearing verbatim in the model's output, its tool-call arguments included. Compares the generated message against the conversation's system prompt, including `ChatOptions.Instructions`; SEC-20 covers *requests* to reveal it |
 | **SEC-31** | `VectorRetrievalPoisoningDetector` | Semantic ⚠️ | Malicious instructions embedded in RAG-retrieved document chunks (OWASP LLM08) |
 
 ## Severity ranges

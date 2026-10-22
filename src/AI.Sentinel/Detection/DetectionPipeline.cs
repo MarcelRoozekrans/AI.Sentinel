@@ -246,8 +246,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
             Respond with JSON only, no explanation: {"severity":"None|Low|Medium|High|Critical","reason":"one sentence"}
             """);
 
+        // The newest message's detection text, so a flagged tool call or result is shown, not an empty text.
         var contentMessage = new ChatMessage(ChatRole.User,
-            ctx.Messages.LastOrDefault()?.Text ?? "(empty)");
+            ctx.Messages.Count > 0 ? SentinelContext.MessageText(ctx.Messages[^1]) : "(empty)");
 
         try
         {

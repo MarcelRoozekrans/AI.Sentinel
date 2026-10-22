@@ -89,6 +89,27 @@ public class DetectionPipelineTests
         Assert.Contains("Medium", systemMsg.Text ?? "", StringComparison.Ordinal);      // initial.Severity
     }
 
+    /// <summary>#434. When the flagged content is a tool result, the classifier is shown that result, not an empty text.</summary>
+    [Fact]
+    public async Task EscalateAsync_NewestMessageIsAToolResult_ClassifierSeesTheResult()
+    {
+        var detector = new FakeEscalatingDetector(
+            new DetectorId("TEST-01"),
+            DetectionResult.WithSeverity(new DetectorId("TEST-01"), Severity.Medium, "fake"));
+        var captured = new List<ChatMessage>();
+        var client = new CapturingChatClient(captured, """{"severity":"Medium","reason":"confirmed"}""");
+        var pipeline = new DetectionPipeline([detector], configurations: null, escalationClient: client);
+        var ctx = new SentinelContext(
+            new AgentId("sender"), new AgentId("receiver"), SessionId.New(),
+            [new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", "the tool said this")])],
+            []);
+
+        await pipeline.RunAsync(ctx, CancellationToken.None);
+
+        var content = Assert.Single(captured, m => m.Role == ChatRole.User);
+        Assert.Equal("the tool said this", content.Text);
+    }
+
     // Helpers
     private sealed class FakeDetector(string id, Severity severity) : IDetector
     {

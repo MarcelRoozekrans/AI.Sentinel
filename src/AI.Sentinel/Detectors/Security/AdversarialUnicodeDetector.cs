@@ -20,11 +20,10 @@ public sealed class AdversarialUnicodeDetector : IDetector
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         var count = 0;
+        // Tool calls and results count: hidden characters in retrieved content are a classic smuggling route.
         foreach (var message in ctx.Messages)
         {
-            var text = message.Text;
-            if (text is null) continue;
-            foreach (var c in text)
+            foreach (var c in SentinelContext.MessageText(message))
                 if (IsSuspicious(c))
                     count++;
         }

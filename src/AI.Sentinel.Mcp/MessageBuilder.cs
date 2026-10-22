@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
+using AI.Sentinel.Detection;
 using AI.Sentinel.Redaction;
 using Microsoft.Extensions.AI;
 using ModelContextProtocol.Protocol;
@@ -22,7 +23,7 @@ internal static class MessageBuilder
     public static ChatMessage[] BuildToolCallRequest(CallToolRequestParams req, int maxScanBytes)
     {
         var argsJson = SerializeArguments(req.Arguments, maxScanBytes);
-        var text = $"tool:{req.Name} input:{argsJson}";
+        var text = SentinelContext.ToolCallText(req.Name, argsJson);
         return [new ChatMessage(ChatRole.User, text)];
     }
 
@@ -37,7 +38,7 @@ internal static class MessageBuilder
         CallToolRequestParams req, CallToolResult result, int maxScanBytes)
     {
         var argsJson = SerializeArguments(req.Arguments, maxScanBytes);
-        var requestText = $"tool:{req.Name} input:{argsJson}";
+        var requestText = SentinelContext.ToolCallText(req.Name, argsJson);
         var responseText = ExtractScannableText(result.Content, maxScanBytes);
 
         if (string.IsNullOrEmpty(responseText))
