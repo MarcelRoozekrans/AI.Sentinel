@@ -68,6 +68,18 @@ public class KeyAwareRedactionTests
         Assert.Equal("hun\"ter\\2", session.Restore("[PASSWORD_1_abc123]"));
     }
 
+    // A value holding a line break is redacted as a whole, not up to the break.
+    [Theory]
+    [InlineData("""{"password":"line1\nline2"}""", "line1\nline2")]
+    [InlineData("""{"password":"line1\r\nline2"}""", "line1\r\nline2")]
+    public void MultiLineValue_IsRedactedWhole(string input, string value)
+    {
+        var session = Session();
+
+        Assert.Equal("""{"password":"[PASSWORD_1_abc123]"}""", RedactJson(session, input));
+        Assert.Equal(value, session.Restore("[PASSWORD_1_abc123]"));
+    }
+
     [Theory]
     [InlineData("""{"contact":"mail jan@acme.nl"}""", """{"contact":"mail [EMAIL_1_abc123]"}""")]
     [InlineData("""{"note":"api_key=abc123def456"}""", """{"note":"api_key=[API_KEY_1_abc123]"}""")]

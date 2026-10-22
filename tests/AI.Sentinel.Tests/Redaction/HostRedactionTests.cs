@@ -181,6 +181,8 @@ public class HostRedactionTests
     [InlineData("""{"password":"hunter2 jan@example.com"}""")]
     [InlineData("""{"password":"hun\"ter2"}""")]
     [InlineData("""{"headers":{"Authorization":"Bearer hunter2"}}""")]
+    [InlineData("""{"password":"line1\nhunter2"}""")]
+    [InlineData("""{"password":"line1\r\nhunter2"}""")]
     public async Task JsonContent_KeyedSecret_NothingLeftForTheScan(string json)
     {
         var (pipeline, _) = Build();

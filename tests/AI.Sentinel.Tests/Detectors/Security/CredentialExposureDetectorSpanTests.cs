@@ -140,6 +140,29 @@ public class CredentialExposureDetectorSpanTests
         Assert.Equal(value, text.Substring(span.Start, span.Length));
     }
 
+    // A closed quoted value may span lines, as a JSON string holding a line break does in the scan text; otherwise
+    // only its first line would be redacted and the rest would reach the model.
+    [Theory]
+    [InlineData("\"password\": \"line1\nline2\"", "line1\nline2")]
+    [InlineData("\"password\": \"line1\r\nline2\"", "line1\r\nline2")]
+    [InlineData("{\"password\": \"line1\nline2\", \"n\": 1}", "line1\nline2")]
+    [InlineData("password=\"a\\\"b\nc\"", "a\\\"b\nc")]
+    public void FindSpans_ClosedQuotedValue_SpansLines(string text, string value)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal("PASSWORD", span.EntityType);
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    // An unclosed quote still ends at its line: the next line's opening quote never closes it.
+    [Fact]
+    public void FindSpans_UnclosedQuotesOnTwoLines_EachLineItsOwnSecret()
+    {
+        const string text = "password: \"abc\npassword: \"def";
+        var spans = new CredentialExposureDetector().FindSpans(text);
+        Assert.Equal(["abc", "def"], spans.Select(s => text.Substring(s.Start, s.Length)), StringComparer.Ordinal);
+    }
+
     [Theory]
     [InlineData("password:\n  min_length: 8")]
     [InlineData("password:\r\nnext")]

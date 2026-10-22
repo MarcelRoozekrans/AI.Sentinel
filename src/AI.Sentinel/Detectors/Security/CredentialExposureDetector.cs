@@ -19,17 +19,22 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     // Each pattern names a `value` group that covers only the secret, so a redacted span
     // keeps the key name. A quoted value takes the text between the quotes, may contain spaces
     // and backslash escapes, and runs to the end of the line when the closing quote is missing
-    // (a truncated or streamed chunk), so nothing leaks. An unquoted value stops at whitespace,
+    // (a truncated or streamed chunk), so nothing leaks. A double-quoted value whose closing quote
+    // ends the value, followed by a comma, a closing bracket, a line break or the end of the text,
+    // may span lines, as a JSON string holding a line break does in the scan text; otherwise only
+    // its first line would be redacted. An unclosed quote never runs on to the next line's quote,
+    // which is followed by more text, not by the end of a value. An unquoted value stops at whitespace,
     // skips leading ( [ { and excludes trailing . , ; " ' ) ] } so `abc`, `abc;` and `"abc"` all
-    // yield the original `abc`. The unquoted form backtracks only over trailing punctuation and
-    // the quoted forms use disjoint alternatives, so every form stays linear.
+    // yield the original `abc`. The unquoted form backtracks only over trailing punctuation, the
+    // quoted forms use disjoint alternatives, and the multi-line form stops at the first unescaped
+    // quote, so every form stays linear.
     // Between the separator and the value: horizontal whitespace, plus one line break and
     // indentation only when the value is quoted, so YAML `password:\n  "abc"` is caught while
     // `password:\n  min_length: 8` is not.
     private const string Gap = @"[ \t]*(?:\r?\n[ \t]*(?=[""']))?";
 
     private const string Value =
-        @"(?:""(?<value>(?:[^""\\\r\n]|\\[^\r\n])+)""?|'(?<value>(?:[^'\\\r\n]|\\[^\r\n])+)'?|[(\[{]*(?<value>[^\s""'(\[{](?:\S*[^\s.,;""')\]}])?))";
+        @"(?:""(?<value>(?:[^""\\]|\\[\s\S])+)""(?=[ \t]*(?:[,;)}\]\r\n]|$))|""(?<value>(?:[^""\\\r\n]|\\[^\r\n])+)""?|'(?<value>(?:[^'\\\r\n]|\\[^\r\n])+)'?|[(\[{]*(?<value>[^\s""'(\[{](?:\S*[^\s.,;""')\]}])?))";
 
     [GeneratedRegex(
         @"password[""']?\s*[=:]" + Gap + Value,
