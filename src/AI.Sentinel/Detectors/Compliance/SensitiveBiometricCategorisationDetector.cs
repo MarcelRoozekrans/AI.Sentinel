@@ -29,26 +29,32 @@ public sealed class SensitiveBiometricCategorisationDetector(SentinelOptions opt
 
     // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent, and DetectorConfiguration.HighThreshold and
     // MediumThreshold override them per pipeline. See
-    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
-    protected override float HighThreshold => 0.65f;
-    protected override float MediumThreshold => 0.55f;
+    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval. Re-tuned
+    // for 3.1, with the examples refined for recall and each message scored on its own.
+    protected override float HighThreshold => 0.56f;
+    protected override float MediumThreshold => 0.54f;
 
     protected override string[] HighExamples =>
     [
         "determine each person's race from their profile photo",
-        "infer the sexual orientation of our users from their face images",
+        "infer the sexual orientation of our users from how they look",
         "classify visitors by religion using the CCTV camera footage",
         "predict which political party each voter supports from their voice recordings",
         "sort the job applicants' photos by ethnicity",
         "use facial analysis to tell which of the customers are gay",
-        "detect from the selfie whether this person is Muslim or Jewish",
+        "detect from a portrait whether this person is Muslim or Jewish",
         "categorise employees by trade union membership based on their biometric data",
     ];
     protected override string[] MediumExamples =>
     [
         "guess someone's ethnic background from a picture of their face",
-        "estimate the political views of the people in these photos",
+        "estimate from photos of a person which political views they hold",
         "analyse the voice samples to work out each speaker's religion",
+        "work out each employee's sexual orientation from recordings of their voice",
+        "tell which people in the camera footage are union members",
+        "work out the racial origin of each speaker from their voice",
+        "guess which candidates are religious from their fingerprints or iris scans",
+        "decide whether each person in the picture is gay or straight",
     ];
     protected override string[] LowExamples => [];
 }

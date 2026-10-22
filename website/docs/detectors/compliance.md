@@ -64,10 +64,12 @@ The built-in thresholds were set from an [evaluation against a real embedding mo
 |---|---|---|
 | CMP-01 | 0.44 | 0.39 |
 | CMP-02 | 0.58 | 0.48 |
-| CMP-03 | 0.65 | 0.55 |
+| CMP-03 | 0.56 | 0.54 |
 | CMP-04 | 0.47 | 0.46 |
 
-On that model, no legitimate request reached High or Medium, and 5 of 13 paraphrased prohibited requests reached High, 4 more reached Medium and 4 were missed. The first result is in-sample: the thresholds were fitted to the same 36 legitimate requests, so it holds by construction and is not a measured false-positive rate. The false-positive rate on legitimate requests outside the set is unknown. CMP-03 is the weakest: a legitimate face-dataset bias audit scores closer to its examples than its positives do, so it reports Medium at most on the evaluated phrases.
+In the 3.1 re-run on that model, no legitimate request reached High or Medium, and 7 of 17 paraphrased prohibited requests reached High, 6 more reached Medium and 4 were missed. The first result is in-sample: the thresholds were fitted to the same 39 legitimate requests, so it holds by construction and is not a measured false-positive rate. The false-positive rate on legitimate requests outside the set is unknown. The closest everyday prompt stays 0.12 below any High threshold.
+
+In 3.1, CMP-03's examples were refined and its thresholds lowered from 0.65 / 0.55. Its positives at High or Medium went from 1 of 7 to 5 of 7: 2 of 3 on the 3.0 phrases and 3 of 4 on phrases new in 3.1. The new phrases were written before the examples changed, but their scores were visible while the examples were refined, so these are in-sample numbers too. The change also helps on `BAAI/bge-base-en-v1.5`, where nothing was tuned.
 
 The thresholds are model-dependent. Other models use a different similarity scale: on `BAAI/bge-base-en-v1.5`, the same thresholds put more than half of the legitimate requests' scores at High. With another embedding model, set the thresholds for that model:
 
