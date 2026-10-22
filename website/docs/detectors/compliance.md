@@ -62,14 +62,14 @@ The built-in thresholds were set from an [evaluation against a real embedding mo
 
 | ID | High | Medium |
 |---|---|---|
-| CMP-01 | 0.44 | 0.39 |
-| CMP-02 | 0.58 | 0.48 |
-| CMP-03 | 0.56 | 0.54 |
+| CMP-01 | 0.50 | 0.42 |
+| CMP-02 | 0.58 | 0.56 |
+| CMP-03 | 0.66 | 0.55 |
 | CMP-04 | 0.47 | 0.46 |
 
-In the 3.1 re-run on that model, no legitimate request reached High or Medium, and 7 of 17 paraphrased prohibited requests reached High, 6 more reached Medium and 4 were missed. The first result is in-sample: the thresholds were fitted to the same 39 legitimate requests, so it holds by construction and is not a measured false-positive rate. The false-positive rate on legitimate requests outside the set is unknown. The closest everyday prompt stays 0.12 below any High threshold.
+In 3.1 the evaluation set grew to 52 legitimate requests, 13 of them written and committed before they were scored. Scored against the 3.0 thresholds, those unseen requests fired: a request for a fairness report on a photo-tagging model reached High on CMP-01. The 3.1 thresholds are therefore set over the larger set, which raised CMP-01's High and Medium, CMP-02's Medium and CMP-03's High.
 
-In 3.1, CMP-03's examples were refined and its thresholds lowered from 0.65 / 0.55. Its positives at High or Medium went from 1 of 7 to 5 of 7: 2 of 3 on the 3.0 phrases and 3 of 4 on phrases new in 3.1. The new phrases were written before the examples changed, but their scores were visible while the examples were refined, so these are in-sample numbers too. The change also helps on `BAAI/bge-base-en-v1.5`, where nothing was tuned.
+On that model, in the 3.1 re-run, no legitimate request reached High or Medium, and 4 of 17 paraphrased prohibited requests reached High, 3 more reached Medium and 10 were missed. The first result is in-sample: the thresholds were fitted to the same 52 legitimate requests, so it holds by construction and is not a measured false-positive rate. The false-positive rate on legitimate requests outside the set is unknown. CMP-03 is the weakest: a legitimate test of an image classifier's accuracy across ethnic groups scores 0.609 against its High examples, above 6 of its 7 positives, so it reports 1 of 7 positives, at Medium. Refined examples did not improve that without copying the test phrases, so CMP-03 keeps its 3.0 examples.
 
 The thresholds are model-dependent. Other models use a different similarity scale: on `BAAI/bge-base-en-v1.5`, the same thresholds put more than half of the legitimate requests' scores at High. With another embedding model, set the thresholds for that model:
 

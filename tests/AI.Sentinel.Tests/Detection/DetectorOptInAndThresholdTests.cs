@@ -224,7 +224,7 @@ public class DetectorOptInAndThresholdTests
     public async Task ThresholdOverride_AppliesToABuiltInSemanticDetector(bool overridden, bool expectFired)
     {
         // The probe sits at cosine 0.5 from one CMP-03 High example and is orthogonal to the rest: below the
-        // built-in High of 0.56, so CMP-03 stays clean, and above an override of 0.45, so it fires.
+        // built-in High of 0.66, so CMP-03 stays clean, and above an override of 0.45, so it fires.
         using var provider = new ServiceCollection()
             .AddAISentinel(o =>
             {
