@@ -396,6 +396,8 @@ public class SemanticDetectorBaseTests
         Assert.Equal(Severity.High, same.Severity);
     }
 
+    // A detector handed an index at the message count has nothing new to judge. The pipeline does not hand one
+    // over for a request ending in an assistant prefill: the user turn before the prefill is new there.
     [Fact]
     public async Task EmptyNewRange_IsClean_AndEmbedsNothing()
     {

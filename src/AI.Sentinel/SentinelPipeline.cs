@@ -223,7 +223,8 @@ public sealed class SentinelPipeline
         var (scanned, systemPrompt) = WithInstructions(messageList, redacted.Options?.Instructions);
 
         // The request holds this call's placeholders and those of any enclosing Sentinel call; none is a value.
-        // What follows the last assistant message is new: the earlier messages were judged on an earlier turn.
+        // What follows the last assistant message is new, a trailing assistant prefill aside: the earlier messages
+        // were judged on an earlier turn.
         var promptError = await ScanAsync(scanned, sessionId,
             options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
             new Exemptions(RedactionScope.ExemptPlaceholders(session, parent)), chatOptions?.ModelId,
@@ -752,13 +753,18 @@ public sealed class SentinelPipeline
     }
 
     /// <summary>
-    /// The index after the last <see cref="ChatRole.Assistant"/> message, or 0 when there is none. On a prompt scan
-    /// the messages from there on are new: the caller's earlier messages were judged on the turn they arrived.
+    /// The index after the last <see cref="ChatRole.Assistant"/> message that precedes the caller's latest
+    /// non-assistant message, or 0 when there is none. On a prompt scan the messages from there on are new: the
+    /// caller's earlier messages were judged on the turn they arrived. A trailing run of assistant messages is an
+    /// assistant prefill, such as an opening <c>{</c>, and is skipped first, so the user turn it follows is still
+    /// new: <c>[user, prefill]</c> gives 0 and <c>[user, assistant, user, prefill]</c> gives 2.
     /// </summary>
     internal static int NewFromAfterLastAssistant(IReadOnlyList<ChatMessage> messages)
     {
         ArgumentNullException.ThrowIfNull(messages);
-        for (var i = messages.Count - 1; i >= 0; i--)
+        var i = messages.Count - 1;
+        while (i >= 0 && messages[i].Role == ChatRole.Assistant) i--;
+        for (; i >= 0; i--)
         {
             if (messages[i].Role == ChatRole.Assistant) return i + 1;
         }

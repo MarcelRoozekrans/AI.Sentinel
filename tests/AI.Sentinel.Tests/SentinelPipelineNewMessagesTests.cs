@@ -10,7 +10,8 @@ using Xunit;
 namespace AI.Sentinel.Tests;
 
 // #424. Each scan path tells the detectors which of its messages are new: on the prompt scan those after the
-// last assistant message, on the response scan all of them, on the host path all after the request context.
+// last assistant message, a trailing assistant prefill aside, on the response scan all of them, on the host path
+// all after the request context.
 public class SentinelPipelineNewMessagesTests
 {
     private sealed class CapturingDetector : IDetector
@@ -80,15 +81,51 @@ public class SentinelPipelineNewMessagesTests
         Assert.Equal(0, capture.Seen[0].NewMessagesFrom);
     }
 
+    // An assistant prefill, such as an opening "{", ends the request. The user turn before it is still new.
     [Fact]
-    public async Task PromptScan_EndsWithAssistant_NewFromIsCount()
+    public async Task PromptScan_EndsWithAssistantPrefill_UserTurnIsNew()
     {
         var capture = new CapturingDetector();
         _ = await Build([capture]).GetResponseResultAsync(
-            [new ChatMessage(ChatRole.User, "a"), new ChatMessage(ChatRole.Assistant, "b")],
+            [new ChatMessage(ChatRole.User, "a"), new ChatMessage(ChatRole.Assistant, "{")],
+            null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, capture.Seen[0].NewMessagesFrom);
+    }
+
+    [Fact]
+    public async Task PromptScan_PrefillAfterHistory_NewFromIsAfterThePreviousAssistant()
+    {
+        var capture = new CapturingDetector();
+        _ = await Build([capture]).GetResponseResultAsync(
+            [
+                new ChatMessage(ChatRole.User, "a"),
+                new ChatMessage(ChatRole.Assistant, "b"),
+                new ChatMessage(ChatRole.User, "c"),
+                new ChatMessage(ChatRole.Assistant, "{"),
+            ],
             null, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, capture.Seen[0].NewMessagesFrom);
+    }
+
+    [Theory]
+    [InlineData("", 0)]
+    [InlineData("u", 0)]
+    [InlineData("a", 0)]
+    [InlineData("ua", 0)]
+    [InlineData("uaa", 0)]
+    [InlineData("uau", 2)]
+    [InlineData("uaua", 2)]
+    [InlineData("uauaa", 2)]
+    [InlineData("suaut", 3)]
+    public void NewFromAfterLastAssistant_SkipsATrailingPrefill(string roles, int expected)
+    {
+        var messages = roles.Select(r => new ChatMessage(
+            r switch { 'a' => ChatRole.Assistant, 's' => ChatRole.System, 't' => ChatRole.Tool, _ => ChatRole.User },
+            "x")).ToList();
+
+        Assert.Equal(expected, SentinelPipeline.NewFromAfterLastAssistant(messages));
     }
 
     [Fact]
