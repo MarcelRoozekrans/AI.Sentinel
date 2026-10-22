@@ -30,21 +30,27 @@ You only need to think about the cache when you want to:
 Every `SemanticDetectorBase` subclass goes through this path on each scan:
 
 ```
-1. cache.TryGet(messageText, out vector)
-2. on miss: vector = await embeddingGenerator.GenerateAsync(messageText)
-3. cache.Set(messageText, vector)
-4. cosine-compare vector against the detector's reference example vectors
+1. take the text of each new message, at most the newest 16, and normalise
+   redaction placeholders: [EMAIL_1_k3f9x2] becomes [EMAIL]
+2. for each text: cache.TryGet(normalisedText, out vector)
+3. on any miss: vectors = await embeddingGenerator.GenerateAsync(allMissedTexts)
+4. for each miss: cache.Set(normalisedText, vector)
+5. cosine-compare each vector against the detector's reference example vectors
 ```
 
-The detector's reference examples are embedded **once** (lazily on first scan) and cached internally — they don't churn the LRU. The LRU's job is to dedupe **incoming-message** embeddings so the same prompt scanned twice within the cache window costs zero embedding calls.
+The cache key is the normalised message text, so the same message carrying a different placeholder suffix in another session still hits. Each new message is one lookup. History that is scored again, for example from a client that resends the conversation without assistant messages, and a tool result that repeats hit the cache instead of the generator.
+
+The detector's reference examples are embedded **once** (lazily on first scan) and cached internally — they don't churn the LRU. The LRU's job is to dedupe **incoming-message** embeddings so the same message scanned twice within the cache window costs zero embedding calls.
 
 ## Cost model
 
-Without the cache, a single scan with N semantic detectors is N embedding calls (the per-detector cosine compare is free; embedding the input is the cost). With the cache:
+Embedding the input is the cost; the per-detector cosine compare is free. Each semantic detector makes **one generator call per scan for all cache misses**, and none when every text hits:
 
-- **First scan of a new message** — 1 embedding call, populates cache
-- **Subsequent scans of the same message text within the LRU window** — 0 calls
-- **Scan of a different message** — 1 call (and possibly evicts the oldest entry)
+- **First scan of a new message** — 1 call, populates the cache
+- **A scan whose new messages are all in the cache** — 0 calls
+- **A scan with several new messages, for example a batch of tool results** — still 1 call, for the ones the cache has not seen
+
+Without the cache, every scan makes that one call per detector for all of its new messages.
 
 Real-world hit rates depend heavily on traffic shape. For chat workloads with many unique prompts, the cache mostly helps deduplicate the **two passes per call** (prompt scan and response scan happen back-to-back; if your assistant echoes the prompt, the response-pass embedding is free).
 
