@@ -9,6 +9,24 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.0.0...v3.1.0) (2026-10-22)
+
+
+### Features
+
+* **approvals:** audit every approval decision and register custom stores through AddSentinelApprovalStore ([42a6113](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/42a6113766c96dd9e054a97f23f7d32c26b80d34))
+* **audit:** filter audit queries by detector and policy code ([42a6113](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/42a6113766c96dd9e054a97f23f7d32c26b80d34))
+* **audit:** let several processes append to one NDJSON audit file ([59a232c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/59a232cd5f749aa5fb42e7a38ec4c8742adcac9b))
+* disable an official detector by type name or id ([#429](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/429)) ([95a36f4](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/95a36f4c32f79fd50ffd172aac3ff97d9953fc64))
+* **redaction:** redact personal data and secrets in the MCP proxy and the hook CLIs ([62ee0ec](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/62ee0eca70fe95830551afd9c2c2b6cf731e23cb))
+
+
+### Bug Fixes
+
+* **approvals:** record an Entra PIM grant once across hook processes ([42a6113](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/42a6113766c96dd9e054a97f23f7d32c26b80d34))
+* **audit:** time BufferingAuditForwarder flushes with a monotonic clock ([59a232c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/59a232cd5f749aa5fb42e7a38ec4c8742adcac9b))
+* **cli:** open the audit file read-only in sentinel dashboard ([#419](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/419)) ([b32fa70](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b32fa70a1c8bfe1b5e986ade504f26f2288cf164)), closes [#400](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/400)
+
 ## [3.0.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v2.3.2...v3.0.0) (2026-10-17)
 
 
