@@ -11,19 +11,7 @@ namespace AI.Sentinel.Redaction;
 internal static class JsonScanText
 {
     /// <summary>Appends <paramref name="value"/> quoted, escaping only <c>"</c> and <c>\</c>.</summary>
-    public static void AppendString(string value, StringBuilder sb)
-    {
-        sb.Append('"');
-        foreach (var c in value)
-        {
-            if (c is '"' or '\\')
-            {
-                sb.Append('\\');
-            }
-            sb.Append(c);
-        }
-        sb.Append('"');
-    }
+    public static void AppendString(string value, StringBuilder sb) => AppendQuoted(value, sb, escapes: null);
 
     /// <summary>Appends <c>"name": </c>, which precedes the value of a member.</summary>
     public static void AppendPropertyName(string name, StringBuilder sb)
@@ -39,19 +27,24 @@ internal static class JsonScanText
         var sb = new StringBuilder(name.Length + value.Length + 6);
         AppendPropertyName(name, sb);
         var valueStart = sb.Length + 1;
-        List<int>? escapes = null;
+        var escapes = new List<int>();
+        AppendQuoted(value, sb, escapes);
+        return new RenderedMember(sb.ToString(), valueStart, sb.Length - 1, escapes.Count == 0 ? null : escapes);
+    }
+
+    // The one escaping routine. escapes, when given, receives the offset in sb of every backslash added.
+    private static void AppendQuoted(string value, StringBuilder sb, List<int>? escapes)
+    {
         sb.Append('"');
         foreach (var c in value)
         {
             if (c is '"' or '\\')
             {
-                (escapes ??= []).Add(sb.Length);
+                escapes?.Add(sb.Length);
                 sb.Append('\\');
             }
             sb.Append(c);
         }
-        var valueEnd = sb.Length;
         sb.Append('"');
-        return new RenderedMember(sb.ToString(), valueStart, valueEnd, escapes);
     }
 }
