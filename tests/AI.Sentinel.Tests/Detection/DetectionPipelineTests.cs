@@ -110,6 +110,29 @@ public class DetectionPipelineTests
         Assert.Equal("the tool said this", content.Text);
     }
 
+    /// <summary>A very large message is cut to its last 64 KiB for the classifier.</summary>
+    [Fact]
+    public async Task EscalateAsync_LargeMessage_ClassifierSeesItsLast64KiB()
+    {
+        var detector = new FakeEscalatingDetector(
+            new DetectorId("TEST-01"),
+            DetectionResult.WithSeverity(new DetectorId("TEST-01"), Severity.Medium, "fake"));
+        var captured = new List<ChatMessage>();
+        var client = new CapturingChatClient(captured, """{"severity":"Medium","reason":"confirmed"}""");
+        var pipeline = new DetectionPipeline([detector], configurations: null, escalationClient: client);
+        var large = new string('a', 100_000) + "END";
+        var ctx = new SentinelContext(
+            new AgentId("sender"), new AgentId("receiver"), SessionId.New(),
+            [new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", large)])],
+            []);
+
+        await pipeline.RunAsync(ctx, CancellationToken.None);
+
+        var content = Assert.Single(captured, m => m.Role == ChatRole.User);
+        Assert.Equal(64 * 1024, content.Text.Length);
+        Assert.EndsWith("END", content.Text, StringComparison.Ordinal);
+    }
+
     // Helpers
     private sealed class FakeDetector(string id, Severity severity) : IDetector
     {

@@ -231,6 +231,20 @@ public sealed class DetectionPipeline : IDetectionPipeline
         return new PipelineResult(score, nonClean);
     }
 
+    /// <summary>The most text the escalation classifier is sent: a tool result can be a whole file.</summary>
+    private const int MaximumEscalationCharacters = 64 * 1024;
+
+    /// <summary>The last <see cref="MaximumEscalationCharacters"/> of <paramref name="text"/>, without splitting a
+    /// surrogate pair.</summary>
+    private static string LastPart(string text)
+    {
+        if (text.Length <= MaximumEscalationCharacters) return text;
+
+        var start = text.Length - MaximumEscalationCharacters;
+        if (char.IsLowSurrogate(text[start])) start++;
+        return text[start..];
+    }
+
     private static async ValueTask<DetectionResult> EscalateAsync(
         IDetector detector,
         SentinelContext ctx,
@@ -248,7 +262,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
         // The newest message's detection text, so a flagged tool call or result is shown, not an empty text.
         var contentMessage = new ChatMessage(ChatRole.User,
-            ctx.Messages.Count > 0 ? SentinelContext.MessageText(ctx.Messages[^1]) : "(empty)");
+            ctx.Messages.Count > 0 ? LastPart(SentinelContext.MessageText(ctx.Messages[^1])) : "(empty)");
 
         try
         {
