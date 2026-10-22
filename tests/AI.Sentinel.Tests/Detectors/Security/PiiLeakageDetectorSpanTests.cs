@@ -117,6 +117,37 @@ public class PiiLeakageDetectorSpanTests
         Assert.NotEqual(Severity.None, (await detector.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken)).Severity);
     }
 
+    // Multi-word keywords written as identifiers, as JSON keys usually are.
+    [Theory]
+    [InlineData("{\"date_of_birth\": \"01/02/1990\"}", "01/02/1990", "DATE_OF_BIRTH")]
+    [InlineData("{\"date-of-birth\": \"01/02/1990\"}", "01/02/1990", "DATE_OF_BIRTH")]
+    [InlineData("{\"dateOfBirth\": \"01/02/1990\"}", "01/02/1990", "DATE_OF_BIRTH")]
+    [InlineData("{\"tax_id\": \"12345 67890\"}", "12345 67890", "TAX_ID")]
+    [InlineData("{\"tax-id\": \"12345 67890\"}", "12345 67890", "TAX_ID")]
+    [InlineData("{\"taxId\": \"12345 67890\"}", "12345 67890", "TAX_ID")]
+    [InlineData("{\"steuer_id\": \"12 345 67890\"}", "12 345 67890", "TAX_ID")]
+    [InlineData("{\"SteuerID\": \"12 345 67890\"}", "12 345 67890", "TAX_ID")]
+    public void FindSpans_MultiWordKeywordAsIdentifier_SpanCoversValueOnly(string text, string value, string entity)
+    {
+        var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span);
+    }
+
+    // The plain-text forms these patterns matched before still match the same value.
+    [Theory]
+    [InlineData("date of birth 01/02/1990", "01/02/1990", "DATE_OF_BIRTH")]
+    [InlineData("Date  of\tbirth: 1-2-90", "1-2-90", "DATE_OF_BIRTH")]
+    [InlineData("tax id 12 345 67890", "12 345 67890", "TAX_ID")]
+    [InlineData("Tax  ID: 12345 67890", "12345 67890", "TAX_ID")]
+    [InlineData("Steuer-ID 12 345 67890", "12 345 67890", "TAX_ID")]
+    [InlineData("SteuerID=12 345 67890", "12 345 67890", "TAX_ID")]
+    [InlineData("born 01/02/1990", "01/02/1990", "DATE_OF_BIRTH")]
+    public void FindSpans_MultiWordKeywordPlainText_Unchanged(string text, string value, string entity)
+    {
+        var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span);
+    }
+
     [Theory]
     [InlineData("bsn: 123456789", "123456789", "BSN")]
     [InlineData("Passport: ab123456", "ab123456", "PASSPORT")]

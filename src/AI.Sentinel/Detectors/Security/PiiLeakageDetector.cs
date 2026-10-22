@@ -38,6 +38,8 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
 
     // The keyword-prefixed patterns allow a quote after the keyword and before the value, so the JSON
     // `"BSN": "123456789"` matches as `BSN: 123456789` does; a JSON value is judged with its key.
+    // A multi-word keyword also matches written as an identifier, as JSON keys usually are:
+    // `date_of_birth`, `date-of-birth`, `dateOfBirth`, `tax_id`, `taxId`.
     [GeneratedRegex(
         @"(?:BSN|burgerservicenummer)[""']?\s*[:=]?\s*[""']?(?<value>\d{9})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
@@ -57,7 +59,7 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     private static partial Regex PassportPattern();
 
     [GeneratedRegex(
-        @"(?:Steuer-?ID|tax\s+id)[""']?\s*[:=]?\s*[""']?(?<value>\d{2}\s?\d{3}\s?\d{5})\b",
+        @"(?:Steuer(?:\s+|[_-])?ID|tax(?:\s+|[_-])?id)[""']?\s*[:=]?\s*[""']?(?<value>\d{2}\s?\d{3}\s?\d{5})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex DeTaxIdPattern();
@@ -77,7 +79,7 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     private static partial Regex PhonePattern();
 
     [GeneratedRegex(
-        @"(?:born|DOB|date\s+of\s+birth)[""']?\s*[:=]?\s*[""']?(?<value>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b",
+        @"(?:born|DOB|date(?:\s+|[_-])?of(?:\s+|[_-])?birth)[""']?\s*[:=]?\s*[""']?(?<value>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex DobPattern();
