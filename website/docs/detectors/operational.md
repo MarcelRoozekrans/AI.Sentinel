@@ -12,9 +12,9 @@ Operational detectors flag UX and quality issues — repetition loops, truncated
 | ID | Detector | Type | Detects |
 |---|---|---|---|
 | **OPS-01** | `BlankResponseDetector` | Rule-based | Empty or whitespace-only responses; a reply that only calls a tool or returns non-text content is not blank |
-| **OPS-02** | `RepetitionLoopDetector` | Rule-based | Same sentence repeated 3+ times |
+| **OPS-02** | `RepetitionLoopDetector` | Rule-based | Same sentence repeated 3+ times in the messages' text; tool calls and results are not read |
 | **OPS-03** | `IncompleteCodeBlockDetector` | Rule-based | Unclosed code fences |
-| **OPS-04** | `PlaceholderTextDetector` | Rule-based | `TODO`, `[INSERT HERE]`, `Lorem ipsum` leftovers |
+| **OPS-04** | `PlaceholderTextDetector` | Rule-based | `TODO`, `[INSERT HERE]`, `Lorem ipsum` leftovers in the messages' text; tool calls and results are not read |
 | **OPS-05** | `ContextCollapseDetector` | Semantic ⚠️ | Loss of conversational context across turns |
 | **OPS-06** | `AgentProbingDetector` | Semantic ⚠️ | Attempts to map agent capabilities or system prompt |
 | **OPS-07** | `QueryIntentDetector` | Semantic ⚠️ | Malicious intent hidden in benign-looking queries |

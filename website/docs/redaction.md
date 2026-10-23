@@ -101,7 +101,7 @@ The in-process chat client sees the whole conversation and rewrites it. The hook
 
 | Surface | What is redacted | Restored | Falls back |
 |---|---|---|---|
-| In-process client | Everything listed under [What is redacted](#what-is-redacted) | The reply, tool results, and PII in tool-call arguments; secrets never in tool calls | The response scan, and a detector that flags text without spans |
+| In-process client | Everything listed under [What is redacted](#what-is-redacted) | The reply, tool results, and PII in tool-call arguments; secrets never in tool calls | The response scan, a detector that flags text without spans, and a value that is not a string under a key that names a secret or personal data |
 | MCP proxy | Tool results, prompts from `prompts/get`, and text resources from `resources/read` | PII placeholders in the arguments of a later `tools/call`, until `SENTINEL_MCP_REDACT_TTL_MIN` minutes after their last use, 30 by default; secrets never | Tool-call arguments, blob and non-allowlisted resources, content past the byte budget, and personal data inside a JSON key. A rate-limited scan or a pipeline error forwards the content unredacted |
 | Claude Code `PostToolUse` | The tool output, returned as `updatedToolOutput` | No: the model keeps the placeholders | Personal data inside a JSON key |
 | Claude Code `PreToolUse` | Nothing. The [placeholder guard](#placeholder-guard) denies writes and shell commands that carry a placeholder | No | The tool arguments |
@@ -185,7 +185,7 @@ A prompt-injected model could try to exfiltrate a pasted key by calling a tool w
 
 ### Tool calls
 
-When the model calls `send_email(to: "[EMAIL_1_k3f9x2]")`, the tool runs with the real address. This works in either builder order: `UseAISentinel`, `UseFunctionInvocation` and `UseToolCallAuthorization` can be added in any order. Tool-call authorization judges the real values. A tool's exception message is redacted before it can reach the model. `InnerException` keeps the original for your application, so logging the whole exception logs the original.
+When the model calls `send_email(to: "[EMAIL_1_k3f9x2]")`, the tool runs with the real address. This works in either builder order: `UseAISentinel`, `UseFunctionInvocation` and `UseToolCallAuthorization` can be added in any order. The order matters for detection, though: findings on tool traffic are judged before the model sees a result or a tool runs only with Sentinel inside the tool loop; see [Builder order and tool traffic](./detectors/overview#builder-order-and-tool-traffic). Tool-call authorization judges the real values. A tool's exception message is redacted before it can reach the model. `InnerException` keeps the original for your application, so logging the whole exception logs the original.
 
 :::note Known limitation
 With Sentinel placed inside `UseFunctionInvocation`, every model round trip is a separate Sentinel call with its own tag. A secret placeholder left in a tool call keeps the tag of the round trip that made it, so the next round trip gives the secret another token and the old one stays text. A reply that quotes the old token shows the placeholder to the user. Nothing leaks, and the old token never resolves to another value.
@@ -228,7 +228,8 @@ When redaction is not possible, the detection uses the action of its severity, a
 - for **tool-call arguments** in the hook CLIs and the MCP proxy, which judge a call before it runs and cannot rewrite it;
 - for the **prompt** on Claude Code `UserPromptSubmit` and Copilot `userPromptSubmitted`, where a command hook cannot rewrite it. Copilot's `userPromptTransformed` can, and is experimental;
 - for **MCP content the proxy does not redact**: blob resources, resources whose MIME type is not allowlisted, and content past `SENTINEL_MCP_MAX_SCAN_BYTES`;
-- for **personal data in a JSON key**, a **non-string value under a key that names a secret or personal data**, and a **match that spans two JSON members** on the hook CLIs and the MCP proxy;
+- for a **non-string value under a key that names a secret or personal data**, such as `{"password": 12345678}`, on every surface, the in-process client included;
+- for **personal data in a JSON key** and a **match that spans two JSON members** on the hook CLIs and the MCP proxy;
 - when a detector **flags text without spans**.
 
 ## Fail closed

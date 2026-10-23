@@ -190,7 +190,7 @@ public sealed class MyJailbreakDetector(SentinelOptions options) : SemanticDetec
 }
 ```
 
-Since 3.1 the base class embeds each new message of a scan on its own, from `SentinelContext.NewMessagesFrom` on, with redaction placeholders normalised, and the most severe match decides. At most 16 texts are embedded: past that, the oldest are joined into one. A message's text includes the results of its `FunctionResultContent` items. To score other texts, override `GetTextsToScore`. `GetText` is obsolete: overriding it raises `CS0672` and a call such as `base.GetText(ctx)` raises `SENTINEL001`. Move the override to `GetTextsToScore`, or mark it `[Obsolete]`; an existing override is still scored as the one text of the scan.
+Since 3.1 the base class embeds each new message of a scan on its own, from `SentinelContext.NewMessagesFrom` on, with redaction placeholders normalised, and the most severe match decides. At most 16 texts are embedded: past that, the oldest are joined into one. A message's text includes its tool calls, as `tool:{name} input:{arguments}`, and the results of its `FunctionResultContent` items: the same text `SentinelContext.TextContent` joins for the rule-based detectors. To score other texts, override `GetTextsToScore`. `GetText` is obsolete: overriding it raises `CS0672` and a call such as `base.GetText(ctx)` raises `SENTINEL001`. Move the override to `GetTextsToScore`, or mark it `[Obsolete]`; an existing override is still scored as the one text of the scan.
 
 For testing semantic detectors, use `FakeEmbeddingGenerator` to avoid API keys.
 **Set `EmbeddingGenerator` on `SentinelOptions` before constructing the detector** —

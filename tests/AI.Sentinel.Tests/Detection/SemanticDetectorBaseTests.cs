@@ -386,6 +386,20 @@ public class SemanticDetectorBaseTests
         Assert.Equal([raw], Scored(gen));
     }
 
+    /// <summary>#434. A tool call's arguments are scored too, in the shape the hooks and the MCP proxy use.</summary>
+    [Fact]
+    public async Task FunctionCallOnlyAssistantMessage_ArgumentsAreScored()
+    {
+        var gen = Recording();
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        var call = new ChatMessage(ChatRole.Assistant,
+            [new FunctionCallContent("c1", "search", new Dictionary<string, object?>(StringComparer.Ordinal) { ["q"] = HighText })]);
+
+        await detector.AnalyzeAsync(Ctx(0, call), TestContext.Current.CancellationToken);
+
+        Assert.Equal([$"tool:search input:{{\"q\":\"{HighText}\"}}"], Scored(gen));
+    }
+
     /// <summary>A result that cannot be serialized, here a cycle, is left out; the scan still scores the rest.</summary>
     [Fact]
     public async Task UnserialisableResult_NextToHighMessage_IsHigh()

@@ -732,73 +732,9 @@ internal sealed class RedactionSession
 
     private static Encoding EncodingOf(DataContent data) => EncodingOf(data, failClosed: true)!;
 
-    private static Encoding? EncodingOf(DataContent data, bool failClosed)
-    {
-        var parameters = data.MediaType.Split(';');
-        for (var i = 1; i < parameters.Length; i++)
-        {
-            var parameter = parameters[i].Trim();
-            if (!parameter.StartsWith("charset=", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
+    private static Encoding? EncodingOf(DataContent data, bool failClosed) => TextData.EncodingOf(data, failClosed);
 
-            var name = parameter["charset=".Length..].Trim('"', ' ');
-            Encoding? encoding = null;
-            try
-            {
-                encoding = Encoding.GetEncoding(name);
-            }
-            catch (ArgumentException)
-            {
-                encoding = null;
-            }
-
-            if (encoding is null && !failClosed)
-            {
-                return null;
-            }
-            return encoding ?? throw new InvalidOperationException(
-                "Text data content declares a charset that is not supported, so it cannot be scanned.");
-        }
-        return Encoding.UTF8;
-    }
-
-    // Text and the text-based application types a model reads as text: JSON, XML and their +json and +xml
-    // variants, NDJSON, YAML, JavaScript and form data. Parameters such as charset are ignored here.
-    private static bool IsText(DataContent data)
-    {
-        var mediaType = data.MediaType.AsSpan();
-        var semicolon = mediaType.IndexOf(';');
-        if (semicolon >= 0)
-        {
-            mediaType = mediaType[..semicolon];
-        }
-        mediaType = mediaType.Trim();
-
-        if (mediaType.StartsWith("text/", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-        if (!mediaType.StartsWith("application/", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        var subtype = mediaType["application/".Length..];
-        foreach (var textual in TextApplicationSubtypes)
-        {
-            if (subtype.Equals(textual, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-        return subtype.EndsWith("+json", StringComparison.OrdinalIgnoreCase)
-            || subtype.EndsWith("+xml", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static readonly string[] TextApplicationSubtypes =
-        ["json", "xml", "x-ndjson", "yaml", "x-yaml", "javascript", "x-www-form-urlencoded"];
+    private static bool IsText(DataContent data) => TextData.IsText(data);
 
     // The call inside an approval request or response: redacted like any call on the way to the model. On the way
     // back it is a call that runs once approved, so it follows the tool rule whether or not a result follows it.

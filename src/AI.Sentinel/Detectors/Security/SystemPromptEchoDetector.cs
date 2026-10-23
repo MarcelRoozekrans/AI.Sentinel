@@ -58,7 +58,9 @@ public sealed class SystemPromptEchoDetector : IDetector, ILlmEscalatingDetector
         var newest = ctx.Messages[ctx.Messages.Count - 1];
         if (newest.Role != ChatRole.Assistant) return ValueTask.FromResult(_clean);
 
-        var output = newest.Text;
+        // The model's tool calls are output too: a prompt leaked into a tool's arguments leaves the system. Tool
+        // results are not: a hosted tool's result in this message is retrieved content, not what the model wrote.
+        var output = SentinelContext.MessageText(newest, includeResults: false);
         if (string.IsNullOrWhiteSpace(output)) return ValueTask.FromResult(_clean);
 
         var promptWords = Normalise(systemPrompt);

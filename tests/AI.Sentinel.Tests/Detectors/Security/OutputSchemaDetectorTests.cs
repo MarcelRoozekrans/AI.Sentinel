@@ -91,4 +91,20 @@ public class OutputSchemaDetectorTests
             TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
     }
+
+    /// <summary>#434. The schema applies to the response body: a tool call next to valid JSON does not break it.</summary>
+    [Fact]
+    public async Task ValidJson_WithAToolCallInTheSameMessage_ReturnsClean()
+    {
+        var d = Build(new SentinelOptions { ExpectedResponseType = typeof(WeatherResponse) });
+        var reply = new ChatMessage(ChatRole.Assistant,
+        [
+            new TextContent("""{"city":"Amsterdam","temperatureC":12}"""),
+            new FunctionCallContent("c1", "log", new Dictionary<string, object?>(StringComparer.Ordinal) { ["note"] = "x" }),
+        ]);
+
+        var r = await d.AnalyzeAsync(Ctx(reply), TestContext.Current.CancellationToken);
+
+        Assert.Equal(Severity.None, r.Severity);
+    }
 }

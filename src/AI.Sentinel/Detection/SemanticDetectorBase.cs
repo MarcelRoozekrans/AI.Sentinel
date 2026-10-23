@@ -1,5 +1,3 @@
-using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Domain;
@@ -16,7 +14,8 @@ namespace AI.Sentinel.Detection;
 /// Each scan scores the messages that are new in it, from <see cref="SentinelContext.NewMessagesFrom"/> on,
 /// one by one: the non-blank ones, at most 16, with redaction placeholders such as
 /// <c>[EMAIL_1_k3f9x2]</c> normalised to <c>[EMAIL]</c>. Past 16, the oldest are joined into one text. A message's text is its <see cref="ChatMessage.Text"/>
-/// plus the result of each <see cref="FunctionResultContent"/> it carries. Each text is embedded and compared by
+/// plus the tool calls and tool results it carries, the same text the rule-based detectors judge: see
+/// <see cref="SentinelContext.TextContent"/>. Each text is embedded and compared by
 /// cosine similarity against the reference vectors; for each text the first bucket, High, then Medium, then Low,
 /// whose max similarity reaches its threshold gives a severity, and the most severe of those is reported.
 /// Override <see cref="GetTextsToScore"/> to choose other texts.
@@ -153,8 +152,8 @@ public abstract class SemanticDetectorBase : IDetector
     protected virtual string GetText(SentinelContext ctx) => ctx.TextContent;
 
     /// <summary>The texts this scan scores, oldest first. By default, the text of each new message, from
-    /// <see cref="SentinelContext.NewMessagesFrom"/> to the end: its <see cref="ChatMessage.Text"/> plus the result of
-    /// each <see cref="FunctionResultContent"/> it carries.</summary>
+    /// <see cref="SentinelContext.NewMessagesFrom"/> to the end: its <see cref="ChatMessage.Text"/> plus the tool calls
+    /// and tool results it carries, as <see cref="SentinelContext.TextContent"/> describes.</summary>
     /// <remarks>Override to score, for example, one role only. Blank texts and duplicates are skipped. At most
     /// 16 texts are embedded: past that, the oldest are joined into one.</remarks>
     protected virtual IEnumerable<string> GetTextsToScore(SentinelContext ctx)
@@ -176,71 +175,7 @@ public abstract class SemanticDetectorBase : IDetector
     {
         for (var i = ctx.NewMessagesFrom; i < ctx.Messages.Count; i++)
         {
-            yield return MessageText(ctx.Messages[i]);
-        }
-    }
-
-    /// <summary>A message's <see cref="ChatMessage.Text"/>, followed by the result of each
-    /// <see cref="FunctionResultContent"/> it carries. In an agent loop a tool result arrives as
-    /// <see cref="FunctionResultContent"/> only, with an empty <see cref="ChatMessage.Text"/>.</summary>
-    private static string MessageText(ChatMessage message)
-    {
-        var text = message.Text ?? string.Empty;
-        StringBuilder? builder = null;
-        foreach (var content in message.Contents)
-        {
-            if (content is not FunctionResultContent { Result: { } result }) continue;
-
-            var resultText = ResultText(result);
-            if (resultText.Length == 0) continue;
-
-            builder ??= new StringBuilder(text);
-            if (builder.Length > 0) builder.Append(' ');
-            builder.Append(resultText);
-        }
-
-        return builder?.ToString() ?? text;
-    }
-
-    /// <summary><see cref="AIJsonUtilities.DefaultOptions"/> without indentation, so a result embeds as compact JSON.</summary>
-    private static readonly JsonSerializerOptions CompactJsonOptions = CreateCompactJsonOptions();
-
-    private static JsonSerializerOptions CreateCompactJsonOptions()
-    {
-        var options = new JsonSerializerOptions(AIJsonUtilities.DefaultOptions) { WriteIndented = false };
-        options.MakeReadOnly();
-        return options;
-    }
-
-    /// <summary>A string result as it is, a <see cref="JsonElement"/> as its raw text, anything else as compact JSON;
-    /// an empty string for a result that cannot be serialized.</summary>
-    /// <remarks>
-    /// The options resolve through reflection where it is enabled. Under native AOT a type that no source-generated
-    /// context covers throws <see cref="NotSupportedException"/>, and a cycle throws <see cref="JsonException"/>
-    /// anywhere. Such a result is left out and the rest of the scan is still scored: the pipeline turns a detector
-    /// exception into a Clean result for the whole scan, so letting it escape would hide every other message,
-    /// a malicious one included. Results that <see cref="FunctionInvokingChatClient"/> produces are already a
-    /// <see cref="JsonElement"/>.
-    /// </remarks>
-    private static string ResultText(object result)
-    {
-        switch (result)
-        {
-            case string text:
-                return text;
-            case JsonElement { ValueKind: JsonValueKind.Undefined }:
-                return string.Empty;
-            case JsonElement element:
-                return element.GetRawText();
-        }
-
-        try
-        {
-            return JsonSerializer.Serialize(result, CompactJsonOptions.GetTypeInfo(result.GetType()));
-        }
-        catch (Exception ex) when (ex is NotSupportedException or JsonException)
-        {
-            return string.Empty;
+            yield return SentinelContext.MessageText(ctx.Messages[i]);
         }
     }
 

@@ -2,6 +2,7 @@ using System.Text.Json;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
+using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -172,7 +173,7 @@ public sealed class HookAdapter
     }
 
     private static ChatMessage ToolCallMessage(HookInput input) =>
-        new(ChatRole.User, $"tool:{input.ToolName} input:{input.ToolInput?.GetRawText() ?? ""}");
+        new(ChatRole.User, SentinelContext.ToolCallText(input.ToolName, input.ToolInput?.GetRawText()));
 
     private static IReadOnlyList<ChatMessage> BuildMessages(HookEvent evt, HookInput input) => evt switch
     {

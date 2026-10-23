@@ -3,6 +3,7 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
@@ -242,7 +243,7 @@ public sealed class CopilotHookAdapter
     private static string TransformedPrompt(CopilotHookInput input) => input.TransformedPrompt ?? input.Prompt ?? "";
 
     private static ChatMessage ToolCallMessage(CopilotHookInput input) =>
-        new(ChatRole.User, $"tool:{input.ToolName} input:{input.ToolArgsText()}");
+        new(ChatRole.User, SentinelContext.ToolCallText(input.ToolName, input.ToolArgsText()));
 
     private static IReadOnlyList<ChatMessage> BuildMessages(
         CopilotHookEvent evt,
