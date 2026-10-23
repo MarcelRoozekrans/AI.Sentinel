@@ -59,11 +59,18 @@ Both Claude Code and Copilot share the same env-var contract:
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | `1` / `true` / `yes` → suppress the startup warning that semantic detection is inert. Set only after accepting that SEC-01 and SEC-05 will not fire |
 | `SENTINEL_HOOK_REDACT` | `on` | `off` / `0` / `false` / `no` → turn off [redaction](#redaction) of tool output and the placeholder guard. Anything else, or unset, keeps them on |
 | `SENTINEL_HOOK_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](../detectors/compliance), which are off by default. Their findings warn instead of following `SENTINEL_HOOK_ON_HIGH`. Needs `SENTINEL_EMBEDDING_ENDPOINT`. Thresholds are code-only |
+| `SENTINEL_HOOK_DETECTORS` | `security` | `security` → the [security preset](./mcp-proxy#detector-profiles) the MCP proxy uses: 14 security detectors plus the four Art. 5 compliance detectors, which run only with `SENTINEL_HOOK_COMPLIANCE=on`. `all` → every detector, including the operational and hallucination detectors that judge a model's reply and fire on tool output, see [Detectors](#detectors). Anything else, or unset, keeps `security` |
 | `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
 | `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
 | `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |
 | `SENTINEL_EMBEDDING_DIMENSIONS` | — | Vector length, when the model allows a choice |
 | `SENTINEL_EMBEDDING_CACHE_DIR` | per-user cache dir | Where reference vectors are cached. Must not be world-writable — see below |
+
+### Detectors
+
+The hook scans prompts, tool arguments and tool output, never a model's reply. So by default it runs the same security preset as the [MCP proxy](./mcp-proxy#detector-profiles): 14 of the 32 security detectors and the four compliance detectors. It leaves out the operational and hallucination detectors, which were written for a model's reply and fire as noise on tool traffic. Build logs and directory listings repeat lines, so `OPS-02` flags them. `OPS-11` rates a tool output more than 100 times the size of the tool call, or above 50,000 characters, as `High`, which blocks under the default `SENTINEL_HOOK_ON_HIGH=Block`. `SENTINEL_HOOK_DETECTORS=all` runs every detector.
+
+**Behaviour change.** Until this preset, the hooks ran every detector. The default now also leaves out the 18 security detectors that are not in the preset, including the rule-based `SEC-08` EntropyCovertChannel, `SEC-24` AdversarialUnicode and `SEC-32` SystemPromptEcho, which fire without an embedding endpoint. A hook that relied on any detector outside the preset needs `SENTINEL_HOOK_DETECTORS=all`.
 
 ### What each action does
 
@@ -215,7 +222,7 @@ With `SENTINEL_HOOK_ON_HIGH=Block` and a typical Claude Code workflow:
 - **Credential leaks and PII in tool results** — redacted. A tool returned a file containing an API key or an email address; PostToolUse replaces each value with a placeholder before Claude Code processes the result. With `SENTINEL_HOOK_REDACT=off` they follow their severity: an API key blocks and the output is withheld.
 - **PII and credentials in prompts and tool arguments** — depends on severity, because these cannot be redacted. SSN/credit card → Block; phone numbers → Warn (default `OnMedium=Warn`).
 - **Borderline jailbreaks** (`SEC-05`) — depends on cosine similarity. Exact-phrase matches block; loose paraphrases warn.
-- **Repetitive output** (`OPS-02`) — the default `OnMedium=Warn` lets these pass with a `systemMessage`.
+- **Repetitive or long tool output** — not flagged. The default [security preset](#detectors) leaves out `OPS-02` and `OPS-11`; with `SENTINEL_HOOK_DETECTORS=all`, repeated lines warn and output much larger than the tool call is withheld.
 
 Tune via env vars to match your risk appetite.
 

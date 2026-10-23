@@ -194,13 +194,13 @@ internal static class ProxyCommand
         };
     }
 
-    private static DetectorPreset ParsePreset(IReadOnlyDictionary<string, string?> env)
+    /// <summary>Reads <c>SENTINEL_MCP_DETECTORS</c>, falling back to <c>SENTINEL_HOOK_DETECTORS</c> when it is unset or
+    /// empty. See <see cref="DetectorPresets.Parse"/>.</summary>
+    internal static DetectorPreset ParsePreset(IReadOnlyDictionary<string, string?> env)
     {
         if (!env.TryGetValue("SENTINEL_MCP_DETECTORS", out var value) || string.IsNullOrEmpty(value))
-            return DetectorPreset.Security;
-        return value.Equals("all", StringComparison.OrdinalIgnoreCase)
-            ? DetectorPreset.All
-            : DetectorPreset.Security;
+            env.TryGetValue("SENTINEL_HOOK_DETECTORS", out value);
+        return DetectorPresets.Parse(value);
     }
 
     /// <summary>Reads <c>SENTINEL_MCP_MAX_SCAN_BYTES</c>, the per-item UTF-8 byte cap shared by tool results, prompts and

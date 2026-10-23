@@ -125,7 +125,7 @@ See [Redaction → Per surface](../redaction#per-surface) for how this compares 
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SENTINEL_MCP_DETECTORS` | `security` | `security` (14 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on` — recommended for MCP) or `all` (every detector — higher false-positive rate on structured tool data) |
+| `SENTINEL_MCP_DETECTORS` | `security` | `security` (14 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on` — recommended for MCP) or `all` (every detector — higher false-positive rate on structured tool data). Unset, falls back to `SENTINEL_HOOK_DETECTORS`, then to `security` |
 | `SENTINEL_MCP_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](../detectors/compliance), which are off by default; `off` / `0` / `false` / `no` keeps them off. Unset, falls back to `SENTINEL_HOOK_COMPLIANCE`. Thresholds are code-only |
 | `SENTINEL_MCP_REDACT` | `on` | `on` / `1` / `true` / `yes` or `off` / `0` / `false` / `no` → turn [redaction](#redaction) on or off. Anything else, or unset, falls back to `SENTINEL_HOOK_REDACT`, then to on |
 | `SENTINEL_MCP_REDACT_TTL_MIN` | `30` | Minutes a PII placeholder stays restorable into tool calls after its last use. A positive integer; anything else keeps the default |
@@ -137,7 +137,7 @@ See [Redaction → Per surface](../redaction#per-surface) for how this compares 
 
 ## Detector profiles
 
-`SENTINEL_MCP_DETECTORS=security` (default) runs the security detectors that work well on structured tool data, plus the four Art. 5 compliance detectors when `SENTINEL_MCP_COMPLIANCE=on`:
+`SENTINEL_MCP_DETECTORS=security` (default) runs the security detectors that work well on structured tool data, plus the four Art. 5 compliance detectors when `SENTINEL_MCP_COMPLIANCE=on`. The hook CLIs `sentinel-hook` and `sentinel-copilot-hook` run the same preset by default, set by `SENTINEL_HOOK_DETECTORS`:
 
 - `SEC-01` PromptInjection
 - `SEC-02` CredentialExposure

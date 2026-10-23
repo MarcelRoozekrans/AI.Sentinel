@@ -822,7 +822,7 @@ The proxy spawns the target command as a subprocess, intercepts `tools/call` and
 
 | Variable | Default | Values |
 |---|---|---|
-| `SENTINEL_MCP_DETECTORS` | `security` | `security` (14 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on`) or `all` (every detector — higher false-positive rate on structured data) |
+| `SENTINEL_MCP_DETECTORS` | `security` | `security` (14 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on`) or `all` (every detector — higher false-positive rate on structured data); unset falls back to `SENTINEL_HOOK_DETECTORS` |
 | `SENTINEL_MCP_COMPLIANCE` | `off` | `on` → run the four Art. 5 compliance detectors, which are off by default; unset falls back to `SENTINEL_HOOK_COMPLIANCE` |
 | `SENTINEL_MCP_REDACT` | `on` | `off` → stop redacting tool results, prompts and resources; unset falls back to `SENTINEL_HOOK_REDACT`, then to on |
 | `SENTINEL_MCP_REDACT_TTL_MIN` | `30` | Minutes a PII placeholder stays restorable into tool calls after its last use |
@@ -884,6 +884,7 @@ Both adapters share the same env-var contract — configure once, applies to bot
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | `1` / `true` / `yes` → suppress the startup warning that semantic detection is inert. Set only after accepting that SEC-01 and SEC-05 will not fire |
 | `SENTINEL_HOOK_REDACT` | `on` | `off` / `0` / `false` / `no` → stop redacting tool results and turn off the placeholder guard |
 | `SENTINEL_HOOK_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](#compliance-4), which are off by default. Their findings warn instead of following `SENTINEL_HOOK_ON_HIGH` |
+| `SENTINEL_HOOK_DETECTORS` | `security` | `security` → the MCP proxy's security preset; `all` → every detector, including the operational and hallucination detectors that judge a model's reply and fire on tool output |
 | `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
 | `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
 | `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |
