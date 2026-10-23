@@ -195,6 +195,37 @@ public class HostRedactionTests
         Assert.DoesNotContain("hunter2", result.Content[0].ScanText(), StringComparison.Ordinal);
     }
 
+    // A tool result whose text block holds a JSON document of KEY=value environment strings, as a container
+    // inspection returns it. Every value is redacted, nothing is flagged, and the document in the text still parses.
+    [Fact]
+    public async Task JsonContent_EnvironmentStringsInATextBlock_AreRedacted_AndTheTextStaysJson()
+    {
+        var (pipeline, _) = Build();
+        var text = JsonSerializer.Serialize(new[] { "PATH=/usr/bin", "APP_CLIENT_SECRET=Zq8vR2kLp9XwT4mN", "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI", "API_TOKEN=pT0k3nV4lu3", "TZ=UTC" });
+        var input = Json(JsonSerializer.Serialize(new[] { new { type = "text", text } }));
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromJson(input)] });
+
+        Assert.Empty(result.Findings);
+        Assert.False(result.FellBack);
+        var redacted = result.Content[0].Json!.Value[0].GetProperty("text").GetString()!;
+        Assert.Equal(
+            """["PATH=/usr/bin","APP_CLIENT_SECRET=[SECRET_1]","AWS_SECRET_ACCESS_KEY=[AWS_SECRET_1]","API_TOKEN=[TOKEN_1]","TZ=UTC"]""",
+            Placeholders.Untag(redacted));
+    }
+
+    // A secret with a quote in it is covered whole, not cut at the quote.
+    [Fact]
+    public async Task JsonContent_SecretContainingAQuote_IsRedactedWhole()
+    {
+        var (pipeline, _) = Build();
+        var input = Json("""{"Env":["DB_PASSWORD=ab\"cd","TZ=UTC"]}""");
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest { Content = [HostContent.FromJson(input)] });
+
+        Assert.Equal("""{"Env":["DB_PASSWORD=[PASSWORD_1]","TZ=UTC"]}""", Placeholders.Untag(result.Content[0].Json!.Value.GetRawText()));
+    }
+
     // A JSON literal under a secret key names no secret, so it is neither redacted nor flagged.
     [Theory]
     [InlineData("""{"password":null}""")]
@@ -380,6 +411,29 @@ public class HostRedactionTests
         Assert.True(email.RestoreIntoToolArguments);
         Assert.Equal(Email, email.Value);
         Assert.Empty(result.Findings);
+    }
+
+    // A value one detector finds as a secret stays a secret where another finds it as another type: an address used
+    // as a password is also minted as an EMAIL, and that token must not go into tool arguments.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ValueSecretUnderOneType_IsNotRestorableUnderAnother(bool secretFirst)
+    {
+        var (pipeline, _) = Build();
+        var secret = $"password: {Email}";
+        var plain = $"mail {Email}";
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest
+        {
+            Content = secretFirst
+                ? [HostContent.FromText(secret), HostContent.FromText(plain)]
+                : [HostContent.FromText(plain), HostContent.FromText(secret)],
+        });
+
+        Assert.NotEmpty(result.Minted);
+        Assert.All(result.Minted.Where(m => string.Equals(m.Value, Email, StringComparison.Ordinal)),
+            m => Assert.False(m.RestoreIntoToolArguments));
     }
 
     [Fact]

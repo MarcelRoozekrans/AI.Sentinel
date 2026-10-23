@@ -32,6 +32,9 @@ internal sealed class RedactionSession
     // Tokens whose value may go back into a tool call's arguments. A token is in here only when every
     // detector that produced its value allows it; see IRedactingDetector.RestoreIntoToolArguments.
     private readonly HashSet<string> _toolRestorable = new(StringComparer.Ordinal);
+    // Values some detector would not let into tool arguments. Restorability belongs to the value, not to the type a
+    // detector gave it: an address used as a password stays a secret where another detector finds it as an EMAIL.
+    private readonly HashSet<string> _secretValues = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _nextByType = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Dictionary<string, int>> _counts = new(StringComparer.Ordinal);
 
@@ -555,12 +558,20 @@ internal sealed class RedactionSession
 
     private string TokenFor(string type, string value, bool toolRestorable)
     {
+        if (!toolRestorable && _secretValues.Add(value))
+        {
+            foreach (var ((_, mintedValue), mintedToken) in _tokenByValue)
+            {
+                if (string.Equals(mintedValue, value, StringComparison.Ordinal))
+                {
+                    _toolRestorable.Remove(mintedToken);
+                }
+            }
+        }
+        toolRestorable &= !_secretValues.Contains(value);
+
         if (_tokenByValue.TryGetValue((type, value), out var existing))
         {
-            if (!toolRestorable)
-            {
-                _toolRestorable.Remove(existing);
-            }
             return existing;
         }
 

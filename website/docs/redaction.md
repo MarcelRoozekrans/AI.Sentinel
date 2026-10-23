@@ -69,7 +69,15 @@ model:  Mail [EMAIL_1_k3f9x2] and ask him to pay [IBAN_1_k3f9x2]. Use api_key=[A
 | Detector | Types |
 |---|---|
 | `PiiLeakageDetector` | `CREDIT_CARD`, `SSN`, `IBAN`, `BSN`, `NINO`, `PASSPORT`, `TAX_ID`, `EMAIL`, `PHONE`, `DATE_OF_BIRTH` |
-| `CredentialExposureDetector` | `PASSWORD`, `API_KEY`, `SECRET_KEY`, `BEARER_TOKEN`, `AWS_SECRET`, `PRIVATE_KEY`, `GITHUB_TOKEN` |
+| `CredentialExposureDetector` | `PASSWORD`, `API_KEY`, `SECRET_KEY`, `BEARER_TOKEN`, `AWS_SECRET`, `SECRET`, `TOKEN`, `PRIVATE_KEY`, `GITHUB_TOKEN` |
+
+`SECRET` is the value of a key whose last word is `secret`, such as `client_secret`, `WEBHOOK_SECRET` or `ClientSecret`. `TOKEN` is the value of a credential token key: `access_token`, `refresh_token`, `id_token`, `auth_token`, `bearer_token`, `api_token`, `session_token`, `private_token` and `personal_access_token` in any case, camelCase such as `accessToken` and `IdToken` included, and any name in capitals ending in `_TOKEN`, such as `API_TOKEN`. A bare `token`, `next_page_token`, `max_tokens` or the GitHub Actions permission `id-token` names no credential and is left alone.
+
+A value that only refers to a secret is not one, under any key: a whole `${VAR}`, `${{ secrets.X }}`, `$(cmd)` or `<placeholder>`, an environment lookup such as `process.env.X`, `os.environ[...]`, `getenv(...)`, `ENV[...]` or `Environment.GetEnvironmentVariable(...)`, `your_…` template text, an unquoted comparison such as `== "abc"`, and a type annotation such as `access_token: str`. A secret that only starts like one of these, such as `"=Kx9…"` or `"<Rt5>Kx9"`, is still redacted.
+
+A key inside a JSON document that is itself a JSON string, such as a tool's text block, is recognised too, so `\"client_secret\": \"…\"` is redacted between its escaped quotes and the document still parses. An unquoted value stops at a quote that closes a string, so in `["PATH=/bin","API_TOKEN=x","TZ=UTC"]` only `x` is redacted, while a secret with a quote inside, such as `ab"cd`, is redacted whole.
+
+Within one call, a value that one detector marks as a secret stays a secret where another detector finds it as another type: an email address used as a password is not restored into tool arguments under its `EMAIL` placeholder either. Across calls in the MCP proxy this does not hold yet; see [#459](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/459).
 
 `PiiLeakageDetector` now also matches a bare email address. Before 3.0 it only matched an address preceded by a capitalised "First Last" name. See [What changed regardless](#what-changed-regardless).
 

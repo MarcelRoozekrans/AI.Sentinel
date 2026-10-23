@@ -57,6 +57,19 @@ public class SpanDetectorLinearityTests
     [InlineData("-----BEGIN PRIVATE KEY-----")]
     [InlineData("sk-")]
     [InlineData("Authorization: Bearer ")]
+    [InlineData("client_secret=")]
+    [InlineData("A_TOKEN=")]
+    [InlineData("access_token: ")]
+    [InlineData("password=\\\"a")]
+    [InlineData("password=\\\"a\\\\")]
+    [InlineData("password=a\\")]
+    [InlineData("x_secret=\\\"")]
+    [InlineData("\\\"password\\\": a\\\"")]
+    [InlineData("password=a\"")]
+    [InlineData("password=a\"b")]
+    [InlineData("password=\\\"a\\\\\\\"")]
+    [InlineData("ClientSecret: $")]
+    [InlineData("secret=<a")]
     public void CredentialExposure_LongAdversarialInput_StaysLinear(string unit)
     {
         var detector = new CredentialExposureDetector();
@@ -64,5 +77,20 @@ public class SpanDetectorLinearityTests
             chars => string.Concat(Enumerable.Repeat(unit, chars / unit.Length)),
             text => detector.FindSpans(text),
             n: 25_000);
+    }
+
+    // An unclosed $( or ${{ after a key: the reference check must not scan the rest of the line for every key. The
+    // cost per key is small, so the input has to be long before a quadratic scan stands out from the slack.
+    [Theory]
+    [InlineData("password=$( ")]
+    [InlineData("password=${{ ")]
+    [InlineData("\\\"password\\\": \\\"${{ ")]
+    public void CredentialExposure_UnclosedReferenceAfterManyKeys_StaysLinear(string unit)
+    {
+        var detector = new CredentialExposureDetector();
+        LinearTime.Assert(
+            chars => string.Concat(Enumerable.Repeat(unit, chars / unit.Length)),
+            text => detector.FindSpans(text),
+            n: 200_000);
     }
 }
