@@ -133,6 +133,9 @@ public class CredentialExposureDetectorSpanTests
     [InlineData("\"password\":\n  \"abc\"", "abc", "PASSWORD")]
     [InlineData("password:\r\n  'abc def'", "abc def", "PASSWORD")]
     [InlineData("\"Authorization\": \"Bearer xyz\"", "xyz", "BEARER_TOKEN")]
+    [InlineData("[\"PATH=/bin\",\"password=abc\",\"TZ=UTC\"]", "abc", "PASSWORD")]
+    [InlineData("password=abc\"def", "abc\"def", "PASSWORD")]
+    [InlineData("password=abc\"", "abc", "PASSWORD")]
     public void FindSpans_QuotesAndPunctuation_SpanCoversExactSecret(string text, string value, string entity)
     {
         var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
@@ -308,6 +311,161 @@ public class CredentialExposureDetectorSpanTests
     public void PlaceholderLookalike_IsStillRedacted(string text, string value)
     {
         var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    // Credentials in environments, .env files and OAuth configs are mostly named *_SECRET or *_TOKEN.
+    [Theory]
+    [InlineData("APP_CLIENT_SECRET=Zq8vR2kLp9XwT4mN", "Zq8vR2kLp9XwT4mN", "SECRET")]
+    [InlineData("client_secret: Zq8vR2kLp9XwT4mN", "Zq8vR2kLp9XwT4mN", "SECRET")]
+    [InlineData("{\"client_secret\": \"Zq8v R2kL\"}", "Zq8v R2kL", "SECRET")]
+    [InlineData("WEBHOOK_SECRET=\"abc\"", "abc", "SECRET")]
+    [InlineData("secret: abc123", "abc123", "SECRET")]
+    [InlineData("API_TOKEN=Zq8vR2kLp9XwT4mN", "Zq8vR2kLp9XwT4mN", "TOKEN")]
+    [InlineData("SERVICE_AUTH_TOKEN: abc", "abc", "TOKEN")]
+    [InlineData("access_token=eyJhbGciOi.abc", "eyJhbGciOi.abc", "TOKEN")]
+    [InlineData("{\"refresh_token\": \"abc\"}", "abc", "TOKEN")]
+    [InlineData("id_token: abc", "abc", "TOKEN")]
+    [InlineData("Session-Token: abc", "abc", "TOKEN")]
+    public void FindSpans_SecretAndTokenKeys_CoverValueOnly(string text, string value, string entity)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(entity, span.EntityType);
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    // Names that end in token or secret but hold no credential, and keys the older patterns already name.
+    [Theory]
+    [InlineData("max_tokens: 4096")]
+    [InlineData("\"next_page_token\": \"abc\"")]
+    [InlineData("tokens=12")]
+    [InlineData("token_count: 7")]
+    [InlineData("csrf_token_name: x")]
+    [InlineData("secrets: 3")]
+    [InlineData("has_secret: true")]
+    [InlineData("SECRET_NAME=db-password")]
+    public void FindSpans_NonCredentialTokenAndSecretNames_ReturnEmpty(string text)
+        => Assert.Empty(new CredentialExposureDetector().FindSpans(text));
+
+    [Theory]
+    [InlineData("secret_key = s3cr3t", "SECRET_KEY")]
+    [InlineData("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI", "AWS_SECRET")]
+    [InlineData("Authorization: Bearer abc", "BEARER_TOKEN")]
+    public void FindSpans_OlderKeyPatterns_KeepTheirEntityType(string text, string entity)
+        => Assert.Equal(entity, Assert.Single(new CredentialExposureDetector().FindSpans(text)).EntityType);
+
+    // A KEY=value string inside a JSON string reads as KEY=value\" in the scan text. The backslash escapes the
+    // closing quote, so it is not part of the value; covering it would cover the quote as well.
+    [Theory]
+    [InlineData("\"Env\": \"[\\\"AWS_SECRET_ACCESS_KEY=wJalrXUt\\\", \\\"TZ=UTC\\\"]\"", "wJalrXUt")]
+    [InlineData("\"text\": \"API_TOKEN=abc\\\"\"", "abc")]
+    [InlineData("\"text\": \"x password=abc\\\\\"", "abc")]
+    public void FindSpans_UnquotedValueBeforeEscapedQuote_ExcludesTheBackslash(string text, string value)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    // A JSON document held in a JSON string, such as a tool's text block, escapes its own quotes: the scan text
+    // reads \"password\": \"abc\". The key is still recognised, and the span covers the value between the escaped
+    // quotes, not the quotes themselves.
+    [Theory]
+    [InlineData("\"text\": \"{\\\"password\\\": \\\"hunter2\\\"}\"", "hunter2", "PASSWORD")]
+    [InlineData("\"text\": \"{\\\"client_secret\\\":\\\"Zq8v R2kL\\\", \\\"n\\\": 1}\"", "Zq8v R2kL", "SECRET")]
+    [InlineData("\"text\": \"{\\\"access_token\\\": \\\"a\\\\\\\\b\\\"}\"", "a\\\\\\\\b", "TOKEN")]
+    public void FindSpans_KeyInsideAnEscapedJsonDocument_CoversTheValueBetweenTheEscapedQuotes(string text, string value, string entity)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(entity, span.EntityType);
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    // Inside an escaped JSON document: an empty value names no secret, a truncated one is covered to the end of
+    // the line, and an escaped quote inside the value stays in it.
+    [Theory]
+    [InlineData("""
+        "text": "{\"password\": \"\", \"user\": \"bob\"}"
+        """, null)]
+    [InlineData("""
+        "text": "{\"password\": \"hunter2
+        """, "hunter2")]
+    [InlineData("""
+        "body": "{\"password\": \"pa\\\"ss\"}"
+        """, """
+        pa\\\"ss
+        """)]
+    public void FindSpans_EscapedJsonValueEdgeCases(string text, string? value)
+    {
+        var spans = new CredentialExposureDetector().FindSpans(text);
+        if (value is null)
+        {
+            Assert.Empty(spans);
+            return;
+        }
+        var span = Assert.Single(spans);
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    // References, placeholders and type names stand where a secret would, but are none.
+    [Theory]
+    [InlineData("id-token: write")]
+    [InlineData("GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}")]
+    [InlineData("client_secret: ${{ secrets.X }}")]
+    [InlineData("NPM_TOKEN=${NPM_TOKEN}")]
+    [InlineData("password: ${DB_PASSWORD}")]
+    [InlineData("secret=$(cat file)")]
+    [InlineData("accessToken: string;")]
+    [InlineData("refresh_token: str")]
+    [InlineData("access_token: Optional[str] = None")]
+    [InlineData("""MY_TOKEN: str = os.environ["MY_TOKEN"]""")]
+    [InlineData("const secret = process.env.SECRET;")]
+    [InlineData("""if secret == "abc":""")]
+    [InlineData("""api_token = "<your-token>" """)]
+    [InlineData("ACCESS_TOKEN=your_access_token_here")]
+    [InlineData("""password = getenv("DB_PASSWORD")""")]
+    [InlineData("""password = os.getenv("DB_PASSWORD")""")]
+    [InlineData("""secret = ENV["APP_SECRET"]""")]
+    [InlineData("""client_secret = Environment.GetEnvironmentVariable("X")""")]
+    [InlineData("""{"password": "${DB_PASSWORD}"}""")]
+    public void FindSpans_ReferencesPlaceholdersAndTypeNames_ReturnEmpty(string text)
+        => Assert.Empty(new CredentialExposureDetector().FindSpans(text));
+
+    // A secret that only starts like a reference, a placeholder or a comparison is still a secret: the shape
+    // has to be the whole value, and inside quotes an = is never a comparison.
+    [Theory]
+    [InlineData("""{"password": "=Kx9#mQ2vL"}""", "=Kx9#mQ2vL")]
+    [InlineData("""password: "=Kx9#mQ2vL" """, "=Kx9#mQ2vL")]
+    [InlineData("""
+        "text": "{\"password\":\"=abc\"}"
+        """, "=abc")]
+    [InlineData("""{"password": "$(Kx9mQ"}""", "$(Kx9mQ")]
+    [InlineData("""{"password": "${Kx9"}""", "${Kx9")]
+    [InlineData("""{"password": "<Rt5>Kx9mQ"}""", "<Rt5>Kx9mQ")]
+    [InlineData("password: <Kx9#$%^&*()_+mQ2vL>", "<Kx9#$%^&*()_+mQ2vL>")]
+    public void FindSpans_SecretThatStartsLikeAReference_IsCovered(string text, string value)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    [Theory]
+    [InlineData("""{"IdToken": "eyJhbGciOi.abc"}""", "eyJhbGciOi.abc")]
+    [InlineData("idToken: abc", "abc")]
+    public void FindSpans_CamelCaseIdToken_CoversValue(string text, string value)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal("TOKEN", span.EntityType);
+        Assert.Equal(value, text.Substring(span.Start, span.Length));
+    }
+
+    // The .NET and JavaScript spelling of a secret key.
+    [Theory]
+    [InlineData("""{"AzureAd": {"ClientSecret": "abc"}}""", "abc")]
+    [InlineData("clientSecret: abc123", "abc123")]
+    public void FindSpans_CamelCaseSecretKey_CoversValue(string text, string value)
+    {
+        var span = Assert.Single(new CredentialExposureDetector().FindSpans(text));
+        Assert.Equal("SECRET", span.EntityType);
         Assert.Equal(value, text.Substring(span.Start, span.Length));
     }
 
