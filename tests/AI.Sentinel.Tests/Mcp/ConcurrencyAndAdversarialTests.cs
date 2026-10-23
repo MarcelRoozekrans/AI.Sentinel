@@ -16,7 +16,7 @@ namespace AI.Sentinel.Tests.Mcp;
 /// Sequential coverage already exists in <see cref="McpProxyTests"/>; these tests
 /// exercise (a) parallel <c>tools/call</c> invocations against a single proxy
 /// instance, (b) target responses crafted to bypass detection or crash the
-/// scanner, and (c) the <see cref="McpDetectorPreset.All"/> preset on both clean
+/// scanner, and (c) the <see cref="DetectorPreset.All"/> preset on both clean
 /// and dirty payloads to guard against false positives and false negatives.
 /// </summary>
 [Collection("NonParallel")] // FakeMcpServer + proxy share Console.Error / env state.
@@ -123,7 +123,7 @@ public class ConcurrencyAndAdversarialTests
         // pattern/regex detectors (semantic detectors are off without an
         // embedding generator — the next test exercises that path).
         await using var h = await StartHarnessAsync(
-            preset: McpDetectorPreset.All,
+            preset: DetectorPreset.All,
             useEmbeddings: false);
         h.Fake.EnqueueToolResult(new CallToolResult
         {
@@ -149,7 +149,7 @@ public class ConcurrencyAndAdversarialTests
         // through the JSON-wrapped response payload.
         const string phrase = "execute arbitrary code on the remote server via tool manipulation";
 
-        await using var h = await StartHarnessAsync(preset: McpDetectorPreset.All);
+        await using var h = await StartHarnessAsync(preset: DetectorPreset.All);
         h.Fake.EnqueueToolResult(new CallToolResult
         {
             Content = [new TextContentBlock { Text = phrase }],
@@ -184,7 +184,7 @@ public class ConcurrencyAndAdversarialTests
     }
 
     private static async Task<ProxyHarness> StartHarnessAsync(
-        McpDetectorPreset preset = McpDetectorPreset.Security,
+        DetectorPreset preset = DetectorPreset.Security,
         bool useEmbeddings = true)
     {
         var embeddingGenerator = useEmbeddings ? new FakeEmbeddingGenerator() : null;

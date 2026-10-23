@@ -119,7 +119,7 @@ internal static class ProxyCommand
         });
 
     private static async Task<int> RunProxyAsync(
-        string targetCommand, string[] targetArgs, HookConfig config, McpDetectorPreset preset,
+        string targetCommand, string[] targetArgs, HookConfig config, DetectorPreset preset,
         int maxScanBytes, TimeSpan placeholderIdleExpiry, TextWriter stderr, CancellationToken ct,
         IToolCallGuard? guard, IApprovalStore? approvalStore, TimeSpan? approvalWait,
         LocalAuditSession audit, Func<(ITransport Host, IClientTransport Target)>? transportFactory)
@@ -194,13 +194,13 @@ internal static class ProxyCommand
         };
     }
 
-    private static McpDetectorPreset ParsePreset(IReadOnlyDictionary<string, string?> env)
+    private static DetectorPreset ParsePreset(IReadOnlyDictionary<string, string?> env)
     {
         if (!env.TryGetValue("SENTINEL_MCP_DETECTORS", out var value) || string.IsNullOrEmpty(value))
-            return McpDetectorPreset.Security;
+            return DetectorPreset.Security;
         return value.Equals("all", StringComparison.OrdinalIgnoreCase)
-            ? McpDetectorPreset.All
-            : McpDetectorPreset.Security;
+            ? DetectorPreset.All
+            : DetectorPreset.Security;
     }
 
     /// <summary>Reads <c>SENTINEL_MCP_MAX_SCAN_BYTES</c>, the per-item UTF-8 byte cap shared by tool results, prompts and

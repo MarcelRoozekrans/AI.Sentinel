@@ -147,7 +147,7 @@ public class DetectorOptInAndThresholdTests
     {
         var ct = TestContext.Current.CancellationToken;
         var pipeline = McpPipelineFactory.Create(new HookConfig { EnableComplianceDetectors = enabled },
-            McpDetectorPreset.Security, new ExactMatchEmbeddingGenerator(), out var audit);
+            DetectorPreset.Security, new ExactMatchEmbeddingGenerator(), out var audit);
 
         await pipeline.ScanMessagesAsync([new ChatMessage(ChatRole.User, CmpPrompt)], default, ct: ct);
 

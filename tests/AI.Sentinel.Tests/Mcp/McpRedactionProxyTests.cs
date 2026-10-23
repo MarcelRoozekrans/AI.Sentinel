@@ -156,7 +156,7 @@ public partial class McpRedactionProxyTests
                 loggerFactory: NullLoggerFactory.Instance),
             targetTransport: targetTransport,
             config: config,
-            preset: McpDetectorPreset.All,
+            preset: DetectorPreset.Security, // the default, so PII redaction is tested as users get it
             maxScanBytes: 262144,
             stderr: TextWriter.Null,
             ct: cts.Token,

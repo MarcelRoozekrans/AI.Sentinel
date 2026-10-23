@@ -3,9 +3,6 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Compliance;
-using AI.Sentinel.Detectors.Hallucination;
-using AI.Sentinel.Detectors.Operational;
-using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Intervention;
 
 namespace AI.Sentinel.Mcp;
@@ -19,18 +16,18 @@ namespace AI.Sentinel.Mcp;
 /// </remarks>
 internal static class McpPipelineFactory
 {
-    public static SentinelPipeline Create(HookConfig config, McpDetectorPreset preset,
+    public static SentinelPipeline Create(HookConfig config, DetectorPreset preset,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
         => Create(config, preset, embeddingGenerator, out _, out _);
 
     /// <summary>
-    /// Same as <see cref="Create(HookConfig, McpDetectorPreset, IEmbeddingGenerator{string, Embedding{float}}?)"/>
+    /// Same as <see cref="Create(HookConfig, DetectorPreset, IEmbeddingGenerator{string, Embedding{float}}?)"/>
     /// but also exposes the underlying <see cref="IAuditStore"/> so the proxy can route
     /// out-of-band entries (e.g. authorization denials) to the same ring buffer.
     /// </summary>
     public static SentinelPipeline Create(
         HookConfig config,
-        McpDetectorPreset preset,
+        DetectorPreset preset,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         out IAuditStore auditStore)
         => Create(config, preset, embeddingGenerator, out auditStore, out _);
@@ -39,7 +36,7 @@ internal static class McpPipelineFactory
     /// logging provider, so the proxy writes the warning to stderr itself (#170).</summary>
     public static SentinelPipeline Create(
         HookConfig config,
-        McpDetectorPreset preset,
+        DetectorPreset preset,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         out IAuditStore auditStore,
         out string? inertSemanticWarning,
@@ -66,11 +63,7 @@ internal static class McpPipelineFactory
             options.EnableComplianceDetectors();
         options.AlertOnComplianceFindings();
 
-        var detectors = preset switch
-        {
-            McpDetectorPreset.All => BuildAllDetectors(options),
-            _ => BuildSecurityDetectors(options),
-        };
+        var detectors = DetectorPresets.Build(preset, options);
 
         inertSemanticWarning = ServiceCollectionExtensions.DescribeInertSemanticDetection(options, detectors);
 
@@ -104,119 +97,6 @@ internal static class McpPipelineFactory
         HookDecision.Warn => SentinelAction.Alert,
         _ => SentinelAction.PassThrough,
     };
-
-    // 13 security detectors, mirroring
-    // benchmarks/AI.Sentinel.Benchmarks/Harness/PipelineFactory.SecurityOnly(), plus the 4 Art. 5
-    // compliance detectors. Every preset includes CMP-01..04; they run only when SENTINEL_MCP_COMPLIANCE
-    // turns them on, because they are off by default.
-    internal static IDetector[] BuildSecurityDetectors() => BuildSecurityDetectors(new SentinelOptions());
-
-    internal static IDetector[] BuildSecurityDetectors(SentinelOptions options) =>
-    [
-        new PromptInjectionDetector(options),
-        new JailbreakDetector(options),
-        new CredentialExposureDetector(),
-        new DataExfiltrationDetector(options),
-        new PrivilegeEscalationDetector(options),
-        new ToolPoisoningDetector(options),
-        new IndirectInjectionDetector(options),
-        new AgentImpersonationDetector(options),
-        new CovertChannelDetector(options),
-        new ToolCallFrequencyDetector(),      // SEC-19
-        new ExcessiveAgencyDetector(options),  // SEC-21
-        new HumanTrustManipulationDetector(options), // SEC-22
-        new ShorthandEmergenceDetector(options),     // SEC-30
-        .. BuildComplianceSection(options),
-    ];
-
-    // 60 detectors — mirror of what AddAISentinel registers via ZeroAllocInject
-    // source-gen. Keep these in sync whenever a new detector is decorated with
-    // [Singleton(As = typeof(IDetector), AllowMultiple = true)]. The drift-
-    // detection test BuildAllDetectors_CountMatchesRegisteredIDetectorCount
-    // fails loudly if the list here goes out of sync with the assembly.
-    internal static IDetector[] BuildAllDetectors() => BuildAllDetectors(new SentinelOptions());
-
-    internal static IDetector[] BuildAllDetectors(SentinelOptions options) =>
-        [.. BuildSecuritySection(options), .. BuildQualitySection(options), .. BuildComplianceSection(options)];
-
-    /// <summary>The Art. 5 prohibited-practice detectors. Shared by both presets.</summary>
-    private static IDetector[] BuildComplianceSection(SentinelOptions options) =>
-    [
-        // Compliance (4)
-        new SocialScoringDetector(options),
-        new WorkplaceEmotionRecognitionDetector(options),
-        new SensitiveBiometricCategorisationDetector(options),
-        new ProfilingCrimePredictionDetector(options),
-    ];
-
-    /// <summary>Split from BuildAllDetectors only to stay inside the method-length limit; the sections
-    /// together must still mirror every [Singleton] detector in the assembly.</summary>
-    private static IDetector[] BuildQualitySection(SentinelOptions options) =>
-    [
-        // Hallucination (9)
-        new PhantomCitationDetector(options),
-        new SelfConsistencyDetector(options),
-        new SourceGroundingDetector(options),
-        new ConfidenceDecayDetector(options),
-        new CrossAgentContradictionDetector(options),
-        new GroundlessStatisticDetector(options),
-        new IntraSessionContradictionDetector(options),
-        new StaleKnowledgeDetector(options),
-        new UncertaintyPropagationDetector(options),
-        // Operational (15)
-        new BlankResponseDetector(),
-        new RepetitionLoopDetector(),
-        new ContextCollapseDetector(options),
-        new AgentProbingDetector(options),
-        new QueryIntentDetector(options),
-        new IncompleteCodeBlockDetector(),
-        new PlaceholderTextDetector(),
-        new ResponseCoherenceDetector(options),
-        new PersonaDriftDetector(options),
-        new SemanticRepetitionDetector(options),
-        new SycophancyDetector(options),
-        new WrongLanguageDetector(),
-        new TruncatedOutputDetector(),
-        new UnboundedConsumptionDetector(),
-        new WaitingForContextDetector(options),
-    ];
-
-    private static IDetector[] BuildSecuritySection(SentinelOptions options) =>
-    [
-        // Security (32)
-        new PromptInjectionDetector(options),
-        new JailbreakDetector(options),
-        new CredentialExposureDetector(),
-        new DataExfiltrationDetector(options),
-        new PrivilegeEscalationDetector(options),
-        new ToolPoisoningDetector(options),
-        new IndirectInjectionDetector(options),
-        new AgentImpersonationDetector(options),
-        new CovertChannelDetector(options),
-        new EntropyCovertChannelDetector(),
-        new MemoryCorruptionDetector(options),
-        new UnauthorizedAccessDetector(options),
-        new ShadowServerDetector(options),
-        new InformationFlowDetector(options),
-        new PhantomCitationSecurityDetector(options),
-        new GovernanceGapDetector(options),
-        new SupplyChainPoisoningDetector(options),
-        new AdversarialUnicodeDetector(),
-        new CodeInjectionDetector(options),
-        new LanguageSwitchAttackDetector(options),
-        new OutputSchemaDetector(options),
-        new PiiLeakageDetector(),
-        new PromptTemplateLeakageDetector(options),
-        new RefusalBypassDetector(options),
-        new SystemPromptLeakageDetector(options),
-        new SystemPromptEchoDetector(),
-        new ToolDescriptionDivergenceDetector(),
-        new ToolCallFrequencyDetector(),
-        new ExcessiveAgencyDetector(options),
-        new HumanTrustManipulationDetector(options),
-        new ShorthandEmergenceDetector(options),
-        new VectorRetrievalPoisoningDetector(options),
-    ];
 
     // IChatClient satisfying SentinelPipeline's signature. Never invoked because
     // the proxy uses prompt-only scanning via ScanMessagesAsync.
