@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.2.0...v3.2.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **detectors:** tighten credential and personal data patterns for JSON content ([1a4fa5d](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/1a4fa5df2b05170b3eb0c77634ec3c87eb2e4054))
+* **redaction:** redact JSON values recognised by their key ([1a4fa5d](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/1a4fa5df2b05170b3eb0c77634ec3c87eb2e4054))
+
 ## [3.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.1.0...v3.2.0) (2026-10-22)
 
 
