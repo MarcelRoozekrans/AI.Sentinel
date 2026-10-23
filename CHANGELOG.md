@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.2.1...v3.2.2) (2026-10-23)
+
+
+### Bug Fixes
+
+* **detection:** scan in-process tool calls and results ([af83346](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/af83346820c3c5c5bc4339a320fb68f53b2744e4))
+* **detection:** SEC-02 redacts *_SECRET and *_TOKEN keys and keeps embedded JSON intact ([#460](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/460)) ([a1e4e63](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/a1e4e6334326b18795824f5e86a4f38c29fdb70a))
+
 ## [3.2.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.2.0...v3.2.1) (2026-10-23)
 
 
