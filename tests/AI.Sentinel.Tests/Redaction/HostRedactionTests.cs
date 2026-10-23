@@ -382,6 +382,29 @@ public class HostRedactionTests
         Assert.Empty(result.Findings);
     }
 
+    // A value one detector finds as a secret stays a secret where another finds it as another type: an address used
+    // as a password is also minted as an EMAIL, and that token must not go into tool arguments.
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ValueSecretUnderOneType_IsNotRestorableUnderAnother(bool secretFirst)
+    {
+        var (pipeline, _) = Build();
+        var secret = $"password: {Email}";
+        var plain = $"mail {Email}";
+
+        var result = await RunAsync(pipeline, new HostRedactionRequest
+        {
+            Content = secretFirst
+                ? [HostContent.FromText(secret), HostContent.FromText(plain)]
+                : [HostContent.FromText(plain), HostContent.FromText(secret)],
+        });
+
+        Assert.NotEmpty(result.Minted);
+        Assert.All(result.Minted.Where(m => string.Equals(m.Value, Email, StringComparison.Ordinal)),
+            m => Assert.False(m.RestoreIntoToolArguments));
+    }
+
     [Fact]
     public async Task RedactorThrows_FallsBack_SeverityActionAndNotRedacted()
     {
