@@ -79,14 +79,14 @@ opts.RequireApproval("mcp__api__http_request", spec =>
     spec.WhenArgument("$.method", "^(POST|PUT|PATCH|DELETE)$");
 });
 
-// A second call for the same pattern adds the next rule. The first rule whose
-// conditions hold is the one that applies.
+// Two rules for one pattern. The first rule whose conditions hold applies.
 opts.RequireApproval("Bash", spec =>
 {
     spec.BackendBinding = "ProdOps";
     spec.GrantScope = ApprovalGrantScope.Call;
     spec.WhenArgument("$.command", @"\bkubectl\b.*\bdelete\b.*\b(prod|production)\b");
 });
+// A second call for the same pattern adds the next rule.
 opts.RequireApproval("Bash", spec =>
 {
     spec.BackendBinding = "Operator";

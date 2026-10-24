@@ -124,11 +124,11 @@ A path is `$` followed by any sequence of:
 
 | Segment | Meaning |
 |---|---|
-| `.name` | Property `name` of an object. |
+| `.name` | Property `name` of an object. The name may contain only letters, digits, `_` and `-`; anything else needs `['name']`. |
 | `['name']` | Property with a name that has dots, spaces or quotes, such as `$['content-type']`. Inside the quotes, `\'` is a quote and `\\` is a backslash. Any other backslash sequence is a config error. In a JSON file the backslashes are doubled again. |
 | `[n]` | Element `n` of an array, counting from 0. |
 
-Wildcards, filters, recursive descent and slices are not supported. A bad path is a config error at load.
+A bare `$` is rejected. Wildcards, filters, recursive descent and slices are not supported. A bad path is a config error at load.
 
 ### What the regex sees
 
@@ -146,17 +146,22 @@ A condition never matches a field the call did not send. A rule that must also g
 - Regexes are case-sensitive. Start a pattern with `(?i)` for case-insensitive matching.
 - Matching is unanchored, like `Regex.IsMatch`. Use `^...$` for an exact value.
 - Inside a JSON string every backslash is doubled, so `\bkubectl\s+delete\b` is written `"\\bkubectl\\s+delete\\b"`.
-- An invalid regex is a config error at load. The message names the tool key, the entry index and the path.
+- An invalid regex is a config error at load. The message names the tool key, the entry index for arrays, and the path.
 - Matching uses the invariant culture and never hangs: patterns run without backtracking where the pattern allows it, otherwise under a 100 ms timeout.
 
 ### Fail closed
 
-A rule never silently stops gating. In each of these cases every condition of the entry counts as holding, so the call needs approval:
+A rule never silently stops gating. Two kinds of case fail closed.
 
-- a regex hits its timeout (the guard also logs a warning naming the rule);
-- the arguments are not a JSON object or array, for example an unparsed string or no arguments at all;
+Arguments that are not a JSON object or array, for example an unparsed string or no arguments at all: every condition of every entry with a `when` counts as holding, so the call needs approval.
+
+A single condition that cannot be decided: only that condition counts as holding, and the entry's other conditions are still evaluated normally. The cases are:
+
+- a regex hits its timeout;
 - a string at the path cannot be decoded, for example a lone surrogate escape;
 - the path meets a duplicate key.
+
+The guard logs a warning naming the rule for these. For example, with `{"$.method": "^DELETE$", "$.path": "..."}`, a `GET` call whose path condition times out does not match the rule, because the method condition does not hold.
 
 ### Not a sandbox
 
@@ -224,7 +229,7 @@ The config loader validates required fields at startup:
 - `backend=entra-pim` without `tenantId` → fail.
 - Unknown `backend` value → fail.
 - Per-tool `role` empty → fail.
-- An empty `tools` array, an empty `when`, an invalid path or regex, or an unknown `grantScope` → fail.
+- An empty array under a tool key, an empty `when`, an invalid path or regex, or an unknown `grantScope` → fail.
 - An entry without `when` that is not last in its array → fail.
 - `grantScope: "call"` with `backend=entra-pim` → fail.
 
