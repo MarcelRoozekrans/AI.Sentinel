@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.4.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.4.0...v3.4.1) (2026-10-24)
+
+
+### Bug Fixes
+
+* **mcp:** a value seen as a secret in any call is never restored as PII ([#473](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/473)) ([9a9d5c0](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/9a9d5c0b2eda7b55a7ed7309693f3a31806e4874))
+
 ## [3.4.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.3.0...v3.4.0) (2026-10-24)
 
 
