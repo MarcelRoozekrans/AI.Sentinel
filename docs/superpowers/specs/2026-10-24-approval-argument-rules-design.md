@@ -42,15 +42,15 @@ A rule on such a tool demands approval for every read or for nothing. Both are w
   "delete_database": { "role": "DBA" },
   "mcp__api__http_request": {
     "role": "Operator",
+    "grantScope": "call",
     "when": { "$.method": "^(POST|PUT|PATCH|DELETE)$" }
   },
   "Bash": [
     {
       "role": "ProdOps",
-      "grantScope": "call",
-      "when": { "$.command": "\\bkubectl\\b.*\\bdelete\\b.*\\b(prod|production)\\b" }
+      "when": { "$.command": "\\bkubectl\\b[\\s\\S]*\\bdelete\\b[\\s\\S]*\\b(prod|production)\\b" }
     },
-    { "role": "Operator", "when": { "$.command": "\\bkubectl\\b.*\\bdelete\\b" } }
+    { "role": "Operator", "when": { "$.command": "\\bkubectl\\b[\\s\\S]*\\bdelete\\b" } }
   ]
 }
 ```
@@ -79,12 +79,13 @@ The value a regex sees:
 
 So a condition never matches a field the call did not send, in arguments that are a JSON object or array.
 
-**Arguments that are not a JSON object or array fail closed.** **(designer's call, from the anti-goal)** Hosts can hand the guard other shapes: the Copilot hook passes a raw string element when `toolArgs` is a string that does not parse as JSON, and `default(JsonElement)`, kind `Undefined`, when no arguments were sent. For such arguments every condition of a binding with a `when` counts as holding, so the call needs approval. Otherwise a `DELETE` rule would go ungated whenever a host sends unparsed arguments. Path evaluation never calls `GetProperty` on a non-object; it walks with `TryGetProperty` and bounds-checked indexing. **(designer's call)** The alternative, demanding approval when a field is missing, would make every optional field a source of approval noise. A rule that must gate calls lacking a field can say so with a separate entry that has no condition on that field.
+**Arguments that are not a JSON object or array fail closed.** **(designer's call, from the anti-goal)** Hosts can hand the guard other shapes: the Copilot hook passes a raw string element when `toolArgs` is a string that does not parse as JSON, and other hosts can pass `default(JsonElement)`, kind `Undefined`, when no arguments were sent. The Copilot hook itself passes an empty JSON object when no arguments were sent, so such a call is structured arguments with no fields: a condition on a field does not hold. For such arguments every condition of a binding with a `when` counts as holding, so the call needs approval. Otherwise a `DELETE` rule would go ungated whenever a host sends unparsed arguments. Path evaluation never calls `GetProperty` on a non-object; it walks with `TryGetProperty` and bounds-checked indexing. **(designer's call)** The alternative, demanding approval when a field is missing, would make every optional field a source of approval noise. A rule that must gate calls lacking a field can say so with a separate entry that has no condition on that field.
 
 ### Regexes
 
 - Compiled once at load with `RegexOptions.CultureInvariant`, and `RegexOptions.NonBacktracking` where the pattern allows it, otherwise with a match timeout of 100 ms. Case-sensitive; a pattern can start with `(?i)`.
 - `Regex.IsMatch` semantics: unanchored unless the pattern anchors itself. The docs show `^...$` for exact values.
+- `.` does not match a newline, and a command or file body can span lines, so multi-part examples join their parts with `[\s\S]*` rather than `.*`.
 - An invalid regex is a config error at load, naming the tool key, entry index and path.
 - A timeout at match time **fails closed**: the condition counts as holding, so the call needs approval, and the guard logs a warning naming the rule, once per call per rule.
 
@@ -107,7 +108,7 @@ The store keys a request and its grant on `(caller, PolicyName)`.
 - A single-object entry, and entry 0 of an array, keep today's name, `approval:<pattern>`. Pending and active grants survive the upgrade, and also survive turning an object into a one-element array. **(designer's call)**
 - An array entry at index `i ≥ 1` gets `approval:<pattern>[i]`. Each rule is its own policy, so a grant for the `Operator` rule never covers the `ProdOps` rule.
 - Approval policy names must be unique. A duplicate, from an explicit `PolicyName` or otherwise, throws at registration.
-- **`grantScope: "call"`:** the guard evaluates against a copy of the spec whose name has an argument fingerprint appended: `approval:Bash#<fingerprint>`. The fingerprint is the first 16 hex characters of the SHA-256 of the canonical arguments: object keys sorted ordinally, no insignificant whitespace, strings re-escaped consistently. Both stores already dedupe on `PolicyName`, so no schema change is needed. **(designer's call)** The fingerprinted name is the policy name everywhere downstream: in the `RequireApproval` and `Deny` decisions, the receipt, the audit entries and the dashboard. That way the approver can match a receipt to its request, and the hash prefix shows which rule it belongs to. Rows do not accumulate any faster than today, because every new request is already its own row. The approver approves exactly the arguments shown in `args_json`; a retry with the same arguments hits the grant, a retry with any other arguments starts a new request.
+- **`grantScope: "call"`:** the guard evaluates against a copy of the spec whose name has an argument fingerprint appended: `approval:Bash#<fingerprint>`. The fingerprint is the first 32 hex characters, 128 bits, of the SHA-256 of the UTF-8 tool name, a 0x00 byte and the canonical arguments. The tool name is included so that a call-scoped grant under a wildcard rule such as `mcp__fs__*` never covers another tool called with the same arguments. Canonical arguments: object keys sorted ordinally, no insignificant whitespace, strings re-escaped consistently. Both stores already dedupe on `PolicyName`, so no schema change is needed. **(designer's call)** The fingerprinted name is the policy name everywhere downstream: in the `RequireApproval` and `Deny` decisions, the receipt, the audit entries and the dashboard. That way the approver can match a receipt to its request, and the hash prefix shows which rule it belongs to. Rows do not accumulate any faster than today, because every new request is already its own row. The approver approves exactly the arguments shown in `args_json`; a retry of the same tool with the same arguments hits the grant, a retry with any other arguments or another tool starts a new request. Every argument field counts toward the fingerprint, together with the tool name, including fields such as Claude Code `Bash`'s `description` and `timeout` that models often change on retry; a retry with any changed field starts a new request. The flagship `"call"` example is therefore an MCP tool with stable arguments, not `Bash`.
 
 ### In-process API
 
@@ -120,7 +121,7 @@ public ApprovalGrantScope GrantScope { get; set; } = ApprovalGrantScope.Rule;   
 
 `RequireApproval(pattern, ...)` called again for a pattern that already has an approval binding adds the next entry of that pattern's group. When `PolicyName` still holds the default `approval:<pattern>` after `configure` runs, the second and later entries get `approval:<pattern>[i]`, numbered from 1, which matches the config file's naming. A caller who sets a name keeps it, and the uniqueness check above catches collisions. Path syntax and regex errors throw from `WhenArgument`, at configuration time.
 
-`GrantScope.Call` combined with the Entra PIM store throws at startup, from the place where the registered store type is known.
+`GrantScope.Call` combined with the Entra PIM store throws when the tool-call guard is first resolved, from the place where the registered store type is known. The check sees through AI.Sentinel's own auditing wrapper only; a custom decorator around `EntraPimApprovalStore` hides the store from it.
 
 `ApprovalBackendSelector.Configure` maps config entries onto these calls, so the CLIs and the builder share one implementation.
 

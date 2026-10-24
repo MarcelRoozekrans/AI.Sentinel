@@ -78,8 +78,7 @@ A generic tool often needs more than one rule: a reviewer for ordinary destructi
   "Bash": [
     {
       "role": "ProdOps",
-      "grantScope": "call",
-      "when": { "$.command": "\\bkubectl\\b.*\\bdelete\\b.*\\b(prod|production)\\b" }
+      "when": { "$.command": "\\bkubectl\\b[\\s\\S]*\\bdelete\\b[\\s\\S]*\\b(prod|production)\\b" }
     },
     { "role": "Operator", "when": { "$.command": "\\bkubectl\\s+delete\\b" } }
   ]
@@ -145,6 +144,7 @@ A condition never matches a field the call did not send. A rule that must also g
 
 - Regexes are case-sensitive. Start a pattern with `(?i)` for case-insensitive matching.
 - Matching is unanchored, like `Regex.IsMatch`. Use `^...$` for an exact value.
+- `.` does not match a newline, and a command or a file body can span lines. To join parts of a value that may sit on different lines, use `[\s\S]*` instead of `.*`, as the examples on this page do.
 - Inside a JSON string every backslash is doubled, so `\bkubectl\s+delete\b` is written `"\\bkubectl\\s+delete\\b"`.
 - An invalid regex is a config error at load. The message names the tool key, the entry index for arrays, and the path.
 - Matching uses the invariant culture and never hangs: patterns run without backtracking where the pattern allows it, otherwise under a 100 ms timeout.
@@ -181,7 +181,9 @@ For `Bash`, treat the rule as a speed bump for the agent that behaves, and keep 
 
 An approved request grants access for `grantMinutes`. By default (`"grantScope": "rule"`) the grant covers every call that matches the same rule in that time, whatever its arguments.
 
-With `"grantScope": "call"` the grant is tied to the exact arguments that were approved. The approver sees the arguments in the request, approves exactly those, and a retry with the same arguments hits the grant. The arguments are compared after normalization: key order and whitespace do not matter. A retry with any other arguments starts a new request.
+With `"grantScope": "call"` the grant is tied to the exact tool and arguments that were approved. The approver sees the arguments in the request, approves exactly those, and a retry of the same tool with the same arguments hits the grant. The arguments are compared after normalization: key order and whitespace do not matter. A call to another tool that the same pattern matches, such as `mcp__fs__delete_file` after an approved `mcp__fs__read_file` under `mcp__fs__*`, is a new request even with identical arguments.
+
+Every argument field counts, not only the fields a `when` condition looks at. Some tools send fields that change from one attempt to the next: Claude Code's `Bash` sends a `description` and often a `timeout`, which a model tends to reword or adjust on a retry. A retry with any changed field starts a new request. Use `"call"` for tools whose arguments the agent repeats exactly, such as most MCP tools, and keep `"rule"` for `Bash`.
 
 ```json
 "mcp__ops__invoke_action": {
@@ -201,7 +203,7 @@ Every approval rule is a policy with a name. The name keys the request and its g
 |---|---|
 | A single object, or entry 0 of an array | `approval:<pattern>`, for example `approval:Bash` |
 | Entry `i` (1 or higher) of an array | `approval:<pattern>[i]`, for example `approval:Bash[1]` |
-| Any of the above with `grantScope: "call"` | The name followed by `#` and 16 hex characters, the fingerprint of the canonical arguments |
+| Any of the above with `grantScope: "call"` | The name followed by `#` and 32 hex characters, the fingerprint of the tool name and the canonical arguments |
 
 An existing config file keeps its policy names, so pending requests and active grants survive an upgrade. Turning an object into a one-element array keeps them too.
 
@@ -231,6 +233,8 @@ The config loader validates required fields at startup:
 - Per-tool `role` empty → fail.
 - An empty array under a tool key, an empty `when`, an invalid path or regex, or an unknown `grantScope` → fail.
 - An entry without `when` that is not last in its array → fail.
+- A tool entry key that is a known key spelled differently, such as `grant_scope`, `grantscope` or `When` → fail, naming the key and the expected spelling. Other unknown keys, such as `description`, are ignored.
+- A duplicate key inside `tools` or inside a `when` → fail.
 - `grantScope: "call"` with `backend=entra-pim` → fail.
 
 Validation failures print to stderr and exit `1`. Successful load is silent.
