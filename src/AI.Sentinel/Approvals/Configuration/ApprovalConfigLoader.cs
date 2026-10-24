@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using AI.Sentinel.Approvals.Conditions;
 
 namespace AI.Sentinel.Approvals.Configuration;
 
@@ -9,6 +10,9 @@ namespace AI.Sentinel.Approvals.Configuration;
 /// values.</summary>
 internal static class ApprovalConfigLoader
 {
+    /// <summary>The keys a tool entry understands, spelled exactly as the loader reads them.</summary>
+    private static readonly string[] ToolEntryKeys = ["role", "grantMinutes", "requireJustification", "when", "grantScope"];
+
     private static readonly Regex EnvPlaceholder = new(@"\$\{(?<var>[A-Z_][A-Z0-9_]*)\}",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture,
         TimeSpan.FromSeconds(1));
@@ -40,12 +44,15 @@ internal static class ApprovalConfigLoader
             ?? "AI agent invocation: {tool}";
         var includeConversationContext = OptionalBool(root, "includeConversationContext") ?? true;
 
-        var tools = new Dictionary<string, ApprovalToolConfig>(StringComparer.Ordinal);
+        var tools = new Dictionary<string, IReadOnlyList<ApprovalToolConfig>>(StringComparer.Ordinal);
         if (root.TryGetProperty("tools", out var toolsEl) && toolsEl.ValueKind == JsonValueKind.Object)
         {
             foreach (var prop in toolsEl.EnumerateObject())
             {
-                tools[prop.Name] = ParseTool(prop.Value, prop.Name);
+                // JSON readers disagree on which duplicate wins, so a repeated key is never silently resolved.
+                if (tools.ContainsKey(prop.Name))
+                    throw new InvalidOperationException($"tools has duplicate key '{prop.Name}'");
+                tools[prop.Name] = ParseTools(prop.Value, prop.Name, backend);
             }
         }
 
@@ -57,14 +64,125 @@ internal static class ApprovalConfigLoader
         return config;
     }
 
-    private static ApprovalToolConfig ParseTool(JsonElement el, string toolName)
+    private static IReadOnlyList<ApprovalToolConfig> ParseTools(JsonElement el, string toolName, string backend)
+    {
+        if (el.ValueKind == JsonValueKind.Array)
+        {
+            var entries = new List<ApprovalToolConfig>();
+            var index = 0;
+            foreach (var item in el.EnumerateArray())
+            {
+                var location = $"tools.{toolName}[{index}]";
+                var entry = ParseTool(item, location, backend);
+                // An entry without conditions matches every call, so anything after it is unreachable.
+                if (index > 0 && entries[index - 1].When.Count == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"{location} is unreachable: tools.{toolName}[{index - 1}] has no 'when' and matches every call");
+                }
+                entries.Add(entry);
+                index++;
+            }
+            if (entries.Count == 0)
+                throw new InvalidOperationException($"tools.{toolName} must not be an empty array");
+            return entries;
+        }
+        return new[] { ParseTool(el, $"tools.{toolName}", backend) };
+    }
+
+    private static ApprovalToolConfig ParseTool(JsonElement el, string location, string backend)
     {
         if (el.ValueKind != JsonValueKind.Object)
-            throw new InvalidOperationException($"tools.{toolName} must be an object");
-        var role = RequireString(el, "role", $"tools.{toolName}.role");
+            throw new InvalidOperationException($"{location} must be an object");
+        RejectBadEntryKeys(el, location);
+        var role = RequireString(el, "role", $"{location}.role");
         var grantMinutes = OptionalInt(el, "grantMinutes");
         var requireJustification = OptionalBool(el, "requireJustification");
-        return new ApprovalToolConfig(role, grantMinutes, requireJustification);
+        var when = ParseWhen(el, location);
+        var grantScope = ParseGrantScope(el, location);
+        if (grantScope == ApprovalGrantScope.Call
+            && string.Equals(backend.Trim(), "entra-pim", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"{location}.grantScope 'call' is not supported with backend 'entra-pim': a PIM grant is a role activation and cannot be tied to arguments");
+        }
+        return new ApprovalToolConfig(role, grantMinutes, requireJustification, grantScope) { When = when };
+    }
+
+    /// <summary>
+    /// Rejects a key that is a known key in another spelling, such as <c>grant_scope</c> or <c>When</c>:
+    /// the loader would otherwise ignore it and drop the rule's condition or scope without a word.
+    /// Keys unrelated to a known key stay accepted, so existing files with extra fields keep loading.
+    /// A key that appears twice in the entry is rejected too.
+    /// </summary>
+    private static void RejectBadEntryKeys(JsonElement el, string location)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var prop in el.EnumerateObject())
+        {
+            // JSON readers disagree on which duplicate wins, so a repeated key is never silently resolved.
+            if (!seen.Add(prop.Name))
+                throw new InvalidOperationException($"{location} has duplicate key '{prop.Name}'");
+            if (ToolEntryKeys.Contains(prop.Name, StringComparer.Ordinal))
+                continue;
+            var normalised = NormaliseKey(prop.Name);
+            foreach (var known in ToolEntryKeys)
+            {
+                if (string.Equals(normalised, NormaliseKey(known), StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"{location}.{prop.Name} is not a recognised key; did you mean '{known}'?");
+                }
+            }
+        }
+    }
+
+    private static string NormaliseKey(string key) =>
+        key.Replace("_", "", StringComparison.Ordinal)
+            .Replace("-", "", StringComparison.Ordinal)
+            .ToLowerInvariant();
+
+    private static List<KeyValuePair<string, string>> ParseWhen(JsonElement el, string location)
+    {
+        var when = new List<KeyValuePair<string, string>>();
+        if (!el.TryGetProperty("when", out var whenEl)) return when;
+        if (whenEl.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException($"{location}.when must be an object of JSON path to regex");
+        foreach (var cond in whenEl.EnumerateObject())
+        {
+            if (when.Exists(c => string.Equals(c.Key, cond.Name, StringComparison.Ordinal)))
+                throw new InvalidOperationException($"{location}.when has duplicate key '{cond.Name}'");
+            if (cond.Value.ValueKind != JsonValueKind.String)
+                throw new InvalidOperationException(
+                    $"{location}.when['{cond.Name}'] must be a regex string");
+            var pattern = cond.Value.GetString()!;
+            try
+            {
+                _ = new ArgumentCondition(cond.Name, pattern); // validates path and regex at load
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidOperationException(
+                    $"{location}.when['{cond.Name}'] is invalid: {ex.Message}", ex);
+            }
+            when.Add(new KeyValuePair<string, string>(cond.Name, pattern));
+        }
+        if (when.Count == 0)
+            throw new InvalidOperationException($"{location}.when must not be empty");
+        return when;
+    }
+
+    private static ApprovalGrantScope ParseGrantScope(JsonElement el, string location)
+    {
+        if (!el.TryGetProperty("grantScope", out var scopeEl)) return ApprovalGrantScope.Rule;
+        var text = scopeEl.ValueKind == JsonValueKind.String ? scopeEl.GetString() : null;
+        return text switch
+        {
+            "rule" => ApprovalGrantScope.Rule,
+            "call" => ApprovalGrantScope.Call,
+            _ => throw new InvalidOperationException(
+                $"{location}.grantScope must be 'rule' or 'call'. Got: {scopeEl.GetRawText()}"),
+        };
     }
 
     private static void Validate(ApprovalConfig config)

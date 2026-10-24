@@ -25,17 +25,24 @@ internal static class ApprovalBackendSelector
         ArgumentNullException.ThrowIfNull(opts);
         ArgumentNullException.ThrowIfNull(config);
 
-        foreach (var (toolPattern, toolConfig) in config.Tools)
+        foreach (var (toolPattern, entries) in config.Tools)
         {
-            var grantMinutes = toolConfig.GrantMinutes ?? config.DefaultGrantMinutes;
-            var requireJustification = toolConfig.RequireJustification ?? true;
-
-            opts.RequireApproval(toolPattern, spec =>
+            // One RequireApproval call per entry, in order: the bindings share the pattern, so they
+            // form one rule group and are named approval:<pattern>, approval:<pattern>[1], ...
+            foreach (var toolConfig in entries)
             {
-                spec.GrantDuration = TimeSpan.FromMinutes(grantMinutes);
-                spec.RequireJustification = requireJustification;
-                spec.BackendBinding = toolConfig.Role;
-            });
+                var grantMinutes = toolConfig.GrantMinutes ?? config.DefaultGrantMinutes;
+                var requireJustification = toolConfig.RequireJustification ?? true;
+
+                opts.RequireApproval(toolPattern, spec =>
+                {
+                    spec.GrantDuration = TimeSpan.FromMinutes(grantMinutes);
+                    spec.RequireJustification = requireJustification;
+                    spec.BackendBinding = toolConfig.Role;
+                    spec.GrantScope = toolConfig.GrantScope;
+                    foreach (var (path, pattern) in toolConfig.When) spec.WhenArgument(path, pattern);
+                });
+            }
         }
     }
 

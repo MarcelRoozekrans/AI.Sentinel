@@ -68,6 +68,41 @@ services.AddAISentinel(opts =>
 });
 ```
 
+### Rules that match tool arguments
+
+`WhenArgument(path, regex)` limits a rule to calls whose arguments match. It is chainable, repeatable, and all conditions must hold. `GrantScope = ApprovalGrantScope.Call` ties the grant to the exact approved arguments instead of the whole rule:
+
+```csharp
+opts.RequireApproval("mcp__api__http_request", spec =>
+{
+    spec.BackendBinding = "Operator";
+    spec.GrantScope = ApprovalGrantScope.Call;
+    spec.WhenArgument("$.method", "^(POST|PUT|PATCH|DELETE)$");
+});
+
+// Two rules for one pattern. The first rule whose conditions hold applies.
+opts.RequireApproval("Bash", spec =>
+{
+    spec.BackendBinding = "ProdOps";
+    spec.WhenArgument("$.command", @"\bkubectl\b[\s\S]*\bdelete\b[\s\S]*\b(prod|production)\b");
+});
+// A second call for the same pattern adds the next rule.
+opts.RequireApproval("Bash", spec =>
+{
+    spec.BackendBinding = "Operator";
+    spec.WhenArgument("$.command", @"\bkubectl\s+delete\b");
+});
+```
+
+A bad path or regex throws from `WhenArgument`. The second rule is named `approval:Bash[1]` unless you set `PolicyName`; a duplicate policy name throws at registration. `GrantScope.Call` with the [Entra PIM store](/docs/approvals/entra-pim) throws when the tool-call guard is first resolved. That check sees the store through AI.Sentinel's own auditing wrapper only: a decorator of your own around `EntraPimApprovalStore` hides it. A call-scoped grant covers the exact tool and every argument field, including fields such as `Bash`'s `description` that a model rewords on retry, so prefer it for tools whose arguments repeat exactly; see [Grant scope](/docs/approvals/cli-config#grant-scope).
+
+Path syntax, the value table, fail-closed behaviour and the limits of regexes on shell commands are the same as in the [config file](/docs/approvals/cli-config#argument-conditions).
+
+**Behaviour change.**
+
+- Two `RequireApproval` calls on the same pattern, both without `WhenArgument`, used to demand both approvals. Now only the first applies, because the second is the next rule of the same pattern.
+- A duplicate approval policy name now throws at registration. Before, two `RequireApproval` calls with the same explicit `PolicyName` both registered, and one approval covered both.
+
 For CLIs (where source-edits aren't an option), use a [config file](/docs/approvals/cli-config) instead.
 
 Policies and approval requests see the real argument values, not [redaction](/docs/redaction) placeholders, so an approver can judge the actual call.
