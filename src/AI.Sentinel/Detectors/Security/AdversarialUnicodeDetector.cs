@@ -36,6 +36,22 @@ public sealed class AdversarialUnicodeDetector : IDetector
             : IsJoiningScript(previous) && IsJoiningScript(next);
     }
 
+    /// <summary>
+    /// U+FEFF where a byte order mark sits: at the start of the text, of a JSON string or of a line, the last one raw
+    /// or JSON-escaped. A file saved with a UTF-8 BOM keeps it when a tool reads it with fs.readFile or cat, so it
+    /// opens a tool result, or a file's lines in one. There it hides nothing: it splits no word, and a second U+FEFF
+    /// after it still counts.
+    /// </summary>
+    private static bool IsByteOrderMark(string text, int index)
+    {
+        if (text[index] != '\ufeff') return false;
+        if (index == 0) return true;
+
+        var previous = text[index - 1];
+        if (previous is '"' or '\n' or '\r') return true;
+        return index >= 2 && text[index - 2] == '\\' && previous is ('n' or 'r');
+    }
+
     /// <summary>The code point before <paramref name="index"/>, skipping an emoji presentation selector.</summary>
     private static bool TryPrevious(string text, int index, out Rune rune)
     {
@@ -78,7 +94,7 @@ public sealed class AdversarialUnicodeDetector : IDetector
             var text = SentinelContext.MessageText(message);
             for (var i = 0; i < text.Length; i++)
             {
-                if (IsSuspicious(text[i]) && !IsLegitimateJoiner(text, i))
+                if (IsSuspicious(text[i]) && !IsLegitimateJoiner(text, i) && !IsByteOrderMark(text, i))
                     count++;
             }
         }

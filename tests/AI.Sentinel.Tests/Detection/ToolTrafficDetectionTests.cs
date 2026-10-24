@@ -409,6 +409,32 @@ public class ToolTrafficDetectionTests
         Assert.False(r.IsClean);
     }
 
+    // A file saved with a UTF-8 byte order mark keeps it when a tool reads it with fs.readFile or cat, as the MCP
+    // filesystem server and the Bash tool do. It then opens the result, a JSON string in it, or a line of it (#461).
+    [Theory]
+    [InlineData("\uFEFFusing System;")]
+    [InlineData("{\"stdout\":\"\uFEFFusing System;\"}")]
+    [InlineData("==> a.cs <==\n\uFEFFusing System;")]
+    [InlineData("{\"stdout\":\"==> a.cs <==\\n\uFEFFusing System;\"}")]
+    [InlineData("{\"stdout\":\"a\\r\\n\uFEFFusing System;\"}")]
+    public async Task AdversarialUnicode_ByteOrderMarkOpeningATextOrLine_IsClean(string text)
+    {
+        var r = await new AdversarialUnicodeDetector().AnalyzeAsync(Ctx(new ChatMessage(ChatRole.Assistant, text)), TestContext.Current.CancellationToken);
+
+        Assert.True(r.IsClean);
+    }
+
+    [Theory]
+    [InlineData("ig\uFEFFnore")]
+    [InlineData("\uFEFF\uFEFFusing System;")]
+    [InlineData("a \uFEFFusing")]
+    public async Task AdversarialUnicode_ByteOrderMarkInsideALine_IsFlagged(string text)
+    {
+        var r = await new AdversarialUnicodeDetector().AnalyzeAsync(Ctx(new ChatMessage(ChatRole.Assistant, text)), TestContext.Current.CancellationToken);
+
+        Assert.False(r.IsClean);
+    }
+
     /// <summary>Regression guard: a conversation of text only reads exactly as before.</summary>
     [Fact]
     public void TextContent_OfTextOnlyMessages_IsUnchanged()
