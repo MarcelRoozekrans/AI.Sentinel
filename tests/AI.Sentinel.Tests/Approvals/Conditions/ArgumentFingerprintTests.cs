@@ -48,8 +48,9 @@ public class ArgumentFingerprintTests
     [Fact]
     public void KnownValue_IsPinned()
     {
-        // SHA-256 of UTF-8 "Bash", a 0x00 byte and the canonical text {"a":1}; first 16 bytes, lowercase hex.
-        Assert.Equal("e9369becbfdbc5e53540b214cd36aa80", Fingerprint("{ \"a\" : 1 }"));
+        // SHA-256 of the 4-byte big-endian length of UTF-8 "Bash", the name itself and the canonical
+        // text {"a":1}; first 16 bytes, lowercase hex.
+        Assert.Equal("fd6af14b18f24c33e3bb670b1faeb3ae", Fingerprint("{ \"a\" : 1 }"));
     }
 
     [Fact]

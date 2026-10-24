@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -14,8 +15,8 @@ internal static class ArgumentFingerprint
     private const int FingerprintBytes = 16;
 
     /// <summary>
-    /// Returns the first 32 lowercase hex characters, 128 bits, of the SHA-256 of the UTF-8 tool
-    /// name, a 0x00 separator byte and the canonical arguments: object keys sorted ordinally, no
+    /// Returns the first 32 lowercase hex characters, 128 bits, of the SHA-256 of the UTF-8 byte
+    /// length of the tool name as 4 bytes big-endian, the UTF-8 tool name and the canonical arguments: object keys sorted ordinally, no
     /// insignificant whitespace, strings re-escaped by the default <see cref="Utf8JsonWriter"/>
     /// encoder, numbers as their raw token. The tool name is part of the hash so a grant for one
     /// tool never covers another tool that a wildcard rule also matches.
@@ -26,8 +27,12 @@ internal static class ArgumentFingerprint
     public static string Compute(string toolName, JsonElement args)
     {
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        sha.AppendData(Encoding.UTF8.GetBytes(toolName));
-        sha.AppendData([0x00]);
+        // Length-prefixed, so no tool name can run into the arguments or their raw-fallback marker byte.
+        var name = Encoding.UTF8.GetBytes(toolName);
+        Span<byte> length = stackalloc byte[4];
+        BinaryPrimitives.WriteInt32BigEndian(length, name.Length);
+        sha.AppendData(length);
+        sha.AppendData(name);
         sha.AppendData(Canonicalize(args));
         Span<byte> hash = stackalloc byte[32];
         sha.GetHashAndReset(hash);

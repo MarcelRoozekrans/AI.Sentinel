@@ -279,4 +279,15 @@ public class ApprovalConfigLoaderTests : IDisposable
         Assert.Contains("tools", ex.Message, StringComparison.Ordinal);
         Assert.Contains("Bash", ex.Message, StringComparison.Ordinal);
     }
+
+    [Theory]
+    [InlineData("""{ "Bash": { "role": "A", "role": "B" } }""", "tools.Bash", "role")]
+    [InlineData("""{ "Bash": [ { "role": "R", "when": { "$.a": "x" }, "when": { "$.b": "y" } } ] }""", "tools.Bash[0]", "when")]
+    [InlineData("""{ "Bash": { "role": "R", "grantScope": "call", "grantScope": "rule" } }""", "tools.Bash", "grantScope")]
+    [InlineData("""{ "Bash": { "role": "R", "description": "a", "description": "b" } }""", "tools.Bash", "description")]
+    public void Load_DuplicateKeyInToolEntry_ThrowsNamingLocation(string toolsJson, string location, string key)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => LoadTools(toolsJson));
+        Assert.Contains($"{location} has duplicate key '{key}'", ex.Message, StringComparison.Ordinal);
+    }
 }

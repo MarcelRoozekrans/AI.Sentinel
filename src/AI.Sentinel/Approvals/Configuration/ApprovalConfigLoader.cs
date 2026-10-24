@@ -94,7 +94,7 @@ internal static class ApprovalConfigLoader
     {
         if (el.ValueKind != JsonValueKind.Object)
             throw new InvalidOperationException($"{location} must be an object");
-        RejectMisspelledKeys(el, location);
+        RejectBadEntryKeys(el, location);
         var role = RequireString(el, "role", $"{location}.role");
         var grantMinutes = OptionalInt(el, "grantMinutes");
         var requireJustification = OptionalBool(el, "requireJustification");
@@ -113,11 +113,16 @@ internal static class ApprovalConfigLoader
     /// Rejects a key that is a known key in another spelling, such as <c>grant_scope</c> or <c>When</c>:
     /// the loader would otherwise ignore it and drop the rule's condition or scope without a word.
     /// Keys unrelated to a known key stay accepted, so existing files with extra fields keep loading.
+    /// A key that appears twice in the entry is rejected too.
     /// </summary>
-    private static void RejectMisspelledKeys(JsonElement el, string location)
+    private static void RejectBadEntryKeys(JsonElement el, string location)
     {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var prop in el.EnumerateObject())
         {
+            // JSON readers disagree on which duplicate wins, so a repeated key is never silently resolved.
+            if (!seen.Add(prop.Name))
+                throw new InvalidOperationException($"{location} has duplicate key '{prop.Name}'");
             if (ToolEntryKeys.Contains(prop.Name, StringComparer.Ordinal))
                 continue;
             var normalised = NormaliseKey(prop.Name);

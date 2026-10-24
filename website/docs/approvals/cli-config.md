@@ -234,7 +234,7 @@ The config loader validates required fields at startup:
 - An empty array under a tool key, an empty `when`, an invalid path or regex, or an unknown `grantScope` → fail.
 - An entry without `when` that is not last in its array → fail.
 - A tool entry key that is a known key spelled differently, such as `grant_scope`, `grantscope` or `When` → fail, naming the key and the expected spelling. Other unknown keys, such as `description`, are ignored.
-- A duplicate key inside `tools` or inside a `when` → fail.
+- A duplicate key inside `tools`, inside a tool entry or inside a `when` → fail.
 - `grantScope: "call"` with `backend=entra-pim` → fail.
 
 Validation failures print to stderr and exit `1`. Successful load is silent.
