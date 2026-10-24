@@ -16,6 +16,8 @@ public sealed class BufferingAuditForwarder<TInner> : IAuditForwarder, IAsyncDis
     private readonly CancellationTokenSource _cts = new();
     private long _droppedCount;
     private long _lastDropLogMs = long.MinValue / 2;
+    // The reader's outstanding wait for data, kept across interval timeouts so no channel operation is cancelled.
+    private Task<bool>? _pendingWait;
 
     /// <summary>Total number of entries dropped due to channel overflow.</summary>
     public long DroppedCount => Interlocked.Read(ref _droppedCount);
@@ -100,10 +102,14 @@ public sealed class BufferingAuditForwarder<TInner> : IAuditForwarder, IAsyncDis
         {
             try
             {
-                writerCompleted = !await TryReadIntoBatchAsync(batch, lastFlush, ct).ConfigureAwait(false);
+                var read = await TryReadIntoBatchAsync(batch, lastFlush, ct).ConfigureAwait(false);
+                writerCompleted = read == ReadResult.Closed;
 
+                // A read that ended on the interval flushes without asking the clock again: the timer can fire a
+                // fraction of a millisecond early, and a second clock read could then hold the batch.
                 if (batch.Count >= _options.MaxBatchSize ||
-                    (batch.Count > 0 && Stopwatch.GetElapsedTime(lastFlush) >= _options.MaxFlushInterval))
+                    (batch.Count > 0 && (read == ReadResult.IntervalElapsed
+                                         || Stopwatch.GetElapsedTime(lastFlush) >= _options.MaxFlushInterval)))
                 {
                     await FlushAsync(batch, ct).ConfigureAwait(false);
                     batch = new List<AuditEntry>(_options.MaxBatchSize);
@@ -128,31 +134,56 @@ public sealed class BufferingAuditForwarder<TInner> : IAuditForwarder, IAsyncDis
         await DrainAndFlushAsync(batch).ConfigureAwait(false);
     }
 
-    /// <summary>Reads one entry into <paramref name="batch"/>, bounded by the flush-interval timeout. Returns false when the channel is closed.</summary>
-    private async Task<bool> TryReadIntoBatchAsync(List<AuditEntry> batch, long lastFlush, CancellationToken ct)
+    private enum ReadResult { Entry, IntervalElapsed, Closed }
+
+    /// <summary>Reads one entry into <paramref name="batch"/>, bounded by the flush-interval timeout. With the interval
+    /// already passed, it reads nothing while a batch is pending, so the caller flushes it, and waits without a
+    /// timeout while none is.</summary>
+    /// <remarks>No channel operation is ever cancelled. The interval is a <see cref="Task.Delay(TimeSpan, CancellationToken)"/>
+    /// raced against one <see cref="ChannelReader{T}.WaitToReadAsync"/> that stays outstanding until it completes. On the
+    /// .NET 10 runtime, a channel read or wait cancelled by a <c>CancelAfter</c> timer was seen to lose the entry a writer
+    /// handed it, or to resume its caller twice.</remarks>
+    private async Task<ReadResult> TryReadIntoBatchAsync(List<AuditEntry> batch, long lastFlush, CancellationToken ct)
     {
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var elapsed = Stopwatch.GetElapsedTime(lastFlush);
-        var remaining = _options.MaxFlushInterval - elapsed;
-        if (remaining > TimeSpan.Zero)
+        var remaining = _options.MaxFlushInterval - Stopwatch.GetElapsedTime(lastFlush);
+        if (remaining <= TimeSpan.Zero && batch.Count > 0)
         {
-            timeoutCts.CancelAfter(remaining);
+            return ReadResult.IntervalElapsed;
         }
 
-        try
+        if (_channel.Reader.TryRead(out var entry))
         {
-            var entry = await _channel.Reader.ReadAsync(timeoutCts.Token).ConfigureAwait(false);
+            batch.Add(entry);
+            return ReadResult.Entry;
+        }
+
+        // DisposeAsync completes the writer before it cancels, so this wait always ends.
+        var wait = _pendingWait ??= _channel.Reader.WaitToReadAsync(CancellationToken.None).AsTask();
+        if (remaining > TimeSpan.Zero)
+        {
+            using var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            // Rounded up: a timer that fires early would end the interval before it has passed.
+            var delay = Task.Delay(TimeSpan.FromMilliseconds(Math.Ceiling(remaining.TotalMilliseconds)), delayCts.Token);
+            if (await Task.WhenAny(wait, delay).ConfigureAwait(false) != wait)
+            {
+                ct.ThrowIfCancellationRequested();
+                return ReadResult.IntervalElapsed;
+            }
+
+            await delayCts.CancelAsync().ConfigureAwait(false);
+        }
+
+        _pendingWait = null;
+        if (!await wait.ConfigureAwait(false))
+        {
+            return ReadResult.Closed;
+        }
+
+        if (_channel.Reader.TryRead(out entry))
+        {
             batch.Add(entry);
         }
-        catch (ChannelClosedException)
-        {
-            return false;
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !ct.IsCancellationRequested)
-        {
-            // interval timeout — caller flushes whatever we have
-        }
-        return true;
+        return ReadResult.Entry;
     }
 
     /// <summary>Drains any remaining entries from the channel and emits a final flush on shutdown.</summary>

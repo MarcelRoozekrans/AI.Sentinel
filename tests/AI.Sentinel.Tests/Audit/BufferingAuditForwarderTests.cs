@@ -48,6 +48,24 @@ public class BufferingAuditForwarderTests
         Assert.Equal("e1", Assert.Single(batch).Id);
     }
 
+    // A 1 ms interval puts the reader at the interval boundary on every entry, where it used to hold an entry until the
+    // next one arrived: CancelAfter dropped the sub-millisecond part, so the timer could fire before the interval had
+    // passed, the reader saw "not yet", and its next read had no timeout. On .NET 10, a read cancelled by that timer
+    // could also lose the entry.
+    [Fact]
+    public async Task IntervalThreshold_NearTheBoundary_NeverHoldsAPartialBatch()
+    {
+        var inner = new RecordingAuditForwarder();
+        await using var buf = new BufferingAuditForwarder<RecordingAuditForwarder>(inner,
+            new BufferingAuditForwarderOptions { MaxBatchSize = 1000, MaxFlushInterval = TimeSpan.FromMilliseconds(1) });
+
+        for (var i = 1; i <= 200; i++)
+        {
+            await buf.SendAsync([MakeEntry($"e{i}")], TestContext.Current.CancellationToken);
+            await inner.WaitForAsync(i);
+        }
+    }
+
     [Fact]
     public async Task ChannelOverflow_DropsAndIncrementsCounter()
     {
