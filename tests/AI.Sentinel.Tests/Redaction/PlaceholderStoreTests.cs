@@ -144,6 +144,150 @@ public class PlaceholderStoreTests
         Assert.Contains("[EMAIL_1_k3f9x2]", store.KnownTokens());
     }
 
+    private static MintedPlaceholder SecretOf(string token, string value) => new(token, value, RestoreIntoToolArguments: false);
+
+    // #459. One call finds a value as PII, a later one finds the same value as a secret: the PII token must not
+    // put the secret back into tool arguments.
+    [Fact]
+    public void Register_PiiValueLaterSeenAsSecret_PiiTokenStaysLiteral()
+    {
+        var first = new RedactionSession(Redactors, "aaaaa1");
+        var second = new RedactionSession(Redactors, "bbbbb2");
+        var store = NewStore();
+
+        first.Redact($"mail {Email}");
+        store.Register(first.ExportMinted());
+        second.Redact($"password: {Email}");
+        var secret = Assert.Single(second.ExportMinted());
+        store.Register([secret]);
+
+        Assert.False(secret.RestoreIntoToolArguments);
+        Assert.Equal("to [EMAIL_1_aaaaa1]", store.RestoreToolArgument("to [EMAIL_1_aaaaa1]"));
+        Assert.Contains("[EMAIL_1_aaaaa1]", store.KnownTokens());
+    }
+
+    [Fact]
+    public void Register_SecretValueLaterSeenAsPii_PiiTokenStaysLiteral()
+    {
+        var store = NewStore();
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+
+        store.Register([Pii("[EMAIL_1_bbbbb2]", Email)]);
+
+        Assert.Equal("[EMAIL_1_bbbbb2]", store.RestoreToolArgument("[EMAIL_1_bbbbb2]"));
+    }
+
+    [Fact]
+    public void Register_SecretAndPiiInOneCall_PiiTokenStaysLiteral()
+    {
+        var store = NewStore();
+
+        store.Register([Pii("[EMAIL_1_aaaaa1]", Email), SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+
+        Assert.Equal("[EMAIL_1_aaaaa1]", store.RestoreToolArgument("[EMAIL_1_aaaaa1]"));
+    }
+
+    [Fact]
+    public void Register_SecretWithAnotherValue_PiiStillRestores()
+    {
+        var store = NewStore();
+        store.Register([Pii("[EMAIL_1_aaaaa1]", Email)]);
+
+        store.Register([SecretOf("[PASSWORD_1_bbbbb2]", "piet@example.org")]);
+
+        Assert.Equal(Email, store.RestoreToolArgument("[EMAIL_1_aaaaa1]"));
+    }
+
+    // Poisoning is for good: the PII entry stays literal after the secret's entry expires.
+    [Fact]
+    public void Register_PoisonedPiiToken_StaysLiteralAfterTheSecretExpires()
+    {
+        var clock = new ManualClock();
+        var store = new PlaceholderStore(TimeSpan.FromMinutes(30), timeProvider: clock);
+        store.Register([Pii("[EMAIL_1_aaaaa1]", Email)]);
+        store.Register([SecretOf("[PASSWORD_1_bbbbb2]", Email)]);
+
+        clock.Advance(TimeSpan.FromMinutes(20));
+        Assert.Equal("[EMAIL_1_aaaaa1]", store.RestoreToolArgument("[EMAIL_1_aaaaa1]"));
+        store.Register([Pii("[EMAIL_1_aaaaa1]", Email)]);
+        clock.Advance(TimeSpan.FromMinutes(20));
+
+        Assert.Equal("[EMAIL_1_aaaaa1]", store.RestoreToolArgument("[EMAIL_1_aaaaa1]"));
+        Assert.DoesNotContain("[PASSWORD_1_bbbbb2]", store.KnownTokens());
+    }
+
+    // The secret's value is known only by its keyed hash, which leaves with its token, as the size cap and idle
+    // expiry require. A value first registered after that is restorable, like any token the store has forgotten.
+    [Fact]
+    public void Register_PiiAfterTheSecretWasEvicted_Restores()
+    {
+        var store = NewStore(maxEntries: 1);
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+
+        store.Register([Pii("[EMAIL_1_bbbbb2]", Email)]);
+        store.Register([Pii("[EMAIL_1_ccccc3]", Email)]);
+
+        Assert.Equal(Email, store.RestoreToolArgument("[EMAIL_1_ccccc3]"));
+    }
+
+    [Fact]
+    public void Register_PiiAfterTheSecretExpired_Restores()
+    {
+        var clock = new ManualClock();
+        var store = new PlaceholderStore(TimeSpan.FromMinutes(30), timeProvider: clock);
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+
+        clock.Advance(TimeSpan.FromMinutes(31));
+        store.Register([Pii("[EMAIL_1_bbbbb2]", Email)]);
+
+        Assert.Equal(Email, store.RestoreToolArgument("[EMAIL_1_bbbbb2]"));
+    }
+
+    // Two tokens can hold one secret; the value stays a secret until the last of them leaves.
+    [Fact]
+    public void Register_TwoSecretTokensOneValue_PoisonsUntilBothAreGone()
+    {
+        var store = NewStore(maxEntries: 2);
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+        store.Register([SecretOf("[PASSWORD_1_bbbbb2]", Email)]);
+
+        // Each registration over the cap evicts the oldest entry: C evicts the first secret, D the second. A token's
+        // restorability is settled before that eviction, so D is judged while the second secret still lives.
+        store.Register([Pii("[EMAIL_1_ccccc3]", Email)]);
+        store.Register([Pii("[EMAIL_1_ddddd4]", Email)]);
+        store.Register([Pii("[EMAIL_1_eeeee5]", Email)]);
+
+        Assert.Equal("[EMAIL_1_ddddd4]", store.RestoreToolArgument("[EMAIL_1_ddddd4]"));
+        Assert.Equal(Email, store.RestoreToolArgument("[EMAIL_1_eeeee5]"));
+    }
+
+    // Two sessions drew the same tag, so one secret token stands for two values; both stay secrets.
+    [Fact]
+    public void Register_SecretTokenAgainWithAnotherValue_BothValuesStaySecrets()
+    {
+        var store = NewStore();
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", "piet@example.org")]);
+
+        store.Register([Pii("[EMAIL_1_bbbbb2]", Email), Pii("[EMAIL_2_bbbbb2]", "piet@example.org")]);
+
+        Assert.Equal("[EMAIL_1_bbbbb2] [EMAIL_2_bbbbb2]", store.RestoreToolArgument("[EMAIL_1_bbbbb2] [EMAIL_2_bbbbb2]"));
+    }
+
+    // A secret token registered twice is still one entry: once it is evicted, its value is no longer a secret.
+    [Fact]
+    public void Register_SecretTokenTwice_LeavesWithOneEviction()
+    {
+        var store = NewStore(maxEntries: 1);
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+
+        store.Register([Pii("[EMAIL_1_bbbbb2]", Email)]);
+        store.Register([Pii("[EMAIL_1_ccccc3]", Email)]);
+
+        Assert.Equal(Email, store.RestoreToolArgument("[EMAIL_1_ccccc3]"));
+    }
+
     [Fact]
     public void Register_SameTokenSameValue_StillRestores()
     {

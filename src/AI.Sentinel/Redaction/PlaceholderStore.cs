@@ -1,5 +1,8 @@
 using System.Buffers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 
@@ -9,7 +12,8 @@ namespace AI.Sentinel.Redaction;
 /// The placeholders a long-lived host, such as the MCP proxy, minted across its calls, so a later tool call can get
 /// the PII it names back in its arguments. Each call still redacts with its own <see cref="RedactionSession"/> and
 /// tag, and registers what it minted here. Only values that may go into tool arguments are restored; a secret's
-/// token is known, so a scan does not flag it, but its value is not kept. An entry expires after it has not been
+/// token is known, so a scan does not flag it, but its value is not kept, only a keyed hash of it. That hash stops
+/// a value one call found as PII from being restored when another call finds it as a secret. An entry expires after it has not been
 /// used for the idle expiry, and over the size cap the least recently used entry is evicted; either way its token
 /// stays literal text from then on. Values are held in memory only and never printed. Safe for concurrent use.
 /// </summary>
@@ -33,6 +37,10 @@ internal sealed class PlaceholderStore
     private readonly Dictionary<string, LinkedListNode<Entry>> _byToken = new(StringComparer.Ordinal);
     // Least recently used first.
     private readonly LinkedList<Entry> _byUse = new();
+    // The live secret entries by the keyed hash of their value, counted, since two tokens can hold one secret.
+    private readonly Dictionary<string, int> _secretHashes = new(StringComparer.Ordinal);
+    // Random per store, so a hash says nothing outside this process and cannot be checked against guesses offline.
+    private readonly byte[] _hashKey = RandomNumberGenerator.GetBytes(32);
 
     /// <summary>Creates an empty store.</summary>
     /// <param name="idleExpiry">How long an entry lives after its last registration or restore; positive.</param>
@@ -67,7 +75,9 @@ internal sealed class PlaceholderStore
     /// Adds what one call minted, as most recently used. A token registered again is refreshed. Once it is not
     /// restorable it never becomes restorable again, and a token registered with a different value is poisoned:
     /// two sessions drew the same tag, so restoring either value could hand one caller's value to another's tool
-    /// call. A poisoned token stays known, and literal, until it expires or is evicted.
+    /// call. A value registered as a secret also poisons every token that holds it as PII, in either order, for as
+    /// long as the secret's entry lives: an address one call finds as an EMAIL may be another call's password. A
+    /// poisoned token stays known, and literal, until it expires or is evicted.
     /// </summary>
     public void Register(IReadOnlyList<MintedPlaceholder> minted)
     {
@@ -76,10 +86,26 @@ internal sealed class PlaceholderStore
         {
             var now = _time.GetUtcNow();
             PurgeExpiredLocked(now);
-            foreach (var m in minted)
+            // This call's secrets first, so they poison its own PII tokens too, whatever the order they were minted in.
+            var hashes = new string[minted.Count];
+            var secrets = new HashSet<string>(StringComparer.Ordinal);
+            for (var i = 0; i < minted.Count; i++)
             {
-                // A secret's value is not kept: it is never restored, so only its token is needed.
-                var value = m.RestoreIntoToolArguments ? m.Value : null;
+                hashes[i] = HashOf(minted[i].Value);
+                if (!minted[i].RestoreIntoToolArguments && secrets.Add(hashes[i]))
+                {
+                    PoisonLocked(minted[i].Value);
+                }
+            }
+
+            for (var i = 0; i < minted.Count; i++)
+            {
+                var m = minted[i];
+                var hash = hashes[i];
+                // A secret's value is not kept: it is never restored, so only its token and keyed hash are needed.
+                var value = m.RestoreIntoToolArguments && !secrets.Contains(hash) && !_secretHashes.ContainsKey(hash)
+                    ? m.Value
+                    : null;
                 if (_byToken.TryGetValue(m.Token, out var node))
                 {
                     // Kept only while both registrations are restorable and agree on the value; otherwise null for good.
@@ -87,19 +113,66 @@ internal sealed class PlaceholderStore
                     var kept = stored is not null && value is not null && string.Equals(stored, value, StringComparison.Ordinal)
                         ? stored
                         : null;
-                    _byUse.Remove(node);
-                    node.Value = new Entry(m.Token, kept, now);
-                    _byUse.AddLast(node);
+                    // A token two sessions minted for two secrets keeps both hashes, so both values stay secrets.
+                    var secretHashes = node.Value.SecretHashes;
+                    if (!m.RestoreIntoToolArguments && secretHashes?.Contains(hash, StringComparer.Ordinal) != true)
+                    {
+                        secretHashes = [.. secretHashes ?? [], hash];
+                    }
+
+                    RemoveLocked(node);
+                    node.Value = new Entry(m.Token, kept, now, secretHashes);
+                    AddLocked(node);
                     continue;
                 }
 
-                _byToken[m.Token] = _byUse.AddLast(new Entry(m.Token, value, now));
+                var added = new LinkedListNode<Entry>(new Entry(m.Token, value, now, m.RestoreIntoToolArguments ? null : [hash]));
+                _byToken[m.Token] = added;
+                AddLocked(added);
             }
 
             while (_byToken.Count > _maxEntries && _byUse.First is { } oldest)
             {
-                _byUse.RemoveFirst();
+                RemoveLocked(oldest);
                 _byToken.Remove(oldest.Value.Token);
+            }
+        }
+    }
+
+    /// <summary>Makes every restorable entry that holds <paramref name="secret"/> non-restorable for good.</summary>
+    private void PoisonLocked(string secret)
+    {
+        for (var node = _byUse.First; node is not null; node = node.Next)
+        {
+            if (string.Equals(node.Value.Value, secret, StringComparison.Ordinal))
+            {
+                node.Value = node.Value with { Value = null };
+            }
+        }
+    }
+
+    private string HashOf(string value) =>
+        Convert.ToHexString(HMACSHA256.HashData(_hashKey, Encoding.UTF8.GetBytes(value)));
+
+    /// <summary>Appends <paramref name="node"/> as most recently used and counts its secret hashes.</summary>
+    private void AddLocked(LinkedListNode<Entry> node)
+    {
+        _byUse.AddLast(node);
+        foreach (var hash in node.Value.SecretHashes ?? [])
+        {
+            _secretHashes[hash] = _secretHashes.GetValueOrDefault(hash) + 1;
+        }
+    }
+
+    /// <summary>Unlinks <paramref name="node"/> and stops counting its secret hashes.</summary>
+    private void RemoveLocked(LinkedListNode<Entry> node)
+    {
+        _byUse.Remove(node);
+        foreach (var hash in node.Value.SecretHashes ?? [])
+        {
+            if (--CollectionsMarshal.GetValueRefOrNullRef(_secretHashes, hash) == 0)
+            {
+                _secretHashes.Remove(hash);
             }
         }
     }
@@ -274,13 +347,14 @@ internal sealed class PlaceholderStore
     {
         while (_byUse.First is { } oldest && now - oldest.Value.LastUsed > _idleExpiry)
         {
-            _byUse.RemoveFirst();
+            RemoveLocked(oldest);
             _byToken.Remove(oldest.Value.Token);
         }
     }
 
-    // Value is null for a token that is never restored, such as a secret's.
-    private readonly record struct Entry(string Token, string? Value, DateTimeOffset LastUsed)
+    // Value is null for a token that is never restored, such as a secret's. SecretHashes holds the keyed hash of each
+    // value the token was registered with as a secret, usually one, and is null for a token never registered as one.
+    private readonly record struct Entry(string Token, string? Value, DateTimeOffset LastUsed, string[]? SecretHashes = null)
     {
         public override string ToString() => Token;
     }
