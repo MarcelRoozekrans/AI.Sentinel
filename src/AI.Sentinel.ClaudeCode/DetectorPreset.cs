@@ -5,7 +5,7 @@ namespace AI.Sentinel.ClaudeCode;
 internal enum DetectorPreset
 {
     /// <summary>
-    /// 14 security detectors and the 4 Art. 5 compliance detectors. Default. Chosen for a low
+    /// 15 security detectors and the 4 Art. 5 compliance detectors. Default. Chosen for a low
     /// false-positive rate on prompts, tool arguments and tool results, which is all these hosts scan.
     /// </summary>
     Security,

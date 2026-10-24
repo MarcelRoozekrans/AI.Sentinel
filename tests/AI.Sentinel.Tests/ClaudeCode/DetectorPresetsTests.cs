@@ -67,8 +67,14 @@ public class DetectorPresetsTests
     {
         Assert.DoesNotContain(DetectorPresets.BuildSecurity(),
             d => d.Category is DetectorCategory.Operational or DetectorCategory.Hallucination);
-        Assert.Equal(18, DetectorPresets.BuildSecurity().Length);
+        Assert.Equal(19, DetectorPresets.BuildSecurity().Length);
     }
+
+    // Hidden and bidi characters are a common carrier for injection through tool output, and SEC-24 needs no
+    // embedding endpoint. It raised no false positive in a check of about 3,000 real tool reads (#461).
+    [Fact]
+    public void SecurityPreset_HoldsAdversarialUnicode() =>
+        Assert.Contains("SEC-24", Ids(DetectorPresets.BuildSecurity()));
 
     [Fact]
     public void UseDetectorPreset_Security_LeavesOnlyThePresetsDetectors()

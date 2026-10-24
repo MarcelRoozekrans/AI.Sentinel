@@ -822,7 +822,7 @@ The proxy spawns the target command as a subprocess, intercepts `tools/call` and
 
 | Variable | Default | Values |
 |---|---|---|
-| `SENTINEL_MCP_DETECTORS` | `security` | `security` (14 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on`) or `all` (every detector — higher false-positive rate on structured data); unset falls back to `SENTINEL_HOOK_DETECTORS` |
+| `SENTINEL_MCP_DETECTORS` | `security` | `security` (15 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on`) or `all` (every detector — higher false-positive rate on structured data); unset falls back to `SENTINEL_HOOK_DETECTORS` |
 | `SENTINEL_MCP_COMPLIANCE` | `off` | `on` → run the four Art. 5 compliance detectors, which are off by default; unset falls back to `SENTINEL_HOOK_COMPLIANCE` |
 | `SENTINEL_MCP_REDACT` | `on` | `off` → stop redacting tool results, prompts and resources; unset falls back to `SENTINEL_HOOK_REDACT`, then to on |
 | `SENTINEL_MCP_REDACT_TTL_MIN` | `30` | Minutes a PII placeholder stays restorable into tool calls after its last use |
