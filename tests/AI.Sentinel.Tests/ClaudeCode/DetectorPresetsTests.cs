@@ -67,7 +67,7 @@ public class DetectorPresetsTests
     {
         Assert.DoesNotContain(DetectorPresets.BuildSecurity(),
             d => d.Category is DetectorCategory.Operational or DetectorCategory.Hallucination);
-        Assert.Equal(19, DetectorPresets.BuildSecurity().Length);
+        Assert.Equal(20, DetectorPresets.BuildSecurity().Length);
     }
 
     // Hidden and bidi characters are a common carrier for injection through tool output, and SEC-24 needs no
@@ -75,6 +75,12 @@ public class DetectorPresetsTests
     [Fact]
     public void SecurityPreset_HoldsAdversarialUnicode() =>
         Assert.Contains("SEC-24", Ids(DetectorPresets.BuildSecurity()));
+
+    // An encoded payload smuggled through tool output. SEC-08 joined once it stopped flagging identifiers, paths and
+    // digests: 7 of about 3,000 real tool reads, most of them strings that really are random (#470).
+    [Fact]
+    public void SecurityPreset_HoldsEntropyCovertChannel() =>
+        Assert.Contains("SEC-08", Ids(DetectorPresets.BuildSecurity()));
 
     [Fact]
     public void UseDetectorPreset_Security_LeavesOnlyThePresetsDetectors()
