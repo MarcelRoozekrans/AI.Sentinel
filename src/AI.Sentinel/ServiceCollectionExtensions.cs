@@ -325,7 +325,8 @@ public static class ServiceCollectionExtensions
 
         foreach (var binding in bindings)
         {
-            if (!policiesByName.ContainsKey(binding.PolicyName))
+            // An approval binding names its approval rule, not a registered policy.
+            if (binding.ApprovalSpec is null && !policiesByName.ContainsKey(binding.PolicyName))
             {
                 logger.LogError("AI.Sentinel: RequireToolPolicy(\"{Pattern}\", \"{Policy}\") references unknown policy '{Policy}'. This binding will deny every matching call.",
                     binding.Pattern, binding.PolicyName, binding.PolicyName);
