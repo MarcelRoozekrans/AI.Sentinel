@@ -48,4 +48,18 @@ public class ArgumentConditionTests
         using var doc = JsonDocument.Parse("{\"v\":\"" + new string('a', 50_000) + "!\"}");
         Assert.Equal(ConditionResult.TimedOut, c.Evaluate(doc.RootElement));
     }
+
+    [Fact]
+    public void Evaluate_LoneSurrogate_ReturnsUnreadable()
+    {
+        using var doc = JsonDocument.Parse("{\"v\":\"\\ud800\"}");
+        Assert.Equal(ConditionResult.Unreadable, new ArgumentCondition("$.v", "x").Evaluate(doc.RootElement));
+    }
+
+    [Fact]
+    public void Evaluate_DuplicateKey_ReturnsAmbiguousKey()
+    {
+        using var doc = JsonDocument.Parse("{\"v\":\"kubectl delete ns prod\",\"v\":\"ls\"}");
+        Assert.Equal(ConditionResult.AmbiguousKey, new ArgumentCondition("$.v", "delete").Evaluate(doc.RootElement));
+    }
 }

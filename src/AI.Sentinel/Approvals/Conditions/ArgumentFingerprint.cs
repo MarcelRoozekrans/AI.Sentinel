@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 namespace AI.Sentinel.Approvals.Conditions;
@@ -16,20 +17,38 @@ internal static class ArgumentFingerprint
     /// Returns the first 16 lowercase hex characters of the SHA-256 of the canonical arguments:
     /// object keys sorted ordinally, no insignificant whitespace, strings re-escaped by the
     /// default <see cref="Utf8JsonWriter"/> encoder, numbers as their raw token.
-    /// Arguments of kind <see cref="JsonValueKind.Undefined"/> hash as empty input. Never throws.
+    /// Arguments of kind <see cref="JsonValueKind.Undefined"/> hash as empty input. Arguments
+    /// holding a string or property name that does not decode to valid UTF-16, such as a lone
+    /// surrogate escape, hash their raw JSON text behind a marker byte instead. Never throws.
     /// </summary>
     public static string Compute(JsonElement args)
     {
-        var buffer = new ArrayBufferWriter<byte>();
-        if (args.ValueKind != JsonValueKind.Undefined)
-        {
-            using var writer = new Utf8JsonWriter(buffer);
-            WriteCanonical(writer, args);
-        }
-
         Span<byte> hash = stackalloc byte[32];
-        SHA256.HashData(buffer.WrittenSpan, hash);
+        SHA256.HashData(Canonicalize(args), hash);
         return ToLowerHex(hash[..FingerprintBytes]);
+    }
+
+    private static byte[] Canonicalize(JsonElement args)
+    {
+        if (args.ValueKind == JsonValueKind.Undefined)
+            return [];
+
+        var buffer = new ArrayBufferWriter<byte>();
+        try
+        {
+            using (var writer = new Utf8JsonWriter(buffer))
+                WriteCanonical(writer, args);
+            return buffer.WrittenSpan.ToArray();
+        }
+        catch (InvalidOperationException)
+        {
+            // System.Text.Json has no non-throwing decode for invalid UTF-16 escapes. Fall back to
+            // the raw text; the 0x00 marker can never start canonical JSON, so the two forms never collide.
+            var raw = Encoding.UTF8.GetBytes(args.GetRawText());
+            var bytes = new byte[raw.Length + 1];
+            raw.CopyTo(bytes, 1);
+            return bytes;
+        }
     }
 
     private static void WriteCanonical(Utf8JsonWriter writer, JsonElement element)

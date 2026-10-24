@@ -260,4 +260,48 @@ public class DefaultToolCallGuardConditionTests
         Assert.IsType<AuthorizationDecision.AllowDecision>(d);
         Assert.Equal(["approval:Bash"], store.PolicyNames);
     }
+
+    [Theory]
+    [InlineData("{\"command\":\"\\ud800\"}")]
+    [InlineData("{\"\\ud800\":1,\"command\":\"ls\"}")]
+    public async Task LoneSurrogate_WhenRule_FailsClosed(string json)
+    {
+        var store = new RecordingStore(Pending);
+        var guard = BuildGuard(store, bindings: [Approval(ProdDelete())]);
+
+        var d = await guard.AuthorizeAsync(new TestSec("alice"), "Bash", Args(json), Ct);
+
+        Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(d);
+        Assert.Equal(["approval:Bash"], store.PolicyNames);
+    }
+
+    [Fact]
+    public async Task LoneSurrogate_CallScope_FailsClosed()
+    {
+        var spec = new ApprovalSpec { PolicyName = "approval:Bash", GrantScope = ApprovalGrantScope.Call };
+        var store = new RecordingStore(Pending);
+        var guard = BuildGuard(store, bindings: [Approval(spec)]);
+
+        var d = await guard.AuthorizeAsync(new TestSec("alice"), "Bash", Args("{\"command\":\"\\ud800\"}"), Ct);
+
+        var r = Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(d);
+        Assert.Matches("^approval:Bash#[0-9a-f]{16}$", r.PolicyName);
+    }
+
+    [Theory]
+    [InlineData("{\"command\":\"kubectl delete ns prod\",\"command\":\"ls\"}")]
+    [InlineData("{\"command\":\"ls\",\"command\":\"kubectl delete ns prod\"}")]
+    public async Task DuplicateKey_FailsClosed(string json)
+    {
+        var store = new RecordingStore(Pending);
+        var logger = new CapturingLogger();
+        var guard = BuildGuard(store, logger: logger, bindings: [Approval(ProdDelete())]);
+
+        var d = await guard.AuthorizeAsync(new TestSec("alice"), "Bash", Args(json), Ct);
+
+        Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(d);
+        Assert.Equal(["approval:Bash"], store.PolicyNames);
+        var warning = Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Contains("$.command", warning.Message, StringComparison.Ordinal);
+    }
 }

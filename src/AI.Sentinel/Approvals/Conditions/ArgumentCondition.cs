@@ -28,11 +28,19 @@ internal sealed class ArgumentCondition
     /// <summary>The regex pattern as written.</summary>
     public string Pattern { get; }
 
-    /// <summary>Evaluates the condition against the tool arguments.</summary>
+    /// <summary>Evaluates the condition against the tool arguments. Never throws.</summary>
     public ConditionResult Evaluate(JsonElement args)
     {
-        if (!Path.TryGetMatchText(args, out var text))
-            return ConditionResult.DoesNotHold;
+        switch (Path.Resolve(args, out var text))
+        {
+            case ArgumentPathResult.NotFound:
+                return ConditionResult.DoesNotHold;
+            case ArgumentPathResult.Unreadable:
+                return ConditionResult.Unreadable;
+            case ArgumentPathResult.DuplicateKey:
+                return ConditionResult.AmbiguousKey;
+        }
+
         try
         {
             return _regex.IsMatch(text) ? ConditionResult.Holds : ConditionResult.DoesNotHold;

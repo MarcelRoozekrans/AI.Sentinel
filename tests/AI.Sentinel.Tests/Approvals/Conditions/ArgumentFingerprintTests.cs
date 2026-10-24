@@ -66,4 +66,21 @@ public class ArgumentFingerprintTests
         Assert.Matches("^[0-9a-f]{16}$", Fingerprint("\"not json args\""));
         Assert.NotEqual(ArgumentFingerprint.Compute(default), Fingerprint("\"\""), StringComparer.Ordinal);
     }
+
+    [Theory]
+    [InlineData("{\"a\":\"\\ud800\"}")]
+    [InlineData("{\"\\ud800\":1}")]
+    [InlineData("[{\"k\":[\"\\udc00\"]}]")]
+    public void LoneSurrogate_DoesNotThrow_AndIsDeterministic(string json)
+    {
+        var fp = Fingerprint(json);
+        Assert.Matches("^[0-9a-f]{16}$", fp);
+        Assert.Equal(fp, Fingerprint(json));
+    }
+
+    [Fact]
+    public void LoneSurrogate_DifferentValues_DifferentFingerprint()
+    {
+        Assert.NotEqual(Fingerprint("{\"a\":\"\\ud800\"}"), Fingerprint("{\"a\":\"\\ud801\"}"), StringComparer.Ordinal);
+    }
 }

@@ -31,6 +31,21 @@ public sealed class ApprovalSpec
     /// approved arguments.</summary>
     public ApprovalGrantScope GrantScope { get; set; } = ApprovalGrantScope.Rule;
 
+    /// <summary>
+    /// Returns a copy with <see cref="PolicyName"/> replaced and every other settable property
+    /// copied. Conditions are not copied: the copy is handed to <see cref="IApprovalStore"/>,
+    /// which never reads them.
+    /// </summary>
+    internal ApprovalSpec WithPolicyName(string policyName) => new()
+    {
+        PolicyName = policyName,
+        GrantDuration = GrantDuration,
+        RequireJustification = RequireJustification,
+        WaitTimeout = WaitTimeout,
+        BackendBinding = BackendBinding,
+        GrantScope = GrantScope,
+    };
+
     /// <summary>The argument conditions that must all hold for this approval rule to apply.</summary>
     internal IReadOnlyList<ArgumentCondition> Conditions => _conditions;
 

@@ -66,10 +66,12 @@ internal sealed class ArgumentPath
     }
 
     /// <summary>
-    /// Resolves the path against <paramref name="args"/>. Returns false when the path does not resolve,
-    /// the value is JSON null, or <paramref name="args"/> is not an object or array. Never throws.
+    /// Resolves the path against <paramref name="args"/> and returns the text a regex sees in
+    /// <paramref name="text"/> when the result is <see cref="ArgumentPathResult.Resolved"/>.
+    /// Never throws: input that cannot be read unambiguously gives
+    /// <see cref="ArgumentPathResult.Unreadable"/> or <see cref="ArgumentPathResult.DuplicateKey"/>.
     /// </summary>
-    public bool TryGetMatchText(JsonElement args, out string text)
+    public ArgumentPathResult Resolve(JsonElement args, out string text)
     {
         text = string.Empty;
         var current = args;
@@ -77,13 +79,16 @@ internal sealed class ArgumentPath
         {
             if (name is not null)
             {
-                if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(name, out current))
-                    return false;
+                if (current.ValueKind != JsonValueKind.Object)
+                    return ArgumentPathResult.NotFound;
+                var step = FindProperty(current, name, out current);
+                if (step != ArgumentPathResult.Resolved)
+                    return step;
             }
             else
             {
                 if (current.ValueKind != JsonValueKind.Array || index >= current.GetArrayLength())
-                    return false;
+                    return ArgumentPathResult.NotFound;
                 current = current[index];
             }
         }
@@ -91,24 +96,95 @@ internal sealed class ArgumentPath
         switch (current.ValueKind)
         {
             case JsonValueKind.String:
-                text = current.GetString() ?? string.Empty;
-                return true;
+                if (!TryDecode(current, out var value))
+                    return ArgumentPathResult.Unreadable;
+                text = value;
+                return ArgumentPathResult.Resolved;
             case JsonValueKind.Number:
             case JsonValueKind.True:
             case JsonValueKind.False:
                 text = current.GetRawText();
-                return true;
+                return ArgumentPathResult.Resolved;
             case JsonValueKind.Object:
             case JsonValueKind.Array:
-                using (var stream = new MemoryStream())
-                {
-                    using (var writer = new Utf8JsonWriter(stream, WriterOptions))
-                        current.WriteTo(writer);
-                    text = Encoding.UTF8.GetString(stream.GetBuffer(), 0, (int)stream.Length);
-                }
-                return true;
+                if (!TryWriteCompact(current, out var compact))
+                    return ArgumentPathResult.Unreadable;
+                text = compact;
+                return ArgumentPathResult.Resolved;
             default:
-                return false;
+                return ArgumentPathResult.NotFound;
+        }
+    }
+
+    /// <summary>
+    /// Finds the single property called <paramref name="name"/>. Scans every property instead of
+    /// using <see cref="JsonElement.TryGetProperty(string, out JsonElement)"/>, which silently
+    /// returns the last of several duplicates.
+    /// </summary>
+    private static ArgumentPathResult FindProperty(JsonElement obj, string name, out JsonElement value)
+    {
+        value = default;
+        var found = false;
+        foreach (var property in obj.EnumerateObject())
+        {
+            if (!TryDecodeName(property, out var propertyName))
+                return ArgumentPathResult.Unreadable;
+            if (!string.Equals(propertyName, name, StringComparison.Ordinal))
+                continue;
+            if (found)
+                return ArgumentPathResult.DuplicateKey;
+            found = true;
+            value = property.Value;
+        }
+
+        return found ? ArgumentPathResult.Resolved : ArgumentPathResult.NotFound;
+    }
+
+    // System.Text.Json offers no non-throwing decode: GetString, Name and WriteTo throw
+    // InvalidOperationException for escapes that are not valid UTF-16, such as a lone surrogate.
+    // These helpers turn exactly that failure into a result.
+    private static bool TryDecode(JsonElement element, out string value)
+    {
+        try
+        {
+            value = element.GetString() ?? string.Empty;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            value = string.Empty;
+            return false;
+        }
+    }
+
+    private static bool TryDecodeName(JsonProperty property, out string name)
+    {
+        try
+        {
+            name = property.Name;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            name = string.Empty;
+            return false;
+        }
+    }
+
+    private static bool TryWriteCompact(JsonElement element, out string text)
+    {
+        try
+        {
+            using var stream = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(stream, WriterOptions))
+                element.WriteTo(writer);
+            text = Encoding.UTF8.GetString(stream.GetBuffer(), 0, (int)stream.Length);
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            text = string.Empty;
+            return false;
         }
     }
 

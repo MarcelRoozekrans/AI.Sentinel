@@ -13,10 +13,10 @@ public class ArgumentPathTests
     [InlineData("$['a']['b c'][1]", "x")]
     [InlineData("$.a['b c'][0]", "10")]
     [InlineData("$.a", "{\"b c\":[10,\"x\"]}")]
-    public void TryGetMatchText_ResolvesPath(string path, string expected)
+    public void Resolve_ResolvesPath(string path, string expected)
     {
         using var doc = JsonDocument.Parse(Doc);
-        Assert.True(ArgumentPath.Parse(path).TryGetMatchText(doc.RootElement, out var text));
+        Assert.Equal(ArgumentPathResult.Resolved, ArgumentPath.Parse(path).Resolve(doc.RootElement, out var text));
         Assert.Equal(expected, text);
     }
 
@@ -24,28 +24,28 @@ public class ArgumentPathTests
     [InlineData("{\"v\":true}", "$.v", "true")]
     [InlineData("{\"v\":[1, [2,  3], {\"k\": \"z\"}]}", "$.v", "[1,[2,3],{\"k\":\"z\"}]")]
     [InlineData("{\"v\":\"a\\u00e9\"}", "$.v", "a\u00e9")]
-    public void TryGetMatchText_ValueKinds(string json, string path, string expected)
+    public void Resolve_ValueKinds(string json, string path, string expected)
     {
         using var doc = JsonDocument.Parse(json);
-        Assert.True(ArgumentPath.Parse(path).TryGetMatchText(doc.RootElement, out var text));
+        Assert.Equal(ArgumentPathResult.Resolved, ArgumentPath.Parse(path).Resolve(doc.RootElement, out var text));
         Assert.Equal(expected, text);
     }
 
     [Theory]
     [InlineData("{\"it's\":\"q\"}", "$['it\\'s']", "q")]
     [InlineData("{\"a\\\\b\":\"bs\"}", "$['a\\\\b']", "bs")]
-    public void TryGetMatchText_EscapedQuotedNames(string json, string path, string expected)
+    public void Resolve_EscapedQuotedNames(string json, string path, string expected)
     {
         using var doc = JsonDocument.Parse(json);
-        Assert.True(ArgumentPath.Parse(path).TryGetMatchText(doc.RootElement, out var text));
+        Assert.Equal(ArgumentPathResult.Resolved, ArgumentPath.Parse(path).Resolve(doc.RootElement, out var text));
         Assert.Equal(expected, text);
     }
 
     [Fact]
-    public void TryGetMatchText_CompactText_KeepsRawCharacters()
+    public void Resolve_CompactText_KeepsRawCharacters()
     {
         using var doc = JsonDocument.Parse("{\"o\":{\"k\":\"<a&b>\\u00e9+'\"}}");
-        Assert.True(ArgumentPath.Parse("$.o").TryGetMatchText(doc.RootElement, out var text));
+        Assert.Equal(ArgumentPathResult.Resolved, ArgumentPath.Parse("$.o").Resolve(doc.RootElement, out var text));
         Assert.Equal("{\"k\":\"<a&b>\u00e9+'\"}", text);
     }
 
@@ -55,10 +55,10 @@ public class ArgumentPathTests
     [InlineData("$.a[0]")]
     [InlineData("$.a['b c']['x']")]
     [InlineData("$.n")]
-    public void TryGetMatchText_Unresolved_ReturnsFalse(string path)
+    public void Resolve_Unresolved_ReturnsNotFound(string path)
     {
         using var doc = JsonDocument.Parse("{\"a\":{\"b c\":[10,\"x\"]},\"n\":null}");
-        Assert.False(ArgumentPath.Parse(path).TryGetMatchText(doc.RootElement, out var text));
+        Assert.Equal(ArgumentPathResult.NotFound, ArgumentPath.Parse(path).Resolve(doc.RootElement, out var text));
         Assert.Equal(string.Empty, text);
     }
 
@@ -81,11 +81,40 @@ public class ArgumentPathTests
     }
 
     [Fact]
-    public void TryGetMatchText_NonContainerArguments_NeverThrow()
+    public void Resolve_NonContainerArguments_NeverThrow()
     {
         var path = ArgumentPath.Parse("$.m");
-        Assert.False(path.TryGetMatchText(default, out _));
+        Assert.Equal(ArgumentPathResult.NotFound, path.Resolve(default, out _));
         using var doc = JsonDocument.Parse("\"raw\"");
-        Assert.False(path.TryGetMatchText(doc.RootElement, out _));
+        Assert.Equal(ArgumentPathResult.NotFound, path.Resolve(doc.RootElement, out _));
+    }
+
+    [Theory]
+    [InlineData("{\"m\":\"\\ud800\"}", "$.m")]
+    [InlineData("{\"\\ud800\":1,\"m\":\"x\"}", "$.m")]
+    [InlineData("{\"o\":{\"k\":\"\\ud800\"}}", "$.o")]
+    [InlineData("{\"o\":{\"\\udc00\":1}}", "$.o")]
+    public void Resolve_LoneSurrogate_ReturnsUnreadable(string json, string path)
+    {
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(ArgumentPathResult.Unreadable, ArgumentPath.Parse(path).Resolve(doc.RootElement, out _));
+    }
+
+    [Theory]
+    [InlineData("{\"m\":\"a\",\"m\":\"b\"}", "$.m")]
+    [InlineData("{\"a\":{},\"a\":{\"m\":\"x\"}}", "$.a.m")]
+    [InlineData("{\"a\":[{\"m\":1,\"m\":2}]}", "$.a[0].m")]
+    public void Resolve_DuplicateKeyOnPath_ReturnsDuplicateKey(string json, string path)
+    {
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(ArgumentPathResult.DuplicateKey, ArgumentPath.Parse(path).Resolve(doc.RootElement, out _));
+    }
+
+    [Fact]
+    public void Resolve_DuplicateKeyOffPath_IsIgnored()
+    {
+        using var doc = JsonDocument.Parse("{\"x\":1,\"x\":2,\"m\":\"GET\"}");
+        Assert.Equal(ArgumentPathResult.Resolved, ArgumentPath.Parse("$.m").Resolve(doc.RootElement, out var text));
+        Assert.Equal("GET", text);
     }
 }
