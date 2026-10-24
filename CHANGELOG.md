@@ -9,6 +9,19 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.5.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.4.1...v3.5.0) (2026-10-24)
+
+
+### Features
+
+* **hooks:** the security preset runs SEC-08 EntropyCovertChannel ([b198472](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b198472e698cc1ccee9c2de06e5cb038a00057fe))
+
+
+### Bug Fixes
+
+* **detectors:** SEC-08 catches base64url split by '-' ([b198472](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b198472e698cc1ccee9c2de06e5cb038a00057fe))
+* **detectors:** SEC-08 no longer flags identifiers, paths and digests ([b198472](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b198472e698cc1ccee9c2de06e5cb038a00057fe))
+
 ## [3.4.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.4.0...v3.4.1) (2026-10-24)
 
 
