@@ -68,6 +68,38 @@ services.AddAISentinel(opts =>
 });
 ```
 
+### Rules that match tool arguments
+
+`WhenArgument(path, regex)` limits a rule to calls whose arguments match. It is chainable, repeatable, and all conditions must hold. `GrantScope = ApprovalGrantScope.Call` ties the grant to the exact approved arguments instead of the whole rule:
+
+```csharp
+opts.RequireApproval("mcp__api__http_request", spec =>
+{
+    spec.BackendBinding = "Operator";
+    spec.WhenArgument("$.method", "^(POST|PUT|PATCH|DELETE)$");
+});
+
+// A second call for the same pattern adds the next rule. The first rule whose
+// conditions hold is the one that applies.
+opts.RequireApproval("Bash", spec =>
+{
+    spec.BackendBinding = "ProdOps";
+    spec.GrantScope = ApprovalGrantScope.Call;
+    spec.WhenArgument("$.command", @"\bkubectl\b.*\bdelete\b.*\b(prod|production)\b");
+});
+opts.RequireApproval("Bash", spec =>
+{
+    spec.BackendBinding = "Operator";
+    spec.WhenArgument("$.command", @"\bkubectl\s+delete\b");
+});
+```
+
+A bad path or regex throws from `WhenArgument`. The second rule is named `approval:Bash[1]` unless you set `PolicyName`; a duplicate policy name throws at registration. `GrantScope.Call` with the [Entra PIM store](/docs/approvals/entra-pim) throws at startup.
+
+Path syntax, the value table, fail-closed behaviour and the limits of regexes on shell commands are the same as in the [config file](/docs/approvals/cli-config#argument-conditions).
+
+**Behaviour change.** Two `RequireApproval` calls on the same pattern, both without `WhenArgument`, used to demand both approvals. Now only the first applies, because the second is the next rule of the same pattern.
+
 For CLIs (where source-edits aren't an option), use a [config file](/docs/approvals/cli-config) instead.
 
 Policies and approval requests see the real argument values, not [redaction](/docs/redaction) placeholders, so an approver can judge the actual call.

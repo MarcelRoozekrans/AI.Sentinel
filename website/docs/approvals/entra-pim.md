@@ -65,6 +65,8 @@ services.AddAISentinel(opts =>
 }
 ```
 
+A rule can carry [argument conditions](/docs/approvals/cli-config#argument-conditions), but `grantScope: "call"` is rejected with this backend, at config load and at startup in code, because a PIM grant is a role activation and cannot be tied to arguments.
+
 ## Authentication chain
 
 By default `AddSentinelEntraPimApprovalStore` builds a `ChainedTokenCredential`:
