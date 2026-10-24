@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.2.4](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.2.3...v3.2.4) (2026-10-24)
+
+
+### Bug Fixes
+
+* **audit:** the buffering forwarder no longer holds a partial batch ([#466](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/466)) ([651f434](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/651f4340fb688743611a9290c34b4738e4032ed5))
+
 ## [3.2.3](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.2.2...v3.2.3) (2026-10-24)
 
 
