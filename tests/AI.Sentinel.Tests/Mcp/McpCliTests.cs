@@ -3,6 +3,7 @@ using AI.Sentinel.Tests.Helpers;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.EntraPim;
 using AI.Sentinel.Approvals.Sqlite;
+using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp.Cli;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -238,6 +239,24 @@ public class McpCliTests : McpAuditOffFixtureBase
         var config = ProxyCommand.ResolveHookConfig(["proxy", "--target", "x"], env);
 
         Assert.Equal(expected, config.RedactToolResults);
+    }
+
+    // SENTINEL_MCP_DETECTORS picks the preset; unset, it falls back to SENTINEL_HOOK_DETECTORS, and both unset keep
+    // the security preset.
+    [Theory]
+    [InlineData("all", "security", true)]
+    [InlineData("security", "all", false)]
+    [InlineData(null, "all", true)]
+    [InlineData(null, null, false)]
+    public void ParsePreset_McpDetectorsOverridesHookDetectors(string? mcp, string? hook, bool all)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["SENTINEL_MCP_DETECTORS"] = mcp,
+            ["SENTINEL_HOOK_DETECTORS"] = hook,
+        };
+
+        Assert.Equal(all ? DetectorPreset.All : DetectorPreset.Security, ProxyCommand.ParsePreset(env));
     }
 
     // SENTINEL_MCP_REDACT_TTL_MIN is a positive number of minutes; anything else keeps the 30-minute default.

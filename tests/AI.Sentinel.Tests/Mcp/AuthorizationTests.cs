@@ -110,7 +110,7 @@ public class AuthorizationTests
     public async Task ToolsCall_DenyByPolicy_ThrowsMcpProtocolException()
     {
         var guard = new StubGuard(allow: false, policyName: "BashDenyPolicy", reason: "Bash is forbidden");
-        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), McpDetectorPreset.Security);
+        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), DetectorPreset.Security);
         using var stderr = new StringWriter();
         var nextInvoked = false;
 
@@ -147,7 +147,7 @@ public class AuthorizationTests
         // McpProtocolException message — which becomes the JSON-RPC error.message on the wire —
         // so MCP clients and operators can correlate the error with AuditEntry.PolicyCode.
         var guard = new ExplicitDenyGuard("TenantActive", "Tenant 'acme' is in evicted state", "tenant_inactive");
-        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), McpDetectorPreset.Security);
+        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), DetectorPreset.Security);
         using var stderr = new StringWriter();
 
         var filter = ToolCallInterceptor.Create(
@@ -182,7 +182,7 @@ public class AuthorizationTests
     public async Task ToolsCall_AllowByPolicy_PassesThroughToTarget()
     {
         var guard = new StubGuard(allow: true);
-        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), McpDetectorPreset.Security);
+        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), DetectorPreset.Security);
         using var stderr = new StringWriter();
         var nextInvoked = false;
         var expected = new CallToolResult
@@ -251,7 +251,7 @@ public class AuthorizationTests
             AuthorizationDecision.RequireApproval("approval:Bash", "req-mcp-1",
                 "https://approve.example/req-mcp-1", DateTimeOffset.UtcNow, TimeSpan.FromSeconds(0)),
         ]);
-        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), McpDetectorPreset.Security);
+        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), DetectorPreset.Security);
         using var stderr = new StringWriter();
 
         var filter = ToolCallInterceptor.Create(pipeline, maxScanBytes: 64 * 1024, stderr: stderr,
@@ -298,7 +298,7 @@ public class AuthorizationTests
             await store.ApproveAsync(pending.RequestId, "boss", note: null, ct);
         }, ct);
 
-        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), McpDetectorPreset.Security);
+        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), DetectorPreset.Security);
         using var stderr = new StringWriter();
         var nextInvoked = false;
 
@@ -336,7 +336,7 @@ public class AuthorizationTests
                 pending.ApprovalUrl, pending.RequestedAt, TimeSpan.FromMilliseconds(50)),
         ]);
 
-        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), McpDetectorPreset.Security);
+        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), DetectorPreset.Security);
         using var stderr = new StringWriter();
 
         var filter = ToolCallInterceptor.Create(pipeline, maxScanBytes: 64 * 1024, stderr: stderr,

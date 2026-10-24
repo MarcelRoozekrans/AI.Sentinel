@@ -17,7 +17,8 @@ internal static class PipelineFactory
         new([], configurations: null, escalationClient: null);
 
     /// <summary>
-    /// Security-only pipeline with the 13 semantic security detectors.
+    /// Security-only pipeline with the 14 security detectors of the hook CLIs' and MCP proxy's security preset,
+    /// without its 4 compliance detectors, which are off by default.
     /// </summary>
     public static DetectionPipeline SecurityOnly() => SecurityOnly(new SentinelOptions());
 
@@ -27,6 +28,7 @@ internal static class PipelineFactory
                 new PromptInjectionDetector(options),
                 new JailbreakDetector(options),
                 new CredentialExposureDetector(),
+                new PiiLeakageDetector(),              // SEC-23
                 new DataExfiltrationDetector(options),
                 new PrivilegeEscalationDetector(options),
                 new ToolPoisoningDetector(options),

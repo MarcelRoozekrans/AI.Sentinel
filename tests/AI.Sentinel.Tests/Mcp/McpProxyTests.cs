@@ -84,7 +84,7 @@ public class McpProxyTests
 
         var pipeline = McpPipelineFactory.Create(
             DefaultConfig(),
-            McpDetectorPreset.Security,
+            DetectorPreset.Security,
             embeddingGenerator: new FakeEmbeddingGenerator());
 
         var messages = new[] { new Microsoft.Extensions.AI.ChatMessage(
@@ -199,7 +199,7 @@ public class McpProxyTests
     }
 
     private static async Task<ProxyHarness> StartHarnessAsync(
-        McpDetectorPreset preset = McpDetectorPreset.Security,
+        DetectorPreset preset = DetectorPreset.Security,
         int maxScanBytes = 262144,
         TextWriter? stderr = null)
     {

@@ -463,4 +463,45 @@ public class HookCliTests : HookAuditOffFixtureBase
             Environment.SetEnvironmentVariable("SENTINEL_EMBEDDING_MODEL", null);
         }
     }
+
+    // Build logs repeat lines by nature. OPS-02 judges a model's reply, so the default security preset leaves it out
+    // and the tool output passes unflagged (#450).
+    [Fact]
+    public async Task Cli_PostToolUse_RepeatedLines_DefaultPreset_NoWarning()
+    {
+        var stdin = new StringReader(RepeatedBuildLog);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new FakeEmbeddingGenerator());
+
+        Assert.Equal(0, exit);
+        Assert.Equal("{}", stdout.ToString());
+        Assert.DoesNotContain("OPS-02", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Cli_PostToolUse_RepeatedLines_AllDetectors_Warns()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_DETECTORS", "all");
+        try
+        {
+            var stdin = new StringReader(RepeatedBuildLog);
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new FakeEmbeddingGenerator());
+
+            Assert.Equal(0, exit);
+            using var wire = JsonDocument.Parse(stdout.ToString());
+            Assert.Contains("OPS-02", wire.RootElement.GetProperty("systemMessage").GetString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_DETECTORS", null);
+        }
+    }
+
+    private const string RepeatedBuildLog =
+        """{"session_id":"s","tool_name":"Bash","tool_input":{"command":"make"},"tool_response":{"stdout":"Build succeeded. Build succeeded. Build succeeded. Build succeeded."}}""";
 }

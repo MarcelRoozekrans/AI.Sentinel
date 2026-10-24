@@ -98,7 +98,7 @@ public class CapabilityMirroringTests
                 loggerFactory: NullLoggerFactory.Instance),
             targetTransport: targetTransport,
             config: DefaultConfig(),
-            preset: McpDetectorPreset.Security,
+            preset: DetectorPreset.Security,
             maxScanBytes: 262144,
             stderr: TextWriter.Null,
             ct: cts.Token,

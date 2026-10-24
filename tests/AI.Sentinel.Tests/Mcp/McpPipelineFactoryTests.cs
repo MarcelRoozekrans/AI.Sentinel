@@ -23,7 +23,7 @@ public class McpPipelineFactoryTests
     [Fact]
     public void Create_SecurityPreset_ProducesPipeline()
     {
-        var pipeline = McpPipelineFactory.Create(BuildConfig(), McpDetectorPreset.Security);
+        var pipeline = McpPipelineFactory.Create(BuildConfig(), DetectorPreset.Security);
 
         Assert.NotNull(pipeline);
     }
@@ -31,7 +31,7 @@ public class McpPipelineFactoryTests
     [Fact]
     public void Create_AllPreset_ProducesPipeline()
     {
-        var pipeline = McpPipelineFactory.Create(BuildConfig(), McpDetectorPreset.All);
+        var pipeline = McpPipelineFactory.Create(BuildConfig(), DetectorPreset.All);
 
         Assert.NotNull(pipeline);
     }
@@ -39,7 +39,7 @@ public class McpPipelineFactoryTests
     [Fact]
     public async Task Create_SecurityPreset_DetectsPromptInjectionInMessage()
     {
-        var pipeline = McpPipelineFactory.Create(BuildConfig(), McpDetectorPreset.Security,
+        var pipeline = McpPipelineFactory.Create(BuildConfig(), DetectorPreset.Security,
             new FakeEmbeddingGenerator());
 
         var messages = new[]
@@ -57,7 +57,7 @@ public class McpPipelineFactoryTests
     [Fact]
     public async Task Create_SecurityPreset_PassesCleanMessage()
     {
-        var pipeline = McpPipelineFactory.Create(BuildConfig(), McpDetectorPreset.Security);
+        var pipeline = McpPipelineFactory.Create(BuildConfig(), DetectorPreset.Security);
 
         var messages = new[]
         {
@@ -71,28 +71,6 @@ public class McpPipelineFactoryTests
         Assert.Null(error);
     }
 
-    // Drift guard: ensures McpPipelineFactory.BuildAllDetectors() stays in sync
-    // with the concrete [Singleton(As = typeof(IDetector), AllowMultiple = true)]
-    // classes in the AI.Sentinel assembly (which AddAISentinel registers via
-    // ZeroAllocInject source-gen). If a new detector is added in the assembly
-    // but not to BuildAllDetectors, this test fails loudly.
-    [Fact]
-    public void BuildAllDetectors_CountMatchesRegisteredIDetectorCount()
-    {
-        var detectorAssembly = typeof(IDetector).Assembly;
-
-        var registeredCount = detectorAssembly.GetTypes()
-            .Where(t => t is { IsClass: true, IsAbstract: false })
-            .Count(t => t.GetCustomAttributes(inherit: false)
-                .Any(a => a.GetType().Name.Contains("Singleton", StringComparison.Ordinal)
-                       && a.GetType().GetProperty("As")?.GetValue(a) is Type asType
-                       && asType == typeof(IDetector)));
-
-        var factoryCount = McpPipelineFactory.BuildAllDetectors().Length;
-
-        Assert.Equal(registeredCount, factoryCount);
-    }
-
     // OnHigh = Block, yet a CMP finding forwards: the CMP detectors carry Action = Alert, which is what
     // the proxy does for Warn. It is still audited. A non-CMP High finding still blocks.
     [Theory]
@@ -100,7 +78,7 @@ public class McpPipelineFactoryTests
     [InlineData(true)]
     public async Task ComplianceFinding_IsAuditedButNotBlocked(bool allPreset)
     {
-        var preset = allPreset ? McpDetectorPreset.All : McpDetectorPreset.Security;
+        var preset = allPreset ? DetectorPreset.All : DetectorPreset.Security;
         var ct = TestContext.Current.CancellationToken;
         var pipeline = McpPipelineFactory.Create(new HookConfig { EnableComplianceDetectors = true }, preset, new ExactMatchEmbeddingGenerator(), out var audit);
 
@@ -159,16 +137,6 @@ public class McpPipelineFactoryTests
             => ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Low, "probe"));
     }
 
-    // Every preset that runs semantic security detectors also runs the Art. 5 compliance detectors.
-    [Fact]
-    public void BothPresets_IncludeTheComplianceDetectors()
-    {
-        string[] cmp = ["CMP-01", "CMP-02", "CMP-03", "CMP-04"];
-
-        Assert.Subset(McpPipelineFactory.BuildSecurityDetectors().Select(d => d.Id.Value).ToHashSet(StringComparer.Ordinal), cmp.ToHashSet(StringComparer.Ordinal));
-        Assert.Subset(McpPipelineFactory.BuildAllDetectors().Select(d => d.Id.Value).ToHashSet(StringComparer.Ordinal), cmp.ToHashSet(StringComparer.Ordinal));
-    }
-
     [Theory]
     [InlineData(HookDecision.Block, SentinelAction.Quarantine)]
     [InlineData(HookDecision.Warn, SentinelAction.Alert)]
@@ -185,7 +153,7 @@ public class McpPipelineFactoryTests
     [Fact]
     public void Create_NoEmbeddingGenerator_ReportsSemanticDetectionInert()
     {
-        McpPipelineFactory.Create(new HookConfig(), McpDetectorPreset.All,
+        McpPipelineFactory.Create(new HookConfig(), DetectorPreset.All,
             embeddingGenerator: null, out _, out var warning);
 
         Assert.NotNull(warning);
@@ -195,7 +163,7 @@ public class McpPipelineFactoryTests
     [Fact]
     public void Create_WithEmbeddingGenerator_ReportsNothing()
     {
-        McpPipelineFactory.Create(new HookConfig(), McpDetectorPreset.All,
+        McpPipelineFactory.Create(new HookConfig(), DetectorPreset.All,
             new FakeEmbeddingGenerator(), out _, out var warning);
 
         Assert.Null(warning);

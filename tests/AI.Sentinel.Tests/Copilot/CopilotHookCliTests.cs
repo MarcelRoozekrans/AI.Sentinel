@@ -477,4 +477,29 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
             Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", null);
         }
     }
+
+    // OPS-02 judges a model's reply; the default security preset leaves it out, so repetitive tool output is not
+    // flagged (#450). SENTINEL_HOOK_DETECTORS=all brings it back.
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("all", true)]
+    public async Task Cli_PostToolUse_RepeatedLines_FollowsDetectorPreset(string? detectors, bool flagged)
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_DETECTORS", detectors);
+        try
+        {
+            var stdin = new StringReader("""{"sessionId":"s","toolName":"bash","toolArgs":{"command":"make"},"toolResult":{"resultType":"success","textResultForLlm":"Build succeeded. Build succeeded. Build succeeded. Build succeeded."}}""");
+            var stdout = new StringWriter();
+            var stderr = new StringWriter();
+
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new FakeEmbeddingGenerator());
+
+            Assert.Equal(0, exit);
+            Assert.Equal(flagged, (stdout.ToString() + stderr).Contains("OPS-02", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_DETECTORS", null);
+        }
+    }
 }

@@ -51,7 +51,8 @@ public static class Program
         var (input, parseExit) = await ReadInputAsync(stdin, stderr).ConfigureAwait(false);
         if (input is null) return parseExit;
 
-        var config = HookConfig.FromEnvironment(BuildHookEnvVars());
+        var hookEnv = BuildHookEnvVars();
+        var config = HookConfig.FromEnvironment(hookEnv);
 
         var (approvalConfig, configExit) = await TryLoadApprovalConfigAsync(stderr).ConfigureAwait(false);
         if (configExit is { } code) return code;
@@ -72,7 +73,7 @@ public static class Program
         await using var _audit = audit.ConfigureAwait(false);
 
         var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), audit,
-            enableComplianceDetectors: config.EnableComplianceDetectors);
+            enableComplianceDetectors: config.EnableComplianceDetectors, detectors: DetectorPresets.Parse(hookEnv.GetValueOrDefault("SENTINEL_HOOK_DETECTORS")));
         await using var _ = provider.ConfigureAwait(false);
 
         var adapter = new HookAdapter(provider, config);
@@ -226,7 +227,9 @@ public static class Program
     /// BEFORE <c>AddAISentinel</c>: when bindings carry an <see cref="ApprovalSpec"/> and no
     /// <see cref="IApprovalStore"/> is yet registered, <c>AddAISentinel</c> auto-registers
     /// <see cref="InMemoryApprovalStore"/> — the Sqlite/EntraPim DI extensions throw on duplicate
-    /// registration, so they must be wired first.
+    /// registration, so they must be wired first. <paramref name="detectors"/> then narrows the detectors
+    /// <c>AddAISentinel</c> registered; see <see cref="DetectorPresets.UseDetectorPreset"/>. It defaults to the security
+    /// preset: the response-quality detectors judge a model's reply, and a hook never sees one (#450).
     /// </summary>
     internal static ServiceProvider BuildProvider(
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
@@ -234,7 +237,8 @@ public static class Program
         IEmbeddingCache? exampleEmbeddingCache = null,
         Action<string>? detectorFailureSink = null,
         LocalAuditSession? audit = null,
-        bool enableComplianceDetectors = false)
+        bool enableComplianceDetectors = false,
+        DetectorPreset detectors = DetectorPreset.Security)
     {
         var services = new ServiceCollection();
         var backendKind = approvalConfig is null
@@ -272,6 +276,8 @@ public static class Program
             if (approvalConfig is not null)
                 ApprovalBackendSelector.Configure(opts, approvalConfig);
         });
+
+        services.UseDetectorPreset(detectors);
 
         // Last registration wins for IAuditStore, so these go after AddAISentinel's in-memory default.
         if (audit is not null)

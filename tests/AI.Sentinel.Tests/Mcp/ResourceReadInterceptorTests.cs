@@ -365,7 +365,7 @@ public class ResourceReadInterceptorTests
                 loggerFactory: NullLoggerFactory.Instance),
             targetTransport: targetTransport,
             config: DefaultConfig(),
-            preset: McpDetectorPreset.Security,
+            preset: DetectorPreset.Security,
             maxScanBytes: maxScanBytes,
             stderr: TextWriter.Null,
             ct: cts.Token,
