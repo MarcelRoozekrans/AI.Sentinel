@@ -1,7 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks></TargetFrameworks>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
     <PackAsTool Condition="'$(PublishAot)' != 'true'">true</PackAsTool>
     <ToolCommandName>sentinel-copilot-hook</ToolCommandName>

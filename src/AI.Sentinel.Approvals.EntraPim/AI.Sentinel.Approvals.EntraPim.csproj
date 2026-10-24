@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <PackageId>AI.Sentinel.Approvals.EntraPim</PackageId>
     <Description>Microsoft Entra PIM-backed IApprovalStore for AI.Sentinel — delegates approval requests to Entra Privileged Identity Management via Microsoft Graph.</Description>
     <Version>0.1.0</Version>

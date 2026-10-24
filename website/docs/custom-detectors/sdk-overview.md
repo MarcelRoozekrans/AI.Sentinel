@@ -63,9 +63,9 @@ The factory overload `WithDetector<T>(opts => new T(opts))` pre-wires the `FakeE
 
 ## TFM matrix
 
-| Package | net8.0 | net9.0 |
-|---|:---:|:---:|
-| `AI.Sentinel.Detectors.Sdk` | ✓ | ✓ |
+| Package | net8.0 | net9.0 | net10.0 |
+|---|:---:|:---:|:---:|
+| `AI.Sentinel.Detectors.Sdk` | ✓ | ✓ | ✓ |
 
 The SDK targets the same TFMs as `AI.Sentinel` core. Test projects typically target net8.0 + net10.0 — the SDK works on both.
 

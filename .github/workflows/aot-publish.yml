@@ -40,6 +40,7 @@ jobs:
         run: |
           dotnet publish ${{ matrix.project }} `
             -c Release `
+            -f net10.0 `
             -r win-x64 `
             -p:PublishAot=true `
             -o aot-out

@@ -196,8 +196,8 @@ Useful when you want a hook that ships entries to your own backend (Splunk, cust
 The hook CLI is Native-AOT ready. A native single-file binary cuts cold-start latency by roughly 10× compared to the `dotnet tool` entry point — worth it if hooks fire on every tool call.
 
 ```bash
-dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -r linux-x64 -p:PublishAot=true
-# Output: bin/Release/net8.0/linux-x64/publish/sentinel-hook
+dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -f net10.0 -r linux-x64 -p:PublishAot=true
+# Output: bin/Release/net10.0/linux-x64/publish/sentinel-hook
 ```
 
 Replace `linux-x64` with `win-x64`, `osx-arm64`, etc. Point the hook `command` at the binary's full path instead of `sentinel-hook`:
