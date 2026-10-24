@@ -22,6 +22,19 @@ namespace AI.Sentinel.Detectors.Security;
 /// can express, which excludes digests and commit ids.
 /// </para>
 /// <para>
+/// Those rules alone flagged one file read in fifteen in a check of real tool data (#470): long test names, URL paths
+/// and constants clear 4.5 bits per character, and lock files carry base64 digests. So a candidate is also passed
+/// over when it is cased and voweled like words, when it is an alphabet table, when it is a digest of its exact length
+/// after a <c>sha*-</c> prefix or a go.sum <c>h1:</c>, and when it is an inline image or font in a <c>data:</c> URI
+/// whose body opens like one.
+/// </para>
+/// <para>
+/// Known gaps: a payload drawn from one letter case with no digits reads as words, an alphabet of its own nobody
+/// encodes with; an inline image is recognised by its file signature, which a payload can be given; base32 of 30
+/// to 40 bytes is caught a little less often than before; and as ever, a payload broken
+/// by spaces or punctuation, or placed past the examined 64 KiB, is not seen.
+/// </para>
+/// <para>
 /// The result is deliberately <see cref="Severity.Medium"/> and
 /// <see cref="ILlmEscalatingDetector"/>: a high-entropy blob is suspicious, not conclusive, and that
 /// is precisely what a second-pass classifier is for.
@@ -40,6 +53,44 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
 
     /// <summary>Bounds the work on a very large message: each message is examined up to this many characters.</summary>
     private const int MaximumCharactersExamined = 64 * 1024;
+
+    /// <summary>How far past <see cref="MaximumCharactersExamined"/> the run the limit cuts through is still read, so it
+    /// is judged whole: a digest cut short no longer has its digest's length.</summary>
+    private const int MaximumRunOverhang = 1024;
+
+    /// <summary>Above this share of lower-lower, or of upper-upper, neighbours a run is cased like words. Random
+    /// base64 has about 0.17 of each, so identifiers, paths and constants clear it and payloads do not.</summary>
+    private const double WordCasePairShare = 0.4;
+
+    /// <summary>Above this share of same-case neighbours of either kind a run is cased like words too, which catches
+    /// identifiers that mix PascalCase and SCREAMING_CASE parts. Random base64 has about 0.33.</summary>
+    private const double MixedWordCasePairShare = 0.55;
+
+    /// <summary>Words are about two-fifths vowels; base64 and base32 letters about a fifth.</summary>
+    private const double WordVowelShare = 0.28;
+
+    /// <summary>Base32 is one case, as constants are, but about a fifth of it is the digits 2 to 7. Identifiers carry
+    /// few digits.</summary>
+    private const double WordDigitShare = 0.10;
+
+    /// <summary>Above this share of neighbours that follow each other in code order, such as <c>ab</c> or <c>89</c>,
+    /// a run is an alphabet table, not data.</summary>
+    private const double OrderedPairShare = 0.4;
+
+    /// <summary>The <c>sha*-</c> prefixes of npm and subresource integrity values, each with the base64 length of its
+    /// digest, padding included.</summary>
+    private static readonly (string Prefix, int Length)[] Digests =
+        [("sha1-", 28), ("sha256-", 44), ("sha384-", 64), ("sha512-", 88)];
+
+    private static readonly string[] InlineMediaTypes = ["image/", "font/", "application/font-", "application/x-font-"];
+
+    /// <summary>How the base64 of an image or font file opens: PNG, JPEG, GIF, WebP, ICO, SVG or XML, WOFF and WOFF2,
+    /// TrueType and OpenType. A body that opens otherwise is not the file its media type names.</summary>
+    private static readonly string[] InlineMediaSignatures =
+        ["iVBOR", "/9j/", "R0lGOD", "UklGR", "AAABAA", "PHN2Zy", "PD94bWwg", "d09GR", "d09GMg", "AAEAAA", "T1RUTw"];
+
+    /// <summary>The base64 length of a Go module checksum, a SHA-256 after <c>h1:</c> in go.sum.</summary>
+    private const int GoSumHashLength = 44;
 
     private static readonly DetectorId _id = new("SEC-08");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
@@ -64,7 +115,13 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
 
     private static DetectionResult? Examine(string text)
     {
-        var span = text.AsSpan(0, Math.Min(text.Length, MaximumCharactersExamined));
+        var end = Math.Min(text.Length, MaximumCharactersExamined);
+        var overhangEnd = Math.Min(text.Length, MaximumCharactersExamined + MaximumRunOverhang);
+        if (end > 0 && IsEncodingCharacter(text[end - 1]))
+        {
+            while (end < overhangEnd && IsEncodingCharacter(text[end])) end++;
+        }
+        var span = text.AsSpan(0, end);
         var start = -1;
 
         for (var i = 0; i <= span.Length; i++)
@@ -82,7 +139,7 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
                 if (run.Length >= MinimumRunLength)
                 {
                     var entropy = ShannonEntropy(run);
-                    if (entropy >= MinimumEntropyBitsPerChar)
+                    if (entropy >= MinimumEntropyBitsPerChar && !IsLikelyBenign(span, start, run))
                     {
                         return DetectionResult.WithSeverity(
                             _id,
@@ -98,10 +155,110 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
         return null;
     }
 
-    /// <summary>Characters an encoder emits. Excluding punctuation and separators is what keeps URLs,
-    /// paths and structured identifiers out: those break into short runs.</summary>
+    /// <summary>
+    /// Whether a high-entropy run at <paramref name="start"/> is ordinary tool data: an identifier, path or constant,
+    /// which is made of words; an alphabet table; a digest with its <c>sha*-</c> prefix, as in a lock file or a
+    /// subresource integrity attribute; or an inline image or font in a <c>data:</c> URI.
+    /// </summary>
+    private static bool IsLikelyBenign(ReadOnlySpan<char> text, int start, ReadOnlySpan<char> run) =>
+        IsWordLike(run) || IsOrdered(run) || IsDigest(run) || IsGoSumHash(text, start, run) || IsInlineMedia(text, start, run);
+
+    /// <summary>Cased like words, and either voweled like words or nearly free of digits, the way base32 is not.</summary>
+    private static bool IsWordLike(ReadOnlySpan<char> run)
+    {
+        int lowerPairs = 0, upperPairs = 0;
+        for (var i = 1; i < run.Length; i++)
+        {
+            if (char.IsAsciiLetterLower(run[i - 1]) && char.IsAsciiLetterLower(run[i])) lowerPairs++;
+            else if (char.IsAsciiLetterUpper(run[i - 1]) && char.IsAsciiLetterUpper(run[i])) upperPairs++;
+        }
+
+        double pairs = run.Length - 1;
+        var casedLikeWords = lowerPairs / pairs > WordCasePairShare
+            || upperPairs / pairs > WordCasePairShare
+            || (lowerPairs + upperPairs) / pairs > MixedWordCasePairShare;
+        if (!casedLikeWords) return false;
+
+        int letters = 0, vowels = 0, digits = 0;
+        foreach (var c in run)
+        {
+            if (char.IsAsciiDigit(c)) digits++;
+            else if (char.IsAsciiLetter(c))
+            {
+                letters++;
+                if (char.ToLowerInvariant(c) is 'a' or 'e' or 'i' or 'o' or 'u') vowels++;
+            }
+        }
+
+        return (letters > 0 && (double)vowels / letters >= WordVowelShare) || (double)digits / run.Length < WordDigitShare;
+    }
+
+    private static bool IsOrdered(ReadOnlySpan<char> run)
+    {
+        var ordered = 0;
+        for (var i = 1; i < run.Length; i++)
+        {
+            if (run[i] == run[i - 1] + 1) ordered++;
+        }
+
+        return (double)ordered / (run.Length - 1) > OrderedPairShare;
+    }
+
+    /// <summary>Whether the run ends in a digest of exactly its length after a <c>sha*-</c> prefix, the prefix opening
+    /// the run or following a short key and an <c>=</c>, as in <c>integrity=sha512-...</c>: <c>-</c> and <c>=</c> are
+    /// run characters, so the prefix is part of the run. A longer value is not a digest, whatever its prefix says, and
+    /// a payload ahead of the <c>=</c> is not a key.</summary>
+    private static bool IsDigest(ReadOnlySpan<char> run)
+    {
+        foreach (var (prefix, length) in Digests)
+        {
+            var at = run.Length - length - prefix.Length;
+            if (at >= 0 && (at == 0 || (run[at - 1] == '=' && at - 1 < MinimumRunLength))
+                && run.Slice(at, prefix.Length).Equals(prefix, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsGoSumHash(ReadOnlySpan<char> text, int start, ReadOnlySpan<char> run) =>
+        run.Length == GoSumHashLength && start >= 3 && text[(start - 3)..start].SequenceEqual("h1:");
+
+    /// <summary>Whether the run is the body of a <c>data:image/...;base64,</c> or font URI that opens the way such a
+    /// file does. Any other media type, <c>text/plain</c> for one, is a payload like any other, and so is a body that
+    /// only claims to be an image.</summary>
+    private static bool IsInlineMedia(ReadOnlySpan<char> text, int start, ReadOnlySpan<char> run)
+    {
+        var isMediaFile = false;
+        foreach (var signature in InlineMediaSignatures)
+        {
+            if (run.StartsWith(signature, StringComparison.Ordinal)) isMediaFile = true;
+        }
+
+        if (!isMediaFile) return false;
+
+        const string marker = ";base64,";
+        if (start < marker.Length || !text[(start - marker.Length)..start].SequenceEqual(marker)) return false;
+
+        // A media type is short; the scheme sits just before it.
+        var head = text[Math.Max(0, start - marker.Length - 128)..(start - marker.Length)];
+        var scheme = head.LastIndexOf("data:", StringComparison.OrdinalIgnoreCase);
+        if (scheme < 0) return false;
+
+        var mediaType = head[(scheme + "data:".Length)..];
+        foreach (var type in InlineMediaTypes)
+        {
+            if (mediaType.StartsWith(type, StringComparison.OrdinalIgnoreCase)) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Characters an encoder emits: the base64 and base64url alphabets, padding included. A URL breaks at its
+    /// <c>:</c>, <c>.</c>, <c>?</c> and <c>&amp;</c>; what is left of identifiers and paths is passed over by
+    /// <see cref="IsWordLike"/>.</summary>
     private static bool IsEncodingCharacter(char c) =>
-        char.IsAsciiLetterOrDigit(c) || c is '+' or '/' or '=' or '_';
+        char.IsAsciiLetterOrDigit(c) || c is '+' or '/' or '=' or '_' or '-';
 
     private static double ShannonEntropy(ReadOnlySpan<char> value)
     {

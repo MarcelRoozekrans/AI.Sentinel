@@ -49,12 +49,12 @@ internal static class DetectorPresets
 
     internal static IDetector[] BuildSecurity() => BuildSecurity(new SentinelOptions());
 
-    // 15 security detectors, the set benchmarks/AI.Sentinel.Benchmarks/Harness/PipelineFactory.SecurityOnly()
+    // 16 security detectors, the set benchmarks/AI.Sentinel.Benchmarks/Harness/PipelineFactory.SecurityOnly()
     // measures, plus the 4 Art. 5 compliance detectors. SEC-23 is here because the redaction pass takes its
     // redactors from the pipeline's detectors: without it, a host that redacts by default would redact secrets only,
-    // and no PII. SEC-24 joined after a false-positive check on real tool reads (#461). That check kept two rule-based
-    // detectors out: SEC-08 flags long identifiers, URL paths and lock-file integrity hashes as encoded payloads, and
-    // SEC-32 compares output with a system prompt, which none of these hosts has. Every preset includes CMP-01..04;
+    // and no PII. SEC-24 joined after a false-positive check on real tool reads (#461), and SEC-08 once the same check
+    // stopped finding identifiers, paths and digests among its findings (#470). SEC-32 stays out: it compares output
+    // with a system prompt, which none of these hosts has. Every preset includes CMP-01..04;
     // they run only when the host's COMPLIANCE switch turns them on, because they are off by default.
     internal static IDetector[] BuildSecurity(SentinelOptions options) =>
     [
@@ -73,6 +73,7 @@ internal static class DetectorPresets
         new HumanTrustManipulationDetector(options), // SEC-22
         new ShorthandEmergenceDetector(options),     // SEC-30
         new AdversarialUnicodeDetector(),     // SEC-24
+        new EntropyCovertChannelDetector(),   // SEC-08
         .. BuildComplianceSection(options),
     ];
 

@@ -125,7 +125,7 @@ See [Redaction → Per surface](../redaction#per-surface) for how this compares 
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SENTINEL_MCP_DETECTORS` | `security` | `security` (15 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on` — recommended for MCP) or `all` (every detector — higher false-positive rate on structured tool data). Unset, falls back to `SENTINEL_HOOK_DETECTORS`, then to `security` |
+| `SENTINEL_MCP_DETECTORS` | `security` | `security` (16 security detectors plus the 4 Art. 5 compliance detectors, which run only with `SENTINEL_MCP_COMPLIANCE=on` — recommended for MCP) or `all` (every detector — higher false-positive rate on structured tool data). Unset, falls back to `SENTINEL_HOOK_DETECTORS`, then to `security` |
 | `SENTINEL_MCP_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](../detectors/compliance), which are off by default; `off` / `0` / `false` / `no` keeps them off. Unset, falls back to `SENTINEL_HOOK_COMPLIANCE`. Thresholds are code-only |
 | `SENTINEL_MCP_REDACT` | `on` | `on` / `1` / `true` / `yes` or `off` / `0` / `false` / `no` → turn [redaction](#redaction) on or off. Anything else, or unset, falls back to `SENTINEL_HOOK_REDACT`, then to on |
 | `SENTINEL_MCP_REDACT_TTL_MIN` | `30` | Minutes a PII placeholder stays restorable into tool calls after its last use. A positive integer; anything else keeps the default |
@@ -146,6 +146,7 @@ See [Redaction → Per surface](../redaction#per-surface) for how this compares 
 - `SEC-05` Jailbreak
 - `SEC-06` PrivilegeEscalation
 - `SEC-07` CovertChannel
+- `SEC-08` EntropyCovertChannel
 - `SEC-09` IndirectInjection
 - `SEC-10` AgentImpersonation
 - `SEC-19` ToolCallFrequency
@@ -156,11 +157,11 @@ See [Redaction → Per surface](../redaction#per-surface) for how this compares 
 - `SEC-30` ShorthandEmergence
 - `CMP-01` to `CMP-04`, the [compliance detectors](../detectors/compliance)
 
-Only `SEC-02`, `SEC-19`, `SEC-23` and `SEC-24` and the rule layers of `SEC-01` and `SEC-05` fire without an embedding generator; the rest are semantic and need `SENTINEL_EMBEDDING_ENDPOINT`. The compliance detectors are off unless `SENTINEL_MCP_COMPLIANCE=on`. When on, they carry the `Alert` action, so a compliance finding is written to the audit log and the call forwards, as with `Warn`, whatever `SENTINEL_HOOK_ON_HIGH` says. Every other detector follows the `SENTINEL_HOOK_ON_*` mapping.
+Only `SEC-02`, `SEC-08`, `SEC-19`, `SEC-23` and `SEC-24` and the rule layers of `SEC-01` and `SEC-05` fire without an embedding generator; the rest are semantic and need `SENTINEL_EMBEDDING_ENDPOINT`. The compliance detectors are off unless `SENTINEL_MCP_COMPLIANCE=on`. When on, they carry the `Alert` action, so a compliance finding is written to the audit log and the call forwards, as with `Warn`, whatever `SENTINEL_HOOK_ON_HIGH` says. Every other detector follows the `SENTINEL_HOOK_ON_*` mapping.
 
 `SEC-02` and `SEC-23` are also the redactors: [redaction](#redaction) takes them from the preset, so a preset without `SEC-23` would redact secrets but not personal data. Until `SEC-23` joined this preset, that was the case for the default.
 
-Two rule-based security detectors stay out of the preset. `SEC-08` EntropyCovertChannel flags long identifiers, URL paths and lock-file integrity hashes as encoded payloads. `SEC-32` SystemPromptEcho compares the model's output with its system prompt, and the proxy sees neither.
+One rule-based security detector stays out of the preset: `SEC-32` SystemPromptEcho compares the model's output with its system prompt, and the proxy sees neither.
 
 `SENTINEL_MCP_DETECTORS=all` runs every detector including operational and hallucination — useful in some adversarial-testing scenarios but generates false positives on structured JSON tool calls (`OPS-04 PlaceholderText` may flag an "Insert here" string in a code-completion result).
 

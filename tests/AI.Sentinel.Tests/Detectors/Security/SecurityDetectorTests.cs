@@ -89,7 +89,7 @@ public class SecurityDetectorTests
     public async Task AdversarialUnicode_ManyZeroWidth_HighSeverity()
     {
         // >2 zero-width chars => High
-        var text = "hello​‌‍ world";
+        var text = "hello\u200B\u200C\u200D world";
         var d = new AdversarialUnicodeDetector();
         var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
@@ -98,7 +98,7 @@ public class SecurityDetectorTests
     [Fact]
     public async Task AdversarialUnicode_OneZeroWidth_MediumSeverity()
     {
-        var text = "hello​ world";
+        var text = "hello\u200B world";
         var d = new AdversarialUnicodeDetector();
         var r = await d.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.Medium, r.Severity);

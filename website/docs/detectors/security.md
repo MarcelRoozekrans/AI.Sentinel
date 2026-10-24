@@ -18,7 +18,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-05** | `JailbreakDetector` | Rule + Semantic ⚠️ | Jailbreak attempt phrases. Unambiguous ones (`DAN mode`, `unrestricted AI mode`) are matched by rule; roleplay exploits need a generator |
 | **SEC-06** | `PrivilegeEscalationDetector` | Semantic ⚠️ | Role / permission escalation requests |
 | **SEC-07** | `CovertChannelDetector` | Semantic ⚠️ | Encoding-based hidden payloads |
-| **SEC-08** | `EntropyCovertChannelDetector` | Rule-based | Long, structureless, high-entropy runs — the shape encoded or encrypted data takes when smuggled through text. Tuned to exclude hashes, identifiers and URLs. Examines each message, tool calls and results included, newest first, up to 64 KiB of each |
+| **SEC-08** | `EntropyCovertChannelDetector` | Rule-based | Long, structureless, high-entropy runs — the shape encoded or encrypted data takes when smuggled through text: base64, base64url, base32. Passes over hex digests, identifiers, paths and URLs, which are made of words, alphabet tables, `sha*-` integrity digests, go.sum `h1:` hashes and inline `data:` images and fonts. Those carve-outs cost a little recall: base32 of 30 to 40 bytes, and a payload made to look like one of them, can pass. Examines each message, tool calls and results included, newest first, up to 64 KiB of each |
 | **SEC-09** | `IndirectInjectionDetector` | Semantic ⚠️ | Injection via retrieved documents or tool results |
 | **SEC-10** | `AgentImpersonationDetector` | Semantic ⚠️ | Model claiming to be a different agent or system |
 | **SEC-11** | `MemoryCorruptionDetector` | Semantic ⚠️ | Attempts to corrupt agent memory / context |
