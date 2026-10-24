@@ -6,10 +6,10 @@ namespace AI.Sentinel.Tests.Approvals.Conditions;
 
 public class ArgumentFingerprintTests
 {
-    private static string Fingerprint(string json)
+    private static string Fingerprint(string json, string toolName = "Bash")
     {
         using var doc = JsonDocument.Parse(json);
-        return ArgumentFingerprint.Compute(doc.RootElement);
+        return ArgumentFingerprint.Compute(toolName, doc.RootElement);
     }
 
     [Fact]
@@ -48,23 +48,40 @@ public class ArgumentFingerprintTests
     [Fact]
     public void KnownValue_IsPinned()
     {
-        // SHA-256 of the canonical text {"a":1}, first 8 bytes, lowercase hex.
-        Assert.Equal("015abd7f5cc57a2d", Fingerprint("{ \"a\" : 1 }"));
+        // SHA-256 of UTF-8 "Bash", a 0x00 byte and the canonical text {"a":1}; first 16 bytes, lowercase hex.
+        Assert.Equal("e9369becbfdbc5e53540b214cd36aa80", Fingerprint("{ \"a\" : 1 }"));
     }
 
     [Fact]
-    public void Result_Is16LowercaseHexCharacters()
+    public void OtherToolName_SameArgs_DifferentFingerprint()
+    {
+        const string json = "{\"path\":\"/etc/prod.conf\"}";
+        Assert.NotEqual(
+            Fingerprint(json, "mcp__fs__read_file"),
+            Fingerprint(json, "mcp__fs__delete_file"),
+            StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void ToolNameAndArgsBoundary_DoesNotCollide()
+    {
+        // Moving characters between the tool name and a string-valued argument must change the hash.
+        Assert.NotEqual(Fingerprint("\"bc\"", "a"), Fingerprint("\"c\"", "ab"), StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void Result_Is32LowercaseHexCharacters()
     {
         var fp = Fingerprint("{\"command\":\"ls\"}");
-        Assert.Matches("^[0-9a-f]{16}$", fp);
+        Assert.Matches("^[0-9a-f]{32}$", fp);
     }
 
     [Fact]
     public void UndefinedAndString_DoNotThrow()
     {
-        Assert.Matches("^[0-9a-f]{16}$", ArgumentFingerprint.Compute(default));
-        Assert.Matches("^[0-9a-f]{16}$", Fingerprint("\"not json args\""));
-        Assert.NotEqual(ArgumentFingerprint.Compute(default), Fingerprint("\"\""), StringComparer.Ordinal);
+        Assert.Matches("^[0-9a-f]{32}$", ArgumentFingerprint.Compute("Bash", default));
+        Assert.Matches("^[0-9a-f]{32}$", Fingerprint("\"not json args\""));
+        Assert.NotEqual(ArgumentFingerprint.Compute("Bash", default), Fingerprint("\"\""), StringComparer.Ordinal);
     }
 
     [Theory]
@@ -74,7 +91,7 @@ public class ArgumentFingerprintTests
     public void LoneSurrogate_DoesNotThrow_AndIsDeterministic(string json)
     {
         var fp = Fingerprint(json);
-        Assert.Matches("^[0-9a-f]{16}$", fp);
+        Assert.Matches("^[0-9a-f]{32}$", fp);
         Assert.Equal(fp, Fingerprint(json));
     }
 

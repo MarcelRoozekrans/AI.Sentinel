@@ -192,7 +192,7 @@ public class DefaultToolCallGuardConditionTests
         var d = await guard.AuthorizeAsync(new TestSec("alice"), "Bash", Command("ls"), Ct);
 
         var name = Assert.Single(store.PolicyNames);
-        Assert.Matches("^approval:Bash#[0-9a-f]{16}$", name);
+        Assert.Matches("^approval:Bash#[0-9a-f]{32}$", name);
         var r = Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(d);
         Assert.Equal(name, r.PolicyName);
         Assert.Equal("approval:Bash", spec.PolicyName);
@@ -229,6 +229,33 @@ public class DefaultToolCallGuardConditionTests
         var other = Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(
             await guard.AuthorizeAsync(caller, "Bash", Args("{\"command\":\"rm -rf /\",\"cwd\":\"/\"}"), Ct));
         Assert.NotEqual(first.RequestId, other.RequestId, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task CallScope_WildcardRule_OtherToolSameArgs_OtherRequest()
+    {
+        var spec = new ApprovalSpec { PolicyName = "approval:mcp__fs__*", GrantScope = ApprovalGrantScope.Call };
+        var store = new InMemoryApprovalStore();
+        var guard = BuildGuard(store, bindings: [new ToolCallPolicyBinding("mcp__fs__*", spec.PolicyName, spec)]);
+        var caller = new TestSec("alice");
+        var args = Args("{\"path\":\"/etc/prod.conf\"}");
+
+        var read = Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(
+            await guard.AuthorizeAsync(caller, "mcp__fs__read_file", args, Ct));
+
+        // A pending request for one tool is not handed out for another tool with the same arguments.
+        var deletePending = Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(
+            await guard.AuthorizeAsync(caller, "mcp__fs__delete_file", args, Ct));
+        Assert.NotEqual(read.RequestId, deletePending.RequestId, StringComparer.Ordinal);
+        Assert.NotEqual(read.PolicyName, deletePending.PolicyName, StringComparer.Ordinal);
+
+        await ((IApprovalAdmin)store).ApproveAsync(read.RequestId, "approver", note: null, Ct);
+
+        Assert.IsType<AuthorizationDecision.AllowDecision>(
+            await guard.AuthorizeAsync(caller, "mcp__fs__read_file", args, Ct));
+        var delete = Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(
+            await guard.AuthorizeAsync(caller, "mcp__fs__delete_file", args, Ct));
+        Assert.Equal(deletePending.RequestId, delete.RequestId);
     }
 
     [Fact]
@@ -285,7 +312,7 @@ public class DefaultToolCallGuardConditionTests
         var d = await guard.AuthorizeAsync(new TestSec("alice"), "Bash", Args("{\"command\":\"\\ud800\"}"), Ct);
 
         var r = Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(d);
-        Assert.Matches("^approval:Bash#[0-9a-f]{16}$", r.PolicyName);
+        Assert.Matches("^approval:Bash#[0-9a-f]{32}$", r.PolicyName);
     }
 
     [Theory]

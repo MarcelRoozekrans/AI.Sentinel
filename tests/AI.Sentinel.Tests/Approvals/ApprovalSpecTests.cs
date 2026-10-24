@@ -19,10 +19,10 @@ public class ApprovalSpecTests
             GrantScope = ApprovalGrantScope.Call,
         };
 
-        var copy = spec.WithPolicyName("approval:Bash#0123456789abcdef");
+        var copy = spec.WithPolicyName("approval:Bash#0123456789abcdef0123456789abcdef");
 
         Assert.NotSame(spec, copy);
-        Assert.Equal("approval:Bash#0123456789abcdef", copy.PolicyName);
+        Assert.Equal("approval:Bash#0123456789abcdef0123456789abcdef", copy.PolicyName);
         Assert.Equal("approval:Bash", spec.PolicyName);
 
         // Every public settable property other than PolicyName must be copied. The name list

@@ -115,7 +115,7 @@ internal sealed class DefaultToolCallGuard(
         if (spec is null) return null; // no rule of the group applies to these arguments
 
         if (spec.GrantScope == ApprovalGrantScope.Call)
-            spec = spec.WithPolicyName($"{spec.PolicyName}#{ArgumentFingerprint.Compute(args)}");
+            spec = spec.WithPolicyName($"{spec.PolicyName}#{ArgumentFingerprint.Compute(toolName, args)}");
 
         return await EvaluateApprovalAsync(caller, toolName, args, spec, approvalStore, ct).ConfigureAwait(false);
     }

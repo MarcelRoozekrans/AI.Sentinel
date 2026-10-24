@@ -11,20 +11,26 @@ namespace AI.Sentinel.Approvals.Conditions;
 /// </summary>
 internal static class ArgumentFingerprint
 {
-    private const int FingerprintBytes = 8;
+    private const int FingerprintBytes = 16;
 
     /// <summary>
-    /// Returns the first 16 lowercase hex characters of the SHA-256 of the canonical arguments:
-    /// object keys sorted ordinally, no insignificant whitespace, strings re-escaped by the
-    /// default <see cref="Utf8JsonWriter"/> encoder, numbers as their raw token.
+    /// Returns the first 32 lowercase hex characters, 128 bits, of the SHA-256 of the UTF-8 tool
+    /// name, a 0x00 separator byte and the canonical arguments: object keys sorted ordinally, no
+    /// insignificant whitespace, strings re-escaped by the default <see cref="Utf8JsonWriter"/>
+    /// encoder, numbers as their raw token. The tool name is part of the hash so a grant for one
+    /// tool never covers another tool that a wildcard rule also matches.
     /// Arguments of kind <see cref="JsonValueKind.Undefined"/> hash as empty input. Arguments
     /// holding a string or property name that does not decode to valid UTF-16, such as a lone
-    /// surrogate escape, hash their raw JSON text behind a marker byte instead. Never throws.
+    /// surrogate escape, hash their raw JSON text behind a marker byte instead. Never throws on any arguments.
     /// </summary>
-    public static string Compute(JsonElement args)
+    public static string Compute(string toolName, JsonElement args)
     {
+        using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        sha.AppendData(Encoding.UTF8.GetBytes(toolName));
+        sha.AppendData([0x00]);
+        sha.AppendData(Canonicalize(args));
         Span<byte> hash = stackalloc byte[32];
-        SHA256.HashData(Canonicalize(args), hash);
+        sha.GetHashAndReset(hash);
         return ToLowerHex(hash[..FingerprintBytes]);
     }
 
