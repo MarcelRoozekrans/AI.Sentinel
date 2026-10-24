@@ -22,8 +22,6 @@ namespace AI.Sentinel.Approvals.EntraPim;
 /// </remarks>
 public sealed class EntraPimApprovalStore : IApprovalStore, IRoleActivationApprovalStore
 {
-    string IRoleActivationApprovalStore.BackendName => "Entra PIM";
-
     private readonly IGraphRoleClient _graph;
     private readonly EntraPimOptions _options;
     private readonly TimeProvider _time;
@@ -67,6 +65,9 @@ public sealed class EntraPimApprovalStore : IApprovalStore, IRoleActivationAppro
         foreach (var kvp in options.RoleNameToIdSeed)
             _roleIdCache[kvp.Key] = kvp.Value;
     }
+
+    /// <inheritdoc/>
+    string IRoleActivationApprovalStore.BackendName => "Entra PIM";
 
     /// <inheritdoc/>
     public async ValueTask<ApprovalState> EnsureRequestAsync(

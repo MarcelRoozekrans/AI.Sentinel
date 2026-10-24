@@ -243,15 +243,15 @@ public static class ServiceCollectionExtensions
 
         EmitAuthorizationStartupWarnings(opts, bindings, policyByName, hasSecurityContext, pipelineLogger);
 
-        RejectCallScopedGrantsOnRoleActivationStore(sp, bindings);
-
         var approvalStore = ApprovalStoreAuditing.Resolve(sp);
+        RejectCallScopedGrantsOnRoleActivationStore(approvalStore, bindings);
         return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, approvalStore, logger);
     }
 
-    private static void RejectCallScopedGrantsOnRoleActivationStore(IServiceProvider sp, IReadOnlyList<ToolCallPolicyBinding> bindings)
+    private static void RejectCallScopedGrantsOnRoleActivationStore(IApprovalStore? approvalStore, IReadOnlyList<ToolCallPolicyBinding> bindings)
     {
-        if (sp.GetKeyedService<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey) is not IRoleActivationApprovalStore store)
+        var active = approvalStore is AuditingApprovalStore auditing ? auditing.Inner : approvalStore;
+        if (active is not IRoleActivationApprovalStore store)
         {
             return;
         }

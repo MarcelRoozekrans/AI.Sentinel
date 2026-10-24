@@ -31,6 +31,9 @@ internal class AuditingApprovalStore : IApprovalStore
     private readonly IAuditForwarder[] _forwarders;
     private readonly ILogger? _logger;
 
+    /// <summary>The store this wrapper records the decisions of.</summary>
+    internal IApprovalStore Inner => _inner;
+
     internal AuditingApprovalStore(
         IApprovalStore inner,
         IAuditStore audit,

@@ -1,6 +1,7 @@
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Authorization;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Xunit;
 
 namespace AI.Sentinel.Approvals.EntraPim.Tests;
@@ -23,6 +24,43 @@ public class GrantScopeTests
     public void RuleScopedRule_OnEntraPimStore_ResolvesTheGuard()
     {
         using var sp = Build(ApprovalGrantScope.Rule);
+
+        Assert.NotNull(sp.GetRequiredService<IToolCallGuard>());
+    }
+
+    [Fact]
+    public void CallScopedRule_OnEntraPimStoreRegisteredDirectly_FailsWhenTheGuardIsResolved()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IApprovalStore>(
+            new EntraPimApprovalStore(new NoopGraphRoleClient(), new EntraPimOptions { TenantId = FakeTenantId }));
+        services.AddAISentinel(o => o.RequireApproval("Bash", s => s.GrantScope = ApprovalGrantScope.Call));
+        using var sp = services.BuildServiceProvider();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => sp.GetRequiredService<IToolCallGuard>());
+        Assert.Contains("Entra PIM", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CallScopedRule_AfterTheEntraPimStoreWasSwappedForInMemory_ResolvesTheGuard()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IGraphRoleClient>(new NoopGraphRoleClient());
+        services.AddSentinelEntraPimApprovalStore(o => o.TenantId = FakeTenantId);
+        services.RemoveAll<IApprovalStore>();
+        services.AddSingleton<IApprovalStore, InMemoryApprovalStore>();
+        services.AddAISentinel(o => o.RequireApproval("Bash", s => s.GrantScope = ApprovalGrantScope.Call));
+        using var sp = services.BuildServiceProvider();
+
+        Assert.NotNull(sp.GetRequiredService<IToolCallGuard>());
+    }
+
+    [Fact]
+    public void CallScopedRule_OnTheDefaultInMemoryStore_ResolvesTheGuard()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.RequireApproval("Bash", s => s.GrantScope = ApprovalGrantScope.Call));
+        using var sp = services.BuildServiceProvider();
 
         Assert.NotNull(sp.GetRequiredService<IToolCallGuard>());
     }
