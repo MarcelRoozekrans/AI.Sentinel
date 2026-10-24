@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <PackageId>AI.Sentinel.Mcp</PackageId>
     <Description>MCP (Model Context Protocol) proxy for AI.Sentinel — wraps another MCP server and scans tool calls in both directions.</Description>
     <Version>0.1.0</Version>

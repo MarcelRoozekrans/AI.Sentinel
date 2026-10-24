@@ -7,7 +7,7 @@ title: Installation
 
 ## Requirements
 
-- **.NET 8** or **.NET 9** target framework
+- **.NET 8**, **.NET 9** or **.NET 10** target framework
 - **`Microsoft.Extensions.AI`** ≥ 9.x (the `IChatClient` abstraction)
 
 That's it. No native dependencies, no out-of-process services, no databases unless you opt into the SQLite audit store.
@@ -68,20 +68,22 @@ dotnet tool install -g AI.Sentinel.Copilot.Cli      # GitHub Copilot hook adapte
 
 ## TFM matrix
 
-| Package | net8.0 | net9.0 |
-|---|:---:|:---:|
-| `AI.Sentinel` | ✓ | ✓ |
-| `AI.Sentinel.AspNetCore` | ✓ | ✓ |
-| `AI.Sentinel.Detectors.Sdk` | ✓ | ✓ |
-| `AI.Sentinel.Sqlite` | ✓ | ✓ |
-| `AI.Sentinel.AzureSentinel` | ✓ | ✓ |
-| `AI.Sentinel.OpenTelemetry` | ✓ | ✓ |
-| `AI.Sentinel.Mcp` (library behind the `sentinel-mcp` CLI; no public embedding API) | ✓ | ✓ |
-| `AI.Sentinel.ClaudeCode` | ✓ | ✓ |
-| `AI.Sentinel.Copilot` | ✓ | ✓ |
-| CLIs (`*.Cli`) | ✓ | — (single-TFM tool) |
+| Package | net8.0 | net9.0 | net10.0 |
+|---|:---:|:---:|:---:|
+| `AI.Sentinel` | ✓ | ✓ | ✓ |
+| `AI.Sentinel.AspNetCore` | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Detectors.Sdk` | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Sqlite` | ✓ | ✓ | ✓ |
+| `AI.Sentinel.AzureSentinel` | ✓ | ✓ | ✓ |
+| `AI.Sentinel.OpenTelemetry` | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Mcp` (library behind the `sentinel-mcp` CLI; no public embedding API) | ✓ | ✓ | ✓ |
+| `AI.Sentinel.ClaudeCode` | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Copilot` | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Approvals.Sqlite` | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Approvals.EntraPim` | ✓ | ✓ | ✓ |
+| CLIs (`*.Cli`) | ✓ | — | ✓ |
 
-CLIs ship as `dotnet tool` packages targeting net8.0 specifically. Library packages multi-target so you can drop them into either an net8 or net9 host.
+CLIs ship as `dotnet tool` packages for net8.0 and net10.0; `dotnet tool install` picks the newest one your machine can run. Library packages multi-target, so a net8, net9 or net10 host gets a matching build.
 
 ## What you get out of the box
 

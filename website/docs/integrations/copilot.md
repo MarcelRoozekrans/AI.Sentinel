@@ -133,8 +133,8 @@ An audit failure never changes a decision, and on Block and Warn it is not print
 Same AOT story as Claude Code:
 
 ```bash
-dotnet publish src/AI.Sentinel.Copilot.Cli -c Release -r linux-x64 -p:PublishAot=true
-# Output: bin/Release/net8.0/linux-x64/publish/sentinel-copilot-hook
+dotnet publish src/AI.Sentinel.Copilot.Cli -c Release -f net10.0 -r linux-x64 -p:PublishAot=true
+# Output: bin/Release/net10.0/linux-x64/publish/sentinel-copilot-hook
 ```
 
 Point Copilot at the full binary path:

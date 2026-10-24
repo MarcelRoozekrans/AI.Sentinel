@@ -942,10 +942,10 @@ An audit failure never changes a decision. `sentinel-hook` prints it to stderr w
 The hook CLIs are Native-AOT ready. Both `.csproj` files gate `PackAsTool` behind `PublishAot`, so a single source tree produces either the `dotnet tool` NuGet package or a ~6.5 MB single-file native binary, depending on how you publish it.
 
 ```
-dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -r win-x64 -p:PublishAot=true
+dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -f net10.0 -r win-x64 -p:PublishAot=true
 ```
 
-Replace `win-x64` with `linux-x64`, `osx-arm64`, etc. Output lands under `bin/Release/net8.0/<rid>/publish/sentinel-hook[.exe]`. Expect ~10× faster cold start than the dotnet-tool entry point — worth it if the hook fires on every tool call. Point the agent's hook `command` at the binary's full path instead of `sentinel-hook`.
+Replace `win-x64` with `linux-x64`, `osx-arm64`, etc. The CLIs target `net8.0` and `net10.0`, so `-f` picks one. Output lands under `bin/Release/net10.0/<rid>/publish/sentinel-hook[.exe]`. Expect ~10× faster cold start than the dotnet-tool entry point — worth it if the hook fires on every tool call. Point the agent's hook `command` at the binary's full path instead of `sentinel-hook`.
 
 > **Prereqs on Windows:** the Visual Studio "Desktop development with C++" workload (for `link.exe` + Windows SDK). Linux needs `clang`/`libc` dev packages; macOS needs Xcode CLT.
 
@@ -1014,7 +1014,7 @@ await foreach (var entry in store.QueryAsync(new AuditQuery
 
 ## Benchmarks
 
-All measurements: .NET 9.0.15, Windows 11, Release, `Job.Default`, `MemoryDiagnoser` + `ThreadingDiagnoser`.
+All measurements: .NET 9.0.15, recorded before the benchmarks moved to net10.0; Windows 11, Release, `Job.Default`, `MemoryDiagnoser` + `ThreadingDiagnoser`.
 
 **Individual detectors**
 

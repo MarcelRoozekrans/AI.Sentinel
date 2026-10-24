@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <PackageId>AI.Sentinel.Sqlite</PackageId>
     <Description>Persistent SQLite-backed audit store for AI.Sentinel — survives restarts, maintains the hash chain, supports time-based retention.</Description>
     <Version>0.1.0</Version>
