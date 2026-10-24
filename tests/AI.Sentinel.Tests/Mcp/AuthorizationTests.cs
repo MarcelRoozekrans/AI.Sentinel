@@ -429,6 +429,7 @@ public class AuthorizationTests
         Assert.NotNull(error);
         Assert.Equal(McpErrorCode.InvalidRequest, error!.ErrorCode);
         Assert.Contains("Approval required to invoke tool 'http_request'", error.Message, StringComparison.Ordinal);
+        Assert.Contains("Rule: approval:http_request", error.Message, StringComparison.Ordinal);
         Assert.False(nextInvoked);
     }
 

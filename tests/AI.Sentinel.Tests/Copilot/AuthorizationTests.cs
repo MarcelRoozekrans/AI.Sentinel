@@ -221,6 +221,7 @@ public class AuthorizationTests
         Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
         var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
             e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+        Assert.Contains("Rule: approval:Bash", output.Reason ?? "", StringComparison.Ordinal);
         Assert.Contains("policy 'approval:Bash'", denied.Summary, StringComparison.Ordinal);
         Assert.Equal("approval_required", denied.PolicyCode);
     }
@@ -254,6 +255,7 @@ public class AuthorizationTests
         Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
         var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
             e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+        Assert.Contains("Rule: approval:Bash", output.Reason ?? "", StringComparison.Ordinal);
         Assert.Contains("policy 'approval:Bash'", denied.Summary, StringComparison.Ordinal);
         Assert.Equal("approval_required", denied.PolicyCode);
     }

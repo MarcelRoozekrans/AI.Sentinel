@@ -19,6 +19,7 @@ internal static class ApprovalReceipt
         return
             $"Approval required to invoke tool '{toolName}'.\n" +
             $"Request ID: {r.RequestId}\n" +
+            $"Rule: {r.PolicyName}\n" +
             $"Approve at: {r.ApprovalUrl}\n" +
             "Once approved, retry the tool call.";
     }
