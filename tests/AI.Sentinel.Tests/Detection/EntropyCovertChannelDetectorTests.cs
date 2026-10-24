@@ -55,6 +55,40 @@ public class EntropyCovertChannelDetectorTests
         Assert.True(result.IsClean, $"false positive: {result.Reason}");
     }
 
+    /// <summary>#470. Tool data a check of about 3,000 real file reads flagged: identifiers and paths are made of
+    /// words, alphabet tables are ordered, and digests and inline images are encoded but not smuggled.</summary>
+    [Theory]
+    [InlineData("public void Migration_FromV1ToCurrent_AddsPolicyCodeColumnWithDefault()")]                     // test name
+    [InlineData("ExpiryObservedByAProcessThatNeverSawTheRequest_InMemory_WritesTheRealRequestId")]              // test name
+    [InlineData("throw FormatBCRYPT_KEY_LENGTHS_STRUCT_InvalidKeyLength();")]                                   // mixed constant
+    [InlineData("export SENTINEL_APPROVAL_CONFIG=/etc/sentinel/approvals")]                                     // env assignment
+    [InlineData("https://github.com/dotnet/runtime/blob/da9b16f2804e87c9c1ca9dcd9036e7b53e724f5d/src/libraries/System")] // blob url
+    [InlineData("https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/SharedArrayBuffer")]  // docs url
+    [InlineData("var lookup = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'")]           // alphabet table
+    [InlineData("\"integrity\": \"sha512-7mJJl+wf1AByoT0PknQiQfOPnVNT4fevGrUBVWO4HXsnYn1aQPyRyrELYrNUFleUBM++KzMKN6QaxHPk0t/6/g==\"")] // npm lock
+    [InlineData("<script src=\"x.js\" integrity=\"sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+\"></script>")] // SRI
+    [InlineData("background: url(\"data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTYiIGhlaWdodD0iNDkiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbn\")")] // inline image
+    public async Task ToolDataThatLooksEncodedButIsNot_IsNotFlagged(string text)
+    {
+        var result = await AnalyzeAsync(text);
+
+        Assert.True(result.IsClean, $"false positive: {result.Reason}");
+    }
+
+    /// <summary>What the precision rules must not let through: base32 is one case, like a constant, but random; a
+    /// data URI that is not an image or font is a payload; and a digest prefix covers only the run after it.</summary>
+    [Theory]
+    [InlineData("dns lookup KLZCMZNGBQJNFCIYLWKQ52EBGYERM33LCE6RPDLMB7JZAH7SHGQ2BFPSB6JZKZIM.example.com")]       // base32
+    [InlineData("dns lookup klzcmzngbqjnfciylwkq52ebgyerm33lce6rpdlmb7jzah7shgq2bfpsb6jzkzim.example.com")]       // base32, lower
+    [InlineData("fetch(\"data:text/plain;base64,+TgLjtsiSmskih6STo/Qri4alJKjMF8YjLYQkA+eNH+uiG3GUHeV7A==\")")]   // non-image data uri
+    [InlineData("sha512-abc then qX7vK2mZp9RtLw4JhB6NcF8sYdQe1AgU3TiO5WxV0zPrMkHn")]                         // prefix elsewhere
+    public async Task EncodedPayloadNearThosePatterns_IsStillFlagged(string text)
+    {
+        var result = await AnalyzeAsync(text);
+
+        Assert.False(result.IsClean, "an encoded payload should be flagged");
+    }
+
     [Fact]
     public async Task ShortTokens_AreNotFlagged_HoweverRandom()
     {
