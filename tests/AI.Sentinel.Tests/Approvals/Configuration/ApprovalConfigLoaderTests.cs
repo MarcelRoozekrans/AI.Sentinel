@@ -192,9 +192,8 @@ public class ApprovalConfigLoaderTests : IDisposable
     [InlineData("""{ "Bash": [ 5 ] }""", "tools.Bash[0]")]
     [InlineData("""{ "Bash": { "role": "R", "when": [] } }""", "tools.Bash.when")]
     [InlineData("""{ "Bash": { "role": "R", "when": {} } }""", "tools.Bash.when")]
-    [InlineData("""{ "Bash": [ { "role": "R" }, { "role": "R", "when": { "$.a": "x" } }, { "role": "R", "when": { "$.a": 1 } } ] }""", "tools.Bash[1]")]
+    [InlineData("""{ "Bash": [ { "role": "R" }, { "role": "R", "when": { "$.a": "x" } } ] }""", "tools.Bash[1]")]
     [InlineData("""{ "Bash": [ { "role": "R", "when": { "$.a": 1 } } ] }""", "tools.Bash[0].when['$.a']")]
-    [InlineData("""{ "Bash": { "role": "R", "when": { "a.b": "x" } } }""", "a.b")]
     [InlineData("""{ "Bash": [ { "role": "R", "when": { "$.a": "(" } } ] }""", "tools.Bash[0].when['$.a']")]
     [InlineData("""{ "Bash": { "role": "R", "grantScope": "forever" } }""", "tools.Bash.grantScope")]
     [InlineData("""{ "Bash": { "role": "R", "grantScope": 3 } }""", "tools.Bash.grantScope")]
@@ -214,10 +213,21 @@ public class ApprovalConfigLoaderTests : IDisposable
     }
 
     [Fact]
+    public void Load_BadWhenPath_WrapsArgumentExceptionNamingPath()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => LoadTools(
+            """{ "Bash": { "role": "R", "when": { "a.b": "x" } } }"""));
+        Assert.Contains("tools.Bash.when['a.b']", ex.Message, StringComparison.Ordinal);
+        Assert.IsType<ArgumentException>(ex.InnerException);
+        Assert.Contains("a.b", ex.InnerException!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Load_BadWhenValueNamesBadPatternOrPath()
     {
         var ex = Assert.Throws<InvalidOperationException>(() => LoadTools(
             """{ "Bash": [ { "role": "R", "when": { "$.a": "(" } } ] }"""));
+        Assert.IsType<ArgumentException>(ex.InnerException);
         Assert.Contains("(", ex.InnerException!.Message, StringComparison.Ordinal);
     }
 

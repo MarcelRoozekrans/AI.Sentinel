@@ -99,7 +99,7 @@ internal static class ApprovalConfigLoader
             throw new InvalidOperationException(
                 $"{location}.grantScope 'call' is not supported with backend 'entra-pim': a PIM grant is a role activation and cannot be tied to arguments");
         }
-        return new ApprovalToolConfig(role, grantMinutes, requireJustification, when, grantScope);
+        return new ApprovalToolConfig(role, grantMinutes, requireJustification, grantScope) { When = when };
     }
 
     private static List<KeyValuePair<string, string>> ParseWhen(JsonElement el, string location)

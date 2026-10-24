@@ -73,8 +73,8 @@ public class ApprovalBackendSelectorTests
         {
             ["Bash"] =
             [
-                new("ProdOps", null, null, [new("$.command", "prod")]),
-                new("Operator", 5, null, [new("$.command", "delete"), new("$.cwd", "^/srv")]),
+                new("ProdOps", null, null) { When = [new("$.command", "prod")] },
+                new("Operator", 5, null) { When = [new("$.command", "delete"), new("$.cwd", "^/srv")] },
             ],
         };
         var opts = new SentinelOptions();
@@ -113,7 +113,7 @@ public class ApprovalBackendSelectorTests
     {
         var tools = new Dictionary<string, IReadOnlyList<ApprovalToolConfig>>(StringComparer.Ordinal)
         {
-            ["Bash"] = [new("Ops", null, null, null, AI.Sentinel.Approvals.ApprovalGrantScope.Call)],
+            ["Bash"] = [new("Ops", null, null, AI.Sentinel.Approvals.ApprovalGrantScope.Call)],
         };
         var opts = new SentinelOptions();
 
