@@ -20,8 +20,10 @@ namespace AI.Sentinel.Approvals.EntraPim;
 ///         → <see cref="ApprovalState.Denied"/>.</item>
 /// </list>
 /// </remarks>
-public sealed class EntraPimApprovalStore : IApprovalStore
+public sealed class EntraPimApprovalStore : IApprovalStore, IRoleActivationApprovalStore
 {
+    string IRoleActivationApprovalStore.BackendName => "Entra PIM";
+
     private readonly IGraphRoleClient _graph;
     private readonly EntraPimOptions _options;
     private readonly TimeProvider _time;

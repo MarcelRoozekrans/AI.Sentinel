@@ -243,8 +243,27 @@ public static class ServiceCollectionExtensions
 
         EmitAuthorizationStartupWarnings(opts, bindings, policyByName, hasSecurityContext, pipelineLogger);
 
+        RejectCallScopedGrantsOnRoleActivationStore(sp, bindings);
+
         var approvalStore = ApprovalStoreAuditing.Resolve(sp);
         return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, approvalStore, logger);
+    }
+
+    private static void RejectCallScopedGrantsOnRoleActivationStore(IServiceProvider sp, IReadOnlyList<ToolCallPolicyBinding> bindings)
+    {
+        if (sp.GetKeyedService<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey) is not IRoleActivationApprovalStore store)
+        {
+            return;
+        }
+
+        var callScoped = bindings.FirstOrDefault(b => b.ApprovalSpec?.GrantScope == ApprovalGrantScope.Call);
+        if (callScoped is not null)
+        {
+            throw new InvalidOperationException(
+                $"The approval rule for '{callScoped.Pattern}' uses GrantScope.Call, which the {store.BackendName} approval store " +
+                "cannot honour: a role activation covers a time window and knows nothing of tool arguments. " +
+                "Use GrantScope.Rule, or a store that grants per call.");
+        }
     }
 
     /// <summary>Presence of this marker proves the official detector set is already in the container.</summary>
