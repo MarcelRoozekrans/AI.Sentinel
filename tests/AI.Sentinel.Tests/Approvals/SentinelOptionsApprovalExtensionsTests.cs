@@ -61,14 +61,16 @@ public class SentinelOptionsApprovalExtensionsTests
     public void WhenArgument_BadPath_Throws()
     {
         var spec = new ApprovalSpec { PolicyName = "p" };
-        Assert.ThrowsAny<ArgumentException>(() => spec.WhenArgument("command[", "x"));
+        var ex = Assert.ThrowsAny<ArgumentException>(() => spec.WhenArgument("command[", "x"));
+        Assert.Contains("command[", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
     public void WhenArgument_BadRegex_Throws()
     {
         var spec = new ApprovalSpec { PolicyName = "p" };
-        Assert.ThrowsAny<ArgumentException>(() => spec.WhenArgument("$.command", "("));
+        var ex = Assert.ThrowsAny<ArgumentException>(() => spec.WhenArgument("$.command", "("));
+        Assert.Contains("(", ex.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -108,5 +110,27 @@ public class SentinelOptionsApprovalExtensionsTests
     public void GrantScope_DefaultsToRule()
     {
         Assert.Equal(ApprovalGrantScope.Rule, new ApprovalSpec { PolicyName = "p" }.GrantScope);
+    }
+
+    [Fact]
+    public void RequireApproval_ExplicitNameBetween_StillCountsForIndex()
+    {
+        var opts = new SentinelOptions();
+        opts.RequireApproval("Bash", _ => { });
+        opts.RequireApproval("Bash", spec => spec.PolicyName = "kubectl-delete");
+        opts.RequireApproval("Bash", _ => { });
+
+        var names = opts.GetAuthorizationBindings().Select(b => b.ApprovalSpec!.PolicyName).ToArray();
+        Assert.Equal(new[] { "approval:Bash", "kubectl-delete", "approval:Bash[2]" }, names);
+    }
+
+    [Fact]
+    public void RequireApproval_DefaultNameCollidesWithExplicitName_Throws()
+    {
+        var opts = new SentinelOptions();
+        opts.RequireApproval("Other", spec => spec.PolicyName = "approval:Bash[1]");
+        opts.RequireApproval("Bash", _ => { });
+        var ex = Assert.Throws<InvalidOperationException>(() => opts.RequireApproval("Bash", _ => { }));
+        Assert.Contains("approval:Bash[1]", ex.Message, StringComparison.Ordinal);
     }
 }
