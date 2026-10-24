@@ -70,7 +70,7 @@ Both Claude Code and Copilot share the same env-var contract:
 
 The hook scans prompts, tool arguments and tool output, never a model's reply. So by default it runs the same security preset as the [MCP proxy](./mcp-proxy#detector-profiles): 15 of the 32 security detectors and the four compliance detectors. It leaves out the operational and hallucination detectors, which were written for a model's reply and fire as noise on tool traffic. Build logs and directory listings repeat lines, so `OPS-02` flags them. `OPS-11` rates a tool output more than 100 times the size of the tool call, or above 50,000 characters, as `High`, which blocks under the default `SENTINEL_HOOK_ON_HIGH=Block`. `SENTINEL_HOOK_DETECTORS=all` runs every detector.
 
-**Behaviour change.** Until this preset, the hooks ran every detector. The default now also leaves out the 18 security detectors that are not in the preset, including the rule-based `SEC-08` EntropyCovertChannel, `SEC-24` AdversarialUnicode and `SEC-32` SystemPromptEcho, which fire without an embedding endpoint. A hook that relied on any detector outside the preset needs `SENTINEL_HOOK_DETECTORS=all`.
+**Behaviour change.** Until this preset, the hooks ran every detector. The default now also leaves out the 17 security detectors that are not in the preset, including the rule-based `SEC-08` EntropyCovertChannel and `SEC-32` SystemPromptEcho, which fire without an embedding endpoint. A hook that relied on any detector outside the preset needs `SENTINEL_HOOK_DETECTORS=all`.
 
 ### What each action does
 

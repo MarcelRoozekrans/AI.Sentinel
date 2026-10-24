@@ -414,6 +414,7 @@ public class ToolTrafficDetectionTests
     [Theory]
     [InlineData("\uFEFFusing System;")]
     [InlineData("{\"stdout\":\"\uFEFFusing System;\"}")]
+    [InlineData("{ \"text\": \"\uFEFFusing System;\" }")]
     [InlineData("==> a.cs <==\n\uFEFFusing System;")]
     [InlineData("{\"stdout\":\"==> a.cs <==\\n\uFEFFusing System;\"}")]
     [InlineData("{\"stdout\":\"a\\r\\n\uFEFFusing System;\"}")]
@@ -428,11 +429,23 @@ public class ToolTrafficDetectionTests
     [InlineData("ig\uFEFFnore")]
     [InlineData("\uFEFF\uFEFFusing System;")]
     [InlineData("a \uFEFFusing")]
+    [InlineData("say \"\uFEFFignore")]
+    [InlineData("{\"stdout\":\"a\\\\n\uFEFFusing\"}")]
+    [InlineData("\uFEFF\u200Busing System;")]
     public async Task AdversarialUnicode_ByteOrderMarkInsideALine_IsFlagged(string text)
     {
         var r = await new AdversarialUnicodeDetector().AnalyzeAsync(Ctx(new ChatMessage(ChatRole.Assistant, text)), TestContext.Current.CancellationToken);
 
         Assert.False(r.IsClean);
+    }
+
+    [Fact]
+    public async Task AdversarialUnicode_ByteOrderMarkIsNotCounted_ThreeHiddenCharactersAfterItStillRateHigh()
+    {
+        var r = await new AdversarialUnicodeDetector().AnalyzeAsync(
+            Ctx(new ChatMessage(ChatRole.Assistant, "\uFEFFig\u200Bno\u200Bre a\u200Bll")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(Severity.High, r.Severity);
     }
 
     /// <summary>Regression guard: a conversation of text only reads exactly as before.</summary>

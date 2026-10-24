@@ -37,8 +37,8 @@ public sealed class AdversarialUnicodeDetector : IDetector
     }
 
     /// <summary>
-    /// U+FEFF where a byte order mark sits: at the start of the text, of a JSON string or of a line, the last one raw
-    /// or JSON-escaped. A file saved with a UTF-8 BOM keeps it when a tool reads it with fs.readFile or cat, so it
+    /// U+FEFF where a byte order mark sits: at the start of the text, of a JSON string value or of a line, the last one
+    /// raw or JSON-escaped. A file saved with a UTF-8 BOM keeps it when a tool reads it with fs.readFile or cat, so it
     /// opens a tool result, or a file's lines in one. There it hides nothing: it splits no word, and a second U+FEFF
     /// after it still counts.
     /// </summary>
@@ -48,8 +48,25 @@ public sealed class AdversarialUnicodeDetector : IDetector
         if (index == 0) return true;
 
         var previous = text[index - 1];
-        if (previous is '"' or '\n' or '\r') return true;
-        return index >= 2 && text[index - 2] == '\\' && previous is ('n' or 'r');
+        if (previous is '\n' or '\r') return true;
+        if (previous == '"') return OpensJsonValue(text, index - 1);
+        return previous is ('n' or 'r') && IsEscaped(text, index - 1);
+    }
+
+    /// <summary>Whether the quote at <paramref name="quote"/> follows a colon, compact or with spaces between.</summary>
+    private static bool OpensJsonValue(string text, int quote)
+    {
+        var i = quote - 1;
+        while (i >= 0 && text[i] == ' ') i--;
+        return i >= 0 && text[i] == ':';
+    }
+
+    /// <summary>Whether an odd run of backslashes precedes <paramref name="index"/>, so the character there is escaped.</summary>
+    private static bool IsEscaped(string text, int index)
+    {
+        var backslashes = 0;
+        for (var i = index - 1; i >= 0 && text[i] == '\\'; i--) backslashes++;
+        return backslashes % 2 == 1;
     }
 
     /// <summary>The code point before <paramref name="index"/>, skipping an emoji presentation selector.</summary>
