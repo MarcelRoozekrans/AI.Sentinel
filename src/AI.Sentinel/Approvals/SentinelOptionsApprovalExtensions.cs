@@ -22,8 +22,20 @@ public static class SentinelOptionsApprovalExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(toolPattern);
         ArgumentNullException.ThrowIfNull(configure);
 
-        var spec = new ApprovalSpec { PolicyName = $"approval:{toolPattern}" };
+        var defaultName = $"approval:{toolPattern}";
+        var existing = opts.GetAuthorizationBindings()
+            .Where(b => b.ApprovalSpec is not null && string.Equals(b.Pattern, toolPattern, StringComparison.Ordinal))
+            .Count();
+
+        var spec = new ApprovalSpec { PolicyName = defaultName };
         configure(spec);
+        if (existing > 0 && string.Equals(spec.PolicyName, defaultName, StringComparison.Ordinal))
+            spec.PolicyName = $"{defaultName}[{existing}]";
+
+        if (opts.GetAuthorizationBindings().Any(b =>
+                b.ApprovalSpec is not null && string.Equals(b.ApprovalSpec.PolicyName, spec.PolicyName, StringComparison.Ordinal)))
+            throw new InvalidOperationException(
+                $"Approval policy name '{spec.PolicyName}' is already in use. Approval policy names must be unique.");
 
         opts.AddAuthorizationBinding(new ToolCallPolicyBinding(toolPattern, spec.PolicyName, spec));
         return opts;
