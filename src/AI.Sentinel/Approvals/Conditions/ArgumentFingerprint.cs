@@ -1,0 +1,85 @@
+using System.Buffers;
+using System.Security.Cryptography;
+using System.Text.Json;
+
+namespace AI.Sentinel.Approvals.Conditions;
+
+/// <summary>
+/// Fingerprints tool arguments for call-scoped grants. Two argument sets that differ only in
+/// object key order, insignificant whitespace or string escaping get the same fingerprint.
+/// </summary>
+internal static class ArgumentFingerprint
+{
+    private const int FingerprintBytes = 8;
+
+    /// <summary>
+    /// Returns the first 16 lowercase hex characters of the SHA-256 of the canonical arguments:
+    /// object keys sorted ordinally, no insignificant whitespace, strings re-escaped by the
+    /// default <see cref="Utf8JsonWriter"/> encoder, numbers as their raw token.
+    /// Arguments of kind <see cref="JsonValueKind.Undefined"/> hash as empty input. Never throws.
+    /// </summary>
+    public static string Compute(JsonElement args)
+    {
+        var buffer = new ArrayBufferWriter<byte>();
+        if (args.ValueKind != JsonValueKind.Undefined)
+        {
+            using var writer = new Utf8JsonWriter(buffer);
+            WriteCanonical(writer, args);
+        }
+
+        Span<byte> hash = stackalloc byte[32];
+        SHA256.HashData(buffer.WrittenSpan, hash);
+        return ToLowerHex(hash[..FingerprintBytes]);
+    }
+
+    private static void WriteCanonical(Utf8JsonWriter writer, JsonElement element)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                writer.WriteStartObject();
+                // OrderBy is stable: duplicate keys keep their relative order, so a tool that
+                // reads the last duplicate cannot be handed a different value under the same grant.
+                foreach (var property in element.EnumerateObject().OrderBy(static p => p.Name, StringComparer.Ordinal))
+                {
+                    writer.WritePropertyName(property.Name);
+                    WriteCanonical(writer, property.Value);
+                }
+                writer.WriteEndObject();
+                break;
+            case JsonValueKind.Array:
+                writer.WriteStartArray();
+                foreach (var item in element.EnumerateArray())
+                    WriteCanonical(writer, item);
+                writer.WriteEndArray();
+                break;
+            case JsonValueKind.String:
+                writer.WriteStringValue(element.GetString());
+                break;
+            case JsonValueKind.Number:
+                writer.WriteRawValue(element.GetRawText(), skipInputValidation: true);
+                break;
+            case JsonValueKind.True:
+                writer.WriteBooleanValue(true);
+                break;
+            case JsonValueKind.False:
+                writer.WriteBooleanValue(false);
+                break;
+            default:
+                writer.WriteNullValue();
+                break;
+        }
+    }
+
+    private static string ToLowerHex(ReadOnlySpan<byte> bytes)
+    {
+        const string digits = "0123456789abcdef";
+        Span<char> chars = stackalloc char[bytes.Length * 2];
+        for (var i = 0; i < bytes.Length; i++)
+        {
+            chars[i * 2] = digits[bytes[i] >> 4];
+            chars[(i * 2) + 1] = digits[bytes[i] & 0xF];
+        }
+        return new string(chars);
+    }
+}

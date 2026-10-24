@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AI.Sentinel.Approvals;
+using AI.Sentinel.Approvals.Conditions;
 using Microsoft.Extensions.Logging;
 using ZeroAlloc.Authorization;
 using ZeroAlloc.Results;
@@ -7,6 +8,11 @@ using ZeroAlloc.Results;
 namespace AI.Sentinel.Authorization;
 
 /// <summary>Default tool-call guard. Resolves bindings → policies, fails closed on errors.</summary>
+/// <remarks>
+/// Approval bindings that share the exact same pattern string form a group, evaluated in the
+/// registration slot of its first member. Within a group only the first binding whose argument
+/// conditions all hold, or that has none, is evaluated. Policy bindings are never grouped.
+/// </remarks>
 internal sealed class DefaultToolCallGuard(
     IReadOnlyList<ToolCallPolicyBinding> bindings,
     IReadOnlyDictionary<string, IAuthorizationPolicy> policiesByName,
@@ -16,19 +22,28 @@ internal sealed class DefaultToolCallGuard(
 {
     private readonly ToolCallPolicyBinding[] _bindings = [.. bindings];
 
+    // Evaluation slots in registration order: each a policy binding or an ApprovalGroup.
+    private readonly object[] _slots = BuildSlots(bindings);
+
     public async ValueTask<AuthorizationDecision> AuthorizeAsync(
         ISecurityContext caller,
         string toolName,
         JsonElement args,
         CancellationToken ct = default)
     {
-        var matchCount = 0;
+        // Governed or not is decided on the tool name alone: a matching approval rule whose
+        // conditions do not hold still keeps DefaultToolPolicy from applying.
+        var governed = false;
         foreach (var b in _bindings)
         {
-            if (b.Matches(toolName)) matchCount++;
+            if (b.Matches(toolName))
+            {
+                governed = true;
+                break;
+            }
         }
 
-        if (matchCount == 0)
+        if (!governed)
         {
             return @default == ToolPolicyDefault.Allow
                 ? AuthorizationDecision.Allow
@@ -37,13 +52,20 @@ internal sealed class DefaultToolCallGuard(
 
         var ctx = new ToolCallContextWrapper(caller, toolName, args);
 
-        foreach (var binding in _bindings)
+        foreach (var slot in _slots)
         {
-            if (!binding.Matches(toolName)) continue;
-
-            var decision = binding.ApprovalSpec is { } approvalSpec
-                ? await EvaluateApprovalAsync(caller, toolName, args, approvalSpec, ct).ConfigureAwait(false)
-                : await EvaluatePolicyAsync(binding, ctx, ct).ConfigureAwait(false);
+            AuthorizationDecision? decision;
+            if (slot is ApprovalGroup group)
+            {
+                if (!group.Matches(toolName)) continue;
+                decision = await EvaluateGroupAsync(caller, toolName, args, group, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                var binding = (ToolCallPolicyBinding)slot;
+                if (!binding.Matches(toolName)) continue;
+                decision = await EvaluatePolicyAsync(binding, ctx, ct).ConfigureAwait(false);
+            }
 
             if (decision is not null) return decision;
         }
@@ -51,11 +73,36 @@ internal sealed class DefaultToolCallGuard(
         return AuthorizationDecision.Allow;
     }
 
-    private async ValueTask<AuthorizationDecision?> EvaluateApprovalAsync(
+    private static object[] BuildSlots(IReadOnlyList<ToolCallPolicyBinding> bindings)
+    {
+        var slots = new List<object>(bindings.Count);
+        var groups = new Dictionary<string, ApprovalGroup>(StringComparer.Ordinal);
+        foreach (var binding in bindings)
+        {
+            if (binding.ApprovalSpec is null)
+            {
+                slots.Add(binding);
+                continue;
+            }
+
+            if (!groups.TryGetValue(binding.Pattern, out var group))
+            {
+                group = new ApprovalGroup(binding);
+                groups.Add(binding.Pattern, group);
+                slots.Add(group);
+            }
+
+            group.Members.Add(binding);
+        }
+
+        return [.. slots];
+    }
+
+    private async ValueTask<AuthorizationDecision?> EvaluateGroupAsync(
         ISecurityContext caller,
         string toolName,
         JsonElement args,
-        ApprovalSpec approvalSpec,
+        ApprovalGroup group,
         CancellationToken ct)
     {
         if (approvalStore is null)
@@ -67,11 +114,79 @@ internal sealed class DefaultToolCallGuard(
                 "services.AddSingleton<IApprovalStore, InMemoryApprovalStore>().");
         }
 
+        var spec = SelectSpec(group, args);
+        if (spec is null) return null; // no rule of the group applies to these arguments
+
+        if (spec.GrantScope == ApprovalGrantScope.Call)
+        {
+            spec = new ApprovalSpec
+            {
+                PolicyName = $"{spec.PolicyName}#{ArgumentFingerprint.Compute(args)}",
+                GrantDuration = spec.GrantDuration,
+                RequireJustification = spec.RequireJustification,
+                WaitTimeout = spec.WaitTimeout,
+                BackendBinding = spec.BackendBinding,
+                GrantScope = spec.GrantScope,
+            };
+        }
+
+        return await EvaluateApprovalAsync(caller, toolName, args, spec, approvalStore, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Returns the spec of the first group member with no conditions, or whose conditions all
+    /// hold. Fails closed: a timed-out condition holds, and arguments that are not a JSON object
+    /// or array satisfy every condition.
+    /// </summary>
+    private ApprovalSpec? SelectSpec(ApprovalGroup group, JsonElement args)
+    {
+        var structured = args.ValueKind is JsonValueKind.Object or JsonValueKind.Array;
+        foreach (var member in group.Members)
+        {
+            var spec = member.ApprovalSpec!;
+            if (spec.Conditions.Count == 0 || !structured) return spec;
+
+            var holds = true;
+            List<string>? timedOutPaths = null;
+            foreach (var condition in spec.Conditions)
+            {
+                var result = condition.Evaluate(args);
+                if (result == ConditionResult.DoesNotHold)
+                {
+                    holds = false;
+                    break;
+                }
+
+                if (result == ConditionResult.TimedOut)
+                    (timedOutPaths ??= []).Add(condition.Path.Text);
+            }
+
+            if (timedOutPaths is not null)
+            {
+                logger?.LogWarning(
+                    "Approval rule '{PolicyName}' timed out matching argument path(s) {Paths} — treating the condition as holding (fail closed).",
+                    spec.PolicyName, string.Join(", ", timedOutPaths));
+            }
+
+            if (holds) return spec;
+        }
+
+        return null;
+    }
+
+    private async ValueTask<AuthorizationDecision?> EvaluateApprovalAsync(
+        ISecurityContext caller,
+        string toolName,
+        JsonElement args,
+        ApprovalSpec approvalSpec,
+        IApprovalStore store,
+        CancellationToken ct)
+    {
         var approvalCtx = new ApprovalContext(toolName, args, Justification: null);
         ApprovalState state;
         try
         {
-            state = await approvalStore.EnsureRequestAsync(caller, approvalSpec, approvalCtx, ct).ConfigureAwait(false);
+            state = await store.EnsureRequestAsync(caller, approvalSpec, approvalCtx, ct).ConfigureAwait(false);
         }
 #pragma warning disable CA1031 // Fail-closed: any approval-store exception must deny.
         catch (Exception ex)
@@ -144,6 +259,14 @@ internal sealed class DefaultToolCallGuard(
             : failure.Code;
         var reason = failure.Reason ?? "Policy denied";
         return AuthorizationDecision.Deny(binding.PolicyName, reason, code);
+    }
+
+    /// <summary>Approval bindings sharing one pattern string, in registration order.</summary>
+    private sealed class ApprovalGroup(ToolCallPolicyBinding first)
+    {
+        public List<ToolCallPolicyBinding> Members { get; } = [];
+
+        public bool Matches(string toolName) => first.Matches(toolName);
     }
 
     private sealed class ToolCallContextWrapper(ISecurityContext inner, string toolName, JsonElement args)
