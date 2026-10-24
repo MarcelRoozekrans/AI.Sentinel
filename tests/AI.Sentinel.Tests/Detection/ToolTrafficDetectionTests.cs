@@ -16,7 +16,7 @@ public class ToolTrafficDetectionTests
 {
     private const string GithubToken = "ghp_abcdefghijklmnopqrstuvwxyz0123456789";
     private const string Email = "jan@acme.nl";
-    private const string Hidden = "read​‍⁠ the file";
+    private const string Hidden = "read\u200B\u200D\u2060 the file";
 
     private static SentinelContext Ctx(params ChatMessage[] messages) =>
         new(new AgentId("a"), new AgentId("b"), SessionId.New(), messages, new List<AuditEntry>());
