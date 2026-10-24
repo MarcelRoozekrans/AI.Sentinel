@@ -15,6 +15,7 @@ Subsequent entries are generated automatically by
 ### Bug Fixes
 
 * **hooks:** the hook CLIs run the security preset by default ([#462](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/462)) ([9cf6d9f](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/9cf6d9fac6708c0a991096eda91dd93472f52e21))
+* **mcp:** the security preset redacts personal data, not only secrets ([#462](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/462)) ([9cf6d9f](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/9cf6d9fac6708c0a991096eda91dd93472f52e21))
 
 ## [3.2.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.2.1...v3.2.2) (2026-10-23)
 
