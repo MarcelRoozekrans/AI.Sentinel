@@ -243,4 +243,40 @@ public class ApprovalConfigLoaderTests : IDisposable
     [Fact]
     public void Load_GrantScopeRuleWithEntraPim_Loads() =>
         Assert.Single(LoadTools("""{ "Bash": { "role": "R", "grantScope": "rule" } }""", "entra-pim").Tools);
+
+    [Theory]
+    [InlineData("""{ "Bash": { "role": "R", "grantscope": "call" } }""", "tools.Bash.grantscope", "grantScope")]
+    [InlineData("""{ "Bash": [ { "role": "R", "grant_scope": "call" } ] }""", "tools.Bash[0].grant_scope", "grantScope")]
+    [InlineData("""{ "Bash": [ { "role": "R", "When": { "$.a": "x" } } ] }""", "tools.Bash[0].When", "when")]
+    [InlineData("""{ "Bash": { "Role": "R", "role": "R" } }""", "tools.Bash.Role", "role")]
+    [InlineData("""{ "Bash": { "role": "R", "grant-minutes": 5 } }""", "tools.Bash.grant-minutes", "grantMinutes")]
+    [InlineData("""{ "Bash": { "role": "R", "require_justification": true } }""", "tools.Bash.require_justification", "requireJustification")]
+    public void Load_MisspelledKnownKey_ThrowsNamingLocationAndSpelling(string toolsJson, string location, string expected)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => LoadTools(toolsJson));
+        Assert.Contains(location, ex.Message, StringComparison.Ordinal);
+        Assert.Contains($"'{expected}'", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Load_UnrelatedUnknownKey_IsAccepted() =>
+        Assert.Single(LoadTools("""{ "Bash": { "role": "R", "description": "kubectl guard" } }""").Tools);
+
+    [Fact]
+    public void Load_DuplicateKeyInWhen_ThrowsNamingLocation()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => LoadTools(
+            """{ "Bash": [ { "role": "R", "when": { "$.a": "x", "$.a": "y" } } ] }"""));
+        Assert.Contains("tools.Bash[0].when", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("$.a", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Load_DuplicateToolKey_ThrowsNamingLocation()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => LoadTools(
+            """{ "Bash": { "role": "A" }, "Bash": { "role": "B" } }"""));
+        Assert.Contains("tools", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Bash", ex.Message, StringComparison.Ordinal);
+    }
 }

@@ -10,6 +10,9 @@ namespace AI.Sentinel.Approvals.Configuration;
 /// values.</summary>
 internal static class ApprovalConfigLoader
 {
+    /// <summary>The keys a tool entry understands, spelled exactly as the loader reads them.</summary>
+    private static readonly string[] ToolEntryKeys = ["role", "grantMinutes", "requireJustification", "when", "grantScope"];
+
     private static readonly Regex EnvPlaceholder = new(@"\$\{(?<var>[A-Z_][A-Z0-9_]*)\}",
         RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture,
         TimeSpan.FromSeconds(1));
@@ -46,6 +49,9 @@ internal static class ApprovalConfigLoader
         {
             foreach (var prop in toolsEl.EnumerateObject())
             {
+                // JSON readers disagree on which duplicate wins, so a repeated key is never silently resolved.
+                if (tools.ContainsKey(prop.Name))
+                    throw new InvalidOperationException($"tools has duplicate key '{prop.Name}'");
                 tools[prop.Name] = ParseTools(prop.Value, prop.Name, backend);
             }
         }
@@ -88,6 +94,7 @@ internal static class ApprovalConfigLoader
     {
         if (el.ValueKind != JsonValueKind.Object)
             throw new InvalidOperationException($"{location} must be an object");
+        RejectMisspelledKeys(el, location);
         var role = RequireString(el, "role", $"{location}.role");
         var grantMinutes = OptionalInt(el, "grantMinutes");
         var requireJustification = OptionalBool(el, "requireJustification");
@@ -102,6 +109,34 @@ internal static class ApprovalConfigLoader
         return new ApprovalToolConfig(role, grantMinutes, requireJustification, grantScope) { When = when };
     }
 
+    /// <summary>
+    /// Rejects a key that is a known key in another spelling, such as <c>grant_scope</c> or <c>When</c>:
+    /// the loader would otherwise ignore it and drop the rule's condition or scope without a word.
+    /// Keys unrelated to a known key stay accepted, so existing files with extra fields keep loading.
+    /// </summary>
+    private static void RejectMisspelledKeys(JsonElement el, string location)
+    {
+        foreach (var prop in el.EnumerateObject())
+        {
+            if (ToolEntryKeys.Contains(prop.Name, StringComparer.Ordinal))
+                continue;
+            var normalised = NormaliseKey(prop.Name);
+            foreach (var known in ToolEntryKeys)
+            {
+                if (string.Equals(normalised, NormaliseKey(known), StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException(
+                        $"{location}.{prop.Name} is not a recognised key; did you mean '{known}'?");
+                }
+            }
+        }
+    }
+
+    private static string NormaliseKey(string key) =>
+        key.Replace("_", "", StringComparison.Ordinal)
+            .Replace("-", "", StringComparison.Ordinal)
+            .ToLowerInvariant();
+
     private static List<KeyValuePair<string, string>> ParseWhen(JsonElement el, string location)
     {
         var when = new List<KeyValuePair<string, string>>();
@@ -110,6 +145,8 @@ internal static class ApprovalConfigLoader
             throw new InvalidOperationException($"{location}.when must be an object of JSON path to regex");
         foreach (var cond in whenEl.EnumerateObject())
         {
+            if (when.Exists(c => string.Equals(c.Key, cond.Name, StringComparison.Ordinal)))
+                throw new InvalidOperationException($"{location}.when has duplicate key '{cond.Name}'");
             if (cond.Value.ValueKind != JsonValueKind.String)
                 throw new InvalidOperationException(
                     $"{location}.when['{cond.Name}'] must be a regex string");
