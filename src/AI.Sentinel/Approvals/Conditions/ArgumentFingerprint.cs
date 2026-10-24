@@ -14,29 +14,57 @@ internal static class ArgumentFingerprint
 {
     private const int FingerprintBytes = 16;
 
+    /// <summary>Strict UTF-8: throws on a lone surrogate instead of replacing it with U+FFFD.</summary>
+    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+
     /// <summary>
     /// Returns the first 32 lowercase hex characters, 128 bits, of the SHA-256 of the UTF-8 byte
-    /// length of the tool name as 4 bytes big-endian, the UTF-8 tool name and the canonical arguments: object keys sorted ordinally, no
-    /// insignificant whitespace, strings re-escaped by the default <see cref="Utf8JsonWriter"/>
+    /// length of the tool name as 4 bytes big-endian, the UTF-8 tool name and the canonical
+    /// arguments: object keys sorted ordinally, no insignificant whitespace, strings re-escaped by the default <see cref="Utf8JsonWriter"/>
     /// encoder, numbers as their raw token. The tool name is part of the hash so a grant for one
     /// tool never covers another tool that a wildcard rule also matches.
     /// Arguments of kind <see cref="JsonValueKind.Undefined"/> hash as empty input. Arguments
     /// holding a string or property name that does not decode to valid UTF-16, such as a lone
-    /// surrogate escape, hash their raw JSON text behind a marker byte instead. Never throws on any arguments.
+    /// surrogate escape, hash their raw JSON text behind a marker byte instead. A tool name that is
+    /// not valid UTF-16 hashes a 0xFFFFFFFF marker, the byte length of its UTF-16 code units and
+    /// those code units big-endian instead, so distinct invalid names never merge. Never throws on
+    /// any arguments.
     /// </summary>
     public static string Compute(string toolName, JsonElement args)
     {
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        // Length-prefixed, so no tool name can run into the arguments or their raw-fallback marker byte.
-        var name = Encoding.UTF8.GetBytes(toolName);
-        Span<byte> length = stackalloc byte[4];
-        BinaryPrimitives.WriteInt32BigEndian(length, name.Length);
-        sha.AppendData(length);
-        sha.AppendData(name);
+        AppendToolName(sha, toolName);
         sha.AppendData(Canonicalize(args));
         Span<byte> hash = stackalloc byte[32];
         sha.GetHashAndReset(hash);
         return ToLowerHex(hash[..FingerprintBytes]);
+    }
+
+    /// <summary>
+    /// Appends the tool name length-prefixed, so no name can run into the arguments or their
+    /// raw-fallback marker byte. A valid length is non-negative, so the 0xFFFFFFFF marker of the
+    /// invalid-name form can never be a valid length prefix and the two forms never collide.
+    /// </summary>
+    private static void AppendToolName(IncrementalHash sha, string toolName)
+    {
+        Span<byte> prefix = stackalloc byte[4];
+        byte[] name;
+        try
+        {
+            name = StrictUtf8.GetBytes(toolName);
+        }
+        catch (EncoderFallbackException)
+        {
+            BinaryPrimitives.WriteInt32BigEndian(prefix, -1);
+            sha.AppendData(prefix);
+            name = new byte[toolName.Length * 2];
+            for (var i = 0; i < toolName.Length; i++)
+                BinaryPrimitives.WriteUInt16BigEndian(name.AsSpan(i * 2), toolName[i]);
+        }
+
+        BinaryPrimitives.WriteInt32BigEndian(prefix, name.Length);
+        sha.AppendData(prefix);
+        sha.AppendData(name);
     }
 
     private static byte[] Canonicalize(JsonElement args)

@@ -64,6 +64,21 @@ public class ArgumentFingerprintTests
     }
 
     [Fact]
+    public void ToolNamesWithDifferentLoneSurrogates_DifferentFingerprint()
+    {
+        // Lossy UTF-8 encoding maps every lone surrogate to U+FFFD, which would merge these two names.
+        const string json = "{\"path\":\"/a\"}";
+        Assert.NotEqual(Fingerprint(json, "x\ud800"), Fingerprint(json, "x\ud801"), StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void ToolNameWithLoneSurrogate_DiffersFromReplacementCharacter()
+    {
+        const string json = "{\"path\":\"/a\"}";
+        Assert.NotEqual(Fingerprint(json, "x\ud800"), Fingerprint(json, "x\ufffd"), StringComparer.Ordinal);
+    }
+
+    [Fact]
     public void ToolNameAndArgsBoundary_DoesNotCollide()
     {
         // Moving characters between the tool name and a string-valued argument must change the hash.
