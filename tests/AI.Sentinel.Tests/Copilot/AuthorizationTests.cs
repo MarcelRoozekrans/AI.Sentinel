@@ -6,7 +6,6 @@ using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Copilot;
 using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.DependencyInjection;
-using AI.Sentinel.Approvals.Configuration;
 using Xunit;
 using ZeroAlloc.Authorization;
 
@@ -183,34 +182,10 @@ public class AuthorizationTests
                 requestedAt: DateTimeOffset.UtcNow, waitTimeout: TimeSpan.FromSeconds(0)));
     }
 
-    private const string BashWhenConfig = """
-        {
-            "backend": "in-memory",
-            "tools": { "Bash": [ { "role": "Ops", "when": { "$.command": "kubectl\\s+delete" } } ] }
-        }
-        """;
-
-    private static IToolCallGuard BuildBashWhenGuard(out ServiceProvider provider)
-    {
-        var services = new ServiceCollection();
-        services.AddAISentinel(o =>
-        {
-            o.OnCritical = SentinelAction.Quarantine;
-            o.OnHigh = SentinelAction.Quarantine;
-            o.OnMedium = SentinelAction.Quarantine;
-            o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
-            using var doc = JsonDocument.Parse(BashWhenConfig);
-            ApprovalBackendSelector.Configure(o, ApprovalConfigLoader.Parse(doc.RootElement));
-        });
-        provider = services.BuildServiceProvider();
-        return provider.GetRequiredService<IToolCallGuard>();
-    }
-
     [Fact]
     public async Task PreToolUse_ArgumentRule_MatchingCommand_BlocksWithApprovalReceipt()
     {
-        var guard = BuildBashWhenGuard(out var provider);
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
         await using var _ = provider;
         var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
 
@@ -229,7 +204,7 @@ public class AuthorizationTests
     [Fact]
     public async Task PreToolUse_ArgumentRule_NonMatchingCommand_IsAllowed()
     {
-        var guard = BuildBashWhenGuard(out var provider);
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
         await using var _ = provider;
         var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
 
@@ -244,7 +219,7 @@ public class AuthorizationTests
     {
         // toolArgs arrives as a string that is not JSON, so the guard sees a string element
         // and must require approval rather than crash or wave the call through.
-        var guard = BuildBashWhenGuard(out var provider);
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
         await using var _ = provider;
         var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
 
@@ -258,5 +233,21 @@ public class AuthorizationTests
         Assert.Contains("Rule: approval:Bash", output.Reason ?? "", StringComparison.Ordinal);
         Assert.Contains("policy 'approval:Bash'", denied.Summary, StringComparison.Ordinal);
         Assert.Equal("approval_required", denied.PolicyCode);
+    }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_StringToolArgsHoldingJson_AreParsedAndMatched()
+    {
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
+
+        var json = JsonSerializer.Serialize("""{"command":"kubectl delete ns prod"}""");
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolArgs = JsonDocument.Parse(json).RootElement };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("Rule: approval:Bash", output.Reason ?? "", StringComparison.Ordinal);
     }
 }

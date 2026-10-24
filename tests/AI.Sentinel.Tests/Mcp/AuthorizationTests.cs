@@ -1,15 +1,17 @@
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using AI.Sentinel.Approvals;
+using AI.Sentinel.Approvals.Configuration;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp;
 using AI.Sentinel.Mcp.Authorization;
+using AI.Sentinel.Tests.Helpers;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using ZeroAlloc.Authorization;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace AI.Sentinel.Tests.Mcp;
@@ -378,13 +380,12 @@ public class AuthorizationTests
 
     private static async Task<(McpProtocolException? Error, bool NextInvoked)> CallHttpRequestAsync(string method)
     {
-        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        var services = new ServiceCollection();
         services.AddAISentinel(o =>
         {
-            o.EmbeddingGenerator = new AI.Sentinel.Tests.Helpers.FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
             using var doc = JsonDocument.Parse(HttpRequestConfig);
-            AI.Sentinel.Approvals.Configuration.ApprovalBackendSelector.Configure(
-                o, AI.Sentinel.Approvals.Configuration.ApprovalConfigLoader.Parse(doc.RootElement));
+            ApprovalBackendSelector.Configure(o, ApprovalConfigLoader.Parse(doc.RootElement));
         });
         await using var provider = services.BuildServiceProvider();
         var guard = provider.GetRequiredService<IToolCallGuard>();

@@ -6,7 +6,6 @@ using AI.Sentinel.Authorization.Policies;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.DependencyInjection;
-using AI.Sentinel.Approvals.Configuration;
 using Xunit;
 using ZeroAlloc.Authorization;
 
@@ -246,34 +245,10 @@ public class AuthorizationTests
         }
     }
 
-    private const string BashWhenConfig = """
-        {
-            "backend": "in-memory",
-            "tools": { "Bash": [ { "role": "Ops", "when": { "$.command": "kubectl\\s+delete" } } ] }
-        }
-        """;
-
-    private static IToolCallGuard BuildBashWhenGuard(out ServiceProvider provider)
-    {
-        var services = new ServiceCollection();
-        services.AddAISentinel(o =>
-        {
-            o.OnCritical = SentinelAction.Quarantine;
-            o.OnHigh = SentinelAction.Quarantine;
-            o.OnMedium = SentinelAction.Quarantine;
-            o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
-            using var doc = JsonDocument.Parse(BashWhenConfig);
-            ApprovalBackendSelector.Configure(o, ApprovalConfigLoader.Parse(doc.RootElement));
-        });
-        provider = services.BuildServiceProvider();
-        return provider.GetRequiredService<IToolCallGuard>();
-    }
-
     [Fact]
     public async Task PreToolUse_ArgumentRule_MatchingCommand_BlocksWithApprovalReceipt()
     {
-        var guard = BuildBashWhenGuard(out var provider);
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
         await using var _ = provider;
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
 
@@ -292,7 +267,7 @@ public class AuthorizationTests
     [Fact]
     public async Task PreToolUse_ArgumentRule_NonMatchingCommand_IsAllowed()
     {
-        var guard = BuildBashWhenGuard(out var provider);
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
         await using var _ = provider;
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
 
