@@ -77,7 +77,7 @@ A value that only refers to a secret is not one, under any key: a whole `${VAR}`
 
 A key inside a JSON document that is itself a JSON string, such as a tool's text block, is recognised too, so `\"client_secret\": \"…\"` is redacted between its escaped quotes and the document still parses. An unquoted value stops at a quote that closes a string, so in `["PATH=/bin","API_TOKEN=x","TZ=UTC"]` only `x` is redacted, while a secret with a quote inside, such as `ab"cd`, is redacted whole.
 
-Within one call, a value that one detector marks as a secret stays a secret where another detector finds it as another type: an email address used as a password is not restored into tool arguments under its `EMAIL` placeholder either. Across calls in the MCP proxy this does not hold yet; see [#459](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/459).
+Within one call, a value that one detector marks as a secret stays a secret where another detector finds it as another type: an email address used as a password is not restored into tool arguments under its `EMAIL` placeholder either. The MCP proxy holds to it across calls too, whichever call came first: a PII placeholder for a value it has seen as a secret is not restored. Only a placeholder minted after the secret's placeholder [expired](#mcp-proxy) restores that value again.
 
 `PiiLeakageDetector` now also matches a bare email address. Before 3.0 it only matched an address preceded by a capitalised "First Last" name. See [What changed regardless](#what-changed-regardless).
 
@@ -242,7 +242,7 @@ The hook CLIs and the MCP proxy cannot fail the host's call, so when redaction f
 
 In the in-process client, the placeholder to value mapping lives in memory for one `GetResponseAsync` or `GetStreamingResponseAsync` call. It is never logged, audited, forwarded or put in an exception, and it is not shared across calls. Every request is redacted afresh from your history, which holds the real values, with a new tag, so a placeholder from an earlier turn is text in a later one.
 
-The MCP proxy keeps the PII placeholders it minted in memory for the run, so it can [restore them into later tool calls](#mcp-proxy). It keeps no secret values, holds at most 10,000 entries, drops an entry 30 minutes after its last use by default, and never logs or audits the mapping. The hook CLIs keep no mapping at all.
+The MCP proxy keeps the PII placeholders it minted in memory for the run, so it can [restore them into later tool calls](#mcp-proxy). It keeps no secret values, only a hash of each under a random key drawn at startup, so it can tell when a PII value is also a secret. It holds at most 10,000 entries, drops an entry 30 minutes after its last use by default, and never logs or audits the mapping. The hook CLIs keep no mapping at all.
 
 ## Audit and notifications
 
