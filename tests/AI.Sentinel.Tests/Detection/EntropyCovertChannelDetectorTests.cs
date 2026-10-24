@@ -71,6 +71,9 @@ public class EntropyCovertChannelDetectorTests
     [InlineData("\"integrity\": \"sha512-7mJJl+wf1AByoT0PknQiQfOPnVNT4fevGrUBVWO4HXsnYn1aQPyRyrELYrNUFleUBM++KzMKN6QaxHPk0t/6/g==\"")] // npm lock
     [InlineData("<script src=\"x.js\" integrity=\"sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+\"></script>")] // SRI
     [InlineData("background: url(\"data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTYiIGhlaWdodD0iNDkiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbn\")")] // inline image
+    [InlineData("<img src=\"data:image/png;base64,iVBORw0KGgq0LQ5B+fAF879b2GcEjMlrXWCU1wJzC7Uun/T0Mh7BPu3R8XZYg1rk\">")]   // png
+    [InlineData("\"sha1-+yrfKkpQ9jKK4K2gNC7w97Ay9/c=\" \"sha256-5GJMBVxqKu8lQxBUTdGalgCYrbVWEE9a0U57slAve3g=\"")]   // sha1, sha256
+    [InlineData("golang.org/x/text v0.14.0 h1:5GJMBVxqKu8lQxBUTdGalgCYrbVWEE9a0U57slAve3g=")]                    // go.sum
     public async Task ToolDataThatLooksEncodedButIsNot_IsNotFlagged(string text)
     {
         var result = await AnalyzeAsync(text);
@@ -86,6 +89,9 @@ public class EntropyCovertChannelDetectorTests
     [InlineData("fetch(\"data:text/plain;base64,+TgLjtsiSmskih6STo/Qri4alJKjMF8YjLYQkA+eNH+uiG3GUHeV7A==\")")]   // non-image data uri
     [InlineData("sha512-abc then qX7vK2mZp9RtLw4JhB6NcF8sYdQe1AgU3TiO5WxV0zPrMkHn")]                         // prefix elsewhere
     [InlineData("token=W0ZFnK-5kLKXMKJHwD0w8z-A-qfqMuCuCqAPAkVCbAafCRo4ikcSwQ")]                              // base64url, split by '-'
+    [InlineData("n0G9W8uw8de9puyHB9d3xvE/pg3mKBxfeN4/YYsakj8DuzdoRy7q3sRjKMPMEiOennEgIQD43wE1xjf1=sha1-+yrfKkpQ9jKK4K2gNC7w97Ay9/c=")] // payload ahead of a digest
+    [InlineData("url(\"data:image/png;base64,n0G9W8uw8de9puyHB9d3xvE/pg3mKBxfeN4/YYsakj8DuzdoRy7q3sRjKMPMEiOennEgIQD43wE1xjf1\")")] // not a png
+    [InlineData("h1:n0G9W8uw8de9puyHB9d3xvE/pg3mKBxfeN4/YYsakj8DuzdoRy7q3sRjKMPMEiOennEgIQD43wE1xjf1")]        // too long for h1
     [InlineData("\"sha512-qX7vK2mZp9RtLw4JhB6NcF8sYdQe1AgU3TiO5WxV0zPrMkHnqX7vK2mZp9RtLw4JhB6NcF8sYdQe1AgU3TiO5WxV0zPrMkHnqX7vK2mZp9RtLw4JhB6N\"")] // too long for its digest
     public async Task EncodedPayloadNearThosePatterns_IsStillFlagged(string text)
     {

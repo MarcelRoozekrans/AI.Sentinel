@@ -25,7 +25,14 @@ namespace AI.Sentinel.Detectors.Security;
 /// Those rules alone flagged one file read in fifteen in a check of real tool data (#470): long test names, URL paths
 /// and constants clear 4.5 bits per character, and lock files carry base64 digests. So a candidate is also passed
 /// over when it is cased and voweled like words, when it is an alphabet table, when it is a digest of its exact length
-/// after a <c>sha*-</c> prefix, and when it is an inline image or font in a <c>data:</c> URI.
+/// after a <c>sha*-</c> prefix or a go.sum <c>h1:</c>, and when it is an inline image or font in a <c>data:</c> URI
+/// whose body opens like one.
+/// </para>
+/// <para>
+/// Known gaps: a payload drawn from one letter case with no digits reads as words, an alphabet of its own nobody
+/// encodes with; an inline image is recognised by its file signature, which a payload can be given; base32 of 30
+/// to 40 bytes is caught a little less often than before; and as ever, a payload broken
+/// by spaces or punctuation, or placed past the examined 64 KiB, is not seen.
 /// </para>
 /// <para>
 /// The result is deliberately <see cref="Severity.Medium"/> and
@@ -76,6 +83,14 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
         [("sha1-", 28), ("sha256-", 44), ("sha384-", 64), ("sha512-", 88)];
 
     private static readonly string[] InlineMediaTypes = ["image/", "font/", "application/font-", "application/x-font-"];
+
+    /// <summary>How the base64 of an image or font file opens: PNG, JPEG, GIF, WebP, ICO, SVG or XML, WOFF and WOFF2,
+    /// TrueType and OpenType. A body that opens otherwise is not the file its media type names.</summary>
+    private static readonly string[] InlineMediaSignatures =
+        ["iVBOR", "/9j/", "R0lGOD", "UklGR", "AAABAA", "PHN2Zy", "PD94bWwg", "d09GR", "d09GMg", "AAEAAA", "T1RUTw"];
+
+    /// <summary>The base64 length of a Go module checksum, a SHA-256 after <c>h1:</c> in go.sum.</summary>
+    private const int GoSumHashLength = 44;
 
     private static readonly DetectorId _id = new("SEC-08");
     private static readonly DetectionResult _clean = DetectionResult.Clean(_id);
@@ -146,7 +161,7 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
     /// subresource integrity attribute; or an inline image or font in a <c>data:</c> URI.
     /// </summary>
     private static bool IsLikelyBenign(ReadOnlySpan<char> text, int start, ReadOnlySpan<char> run) =>
-        IsWordLike(run) || IsOrdered(run) || IsDigest(run) || IsInlineMedia(text, start);
+        IsWordLike(run) || IsOrdered(run) || IsDigest(run) || IsGoSumHash(text, start, run) || IsInlineMedia(text, start, run);
 
     /// <summary>Cased like words, and either voweled like words or nearly free of digits, the way base32 is not.</summary>
     private static bool IsWordLike(ReadOnlySpan<char> run)
@@ -190,14 +205,15 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
     }
 
     /// <summary>Whether the run ends in a digest of exactly its length after a <c>sha*-</c> prefix, the prefix opening
-    /// the run or following an <c>=</c>, as in <c>integrity=sha512-...</c>: <c>-</c> and <c>=</c> are run characters,
-    /// so the prefix is part of the run. A longer value is not a digest, whatever its prefix says.</summary>
+    /// the run or following a short key and an <c>=</c>, as in <c>integrity=sha512-...</c>: <c>-</c> and <c>=</c> are
+    /// run characters, so the prefix is part of the run. A longer value is not a digest, whatever its prefix says, and
+    /// a payload ahead of the <c>=</c> is not a key.</summary>
     private static bool IsDigest(ReadOnlySpan<char> run)
     {
         foreach (var (prefix, length) in Digests)
         {
             var at = run.Length - length - prefix.Length;
-            if (at >= 0 && (at == 0 || run[at - 1] == '=')
+            if (at >= 0 && (at == 0 || (run[at - 1] == '=' && at - 1 < MinimumRunLength))
                 && run.Slice(at, prefix.Length).Equals(prefix, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
@@ -205,10 +221,22 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
         return false;
     }
 
-    /// <summary>Whether the run is the body of a <c>data:image/...;base64,</c> or font URI. Any other media type,
-    /// <c>text/plain</c> for one, is a payload like any other.</summary>
-    private static bool IsInlineMedia(ReadOnlySpan<char> text, int start)
+    private static bool IsGoSumHash(ReadOnlySpan<char> text, int start, ReadOnlySpan<char> run) =>
+        run.Length == GoSumHashLength && start >= 3 && text[(start - 3)..start].SequenceEqual("h1:");
+
+    /// <summary>Whether the run is the body of a <c>data:image/...;base64,</c> or font URI that opens the way such a
+    /// file does. Any other media type, <c>text/plain</c> for one, is a payload like any other, and so is a body that
+    /// only claims to be an image.</summary>
+    private static bool IsInlineMedia(ReadOnlySpan<char> text, int start, ReadOnlySpan<char> run)
     {
+        var isMediaFile = false;
+        foreach (var signature in InlineMediaSignatures)
+        {
+            if (run.StartsWith(signature, StringComparison.Ordinal)) isMediaFile = true;
+        }
+
+        if (!isMediaFile) return false;
+
         const string marker = ";base64,";
         if (start < marker.Length || !text[(start - marker.Length)..start].SequenceEqual(marker)) return false;
 
