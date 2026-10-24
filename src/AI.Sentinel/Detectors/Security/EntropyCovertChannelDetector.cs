@@ -24,8 +24,8 @@ namespace AI.Sentinel.Detectors.Security;
 /// <para>
 /// Those rules alone flagged one file read in fifteen in a check of real tool data (#470): long test names, URL paths
 /// and constants clear 4.5 bits per character, and lock files carry base64 digests. So a candidate is also passed
-/// over when it is cased and voweled like words, when it is an alphabet table, when it follows a <c>sha*-</c> digest
-/// prefix, and when it is an inline image or font in a <c>data:</c> URI.
+/// over when it is cased and voweled like words, when it is an alphabet table, when it is a digest of its exact length
+/// after a <c>sha*-</c> prefix, and when it is an inline image or font in a <c>data:</c> URI.
 /// </para>
 /// <para>
 /// The result is deliberately <see cref="Severity.Medium"/> and
@@ -47,6 +47,10 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
     /// <summary>Bounds the work on a very large message: each message is examined up to this many characters.</summary>
     private const int MaximumCharactersExamined = 64 * 1024;
 
+    /// <summary>How far past <see cref="MaximumCharactersExamined"/> the run the limit cuts through is still read, so it
+    /// is judged whole: a digest cut short no longer has its digest's length.</summary>
+    private const int MaximumRunOverhang = 1024;
+
     /// <summary>Above this share of lower-lower, or of upper-upper, neighbours a run is cased like words. Random
     /// base64 has about 0.17 of each, so identifiers, paths and constants clear it and payloads do not.</summary>
     private const double WordCasePairShare = 0.4;
@@ -66,7 +70,10 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
     /// a run is an alphabet table, not data.</summary>
     private const double OrderedPairShare = 0.4;
 
-    private static readonly string[] DigestPrefixes = ["sha1-", "sha256-", "sha384-", "sha512-"];
+    /// <summary>The <c>sha*-</c> prefixes of npm and subresource integrity values, each with the base64 length of its
+    /// digest, padding included.</summary>
+    private static readonly (string Prefix, int Length)[] Digests =
+        [("sha1-", 28), ("sha256-", 44), ("sha384-", 64), ("sha512-", 88)];
 
     private static readonly string[] InlineMediaTypes = ["image/", "font/", "application/font-", "application/x-font-"];
 
@@ -93,7 +100,13 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
 
     private static DetectionResult? Examine(string text)
     {
-        var span = text.AsSpan(0, Math.Min(text.Length, MaximumCharactersExamined));
+        var end = Math.Min(text.Length, MaximumCharactersExamined);
+        var overhangEnd = Math.Min(text.Length, MaximumCharactersExamined + MaximumRunOverhang);
+        if (end > 0 && IsEncodingCharacter(text[end - 1]))
+        {
+            while (end < overhangEnd && IsEncodingCharacter(text[end])) end++;
+        }
+        var span = text.AsSpan(0, end);
         var start = -1;
 
         for (var i = 0; i <= span.Length; i++)
@@ -129,11 +142,11 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
 
     /// <summary>
     /// Whether a high-entropy run at <paramref name="start"/> is ordinary tool data: an identifier, path or constant,
-    /// which is made of words; an alphabet table; a digest after its <c>sha*-</c> prefix, as in a lock file or a
+    /// which is made of words; an alphabet table; a digest with its <c>sha*-</c> prefix, as in a lock file or a
     /// subresource integrity attribute; or an inline image or font in a <c>data:</c> URI.
     /// </summary>
     private static bool IsLikelyBenign(ReadOnlySpan<char> text, int start, ReadOnlySpan<char> run) =>
-        IsWordLike(run) || IsOrdered(run) || FollowsDigestPrefix(text, start) || IsInlineMedia(text, start);
+        IsWordLike(run) || IsOrdered(run) || IsDigest(run) || IsInlineMedia(text, start);
 
     /// <summary>Cased like words, and either voweled like words or nearly free of digits, the way base32 is not.</summary>
     private static bool IsWordLike(ReadOnlySpan<char> run)
@@ -176,11 +189,16 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
         return (double)ordered / (run.Length - 1) > OrderedPairShare;
     }
 
-    private static bool FollowsDigestPrefix(ReadOnlySpan<char> text, int start)
+    /// <summary>Whether the run ends in a digest of exactly its length after a <c>sha*-</c> prefix, the prefix opening
+    /// the run or following an <c>=</c>, as in <c>integrity=sha512-...</c>: <c>-</c> and <c>=</c> are run characters,
+    /// so the prefix is part of the run. A longer value is not a digest, whatever its prefix says.</summary>
+    private static bool IsDigest(ReadOnlySpan<char> run)
     {
-        foreach (var prefix in DigestPrefixes)
+        foreach (var (prefix, length) in Digests)
         {
-            if (start >= prefix.Length && text[(start - prefix.Length)..start].Equals(prefix, StringComparison.OrdinalIgnoreCase))
+            var at = run.Length - length - prefix.Length;
+            if (at >= 0 && (at == 0 || run[at - 1] == '=')
+                && run.Slice(at, prefix.Length).Equals(prefix, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 
@@ -208,10 +226,11 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
         return false;
     }
 
-    /// <summary>Characters an encoder emits. Excluding punctuation and separators is what keeps URLs,
-    /// paths and structured identifiers out: those break into short runs.</summary>
+    /// <summary>Characters an encoder emits: the base64 and base64url alphabets, padding included. A URL breaks at its
+    /// <c>:</c>, <c>.</c>, <c>?</c> and <c>&amp;</c>; what is left of identifiers and paths is passed over by
+    /// <see cref="IsWordLike"/>.</summary>
     private static bool IsEncodingCharacter(char c) =>
-        char.IsAsciiLetterOrDigit(c) || c is '+' or '/' or '=' or '_';
+        char.IsAsciiLetterOrDigit(c) || c is '+' or '/' or '=' or '_' or '-';
 
     private static double ShannonEntropy(ReadOnlySpan<char> value)
     {
