@@ -6,6 +6,7 @@ using AI.Sentinel.Authorization.Policies;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.DependencyInjection;
+using AI.Sentinel.Approvals.Configuration;
 using Xunit;
 using ZeroAlloc.Authorization;
 
@@ -243,5 +244,60 @@ public class AuthorizationTests
             }
             await Task.CompletedTask.ConfigureAwait(false);
         }
+    }
+
+    private const string BashWhenConfig = """
+        {
+            "backend": "in-memory",
+            "tools": { "Bash": [ { "role": "Ops", "when": { "$.command": "kubectl\\s+delete" } } ] }
+        }
+        """;
+
+    private static IToolCallGuard BuildBashWhenGuard(out ServiceProvider provider)
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.OnCritical = SentinelAction.Quarantine;
+            o.OnHigh = SentinelAction.Quarantine;
+            o.OnMedium = SentinelAction.Quarantine;
+            o.OnLow = SentinelAction.Quarantine;
+            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            using var doc = JsonDocument.Parse(BashWhenConfig);
+            ApprovalBackendSelector.Configure(o, ApprovalConfigLoader.Parse(doc.RootElement));
+        });
+        provider = services.BuildServiceProvider();
+        return provider.GetRequiredService<IToolCallGuard>();
+    }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_MatchingCommand_BlocksWithApprovalReceipt()
+    {
+        var guard = BuildBashWhenGuard(out var provider);
+        await using var _ = provider;
+        var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
+
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"kubectl delete ns prod"}""").RootElement };
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
+        var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
+            e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+        Assert.Contains("policy 'approval:Bash'", denied.Summary, StringComparison.Ordinal);
+        Assert.Equal("approval_required", denied.PolicyCode);
+    }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_NonMatchingCommand_IsAllowed()
+    {
+        var guard = BuildBashWhenGuard(out var provider);
+        await using var _ = provider;
+        var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
+
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"kubectl get pods"}""").RootElement };
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.NotEqual(HookDecision.Block, output.Decision);
     }
 }

@@ -9,6 +9,7 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using ZeroAlloc.Authorization;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace AI.Sentinel.Tests.Mcp;
@@ -366,5 +367,77 @@ public class AuthorizationTests
         public ValueTask<AuthorizationDecision> AuthorizeAsync(
             ISecurityContext caller, string toolName, JsonElement args, CancellationToken ct = default) =>
             new(sequence[Math.Min(_i++, sequence.Length - 1)]);
+    }
+
+    private const string HttpRequestConfig = """
+        {
+            "backend": "in-memory",
+            "tools": { "http_request": [ { "role": "Ops", "when": { "$.method": "^(POST|DELETE)$" } } ] }
+        }
+        """;
+
+    private static async Task<(McpProtocolException? Error, bool NextInvoked)> CallHttpRequestAsync(string method)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.EmbeddingGenerator = new AI.Sentinel.Tests.Helpers.FakeEmbeddingGenerator();
+            using var doc = JsonDocument.Parse(HttpRequestConfig);
+            AI.Sentinel.Approvals.Configuration.ApprovalBackendSelector.Configure(
+                o, AI.Sentinel.Approvals.Configuration.ApprovalConfigLoader.Parse(doc.RootElement));
+        });
+        await using var provider = services.BuildServiceProvider();
+        var guard = provider.GetRequiredService<IToolCallGuard>();
+        var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), DetectorPreset.Security);
+        using var stderr = new StringWriter();
+        var nextInvoked = false;
+
+        var filter = ToolCallInterceptor.Create(pipeline, maxScanBytes: 64 * 1024, stderr: stderr,
+            guard: guard, approvalStore: null, approvalWait: null);
+
+        ValueTask<CallToolResult> Next(RequestContext<CallToolRequestParams> _, CancellationToken __)
+        {
+            nextInvoked = true;
+            return new ValueTask<CallToolResult>(new CallToolResult());
+        }
+
+        var ctx = BuildRequestContext(new CallToolRequestParams
+        {
+            Name = "http_request",
+            Arguments = new Dictionary<string, JsonElement>(StringComparer.Ordinal)
+            {
+                ["method"] = JsonDocument.Parse(JsonSerializer.Serialize(method)).RootElement,
+            },
+        });
+
+        try
+        {
+            _ = await filter(Next)(ctx, CancellationToken.None);
+            return (null, nextInvoked);
+        }
+        catch (McpProtocolException ex)
+        {
+            return (ex, nextInvoked);
+        }
+    }
+
+    [Fact]
+    public async Task ToolsCall_ArgumentRule_MatchingMethod_ThrowsApprovalError()
+    {
+        var (error, nextInvoked) = await CallHttpRequestAsync("DELETE");
+
+        Assert.NotNull(error);
+        Assert.Equal(McpErrorCode.InvalidRequest, error!.ErrorCode);
+        Assert.Contains("Approval required to invoke tool 'http_request'", error.Message, StringComparison.Ordinal);
+        Assert.False(nextInvoked);
+    }
+
+    [Fact]
+    public async Task ToolsCall_ArgumentRule_NonMatchingMethod_IsForwarded()
+    {
+        var (error, nextInvoked) = await CallHttpRequestAsync("GET");
+
+        Assert.Null(error);
+        Assert.True(nextInvoked);
     }
 }
