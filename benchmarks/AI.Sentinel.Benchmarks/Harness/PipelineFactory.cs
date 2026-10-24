@@ -17,7 +17,7 @@ internal static class PipelineFactory
         new([], configurations: null, escalationClient: null);
 
     /// <summary>
-    /// Security-only pipeline with the 14 security detectors of the hook CLIs' and MCP proxy's security preset,
+    /// Security-only pipeline with the 15 security detectors of the hook CLIs' and MCP proxy's security preset,
     /// without its 4 compliance detectors, which are off by default.
     /// </summary>
     public static DetectionPipeline SecurityOnly() => SecurityOnly(new SentinelOptions());
@@ -39,6 +39,7 @@ internal static class PipelineFactory
                 new ExcessiveAgencyDetector(options),   // SEC-21
                 new HumanTrustManipulationDetector(options), // SEC-22
                 new ShorthandEmergenceDetector(options),     // SEC-30
+                new AdversarialUnicodeDetector(),            // SEC-24
             ],
             configurations: null,
             escalationClient: null);
