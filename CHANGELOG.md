@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.3.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.2.4...v3.3.0) (2026-10-24)
+
+
+### Features
+
+* ship net10.0 builds of every package ([#468](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/468)) ([f0ba936](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/f0ba936e74f57d4e9adf990e82823e122dc50d7e))
+
 ## [3.2.4](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.2.3...v3.2.4) (2026-10-24)
 
 
