@@ -9,6 +9,18 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.4.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.3.0...v3.4.0) (2026-10-24)
+
+
+### Features
+
+* **hooks:** the security preset runs SEC-24 AdversarialUnicode ([ba842c5](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ba842c5611ecfcc2e9e943fea430a914440d2bde))
+
+
+### Bug Fixes
+
+* **detectors:** SEC-24 no longer flags a byte order mark ([ba842c5](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ba842c5611ecfcc2e9e943fea430a914440d2bde))
+
 ## [3.3.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.2.4...v3.3.0) (2026-10-24)
 
 
