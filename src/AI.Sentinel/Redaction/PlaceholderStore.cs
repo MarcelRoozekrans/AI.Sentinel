@@ -87,20 +87,22 @@ internal sealed class PlaceholderStore
             var now = _time.GetUtcNow();
             PurgeExpiredLocked(now);
             // This call's secrets first, so they poison its own PII tokens too, whatever the order they were minted in.
+            var hashes = new string[minted.Count];
             var secrets = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var m in minted)
+            for (var i = 0; i < minted.Count; i++)
             {
-                if (!m.RestoreIntoToolArguments && secrets.Add(HashOf(m.Value)))
+                hashes[i] = HashOf(minted[i].Value);
+                if (!minted[i].RestoreIntoToolArguments && secrets.Add(hashes[i]))
                 {
-                    PoisonLocked(m.Value);
+                    PoisonLocked(minted[i].Value);
                 }
             }
 
-            foreach (var m in minted)
+            for (var i = 0; i < minted.Count; i++)
             {
+                var m = minted[i];
+                var hash = hashes[i];
                 // A secret's value is not kept: it is never restored, so only its token and keyed hash are needed.
-                var hash = HashOf(m.Value);
-                var secretHash = m.RestoreIntoToolArguments ? null : hash;
                 var value = m.RestoreIntoToolArguments && !secrets.Contains(hash) && !_secretHashes.ContainsKey(hash)
                     ? m.Value
                     : null;
@@ -111,13 +113,20 @@ internal sealed class PlaceholderStore
                     var kept = stored is not null && value is not null && string.Equals(stored, value, StringComparison.Ordinal)
                         ? stored
                         : null;
+                    // A token two sessions minted for two secrets keeps both hashes, so both values stay secrets.
+                    var secretHashes = node.Value.SecretHashes;
+                    if (!m.RestoreIntoToolArguments && secretHashes?.Contains(hash, StringComparer.Ordinal) != true)
+                    {
+                        secretHashes = [.. secretHashes ?? [], hash];
+                    }
+
                     RemoveLocked(node);
-                    node.Value = new Entry(m.Token, kept, now, secretHash ?? node.Value.SecretHash);
+                    node.Value = new Entry(m.Token, kept, now, secretHashes);
                     AddLocked(node);
                     continue;
                 }
 
-                var added = new LinkedListNode<Entry>(new Entry(m.Token, value, now, secretHash));
+                var added = new LinkedListNode<Entry>(new Entry(m.Token, value, now, m.RestoreIntoToolArguments ? null : [hash]));
                 _byToken[m.Token] = added;
                 AddLocked(added);
             }
@@ -145,23 +154,26 @@ internal sealed class PlaceholderStore
     private string HashOf(string value) =>
         Convert.ToHexString(HMACSHA256.HashData(_hashKey, Encoding.UTF8.GetBytes(value)));
 
-    /// <summary>Appends <paramref name="node"/> as most recently used and counts its secret hash.</summary>
+    /// <summary>Appends <paramref name="node"/> as most recently used and counts its secret hashes.</summary>
     private void AddLocked(LinkedListNode<Entry> node)
     {
         _byUse.AddLast(node);
-        if (node.Value.SecretHash is { } hash)
+        foreach (var hash in node.Value.SecretHashes ?? [])
         {
             _secretHashes[hash] = _secretHashes.GetValueOrDefault(hash) + 1;
         }
     }
 
-    /// <summary>Unlinks <paramref name="node"/> and stops counting its secret hash.</summary>
+    /// <summary>Unlinks <paramref name="node"/> and stops counting its secret hashes.</summary>
     private void RemoveLocked(LinkedListNode<Entry> node)
     {
         _byUse.Remove(node);
-        if (node.Value.SecretHash is { } hash && --CollectionsMarshal.GetValueRefOrNullRef(_secretHashes, hash) == 0)
+        foreach (var hash in node.Value.SecretHashes ?? [])
         {
-            _secretHashes.Remove(hash);
+            if (--CollectionsMarshal.GetValueRefOrNullRef(_secretHashes, hash) == 0)
+            {
+                _secretHashes.Remove(hash);
+            }
         }
     }
 
@@ -340,9 +352,9 @@ internal sealed class PlaceholderStore
         }
     }
 
-    // Value is null for a token that is never restored, such as a secret's. SecretHash is the keyed hash of the value
-    // of a token registered as a secret, and null otherwise.
-    private readonly record struct Entry(string Token, string? Value, DateTimeOffset LastUsed, string? SecretHash = null)
+    // Value is null for a token that is never restored, such as a secret's. SecretHashes holds the keyed hash of each
+    // value the token was registered with as a secret, usually one, and is null for a token never registered as one.
+    private readonly record struct Entry(string Token, string? Value, DateTimeOffset LastUsed, string[]? SecretHashes = null)
     {
         public override string ToString() => Token;
     }

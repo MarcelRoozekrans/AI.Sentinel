@@ -77,7 +77,7 @@ A value that only refers to a secret is not one, under any key: a whole `${VAR}`
 
 A key inside a JSON document that is itself a JSON string, such as a tool's text block, is recognised too, so `\"client_secret\": \"…\"` is redacted between its escaped quotes and the document still parses. An unquoted value stops at a quote that closes a string, so in `["PATH=/bin","API_TOKEN=x","TZ=UTC"]` only `x` is redacted, while a secret with a quote inside, such as `ab"cd`, is redacted whole.
 
-Within one call, a value that one detector marks as a secret stays a secret where another detector finds it as another type: an email address used as a password is not restored into tool arguments under its `EMAIL` placeholder either. The MCP proxy holds to it across calls too, whichever call came first: a PII placeholder for a value it has seen as a secret is not restored. Only a placeholder minted after the secret's placeholder [expired](#mcp-proxy) restores that value again.
+Within one call, a value that one detector marks as a secret stays a secret where another detector finds it as another type: an email address used as a password is not restored into tool arguments under its `EMAIL` placeholder either. The MCP proxy holds to it across calls too, whichever call came first: a PII placeholder for a value it has seen as a secret is not restored. Only a placeholder minted after the secret's placeholder [expired or was evicted](#mcp-proxy) restores that value again.
 
 `PiiLeakageDetector` now also matches a bare email address. Before 3.0 it only matched an address preceded by a capitalised "First Last" name. See [What changed regardless](#what-changed-regardless).
 

@@ -251,13 +251,41 @@ public class PlaceholderStoreTests
         store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
         store.Register([SecretOf("[PASSWORD_1_bbbbb2]", Email)]);
 
-        // Each registration over the cap evicts the oldest entry: C evicts the first secret, D the second.
+        // Each registration over the cap evicts the oldest entry: C evicts the first secret, D the second. A token's
+        // restorability is settled before that eviction, so D is judged while the second secret still lives.
         store.Register([Pii("[EMAIL_1_ccccc3]", Email)]);
         store.Register([Pii("[EMAIL_1_ddddd4]", Email)]);
         store.Register([Pii("[EMAIL_1_eeeee5]", Email)]);
 
         Assert.Equal("[EMAIL_1_ddddd4]", store.RestoreToolArgument("[EMAIL_1_ddddd4]"));
         Assert.Equal(Email, store.RestoreToolArgument("[EMAIL_1_eeeee5]"));
+    }
+
+    // Two sessions drew the same tag, so one secret token stands for two values; both stay secrets.
+    [Fact]
+    public void Register_SecretTokenAgainWithAnotherValue_BothValuesStaySecrets()
+    {
+        var store = NewStore();
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", "piet@example.org")]);
+
+        store.Register([Pii("[EMAIL_1_bbbbb2]", Email), Pii("[EMAIL_2_bbbbb2]", "piet@example.org")]);
+
+        Assert.Equal("[EMAIL_1_bbbbb2] [EMAIL_2_bbbbb2]", store.RestoreToolArgument("[EMAIL_1_bbbbb2] [EMAIL_2_bbbbb2]"));
+    }
+
+    // A secret token registered twice is still one entry: once it is evicted, its value is no longer a secret.
+    [Fact]
+    public void Register_SecretTokenTwice_LeavesWithOneEviction()
+    {
+        var store = NewStore(maxEntries: 1);
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+        store.Register([SecretOf("[PASSWORD_1_aaaaa1]", Email)]);
+
+        store.Register([Pii("[EMAIL_1_bbbbb2]", Email)]);
+        store.Register([Pii("[EMAIL_1_ccccc3]", Email)]);
+
+        Assert.Equal(Email, store.RestoreToolArgument("[EMAIL_1_ccccc3]"));
     }
 
     [Fact]
