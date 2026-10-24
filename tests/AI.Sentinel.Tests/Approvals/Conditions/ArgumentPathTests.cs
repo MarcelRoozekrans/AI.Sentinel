@@ -23,12 +23,30 @@ public class ArgumentPathTests
     [Theory]
     [InlineData("{\"v\":true}", "$.v", "true")]
     [InlineData("{\"v\":[1, [2,  3], {\"k\": \"z\"}]}", "$.v", "[1,[2,3],{\"k\":\"z\"}]")]
-    [InlineData("{\"v\":\"a\\u00e9\"}", "$.v", "aé")]
+    [InlineData("{\"v\":\"a\\u00e9\"}", "$.v", "a\u00e9")]
     public void TryGetMatchText_ValueKinds(string json, string path, string expected)
     {
         using var doc = JsonDocument.Parse(json);
         Assert.True(ArgumentPath.Parse(path).TryGetMatchText(doc.RootElement, out var text));
         Assert.Equal(expected, text);
+    }
+
+    [Theory]
+    [InlineData("{\"it's\":\"q\"}", "$['it\\'s']", "q")]
+    [InlineData("{\"a\\\\b\":\"bs\"}", "$['a\\\\b']", "bs")]
+    public void TryGetMatchText_EscapedQuotedNames(string json, string path, string expected)
+    {
+        using var doc = JsonDocument.Parse(json);
+        Assert.True(ArgumentPath.Parse(path).TryGetMatchText(doc.RootElement, out var text));
+        Assert.Equal(expected, text);
+    }
+
+    [Fact]
+    public void TryGetMatchText_CompactText_KeepsRawCharacters()
+    {
+        using var doc = JsonDocument.Parse("{\"o\":{\"k\":\"<a&b>\\u00e9+'\"}}");
+        Assert.True(ArgumentPath.Parse("$.o").TryGetMatchText(doc.RootElement, out var text));
+        Assert.Equal("{\"k\":\"<a&b>\u00e9+'\"}", text);
     }
 
     [Theory]
@@ -54,6 +72,8 @@ public class ArgumentPathTests
     [InlineData("$[?(@.a)]")]
     [InlineData("$.a[0:2]")]
     [InlineData("$['unterminated")]
+    [InlineData("$['bad\\x']")]
+    [InlineData("$['trail\\']")]
     public void Parse_BadSyntax_ThrowsNamingPath(string path)
     {
         var ex = Assert.Throws<ArgumentException>(() => ArgumentPath.Parse(path));

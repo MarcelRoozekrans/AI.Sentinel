@@ -1,14 +1,18 @@
 using System.Globalization;
+using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace AI.Sentinel.Approvals.Conditions;
 
 /// <summary>
 /// A parsed JSON path into tool-call arguments. Supports <c>$</c> followed by <c>.name</c>,
-/// <c>['name']</c> and <c>[n]</c> segments only.
+/// <c>['name']</c> and <c>[n]</c> segments only. Quoted names may escape <c>'</c> and <c>\</c> with a backslash.
 /// </summary>
 internal sealed class ArgumentPath
 {
+    private static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
     private readonly (string? Name, int Index)[] _segments;
 
     private ArgumentPath(string text, (string? Name, int Index)[] segments)
@@ -40,11 +44,7 @@ internal sealed class ArgumentPath
             }
             else if (path[i] == '[' && i + 1 < path.Length && path[i + 1] == '\'')
             {
-                var start = i + 2;
-                var end = path.IndexOf('\'', start);
-                if (end < 0 || end + 1 >= path.Length || path[end + 1] != ']') throw Bad(path);
-                segments.Add((path.Substring(start, end - start), 0));
-                i = end + 2;
+                segments.Add((ReadQuotedName(path, ref i), 0));
             }
             else if (path[i] == '[')
             {
@@ -102,14 +102,46 @@ internal sealed class ArgumentPath
             case JsonValueKind.Array:
                 using (var stream = new MemoryStream())
                 {
-                    using (var writer = new Utf8JsonWriter(stream))
+                    using (var writer = new Utf8JsonWriter(stream, WriterOptions))
                         current.WriteTo(writer);
-                    text = System.Text.Encoding.UTF8.GetString(stream.GetBuffer(), 0, (int)stream.Length);
+                    text = Encoding.UTF8.GetString(stream.GetBuffer(), 0, (int)stream.Length);
                 }
                 return true;
             default:
                 return false;
         }
+    }
+
+    /// <summary>Reads <c>['name']</c> starting at the opening bracket; leaves <paramref name="i"/> after the closing bracket.</summary>
+    private static string ReadQuotedName(string path, ref int i)
+    {
+        var name = new StringBuilder();
+        var j = i + 2;
+        var closed = false;
+        while (j < path.Length)
+        {
+            var c = path[j];
+            if (c == '\\')
+            {
+                if (j + 1 >= path.Length || path[j + 1] is not ('\'' or '\\')) throw Bad(path);
+                name.Append(path[j + 1]);
+                j += 2;
+            }
+            else if (c == '\'')
+            {
+                closed = true;
+                break;
+            }
+            else
+            {
+                name.Append(c);
+                j++;
+            }
+        }
+
+        if (!closed || j + 1 >= path.Length || path[j + 1] != ']') throw Bad(path);
+        i = j + 2;
+        return name.ToString();
     }
 
     private static bool IsNameChar(char c) => char.IsLetterOrDigit(c) || c is '_' or '-';

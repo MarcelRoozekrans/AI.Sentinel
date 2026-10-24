@@ -15,6 +15,7 @@ internal sealed class ArgumentCondition
 
     public ArgumentCondition(string jsonPath, string pattern)
     {
+        ArgumentNullException.ThrowIfNull(jsonPath);
         ArgumentNullException.ThrowIfNull(pattern);
         Path = ArgumentPath.Parse(jsonPath);
         Pattern = pattern;
