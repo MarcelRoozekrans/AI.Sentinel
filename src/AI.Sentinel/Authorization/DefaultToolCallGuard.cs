@@ -23,6 +23,11 @@ internal sealed class DefaultToolCallGuard(
 {
     private readonly ToolCallPolicyBinding[] _bindings = [.. bindings];
 
+    /// <summary>True when the guard can refuse a call: it has a binding, or <see cref="ToolPolicyDefault.Deny"/>
+    /// applies to unbound tools. <c>AddAISentinel</c> always registers a guard, so its presence alone does not mean
+    /// authorization is configured.</summary>
+    internal bool CanRefuse => _bindings.Length > 0 || @default == ToolPolicyDefault.Deny;
+
     // Evaluation slots in registration order.
     private readonly Slot[] _slots = BuildSlots(bindings);
 

@@ -273,6 +273,90 @@ public class CopilotHookAdapterTests
             e.DetectorId, AI.Sentinel.Audit.AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
     }
 
+    // A guard with approval rules cannot authorize a call that names no tool, so the call is blocked as an internal error.
+    [Fact]
+    public async Task PreToolUse_NoToolName_WithApprovalRules_BlocksAsInternalError()
+    {
+        ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = new CopilotHookAdapter(provider, new CopilotHookConfig());
+
+        var output = await adapter.HandleAsync(
+            CopilotHookEvent.PreToolUse, new CopilotHookInput { SessionId = "sess-n", ToolArgs = Json("""{"command":"ls"}""") }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Sentinel internal error: ", output.Reason, StringComparison.Ordinal);
+        var entry = Assert.Single(await ReadAuditAsync(provider.GetRequiredService<AI.Sentinel.Audit.IAuditStore>()));
+        Assert.Equal(AI.Sentinel.Authorization.SentinelDenyCodes.InternalError, entry.PolicyCode);
+        Assert.Contains("tool 'unknown' by policy 'sentinel-internal'", entry.Summary, StringComparison.Ordinal);
+        Assert.Equal("sess-n", entry.SessionId);
+    }
+
+    // A blank tool name names no tool either.
+    [Fact]
+    public async Task PreToolUse_WhitespaceToolName_WithApprovalRules_BlocksAsInternalError()
+    {
+        ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = new CopilotHookAdapter(provider, new CopilotHookConfig());
+
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, new CopilotHookInput { SessionId = "sess-w", ToolName = " " }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Sentinel internal error: ", output.Reason, StringComparison.Ordinal);
+        var entry = Assert.Single(await ReadAuditAsync(provider.GetRequiredService<AI.Sentinel.Audit.IAuditStore>()));
+        Assert.Contains("tool 'unknown' by policy 'sentinel-internal'", entry.Summary, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreToolUse_NoToolName_DefaultToolPolicyDeny_Blocks()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.DefaultToolPolicy = AI.Sentinel.Authorization.ToolPolicyDefault.Deny;
+        });
+        await using var provider = services.BuildServiceProvider();
+        var adapter = new CopilotHookAdapter(provider, new CopilotHookConfig());
+
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, new CopilotHookInput { SessionId = "s" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Sentinel internal error: ", output.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreToolUse_NoToolName_CustomGuard_Blocks()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        await using var provider = services.BuildServiceProvider();
+        var adapter = CopilotHookAdapter.CreateForTests(provider, null, new DenyGuard());
+
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, new CopilotHookInput { SessionId = "s" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Sentinel internal error: ", output.Reason, StringComparison.Ordinal);
+    }
+
+    // AddAISentinel always registers a guard; without bindings it authorizes nothing, so a missing tool name is no error.
+    [Fact]
+    public async Task PreToolUse_NoToolName_NoAuthorizationConfigured_Allows()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        await using var provider = services.BuildServiceProvider();
+        var adapter = new CopilotHookAdapter(provider, new CopilotHookConfig());
+        var audit = provider.GetRequiredService<AI.Sentinel.Audit.IAuditStore>();
+
+        var output = await adapter.HandleAsync(
+            CopilotHookEvent.PreToolUse, new CopilotHookInput { SessionId = "s", ToolArgs = Json("""{"command":"ls"}""") }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Allow, output.Decision);
+        Assert.Empty(await ReadAuditAsync(audit));
+    }
+
     private sealed class DenyGuard : AI.Sentinel.Authorization.IToolCallGuard
     {
         public ValueTask<AI.Sentinel.Authorization.AuthorizationDecision> AuthorizeAsync(

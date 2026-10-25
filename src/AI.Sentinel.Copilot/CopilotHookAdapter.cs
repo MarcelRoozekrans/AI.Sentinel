@@ -175,16 +175,38 @@ public sealed class CopilotHookAdapter
             output, output.Decision == HookDecision.Block ? HookPipelineRunner.WithheldText(output.Reason) : null);
     }
 
-    /// <summary>Asks the <see cref="IToolCallGuard"/>, when one is registered, whether the tool call may run. A Block
-    /// with the denial or approval receipt when it may not, audited as AUTHZ-DENY; otherwise <see langword="null"/>.</summary>
-    private async Task<HookOutput?> AuthorizeAsync(CopilotHookInput input, CancellationToken ct)
+    /// <summary>Nothing to authorize without configured rules, so <see langword="null"/> then. With them, a call that names
+    /// no tool cannot be checked, and letting it run would skip every rule, so it is blocked as an internal error and
+    /// audited as AUTHZ-DENY with the <c>internal_error</c> code.</summary>
+    private async Task<HookOutput?> BlockUnnamedToolAsync(IToolCallGuard guard, CopilotHookInput input, CancellationToken ct)
     {
-        if (_guard is null || string.IsNullOrEmpty(input.ToolName))
+        if (!HookInternalError.Authorizes(guard))
         {
             return null;
         }
 
+        if (_audit is not null)
+        {
+            var caller = _config.CallerContextProvider?.Invoke(input) ?? AnonymousSecurityContext.Instance;
+            var entry = HookInternalError.BuildAuditEntry(caller, toolName: null, input.SessionId, HookInternalError.MissingToolNameReason);
+            await _audit.AppendAndForwardAsync(entry, _forwarders, ct).ConfigureAwait(false);
+        }
+
+        return new HookOutput { Decision = HookDecision.Block, Reason = HookInternalError.MissingToolNameReason };
+    }
+
+    /// <summary>Asks the <see cref="IToolCallGuard"/>, when one is registered, whether the tool call may run. A Block
+    /// with the denial or approval receipt when it may not, audited as AUTHZ-DENY; otherwise <see langword="null"/>. A call
+    /// that names no tool is blocked as an internal error when the guard can refuse calls.</summary>
+    private async Task<HookOutput?> AuthorizeAsync(CopilotHookInput input, CancellationToken ct)
+    {
+        if (_guard is null || string.IsNullOrWhiteSpace(input.ToolName))
+        {
+            return _guard is null ? null : await BlockUnnamedToolAsync(_guard, input, ct).ConfigureAwait(false);
+        }
+
         var caller = _config.CallerContextProvider?.Invoke(input) ?? AnonymousSecurityContext.Instance;
+
         var args = input.GuardToolArgs(EmptyJsonObject);
         var decision = await _guard.AuthorizeAsync(caller, input.ToolName, args, ct).ConfigureAwait(false);
         if (!decision.Allowed)

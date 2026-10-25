@@ -17,5 +17,6 @@ public class SentinelDenyCodesTests
         Assert.Equal("approval_required", SentinelDenyCodes.ApprovalRequired);
         Assert.Equal("approval_store_exception", SentinelDenyCodes.ApprovalStoreException);
         Assert.Equal("approval_state_unknown", SentinelDenyCodes.ApprovalStateUnknown);
+        Assert.Equal("internal_error", SentinelDenyCodes.InternalError);
     }
 }

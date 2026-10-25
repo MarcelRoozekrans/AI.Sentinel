@@ -237,7 +237,7 @@ The config loader validates required fields at startup:
 - A duplicate key inside `tools`, inside a tool entry or inside a `when` → fail.
 - `grantScope: "call"` with `backend=entra-pim` → fail.
 
-Validation failures print to stderr and exit `1`. Successful load is silent.
+Validation failures print to stderr and exit `1`, with one exception: on `PreToolUse`, `sentinel-hook` and `sentinel-copilot-hook` block the tool call with exit `2` and `Sentinel internal error: approval config '<path>' could not be loaded: <message>`, and record an audit entry with the code `internal_error`. A broken file must not turn off every approval rule. Fix the file, or unset `SENTINEL_APPROVAL_CONFIG`, to unblock tool calls. See [Claude Code → When the hook itself fails](/docs/integrations/claude-code#when-the-hook-itself-fails). Successful load is silent.
 
 ## See also
 
