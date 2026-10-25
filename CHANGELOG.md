@@ -9,6 +9,19 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.6.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.5.0...v3.6.0) (2026-10-25)
+
+
+### Features
+
+* **approvals:** approval rules match tool arguments with when conditions, rule arrays and call-scoped grants ([e57ebbc](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/e57ebbcec334d181560b61ef3e1c5e57eb8cab10))
+
+
+### Bug Fixes
+
+* **approvals:** no unknown-policy startup error for approval bindings ([e57ebbc](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/e57ebbcec334d181560b61ef3e1c5e57eb8cab10))
+* **copilot:** a lone surrogate in string toolArgs fails closed instead of crashing the hook ([e57ebbc](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/e57ebbcec334d181560b61ef3e1c5e57eb8cab10))
+
 ## [3.5.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.4.1...v3.5.0) (2026-10-24)
 
 
