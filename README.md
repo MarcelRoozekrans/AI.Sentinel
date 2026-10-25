@@ -1060,6 +1060,22 @@ dotnet run --project benchmarks/AI.Sentinel.Benchmarks -c Release -- --filter "*
 
 ---
 
+## Family
+
+AI.Sentinel is part of a small family of .NET projects for AI work:
+
+- [Minos.NET](https://marcelroozekrans.github.io/Minos.NET): Typed, source-generated decision questions with calibrated answers.
+- [Rag.NET](https://marcelroozekrans.github.io/Rag.NET/): A modular retrieval-augmented generation pipeline on Microsoft.Extensions.AI.
+- [Roslyn CodeLens MCP](https://github.com/MarcelRoozekrans/roslyn-codelens-mcp): Semantic .NET code intelligence for AI agents over MCP.
+- [MemoryLens MCP](https://github.com/MarcelRoozekrans/memorylens-mcp): On-demand .NET memory profiling with AI-actionable fixes over MCP.
+
+## Built on ZeroAlloc
+
+AI.Sentinel uses these [ZeroAlloc](https://zeroalloc.net) libraries, which are source generators and analyzers with no reflection at runtime:
+
+- [ZeroAlloc.Analyzers](https://analyzers.zeroalloc.net)
+- [ZeroAlloc.Authorization](https://authorization.zeroalloc.net)
+
 ## License
 
 MIT © Marcel Roozekrans
