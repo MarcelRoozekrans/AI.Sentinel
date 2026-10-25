@@ -17,16 +17,19 @@ internal static class HookInternalError
     /// <summary>The policy name the audit entry carries; no configured policy took the decision.</summary>
     internal const string PolicyName = "sentinel-internal";
 
+    /// <summary>The start of every internal-error block reason.</summary>
+    internal const string Prefix = "Sentinel internal error:";
+
     /// <summary>The block reason for an unexpected exception.</summary>
     internal static string Reason(Exception ex) =>
-        $"Sentinel internal error: {ex.GetType().Name}: {ex.Message}";
+        $"{Prefix} {ex.GetType().Name}: {ex.Message}";
 
     /// <summary>The block reason for a <c>SENTINEL_APPROVAL_CONFIG</c> that failed to load or validate.</summary>
     internal static string ApprovalConfigReason(string path, Exception ex) =>
-        $"Sentinel internal error: approval config '{path}' could not be loaded: {ex.Message}";
+        $"{Prefix} approval config '{path}' could not be loaded: {ex.Message}";
 
     /// <summary>The block reason for a PreToolUse whose input names no tool while authorization is configured.</summary>
-    internal const string MissingToolNameReason = "Sentinel internal error: PreToolUse input has no tool name";
+    internal const string MissingToolNameReason = Prefix + " PreToolUse input has no tool name";
 
     /// <summary>True when <paramref name="guard"/> can refuse a call, so a call it cannot evaluate must be blocked.
     /// A guard other than the default one was registered on purpose and counts as configured.</summary>
@@ -35,8 +38,8 @@ internal static class HookInternalError
     /// <summary>The block reason for stdin that is not valid JSON, or is JSON <c>null</c>.</summary>
     internal static string StdinReason(Exception ex) =>
         ex is JsonException
-            ? $"Sentinel internal error: malformed stdin JSON: {ex.Message}"
-            : $"Sentinel internal error: empty stdin JSON: {ex.Message}";
+            ? $"{Prefix} malformed stdin JSON: {ex.Message}"
+            : $"{Prefix} empty stdin JSON: {ex.Message}";
 
     /// <summary>Records the block, best effort: the call is blocked either way and the exit code must not change, so a
     /// failure is returned as a problem for the CLI to report with its other audit problems, and <c>null</c> otherwise.</summary>

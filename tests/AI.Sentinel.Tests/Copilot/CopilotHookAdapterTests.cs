@@ -292,6 +292,22 @@ public class CopilotHookAdapterTests
         Assert.Equal("sess-n", entry.SessionId);
     }
 
+    // A blank tool name names no tool either.
+    [Fact]
+    public async Task PreToolUse_WhitespaceToolName_WithApprovalRules_BlocksAsInternalError()
+    {
+        ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = new CopilotHookAdapter(provider, new CopilotHookConfig());
+
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, new CopilotHookInput { SessionId = "sess-w", ToolName = " " }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Sentinel internal error: ", output.Reason, StringComparison.Ordinal);
+        var entry = Assert.Single(await ReadAuditAsync(provider.GetRequiredService<AI.Sentinel.Audit.IAuditStore>()));
+        Assert.Contains("tool 'unknown' by policy 'sentinel-internal'", entry.Summary, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task PreToolUse_NoToolName_DefaultToolPolicyDeny_Blocks()
     {

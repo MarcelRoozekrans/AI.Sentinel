@@ -111,7 +111,7 @@ public sealed class HookAdapter
     /// that names no tool is blocked as an internal error when the guard can refuse calls.</summary>
     private async Task<HookOutput?> AuthorizeAsync(HookInput input, CancellationToken ct)
     {
-        if (_guard is null || string.IsNullOrEmpty(input.ToolName))
+        if (_guard is null || string.IsNullOrWhiteSpace(input.ToolName))
         {
             return _guard is null ? null : await BlockUnnamedToolAsync(_guard, input, ct).ConfigureAwait(false);
         }

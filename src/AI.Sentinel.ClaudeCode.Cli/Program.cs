@@ -398,7 +398,9 @@ public static class Program
           .Append(" event=").Append(eventName)
           .Append(" decision=").Append(output.Decision);
 
-        if (output.Decision != HookDecision.Allow && !string.IsNullOrEmpty(output.Reason))
+        // An internal-error reason names no detector, so it is not parsed for one.
+        if (output.Decision != HookDecision.Allow && !string.IsNullOrEmpty(output.Reason)
+            && !output.Reason.StartsWith(HookInternalError.Prefix, StringComparison.Ordinal))
         {
             // output.Reason format: "{DetectorId} {Severity}: {text}"
             var space1 = output.Reason.IndexOf(' ', StringComparison.Ordinal);

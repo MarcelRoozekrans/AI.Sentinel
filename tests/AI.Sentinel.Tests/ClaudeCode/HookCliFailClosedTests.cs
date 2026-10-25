@@ -196,12 +196,18 @@ public class HookCliFailClosedTests : IDisposable
     {
         UseApprovalConfig("""{ "backend": "in-memory", "tools": { "Bash": { "role": "Ops" } } }""");
         var db = UseAuditDatabase();
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", "1");
 
         var (exit, stdout, stderr) = await RunAsync("pre-tool-use", NoToolName);
 
         Assert.Equal(2, exit);
         Assert.Empty(stdout);
-        Assert.StartsWith("Sentinel internal error: PreToolUse input has no tool name", stderr, StringComparison.Ordinal);
+        Assert.Contains("\nSentinel internal error: PreToolUse input has no tool name\n", "\n" + stderr, StringComparison.Ordinal);
+        // The verbose line names no detector for an internal error.
+        var verbose = Assert.Single(stderr.Split('\n'), l => l.StartsWith("[sentinel-hook]", StringComparison.Ordinal));
+        Assert.Contains("decision=Block", verbose, StringComparison.Ordinal);
+        Assert.DoesNotContain("detector=", verbose, StringComparison.Ordinal);
+        Assert.Contains("session=cc-478", verbose, StringComparison.Ordinal);
         var entry = await AssertInternalErrorEntryAsync(db, "unknown");
         Assert.Equal("cc-478", entry.SessionId);
     }
