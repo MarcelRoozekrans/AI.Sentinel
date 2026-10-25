@@ -285,4 +285,76 @@ public class McpCliTests : McpAuditOffFixtureBase
 
         Assert.Equal(expected, ProxyCommand.ParseMaxScanBytes(env));
     }
+
+    [Fact]
+    public async Task BuildAuthorizationStack_ArrayWithWhenRules_Loads()
+    {
+        var configPath = Path.Combine(Path.GetTempPath(), $"approval-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(configPath, """
+            {
+                "backend": "in-memory",
+                "tools": {
+                    "http_request": [
+                        { "role": "Ops", "when": { "$.method": "^(POST|DELETE)$" } },
+                        { "role": "Admin", "grantScope": "call" }
+                    ]
+                }
+            }
+            """, TestContext.Current.CancellationToken);
+        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
+        try
+        {
+            var stderr = new StringWriter();
+            var (provider, guard, _, _, configError) = await ProxyCommand.BuildAuthorizationStackAsync(stderr);
+            try
+            {
+                Assert.False(configError);
+                Assert.NotNull(guard);
+                Assert.Equal("", stderr.ToString());
+            }
+            finally
+            {
+                if (provider is not null) await provider.DisposeAsync();
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
+            File.Delete(configPath);
+        }
+    }
+
+    [Fact]
+    public async Task BuildAuthorizationStack_BadWhenRegex_IsConfigErrorNamingTheLocation()
+    {
+        var configPath = Path.Combine(Path.GetTempPath(), $"approval-{Guid.NewGuid():N}.json");
+        await File.WriteAllTextAsync(configPath, """
+            {
+                "backend": "in-memory",
+                "tools": { "http_request": [ { "role": "Ops", "when": { "$.method": "(" } } ] }
+            }
+            """, TestContext.Current.CancellationToken);
+        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
+        try
+        {
+            var stderr = new StringWriter();
+            var (provider, _, _, _, configError) = await ProxyCommand.BuildAuthorizationStackAsync(stderr);
+            try
+            {
+                Assert.True(configError);
+                Assert.Null(provider);
+                Assert.Contains("tools.http_request", stderr.ToString(), StringComparison.Ordinal);
+                Assert.Contains("when['$.method']", stderr.ToString(), StringComparison.Ordinal);
+            }
+            finally
+            {
+                if (provider is not null) await provider.DisposeAsync();
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
+            File.Delete(configPath);
+        }
+    }
 }

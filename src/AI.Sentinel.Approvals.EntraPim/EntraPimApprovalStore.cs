@@ -20,7 +20,7 @@ namespace AI.Sentinel.Approvals.EntraPim;
 ///         → <see cref="ApprovalState.Denied"/>.</item>
 /// </list>
 /// </remarks>
-public sealed class EntraPimApprovalStore : IApprovalStore
+public sealed class EntraPimApprovalStore : IApprovalStore, IRoleActivationApprovalStore
 {
     private readonly IGraphRoleClient _graph;
     private readonly EntraPimOptions _options;
@@ -65,6 +65,9 @@ public sealed class EntraPimApprovalStore : IApprovalStore
         foreach (var kvp in options.RoleNameToIdSeed)
             _roleIdCache[kvp.Key] = kvp.Value;
     }
+
+    /// <inheritdoc/>
+    string IRoleActivationApprovalStore.BackendName => "Entra PIM";
 
     /// <inheritdoc/>
     public async ValueTask<ApprovalState> EnsureRequestAsync(

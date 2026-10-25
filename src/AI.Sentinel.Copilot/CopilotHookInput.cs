@@ -95,15 +95,21 @@ public sealed record CopilotHookInput
             return fallback;
         }
 
-        if (e.ValueKind == JsonValueKind.String && e.GetString() is { } text)
+        if (e.ValueKind == JsonValueKind.String)
         {
             try
             {
-                using var doc = JsonDocument.Parse(text);
+                using var doc = JsonDocument.Parse(e.GetString() ?? "");
                 return doc.RootElement.Clone();
             }
             catch (JsonException)
             {
+                return e;
+            }
+            catch (InvalidOperationException)
+            {
+                // The string holds an escape that does not decode, such as a lone surrogate. Hand the guard the
+                // string element itself: arguments that are not structured satisfy every condition, so it fails closed.
                 return e;
             }
         }
@@ -111,6 +117,21 @@ public sealed record CopilotHookInput
         return e;
     }
 
-    private static string ScanText(JsonElement e) =>
-        e.ValueKind == JsonValueKind.String ? e.GetString() ?? "" : e.GetRawText();
+    private static string ScanText(JsonElement e)
+    {
+        if (e.ValueKind != JsonValueKind.String)
+        {
+            return e.GetRawText();
+        }
+
+        try
+        {
+            return e.GetString() ?? "";
+        }
+        catch (InvalidOperationException)
+        {
+            // A string that does not decode, such as one holding a lone surrogate escape, is scanned as its raw JSON text.
+            return e.GetRawText();
+        }
+    }
 }

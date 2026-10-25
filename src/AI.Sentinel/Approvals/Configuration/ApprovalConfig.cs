@@ -11,4 +11,4 @@ internal sealed record ApprovalConfig(
     int DefaultGrantMinutes,
     string DefaultJustificationTemplate,
     bool IncludeConversationContext,
-    IReadOnlyDictionary<string, ApprovalToolConfig> Tools);
+    IReadOnlyDictionary<string, IReadOnlyList<ApprovalToolConfig>> Tools);

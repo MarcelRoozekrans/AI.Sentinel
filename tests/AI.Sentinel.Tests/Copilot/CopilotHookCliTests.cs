@@ -174,9 +174,9 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
             DefaultGrantMinutes: 15,
             DefaultJustificationTemplate: "{tool}",
             IncludeConversationContext: true,
-            Tools: new Dictionary<string, ApprovalToolConfig>(StringComparer.Ordinal)
+            Tools: new Dictionary<string, IReadOnlyList<ApprovalToolConfig>>(StringComparer.Ordinal)
             {
-                ["Bash"] = new("DBA", GrantMinutes: null, RequireJustification: null),
+                ["Bash"] = [new("DBA", GrantMinutes: null, RequireJustification: null)],
             });
 
         var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: config);
@@ -205,9 +205,9 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
             DefaultGrantMinutes: 15,
             DefaultJustificationTemplate: "{tool}",
             IncludeConversationContext: true,
-            Tools: new Dictionary<string, ApprovalToolConfig>(StringComparer.Ordinal)
+            Tools: new Dictionary<string, IReadOnlyList<ApprovalToolConfig>>(StringComparer.Ordinal)
             {
-                ["Bash"] = new("Privileged Role Administrator", GrantMinutes: null, RequireJustification: null),
+                ["Bash"] = [new("Privileged Role Administrator", GrantMinutes: null, RequireJustification: null)],
             });
 
         await using var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: config);

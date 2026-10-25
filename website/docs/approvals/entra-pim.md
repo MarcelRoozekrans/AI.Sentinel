@@ -65,6 +65,8 @@ services.AddAISentinel(opts =>
 }
 ```
 
+A rule can carry [argument conditions](/docs/approvals/cli-config#argument-conditions), but `grantScope: "call"` is rejected with this backend, at config load, and in code when the tool-call guard is first resolved, because a PIM grant is a role activation and cannot be tied to arguments. The in-code check sees the store through AI.Sentinel's own auditing wrapper only. A decorator of your own around `EntraPimApprovalStore` hides the store from the check, so a call-scoped rule is then not rejected and its grant silently covers the whole role activation.
+
 ## Authentication chain
 
 By default `AddSentinelEntraPimApprovalStore` builds a `ChainedTokenCredential`:

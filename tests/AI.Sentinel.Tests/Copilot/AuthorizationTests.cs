@@ -181,4 +181,102 @@ public class AuthorizationTests
                 policyName, requestId, approvalUrl,
                 requestedAt: DateTimeOffset.UtcNow, waitTimeout: TimeSpan.FromSeconds(0)));
     }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_MatchingCommand_BlocksWithApprovalReceipt()
+    {
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
+
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"kubectl delete ns prod"}""").RootElement };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
+        var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
+            e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+        Assert.Contains("Rule: approval:Bash", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("policy 'approval:Bash'", denied.Summary, StringComparison.Ordinal);
+        Assert.Equal("approval_required", denied.PolicyCode);
+    }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_NonMatchingCommand_IsAllowed()
+    {
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
+
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"kubectl get pods"}""").RootElement };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.NotEqual(HookDecision.Block, output.Decision);
+    }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_UnparseableStringToolArgs_FailsClosedWithReceipt()
+    {
+        // toolArgs arrives as a string that is not JSON, so the guard sees a string element
+        // and must require approval rather than crash or wave the call through.
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
+
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolArgs = JsonDocument.Parse("\"kubectl get pods {not json\"").RootElement };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
+        var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
+            e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+        Assert.Contains("Rule: approval:Bash", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("policy 'approval:Bash'", denied.Summary, StringComparison.Ordinal);
+        Assert.Equal("approval_required", denied.PolicyCode);
+    }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_StringToolArgsHoldingJson_AreParsedAndMatched()
+    {
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
+
+        var json = JsonSerializer.Serialize("""{"command":"kubectl delete ns prod"}""");
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolArgs = JsonDocument.Parse(json).RootElement };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("Rule: approval:Bash", output.Reason ?? "", StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_LoneSurrogateInStringToolArgs_FailsClosedWithReceipt()
+    {
+        // The JSON text "\ud800" escapes a lone surrogate, which cannot be decoded to a .NET string.
+        // The guard then sees the raw string element and must require approval rather than throw.
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig(), guard);
+
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolArgs = JsonDocument.Parse("\"kubectl delete ns prod \\ud800\"").RootElement };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("Rule: approval:Bash", output.Reason ?? "", StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreToolUse_NoRule_LoneSurrogateInStringToolArgs_DoesNotThrow()
+    {
+        // Without an approval rule the call reaches the detector scan, which reads the arguments as text.
+        var adapter = BuildAdapter(new SentinelOptions(), new CopilotHookConfig());
+
+        var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolArgs = JsonDocument.Parse("\"ls \\ud800\"").RootElement };
+        var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(output);
+    }
 }

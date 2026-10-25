@@ -1,3 +1,5 @@
+using AI.Sentinel.Approvals.Conditions;
+
 namespace AI.Sentinel.Approvals;
 
 /// <summary>
@@ -7,6 +9,8 @@ namespace AI.Sentinel.Approvals;
 /// </summary>
 public sealed class ApprovalSpec
 {
+    private readonly List<ArgumentCondition> _conditions = new();
+
     /// <summary>The policy name the approval gate is bound to. Used as the dedupe key
     /// alongside the caller identity.</summary>
     public required string PolicyName { get; set; }
@@ -22,4 +26,41 @@ public sealed class ApprovalSpec
 
     /// <summary>Backend-specific identifier (PIM role name for EntraPim, ignored otherwise).</summary>
     public string? BackendBinding { get; set; }
+
+    /// <summary>Whether a grant covers every call matching the rule, or only calls with the
+    /// approved arguments.</summary>
+    public ApprovalGrantScope GrantScope { get; set; } = ApprovalGrantScope.Rule;
+
+    /// <summary>
+    /// Returns a copy with <see cref="PolicyName"/> replaced and every other settable property
+    /// copied. Conditions are not copied: the copy is handed to <see cref="IApprovalStore"/>,
+    /// which never reads them.
+    /// </summary>
+    internal ApprovalSpec WithPolicyName(string policyName) => new()
+    {
+        PolicyName = policyName,
+        GrantDuration = GrantDuration,
+        RequireJustification = RequireJustification,
+        WaitTimeout = WaitTimeout,
+        BackendBinding = BackendBinding,
+        GrantScope = GrantScope,
+    };
+
+    /// <summary>The argument conditions that must all hold for this approval rule to apply.</summary>
+    internal IReadOnlyList<ArgumentCondition> Conditions => _conditions;
+
+    /// <summary>
+    /// Restricts the rule to calls whose arguments match. The text found at
+    /// <paramref name="jsonPath"/> must match the regular expression <paramref name="pattern"/>.
+    /// Repeatable; all conditions must hold.
+    /// </summary>
+    /// <param name="jsonPath">Path into the tool arguments.</param>
+    /// <param name="pattern">Regular expression tested against the text at the path.</param>
+    /// <returns>The same <see cref="ApprovalSpec"/> for fluent chaining.</returns>
+    /// <exception cref="ArgumentException">The path or the regular expression is invalid.</exception>
+    public ApprovalSpec WhenArgument(string jsonPath, string pattern)
+    {
+        _conditions.Add(new ArgumentCondition(jsonPath, pattern));
+        return this;
+    }
 }

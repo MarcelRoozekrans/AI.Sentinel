@@ -244,4 +244,36 @@ public class AuthorizationTests
             await Task.CompletedTask.ConfigureAwait(false);
         }
     }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_MatchingCommand_BlocksWithApprovalReceipt()
+    {
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
+
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"kubectl delete ns prod"}""").RootElement };
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.Contains("Approval required to invoke tool 'Bash'", output.Reason ?? "", StringComparison.Ordinal);
+        var denied = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(provider.GetRequiredService<IAuditStore>()),
+            e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
+        Assert.Contains("Rule: approval:Bash", output.Reason ?? "", StringComparison.Ordinal);
+        Assert.Contains("policy 'approval:Bash'", denied.Summary, StringComparison.Ordinal);
+        Assert.Equal("approval_required", denied.PolicyCode);
+    }
+
+    [Fact]
+    public async Task PreToolUse_ArgumentRule_NonMatchingCommand_IsAllowed()
+    {
+        var guard = ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = HookAdapter.CreateForTests(provider, new HookConfig(), guard);
+
+        var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"kubectl get pods"}""").RootElement };
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
+
+        Assert.NotEqual(HookDecision.Block, output.Decision);
+    }
 }

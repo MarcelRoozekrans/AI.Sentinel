@@ -244,7 +244,26 @@ public static class ServiceCollectionExtensions
         EmitAuthorizationStartupWarnings(opts, bindings, policyByName, hasSecurityContext, pipelineLogger);
 
         var approvalStore = ApprovalStoreAuditing.Resolve(sp);
+        RejectCallScopedGrantsOnRoleActivationStore(approvalStore, bindings);
         return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, approvalStore, logger);
+    }
+
+    private static void RejectCallScopedGrantsOnRoleActivationStore(IApprovalStore? approvalStore, IReadOnlyList<ToolCallPolicyBinding> bindings)
+    {
+        var active = approvalStore is AuditingApprovalStore auditing ? auditing.Inner : approvalStore;
+        if (active is not IRoleActivationApprovalStore store)
+        {
+            return;
+        }
+
+        var callScoped = bindings.FirstOrDefault(b => b.ApprovalSpec?.GrantScope == ApprovalGrantScope.Call);
+        if (callScoped is not null)
+        {
+            throw new InvalidOperationException(
+                $"The approval rule for '{callScoped.Pattern}' uses GrantScope.Call, which the {store.BackendName} approval store " +
+                "cannot honour: a role activation covers a time window and knows nothing of tool arguments. " +
+                "Use GrantScope.Rule, or a store that grants per call.");
+        }
     }
 
     /// <summary>Presence of this marker proves the official detector set is already in the container.</summary>
@@ -306,7 +325,8 @@ public static class ServiceCollectionExtensions
 
         foreach (var binding in bindings)
         {
-            if (!policiesByName.ContainsKey(binding.PolicyName))
+            // An approval binding names its approval rule, not a registered policy.
+            if (binding.ApprovalSpec is null && !policiesByName.ContainsKey(binding.PolicyName))
             {
                 logger.LogError("AI.Sentinel: RequireToolPolicy(\"{Pattern}\", \"{Policy}\") references unknown policy '{Policy}'. This binding will deny every matching call.",
                     binding.Pattern, binding.PolicyName, binding.PolicyName);
