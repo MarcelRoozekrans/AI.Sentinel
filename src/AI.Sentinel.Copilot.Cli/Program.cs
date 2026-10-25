@@ -55,10 +55,6 @@ public static class Program
         string[] args, CopilotHookEvent evt, TextReader stdin, TextWriter stdout, TextWriter stderr,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
     {
-        // Sentinel cannot evaluate a call it cannot read, so unreadable input blocks a PreToolUse too.
-        var (input, parseExit) = await ReadInputAsync(stdin, stderr, failureExit: evt == CopilotHookEvent.PreToolUse ? 2 : 1).ConfigureAwait(false);
-        if (input is null) return parseExit;
-
         var hookEnv = BuildHookEnvVars();
         var config = CopilotHookConfig.FromEnvironment(hookEnv);
 
@@ -66,35 +62,86 @@ public static class Program
         var audit = OpenAudit(out var auditProblems);
         await using var _audit = audit.ConfigureAwait(false);
 
-        try
-        {
-            return await EvaluateAsync(args, evt, input, config, hookEnv, audit, auditProblems, stdout, stderr, embeddingGenerator).ConfigureAwait(false);
-        }
-        catch (Exception ex) when (evt == CopilotHookEvent.PreToolUse)
-        {
-            return await BlockOnInternalErrorAsync(input, HookInternalError.Reason(ex), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
-        }
-    }
-
-    private static async Task<int> EvaluateAsync(
-        string[] args, CopilotHookEvent evt, CopilotHookInput input, CopilotHookConfig config, Dictionary<string, string?> hookEnv,
-        LocalAuditSession audit, List<string> auditProblems, TextWriter stdout, TextWriter stderr,
-        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator)
-    {
-        // A config that fails to load must not quietly drop every approval rule, so on PreToolUse it blocks.
-        var (approvalConfig, configPath, configError) = TryLoadApprovalConfig();
-        if (configError is not null)
+        // Sentinel cannot evaluate a call it cannot read, so unreadable input blocks a PreToolUse too.
+        var (input, inputError) = await ReadInputAsync(stdin).ConfigureAwait(false);
+        if (input is null)
         {
             if (evt == CopilotHookEvent.PreToolUse)
             {
                 return await BlockOnInternalErrorAsync(
-                    input, HookInternalError.ApprovalConfigReason(configPath!, configError), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
+                    args, toolName: null, sessionId: string.Empty, HookInternalError.StdinReason(inputError!), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
             }
 
-            await stderr.WriteAsync($"Failed to load approval config from '{configPath}': {configError.Message}\n").ConfigureAwait(false);
+            await stderr.WriteAsync(StdinError(inputError!)).ConfigureAwait(false);
             return 1;
         }
 
+        CopilotHookResult result;
+        string? semanticWarning;
+        try
+        {
+            // A config that fails to load must not quietly drop every approval rule, so on PreToolUse it blocks.
+            var (approvalConfig, configPath, configError) = TryLoadApprovalConfig();
+            if (configError is not null)
+            {
+                if (evt == CopilotHookEvent.PreToolUse)
+                {
+                    return await BlockOnInternalErrorAsync(
+                        args, input.ToolName, input.SessionId, HookInternalError.ApprovalConfigReason(configPath!, configError),
+                        audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
+                }
+
+                await stderr.WriteAsync($"Failed to load approval config from '{configPath}': {configError.Message}\n").ConfigureAwait(false);
+                return 1;
+            }
+
+            (result, semanticWarning) = await EvaluateAsync(evt, input, config, hookEnv, approvalConfig, audit, stderr, embeddingGenerator).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (evt == CopilotHookEvent.PreToolUse)
+        {
+            return await BlockOnInternalErrorAsync(
+                args, input.ToolName, input.SessionId, HookInternalError.Reason(ex), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
+        }
+
+        return await WriteDecisionAsync(args, evt, input, result, semanticWarning, config, audit, auditProblems, stdout, stderr).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes the decision: the verbose line, audit problems, the semantic warning, the reason and the
+    /// wire output. The decision is final here, because the provider is already disposed and nothing below can
+    /// turn it into an internal-error block, so the wire output on stdout always matches the exit code.</summary>
+    private static async Task<int> WriteDecisionAsync(
+        string[] args, CopilotHookEvent evt, CopilotHookInput input, CopilotHookResult result, string? semanticWarning, CopilotHookConfig config,
+        LocalAuditSession audit, List<string> auditProblems, TextWriter stdout, TextWriter stderr)
+    {
+        var output = result.Output;
+        if (config.Verbose)
+        {
+            await EmitVerboseAsync(stderr, "sentinel-copilot-hook", args[0], input.SessionId, output).ConfigureAwait(false);
+        }
+
+        // On Block and Warn stderr carries the reason fed back to the model, so audit and semantic
+        // diagnostics stay off it. An audit failure never changes the decision.
+        var allowed = output.Decision == HookDecision.Allow;
+        var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || allowed, stderr).ConfigureAwait(false);
+        if (semanticWarning is not null)
+        {
+            await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
+        }
+
+        var exit = await ExitCodeAsync(stderr, evt, output).ConfigureAwait(false);
+        await stdout.WriteAsync(
+            JsonSerializer.Serialize(CopilotWireOutput.From(evt, result), CopilotWireJsonContext.Default.CopilotWireOutput)).ConfigureAwait(false);
+        await CloseAuditAsync(audit, reported, config.Verbose, stderr).ConfigureAwait(false);
+        return exit;
+    }
+
+    /// <summary>Scans the input and takes the decision. The provider and the embedding generator are disposed
+    /// before this returns, so a failure while disposing them is still an internal error, before any output is
+    /// written. Returns the startup warning that semantic detection is inert when it applies.</summary>
+    private static async Task<(CopilotHookResult Result, string? SemanticWarning)> EvaluateAsync(
+        CopilotHookEvent evt, CopilotHookInput input, CopilotHookConfig config, Dictionary<string, string?> hookEnv, ApprovalConfig? approvalConfig,
+        LocalAuditSession audit, TextWriter stderr, IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator)
+    {
         // A caller-supplied generator wins; otherwise read SENTINEL_EMBEDDING_* so the hook can do
         // semantic detection at all. A misconfigured setting is reported rather than leaving SEC-01
         // and SEC-05 quietly inert, which is the failure this whole feature removes.
@@ -113,40 +160,29 @@ public static class Program
 
         var adapter = new CopilotHookAdapter(provider, config);
         var result = await adapter.HandleForCliAsync(evt, input, default).ConfigureAwait(false);
-        var output = result.Output;
-
-        var outputJson = JsonSerializer.Serialize(CopilotWireOutput.From(evt, result), CopilotWireJsonContext.Default.CopilotWireOutput);
-        await stdout.WriteAsync(outputJson).ConfigureAwait(false);
-
-        if (config.Verbose)
-        {
-            await EmitVerboseAsync(stderr, "sentinel-copilot-hook", args[0], input.SessionId, output).ConfigureAwait(false);
-        }
-
-        // On Block and Warn stderr carries the reason fed back to the model, so audit and semantic
-        // diagnostics stay off it. An audit failure never changes the decision.
-        var allowed = output.Decision == HookDecision.Allow;
-        var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || allowed, stderr).ConfigureAwait(false);
-        if (allowed && evt is (CopilotHookEvent.UserPromptSubmitted or CopilotHookEvent.UserPromptTransformed) && !config.SuppressSemanticWarning
-            && provider.DescribeInertSemanticDetection() is { } semanticWarning)
-        {
-            await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
-        }
-
-        var exit = await ExitCodeAsync(stderr, evt, output).ConfigureAwait(false);
-        await CloseAuditAsync(audit, reported, config.Verbose, stderr).ConfigureAwait(false);
-        return exit;
+        var semanticWarning = result.Output.Decision == HookDecision.Allow
+            && evt is (CopilotHookEvent.UserPromptSubmitted or CopilotHookEvent.UserPromptTransformed) && !config.SuppressSemanticWarning
+            ? provider.DescribeInertSemanticDetection()
+            : null;
+        return (result, semanticWarning);
     }
 
     /// <summary>Blocks a PreToolUse the hook could not evaluate: exit 2 with <paramref name="reason"/> on stderr, and
-    /// an <c>AUTHZ-DENY</c> entry with the <c>internal_error</c> code, written best effort. Audit problems are
-    /// reported only with verbose on, as for any Block that exits 2.</summary>
+    /// an <c>AUTHZ-DENY</c> entry with the <c>internal_error</c> code, written best effort. With verbose on it writes
+    /// the usual diagnostic line; audit problems are reported only then, as for any Block that exits 2.</summary>
     private static async Task<int> BlockOnInternalErrorAsync(
-        CopilotHookInput input, string reason, LocalAuditSession audit, List<string> auditProblems, bool verbose, TextWriter stderr)
+        string[] args, string? toolName, string sessionId, string reason,
+        LocalAuditSession audit, List<string> auditProblems, bool verbose, TextWriter stderr)
     {
-        if (await HookInternalError.TryAuditAsync(audit.Store, audit.Forwarders, input.ToolName, input.SessionId, reason).ConfigureAwait(false) is { } problem)
+        if (await HookInternalError.TryAuditAsync(audit.Store, audit.Forwarders, toolName, sessionId, reason).ConfigureAwait(false) is { } problem)
         {
             auditProblems.Add(problem);
+        }
+
+        if (verbose)
+        {
+            // No reason passed: the diagnostic parses a detector and severity from it, and this block has neither.
+            await EmitVerboseAsync(stderr, "sentinel-copilot-hook", args[0], sessionId, new HookOutput { Decision = HookDecision.Block }).ConfigureAwait(false);
         }
 
         var reported = await FlushAndReportAuditAsync(audit, auditProblems, verbose, stderr).ConfigureAwait(false);
@@ -212,26 +248,26 @@ public static class Program
             _ => 0,
         };
 
-    private static async Task<(CopilotHookInput? Input, int Exit)> ReadInputAsync(TextReader stdin, TextWriter stderr, int failureExit)
+    /// <summary>Reads and parses the hook input. A failure is returned rather than written, because its message
+    /// depends on the event: on PreToolUse it is the reason for an internal-error block.</summary>
+    private static async Task<(CopilotHookInput? Input, Exception? Error)> ReadInputAsync(TextReader stdin)
     {
         try
         {
             var json = await stdin.ReadToEndAsync().ConfigureAwait(false);
             var input = JsonSerializer.Deserialize(json, CopilotHookJsonContext.Default.CopilotHookInput)
                 ?? throw new InvalidDataException("Empty input.");
-            return (input.WithVsCodeAliases(), 0);
+            return (input.WithVsCodeAliases(), null);
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (ex is JsonException or InvalidDataException)
         {
-            await stderr.WriteAsync($"Error: malformed stdin JSON: {ex.Message}\n").ConfigureAwait(false);
-            return (null, failureExit);
-        }
-        catch (InvalidDataException ex)
-        {
-            await stderr.WriteAsync($"Error: {ex.Message}\n").ConfigureAwait(false);
-            return (null, failureExit);
+            return (null, ex);
         }
     }
+
+    /// <summary>The stdin error on an event that does not block on it.</summary>
+    private static string StdinError(Exception error) =>
+        error is JsonException ? $"Error: malformed stdin JSON: {error.Message}\n" : $"Error: {error.Message}\n";
 
     /// <summary>Embedding settings do not carry the SENTINEL_HOOK_ prefix that BuildHookEnvVars
     /// filters on, so they are read separately.</summary>

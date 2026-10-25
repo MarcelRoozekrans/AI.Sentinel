@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Domain;
@@ -23,6 +24,12 @@ internal static class HookInternalError
     /// <summary>The block reason for a <c>SENTINEL_APPROVAL_CONFIG</c> that failed to load or validate.</summary>
     internal static string ApprovalConfigReason(string path, Exception ex) =>
         $"Sentinel internal error: approval config '{path}' could not be loaded: {ex.Message}";
+
+    /// <summary>The block reason for stdin that is not valid JSON, or is JSON <c>null</c>.</summary>
+    internal static string StdinReason(Exception ex) =>
+        ex is JsonException
+            ? $"Sentinel internal error: malformed stdin JSON: {ex.Message}"
+            : $"Sentinel internal error: empty stdin JSON: {ex.Message}";
 
     /// <summary>Records the block, best effort: the call is blocked either way and the exit code must not change, so a
     /// failure is returned as a problem for the CLI to report with its other audit problems, and <c>null</c> otherwise.</summary>

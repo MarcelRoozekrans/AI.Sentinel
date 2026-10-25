@@ -67,6 +67,6 @@ public static class SentinelDenyCodes
 
     /// <summary>The hook could not evaluate the call — approval config failed to load, or an unexpected
     /// exception — and blocked it. Emitted by the Claude Code and Copilot hook CLIs on PreToolUse.
-    /// Failure-closed.</summary>
+    /// Fail-closed.</summary>
     public const string InternalError = "internal_error";
 }

@@ -1,4 +1,5 @@
 using Xunit;
+using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode.Cli;
 using AI.Sentinel.Tests.Helpers;
@@ -17,6 +18,7 @@ public class HookCliFailClosedTests : IDisposable
     private readonly string _dir = HookAuditTestSupport.NewTempDir();
     private readonly string? _prevSqlite = Environment.GetEnvironmentVariable(HookAuditTestSupport.SqliteVar);
     private readonly string? _prevConfig = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
+    private readonly string? _prevVerbose = Environment.GetEnvironmentVariable("SENTINEL_HOOK_VERBOSE");
 
     public HookCliFailClosedTests() =>
         Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, "off");
@@ -25,6 +27,7 @@ public class HookCliFailClosedTests : IDisposable
     {
         Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, _prevSqlite);
         Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", _prevConfig);
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", _prevVerbose);
         HookAuditTestSupport.DeleteDir(_dir);
         GC.SuppressFinalize(this);
     }
@@ -35,6 +38,26 @@ public class HookCliFailClosedTests : IDisposable
         File.WriteAllText(path, json);
         Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", path);
         return path;
+    }
+
+    private string UseAuditDatabase()
+    {
+        var db = Path.Combine(_dir, "audit.db");
+        Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, db);
+        return db;
+    }
+
+    /// <summary>Asserts the run recorded exactly one entry: the internal-error block.</summary>
+    private static async Task<AuditEntry> AssertInternalErrorEntryAsync(string db, string toolName)
+    {
+        var (entries, intact) = await HookAuditTestSupport.ReadAsync(db);
+        Assert.True(intact);
+        var entry = Assert.Single(entries);
+        Assert.Equal(SentinelDenyCodes.InternalError, entry.PolicyCode);
+        Assert.Equal("claude-code", entry.Source);
+        Assert.Contains($"tool '{toolName}'", entry.Summary, StringComparison.Ordinal);
+        Assert.Contains("policy 'sentinel-internal'", entry.Summary, StringComparison.Ordinal);
+        return entry;
     }
 
     private static async Task<(int Exit, string Stdout, string Stderr)> RunAsync(
@@ -72,9 +95,10 @@ public class HookCliFailClosedTests : IDisposable
         var path = Path.Combine(_dir, "missing.json");
         Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", path);
 
-        var (exit, _, stderr) = await RunAsync("pre-tool-use", PreToolUse);
+        var (exit, stdout, stderr) = await RunAsync("pre-tool-use", PreToolUse);
 
         Assert.Equal(2, exit);
+        Assert.Empty(stdout);
         Assert.Contains($"Sentinel internal error: approval config '{path}'", stderr, StringComparison.Ordinal);
     }
 
@@ -108,31 +132,61 @@ public class HookCliFailClosedTests : IDisposable
         File.WriteAllText(blocker, "");
         var dbPath = Path.Combine(blocker, "approvals.db");
         UseApprovalConfig($$"""{ "backend": "sqlite", "databasePath": {{System.Text.Json.JsonSerializer.Serialize(dbPath)}}, "tools": { "Bash": { "role": "Ops" } } }""");
+        var db = UseAuditDatabase();
 
-        var (exit, _, stderr) = await RunAsync("pre-tool-use", PreToolUse);
+        var (exit, stdout, stderr) = await RunAsync("pre-tool-use", PreToolUse);
 
         Assert.Equal(2, exit);
+        Assert.Empty(stdout);
         Assert.StartsWith("Sentinel internal error: ", stderr, StringComparison.Ordinal);
         Assert.DoesNotContain("approval config", stderr, StringComparison.Ordinal);
+        var entry = await AssertInternalErrorEntryAsync(db, "Bash");
+        Assert.Equal("cc-478", entry.SessionId);
     }
 
     [Theory]
-    [InlineData("not json")]
-    [InlineData("")]
-    public async Task PreToolUse_MalformedStdin_Blocks(string json)
+    [InlineData("not json", "Sentinel internal error: malformed stdin JSON: ")]
+    [InlineData("", "Sentinel internal error: malformed stdin JSON: ")]
+    [InlineData("null", "Sentinel internal error: empty stdin JSON: ")]
+    public async Task PreToolUse_MalformedStdin_BlocksAndRecordsIt(string json, string expectedReason)
     {
-        var (exit, _, stderr) = await RunAsync("pre-tool-use", json);
+        var db = UseAuditDatabase();
+
+        var (exit, stdout, stderr) = await RunAsync("pre-tool-use", json);
 
         Assert.Equal(2, exit);
-        Assert.StartsWith("Error: ", stderr, StringComparison.Ordinal);
+        Assert.Empty(stdout);
+        Assert.StartsWith(expectedReason, stderr, StringComparison.Ordinal);
+        var entry = await AssertInternalErrorEntryAsync(db, "unknown");
+        Assert.False(string.IsNullOrWhiteSpace(entry.SessionId));
     }
 
     [Fact]
     public async Task PostToolUse_MalformedStdin_ExitsOne()
     {
-        var (exit, _, _) = await RunAsync("post-tool-use", "not json");
+        var (exit, _, stderr) = await RunAsync("post-tool-use", "not json");
 
         Assert.Equal(1, exit);
+        Assert.StartsWith("Error: malformed stdin JSON: ", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreToolUse_InternalError_WithVerbose_EmitsTheDiagnosticLine()
+    {
+        UseApprovalConfig("{ not json");
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", "1");
+        try
+        {
+            var (exit, _, stderr) = await RunAsync("pre-tool-use", PreToolUse);
+
+            Assert.Equal(2, exit);
+            Assert.Contains("[sentinel-hook] event=pre-tool-use decision=Block session=cc-478", stderr, StringComparison.Ordinal);
+            Assert.Contains("Sentinel internal error: approval config", stderr, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", null);
+        }
     }
 
     // Detectors fail open: the pipeline skips a detector that throws and reports it, and the tool still runs.
@@ -149,20 +203,14 @@ public class HookCliFailClosedTests : IDisposable
     [Fact]
     public async Task PreToolUse_BrokenApprovalConfig_RecordsAnInternalErrorDeny()
     {
-        var db = Path.Combine(_dir, "audit.db");
-        Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, db);
+        var db = UseAuditDatabase();
         UseApprovalConfig("{ not json");
 
         var (exit, _, _) = await RunAsync("pre-tool-use", PreToolUse);
 
         Assert.Equal(2, exit);
-        var (entries, intact) = await HookAuditTestSupport.ReadAsync(db);
-        Assert.True(intact);
-        var entry = Assert.Single(entries);
-        Assert.Equal(SentinelDenyCodes.InternalError, entry.PolicyCode);
+        var entry = await AssertInternalErrorEntryAsync(db, "Bash");
         Assert.Equal("cc-478", entry.SessionId);
-        Assert.Equal("claude-code", entry.Source);
-        Assert.Contains("'Bash'", entry.Summary, StringComparison.Ordinal);
     }
 
     private sealed class ThrowingEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
