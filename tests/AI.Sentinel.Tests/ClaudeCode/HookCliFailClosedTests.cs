@@ -13,6 +13,7 @@ namespace AI.Sentinel.Tests.ClaudeCode;
 public class HookCliFailClosedTests : IDisposable
 {
     private const string PreToolUse = """{"session_id":"cc-478","tool_name":"Bash","tool_input":{"command":"ls"}}""";
+    private const string NoToolName = """{"session_id":"cc-478","tool_input":{"command":"ls"}}""";
     private const string Prompt = """{"session_id":"cc-478","prompt":"hello"}""";
 
     private readonly string _dir = HookAuditTestSupport.NewTempDir();
@@ -187,6 +188,34 @@ public class HookCliFailClosedTests : IDisposable
         {
             Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", null);
         }
+    }
+
+    // With approval rules configured, a call that names no tool cannot be authorized, so it is blocked.
+    [Fact]
+    public async Task PreToolUse_NoToolName_WithApprovalConfig_BlocksAndRecordsIt()
+    {
+        UseApprovalConfig("""{ "backend": "in-memory", "tools": { "Bash": { "role": "Ops" } } }""");
+        var db = UseAuditDatabase();
+
+        var (exit, stdout, stderr) = await RunAsync("pre-tool-use", NoToolName);
+
+        Assert.Equal(2, exit);
+        Assert.Empty(stdout);
+        Assert.StartsWith("Sentinel internal error: PreToolUse input has no tool name", stderr, StringComparison.Ordinal);
+        var entry = await AssertInternalErrorEntryAsync(db, "unknown");
+        Assert.Equal("cc-478", entry.SessionId);
+    }
+
+    // Without authorization configured there is nothing to authorize, so a missing tool name is no error.
+    [Fact]
+    public async Task PreToolUse_NoToolName_WithoutApprovalConfig_Allows()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
+
+        var (exit, _, stderr) = await RunAsync("pre-tool-use", NoToolName);
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Sentinel internal error", stderr, StringComparison.Ordinal);
     }
 
     // Detectors fail open: the pipeline skips a detector that throws and reports it, and the tool still runs.

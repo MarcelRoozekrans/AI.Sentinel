@@ -25,6 +25,13 @@ internal static class HookInternalError
     internal static string ApprovalConfigReason(string path, Exception ex) =>
         $"Sentinel internal error: approval config '{path}' could not be loaded: {ex.Message}";
 
+    /// <summary>The block reason for a PreToolUse whose input names no tool while authorization is configured.</summary>
+    internal const string MissingToolNameReason = "Sentinel internal error: PreToolUse input has no tool name";
+
+    /// <summary>True when <paramref name="guard"/> can refuse a call, so a call it cannot evaluate must be blocked.
+    /// A guard other than the default one was registered on purpose and counts as configured.</summary>
+    internal static bool Authorizes(IToolCallGuard guard) => guard is not DefaultToolCallGuard { CanRefuse: false };
+
     /// <summary>The block reason for stdin that is not valid JSON, or is JSON <c>null</c>.</summary>
     internal static string StdinReason(Exception ex) =>
         ex is JsonException
@@ -38,18 +45,7 @@ internal static class HookInternalError
     {
         try
         {
-            var caller = AnonymousSecurityContext.Instance;
-            var tool = string.IsNullOrWhiteSpace(toolName) ? "unknown" : toolName;
-            var entry = AuditEntryAuthorizationExtensions.AuthorizationDeny(
-                sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
-                receiver: new AgentId(tool),
-                session: new SessionId(string.IsNullOrWhiteSpace(sessionId) ? Guid.NewGuid().ToString("N") : sessionId),
-                callerId: caller.Id,
-                roles: caller.Roles,
-                toolName: tool,
-                policyName: PolicyName,
-                reason: reason,
-                policyCode: SentinelDenyCodes.InternalError);
+            var entry = BuildAuditEntry(AnonymousSecurityContext.Instance, toolName, sessionId, reason);
             await store.AppendAndForwardAsync(entry, [.. forwarders], CancellationToken.None).ConfigureAwait(false);
             return null;
         }
@@ -59,5 +55,22 @@ internal static class HookInternalError
         {
             return $"The internal-error block was not recorded: {ex.GetType().Name}: {ex.Message}";
         }
+    }
+
+    /// <summary>The <c>AUTHZ-DENY</c> entry for an internal-error block, with the tool <c>unknown</c> when the input
+    /// names none and a new session id when it has none.</summary>
+    internal static AuditEntry BuildAuditEntry(ISecurityContext caller, string? toolName, string sessionId, string reason)
+    {
+        var tool = string.IsNullOrWhiteSpace(toolName) ? "unknown" : toolName;
+        return AuditEntryAuthorizationExtensions.AuthorizationDeny(
+            sender: new AgentId(string.IsNullOrWhiteSpace(caller.Id) ? "anonymous" : caller.Id),
+            receiver: new AgentId(tool),
+            session: new SessionId(string.IsNullOrWhiteSpace(sessionId) ? Guid.NewGuid().ToString("N") : sessionId),
+            callerId: caller.Id,
+            roles: caller.Roles,
+            toolName: tool,
+            policyName: PolicyName,
+            reason: reason,
+            policyCode: SentinelDenyCodes.InternalError);
     }
 }

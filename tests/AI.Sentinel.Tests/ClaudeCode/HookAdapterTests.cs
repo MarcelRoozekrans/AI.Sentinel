@@ -438,6 +438,70 @@ public class HookAdapterTests
             e => string.Equals(e.DetectorId, AuditEntryAuthorizationExtensions.AuthorizationDenyDetectorId, StringComparison.Ordinal));
     }
 
+    // A guard with approval rules cannot authorize a call that names no tool, so the call is blocked as an internal error.
+    [Fact]
+    public async Task PreToolUse_NoToolName_WithApprovalRules_BlocksAsInternalError()
+    {
+        ApprovalRuleGuard.BuildBashWhen(out var provider);
+        await using var _ = provider;
+        var adapter = new HookAdapter(provider, new HookConfig());
+
+        var output = await adapter.HandleAsync(
+            HookEvent.PreToolUse, new HookInput { SessionId = "sess-n", ToolInput = Json("""{"command":"ls"}""") }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Sentinel internal error: ", output.Reason, StringComparison.Ordinal);
+        var entry = Assert.Single(await ReadAuditAsync(provider.GetRequiredService<IAuditStore>()));
+        Assert.Equal(AI.Sentinel.Authorization.SentinelDenyCodes.InternalError, entry.PolicyCode);
+        Assert.Contains("tool 'unknown' by policy 'sentinel-internal'", entry.Summary, StringComparison.Ordinal);
+        Assert.Equal("sess-n", entry.SessionId);
+    }
+
+    [Fact]
+    public async Task PreToolUse_NoToolName_DefaultToolPolicyDeny_Blocks()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.DefaultToolPolicy = AI.Sentinel.Authorization.ToolPolicyDefault.Deny;
+        });
+        await using var provider = services.BuildServiceProvider();
+        var adapter = new HookAdapter(provider, new HookConfig());
+
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, new HookInput { SessionId = "s" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Sentinel internal error: ", output.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task PreToolUse_NoToolName_CustomGuard_Blocks()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        await using var provider = services.BuildServiceProvider();
+        var adapter = HookAdapter.CreateForTests(provider, null, new DenyGuard());
+
+        var output = await adapter.HandleAsync(HookEvent.PreToolUse, new HookInput { SessionId = "s" }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Block, output.Decision);
+        Assert.StartsWith("Sentinel internal error: ", output.Reason, StringComparison.Ordinal);
+    }
+
+    // AddAISentinel always registers a guard; without bindings it authorizes nothing, so a missing tool name is no error.
+    [Fact]
+    public async Task PreToolUse_NoToolName_NoAuthorizationConfigured_Allows()
+    {
+        var (adapter, audit) = BuildAdapterWithAudit();
+
+        var output = await adapter.HandleAsync(
+            HookEvent.PreToolUse, new HookInput { SessionId = "s", ToolInput = Json("""{"command":"ls"}""") }, TestContext.Current.CancellationToken);
+
+        Assert.Equal(HookDecision.Allow, output.Decision);
+        Assert.Empty(await ReadAuditAsync(audit));
+    }
+
     private sealed class DenyGuard : AI.Sentinel.Authorization.IToolCallGuard
     {
         public ValueTask<AI.Sentinel.Authorization.AuthorizationDecision> AuthorizeAsync(

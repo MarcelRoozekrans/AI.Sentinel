@@ -13,6 +13,7 @@ namespace AI.Sentinel.Tests.Copilot;
 public class CopilotHookCliFailClosedTests : IDisposable
 {
     private const string PreToolUse = """{"sessionId":"cp-478","toolName":"bash","toolArgs":{"command":"ls"}}""";
+    private const string NoToolName = """{"sessionId":"cp-478","toolArgs":{"command":"ls"}}""";
     private const string Prompt = """{"sessionId":"cp-478","prompt":"hello"}""";
 
     private readonly string _dir = HookAuditTestSupport.NewTempDir();
@@ -198,6 +199,34 @@ public class CopilotHookCliFailClosedTests : IDisposable
         {
             Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", null);
         }
+    }
+
+    // With approval rules configured, a call that names no tool cannot be authorized, so it is blocked.
+    [Fact]
+    public async Task PreToolUse_NoToolName_WithApprovalConfig_BlocksAndRecordsIt()
+    {
+        UseApprovalConfig("""{ "backend": "in-memory", "tools": { "bash": { "role": "Ops" } } }""");
+        var db = UseAuditDatabase();
+
+        var (exit, stdout, stderr) = await RunAsync("pre-tool-use", NoToolName);
+
+        Assert.Equal(2, exit);
+        Assert.StartsWith("""{"decision":"Block","reason":"Sentinel internal error: """, stdout, StringComparison.Ordinal);
+        Assert.StartsWith("Sentinel internal error: PreToolUse input has no tool name", stderr, StringComparison.Ordinal);
+        var entry = await AssertInternalErrorEntryAsync(db, "unknown");
+        Assert.Equal("cp-478", entry.SessionId);
+    }
+
+    // Without authorization configured there is nothing to authorize, so a missing tool name is no error.
+    [Fact]
+    public async Task PreToolUse_NoToolName_WithoutApprovalConfig_Allows()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
+
+        var (exit, _, stderr) = await RunAsync("pre-tool-use", NoToolName);
+
+        Assert.Equal(0, exit);
+        Assert.DoesNotContain("Sentinel internal error", stderr, StringComparison.Ordinal);
     }
 
     // Detectors fail open: the pipeline skips a detector that throws and reports it, and the tool still runs.
