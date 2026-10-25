@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.6.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.6.0...v3.6.1) (2026-10-25)
+
+
+### Bug Fixes
+
+* **hooks:** block PreToolUse when the hook itself fails ([d26cb42](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/d26cb420994c1bc595fc779396d0dab547802b99))
+
 ## [3.6.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.5.0...v3.6.0) (2026-10-25)
 
 
