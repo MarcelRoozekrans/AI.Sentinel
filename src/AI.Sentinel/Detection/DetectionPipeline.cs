@@ -145,11 +145,11 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// <remarks>
     /// A detector that reaches the network — any SemanticDetectorBase once an embedding endpoint is
     /// configured — can throw for reasons that have nothing to do with the content: the endpoint is
-    /// down, the key expired, the provider rate-limited. Letting that escape aborts the whole scan,
-    /// and in the hook CLIs a thrown scan exits 1, which the host treats as a tool failure rather
-    /// than a block. The prompt would then proceed unscanned by <em>every</em> detector, including the
-    /// rule-based ones that never needed the network. One control being unavailable must not disable
-    /// the rest.
+    /// down, the key expired, the provider rate-limited. Letting that escape aborts the whole scan. In
+    /// the hook CLIs a thrown scan exits 1 on a prompt, which the host does not treat as a block, so the
+    /// prompt would proceed unscanned by <em>every</em> detector, including the rule-based ones that never
+    /// needed the network; on PreToolUse it blocks every tool call. One control being unavailable must not
+    /// disable the rest, nor stop all work.
     /// <para>
     /// A semantic detector gets this pipeline's configuration with the call, so its threshold overrides
     /// apply here and not in another named pipeline that shares the same detector instance.

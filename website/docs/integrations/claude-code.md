@@ -121,6 +121,18 @@ Set the env vars in your shell profile or directly in `settings.json`:
 }
 ```
 
+## When the hook itself fails
+
+The hook fails closed on `PreToolUse`. When it cannot evaluate a tool call, it blocks the call with exit 2 and a reason that starts with `Sentinel internal error:` on stderr. This covers:
+
+- a `SENTINEL_APPROVAL_CONFIG` that cannot be loaded or fails validation: `Sentinel internal error: approval config '<path>' could not be loaded: <message>`. Without this, one typo in the file would turn off every approval rule;
+- an unexpected exception in the hook, for example an approval database that cannot be opened: `Sentinel internal error: <ExceptionType>: <message>`;
+- stdin that is empty or not valid JSON.
+
+Every tool call stays blocked until the cause is fixed. Fix the config file, or unset `SENTINEL_APPROVAL_CONFIG` to run without approval rules. The block is recorded in the [audit file](#audit-destination) as an `AUTHZ-DENY` entry with the code `internal_error` and the policy name `sentinel-internal`.
+
+On `UserPromptSubmit` and `PostToolUse` the same failures exit 1 with the error on stderr. Claude Code shows it and goes on: exit 1 is not a block. A detector that fails, for example because the embedding endpoint is down, does not block on any event: it is skipped for that scan, reported on stderr, and the other detectors still run.
+
 ## Diagnostics — did the hook fire?
 
 `SENTINEL_HOOK_VERBOSE=1` produces a stderr line on every invocation, including `Allow` outcomes:

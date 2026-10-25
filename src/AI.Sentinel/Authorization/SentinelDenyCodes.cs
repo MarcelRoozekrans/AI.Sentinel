@@ -10,13 +10,13 @@ namespace AI.Sentinel.Authorization;
 /// <list type="bullet">
 /// <item><description><b>Fail-closed</b> — policy refused or could not be evaluated:
 /// <see cref="PolicyDenied"/>, <see cref="PolicyNotRegistered"/>, <see cref="PolicyException"/>,
-/// <see cref="ApprovalStoreException"/>, <see cref="ApprovalStateUnknown"/></description></item>
+/// <see cref="ApprovalStoreException"/>, <see cref="ApprovalStateUnknown"/>, <see cref="InternalError"/></description></item>
 /// <item><description><b>Approval-flow</b> — tool call deferred to out-of-band approval:
 /// <see cref="ApprovalRequired"/></description></item>
 /// </list>
 /// </para>
 /// <para>
-/// To add a 7th code:
+/// To add an 8th code:
 /// <list type="number">
 /// <item><description>Add a <c>public const string</c> field below with an XML doc explaining when
 /// it's emitted and which category it belongs to.</description></item>
@@ -64,4 +64,9 @@ public static class SentinelDenyCodes
     /// <summary>An <c>ApprovalState</c> subclass not covered by the guard's switch arms (defensive
     /// fallback). Should not occur in practice — flagged distinctly for diagnostic purposes.</summary>
     public const string ApprovalStateUnknown = "approval_state_unknown";
+
+    /// <summary>The hook could not evaluate the call — approval config failed to load, or an unexpected
+    /// exception — and blocked it. Emitted by the Claude Code and Copilot hook CLIs on PreToolUse.
+    /// Failure-closed.</summary>
+    public const string InternalError = "internal_error";
 }

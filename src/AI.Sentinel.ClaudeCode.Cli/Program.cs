@@ -24,38 +24,75 @@ public static class Program
         string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
     {
-        try
-        {
-            return await RunCoreAsync(args, stdin, stdout, stderr, embeddingGenerator).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // Fail safe: unexpected errors must never produce exit code 2 (Block).
-            // Exit code 1 signals "operator error / malformed input" to the host,
-            // which Claude Code treats as a tool failure, not a Sentinel block.
-            await stderr.WriteAsync($"Internal error: {ex.GetType().Name}: {ex.Message}\n").ConfigureAwait(false);
-            return 1;
-        }
-    }
-
-    private static async Task<int> RunCoreAsync(
-        string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr,
-        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
-    {
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
             await stderr.WriteAsync("Usage: sentinel-hook <user-prompt-submit|pre-tool-use|post-tool-use>\n").ConfigureAwait(false);
             return 1;
         }
 
-        var (input, parseExit) = await ReadInputAsync(stdin, stderr).ConfigureAwait(false);
+        try
+        {
+            return await RunCoreAsync(args, evt, stdin, stdout, stderr, embeddingGenerator).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Fails closed on PreToolUse: a tool call the hook could not evaluate is blocked with exit 2 and the
+            // error as the reason. On the other events exit 1 reports the error, and Claude Code goes on without
+            // treating it as a block. RunCoreAsync blocks, and audits, a failure once the audit session is open;
+            // this catches what fails before that.
+            if (evt == HookEvent.PreToolUse)
+            {
+                return await WriteReasonAndReturn(stderr, HookInternalError.Reason(ex), exitCode: 2).ConfigureAwait(false);
+            }
+
+            await stderr.WriteAsync($"Internal error: {ex.GetType().Name}: {ex.Message}\n").ConfigureAwait(false);
+            return 1;
+        }
+    }
+
+    private static async Task<int> RunCoreAsync(
+        string[] args, HookEvent evt, TextReader stdin, TextWriter stdout, TextWriter stderr,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
+    {
+        // Sentinel cannot evaluate a call it cannot read, so unreadable input blocks a PreToolUse too.
+        var (input, parseExit) = await ReadInputAsync(stdin, stderr, failureExit: evt == HookEvent.PreToolUse ? 2 : 1).ConfigureAwait(false);
         if (input is null) return parseExit;
 
         var hookEnv = BuildHookEnvVars();
         var config = HookConfig.FromEnvironment(hookEnv);
 
-        var (approvalConfig, configExit) = await TryLoadApprovalConfigAsync(stderr).ConfigureAwait(false);
-        if (configExit is { } code) return code;
+        // Opened before anything below can fail, so a PreToolUse blocked for an internal error is recorded too.
+        var audit = OpenAudit(out var auditProblems);
+        await using var _audit = audit.ConfigureAwait(false);
+
+        try
+        {
+            return await EvaluateAsync(args, evt, input, config, hookEnv, audit, auditProblems, stdout, stderr, embeddingGenerator).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (evt == HookEvent.PreToolUse)
+        {
+            return await BlockOnInternalErrorAsync(input, HookInternalError.Reason(ex), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task<int> EvaluateAsync(
+        string[] args, HookEvent evt, HookInput input, HookConfig config, Dictionary<string, string?> hookEnv,
+        LocalAuditSession audit, List<string> auditProblems, TextWriter stdout, TextWriter stderr,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator)
+    {
+        // A config that fails to load must not quietly drop every approval rule, so on PreToolUse it blocks.
+        var (approvalConfig, configPath, configError) = TryLoadApprovalConfig();
+        if (configError is not null)
+        {
+            if (evt == HookEvent.PreToolUse)
+            {
+                return await BlockOnInternalErrorAsync(
+                    input, HookInternalError.ApprovalConfigReason(configPath!, configError), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
+            }
+
+            await stderr.WriteAsync($"Failed to load approval config from '{configPath}': {configError.Message}\n").ConfigureAwait(false);
+            return 1;
+        }
 
         // A caller-supplied generator wins; otherwise read SENTINEL_EMBEDDING_* so the hook can do
         // semantic detection at all. A misconfigured setting is reported rather than leaving SEC-01
@@ -68,9 +105,6 @@ public static class Program
         {
             await stderr.WriteLineAsync(embeddingError).ConfigureAwait(false);
         }
-
-        var audit = OpenAudit(out var auditProblems);
-        await using var _audit = audit.ConfigureAwait(false);
 
         var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), audit,
             enableComplianceDetectors: config.EnableComplianceDetectors, detectors: DetectorPresets.Parse(hookEnv.GetValueOrDefault("SENTINEL_HOOK_DETECTORS")));
@@ -100,6 +134,23 @@ public static class Program
 
         var exit = await ExitCodeAsync(stderr, evt, output).ConfigureAwait(false);
         await CloseAuditAsync(audit, reported, config.Verbose, stderr).ConfigureAwait(false);
+        return exit;
+    }
+
+    /// <summary>Blocks a PreToolUse the hook could not evaluate: exit 2 with <paramref name="reason"/> on stderr, and
+    /// an <c>AUTHZ-DENY</c> entry with the <c>internal_error</c> code, written best effort. Audit problems are
+    /// reported only with verbose on, as for any Block that exits 2.</summary>
+    private static async Task<int> BlockOnInternalErrorAsync(
+        HookInput input, string reason, LocalAuditSession audit, List<string> auditProblems, bool verbose, TextWriter stderr)
+    {
+        if (await HookInternalError.TryAuditAsync(audit.Store, audit.Forwarders, input.ToolName, input.SessionId, reason).ConfigureAwait(false) is { } problem)
+        {
+            auditProblems.Add(problem);
+        }
+
+        var reported = await FlushAndReportAuditAsync(audit, auditProblems, verbose, stderr).ConfigureAwait(false);
+        var exit = await WriteReasonAndReturn(stderr, reason, exitCode: 2).ConfigureAwait(false);
+        await CloseAuditAsync(audit, reported, verbose, stderr).ConfigureAwait(false);
         return exit;
     }
 
@@ -164,7 +215,7 @@ public static class Program
     private static bool BlocksWithExitTwo(HookEvent evt, HookOutput output) =>
         output.Decision == HookDecision.Block && evt != HookEvent.PostToolUse;
 
-    private static async Task<(HookInput? Input, int Exit)> ReadInputAsync(TextReader stdin, TextWriter stderr)
+    private static async Task<(HookInput? Input, int Exit)> ReadInputAsync(TextReader stdin, TextWriter stderr, int failureExit)
     {
         try
         {
@@ -176,12 +227,12 @@ public static class Program
         catch (JsonException ex)
         {
             await stderr.WriteAsync($"Error: malformed stdin JSON: {ex.Message}\n").ConfigureAwait(false);
-            return (null, 1);
+            return (null, failureExit);
         }
         catch (InvalidDataException ex)
         {
             await stderr.WriteAsync($"Error: {ex.Message}\n").ConfigureAwait(false);
-            return (null, 1);
+            return (null, failureExit);
         }
     }
 
@@ -207,18 +258,21 @@ public static class Program
             .Where(e => e.Key is string key && key.StartsWith("SENTINEL_HOOK_", StringComparison.Ordinal))
             .ToDictionary(e => (string)e.Key, e => e.Value as string, StringComparer.Ordinal);
 
-    private static async Task<(ApprovalConfig? Config, int? Exit)> TryLoadApprovalConfigAsync(TextWriter stderr)
+    /// <summary>Loads <c>SENTINEL_APPROVAL_CONFIG</c> when it is set. A failure of any kind is returned rather than
+    /// thrown, with the path, so the caller decides whether it blocks.</summary>
+    private static (ApprovalConfig? Config, string? Path, Exception? Error) TryLoadApprovalConfig()
     {
         var path = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
-        if (string.IsNullOrWhiteSpace(path)) return (null, null);
+        if (string.IsNullOrWhiteSpace(path)) return (null, null, null);
         try
         {
-            return (ApprovalConfigLoader.Load(path), null);
+            return (ApprovalConfigLoader.Load(path), path, null);
         }
-        catch (Exception ex) when (ex is FileNotFoundException or InvalidOperationException or JsonException)
+#pragma warning disable CA1031 // Every load failure is reported; on PreToolUse it blocks the call.
+        catch (Exception ex)
+#pragma warning restore CA1031
         {
-            await stderr.WriteAsync($"Failed to load approval config from '{path}': {ex.Message}\n").ConfigureAwait(false);
-            return (null, 1);
+            return (null, path, ex);
         }
     }
 

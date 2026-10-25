@@ -85,6 +85,18 @@ What each action does:
 - **`Warn`** → exit 0 with the reason on stderr (visible in Copilot's log).
 - **`Allow`** → exit 0, with `{"decision":"Allow","reason":null}` on stdout.
 
+## When the hook itself fails
+
+The hook fails closed on `preToolUse`. When it cannot evaluate a tool call, it blocks the call with exit 2 and a reason that starts with `Sentinel internal error:` on stderr. This covers:
+
+- a `SENTINEL_APPROVAL_CONFIG` that cannot be loaded or fails validation: `Sentinel internal error: approval config '<path>' could not be loaded: <message>`. Without this, one typo in the file would turn off every approval rule;
+- an unexpected exception in the hook, for example an approval database that cannot be opened: `Sentinel internal error: <ExceptionType>: <message>`;
+- stdin that is empty or not valid JSON.
+
+Every tool call stays blocked until the cause is fixed. Fix the config file, or unset `SENTINEL_APPROVAL_CONFIG` to run without approval rules. The block is recorded in the [audit file](#audit-destination) as an `AUTHZ-DENY` entry with the code `internal_error` and the policy name `sentinel-internal`.
+
+On `userPromptSubmitted`, `userPromptTransformed` and `postToolUse` the same failures exit 1 with the error on stderr, which Copilot does not treat as a block. A detector that fails, for example because the embedding endpoint is down, does not block on any event: it is skipped for that scan, reported on stderr, and the other detectors still run.
+
 ## Redaction
 
 With `SENTINEL_HOOK_REDACT` on, the default, the hook redacts personal data and secrets where Copilot lets a command hook rewrite content:
