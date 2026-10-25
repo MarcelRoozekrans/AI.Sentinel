@@ -76,25 +76,25 @@ public static class Program
             return 1;
         }
 
+        // A config that fails to load must not quietly drop every approval rule, so on PreToolUse it blocks.
+        var (approvalConfig, configPath, configError) = TryLoadApprovalConfig();
+        if (configError is not null)
+        {
+            if (evt == CopilotHookEvent.PreToolUse)
+            {
+                return await BlockOnInternalErrorAsync(
+                    args, input.ToolName, input.SessionId, HookInternalError.ApprovalConfigReason(configPath!, configError),
+                    audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
+            }
+
+            await stderr.WriteAsync($"Failed to load approval config from '{configPath}': {configError.Message}\n").ConfigureAwait(false);
+            return 1;
+        }
+
         CopilotHookResult result;
         string? semanticWarning;
         try
         {
-            // A config that fails to load must not quietly drop every approval rule, so on PreToolUse it blocks.
-            var (approvalConfig, configPath, configError) = TryLoadApprovalConfig();
-            if (configError is not null)
-            {
-                if (evt == CopilotHookEvent.PreToolUse)
-                {
-                    return await BlockOnInternalErrorAsync(
-                        args, input.ToolName, input.SessionId, HookInternalError.ApprovalConfigReason(configPath!, configError),
-                        audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
-                }
-
-                await stderr.WriteAsync($"Failed to load approval config from '{configPath}': {configError.Message}\n").ConfigureAwait(false);
-                return 1;
-            }
-
             (result, semanticWarning) = await EvaluateAsync(evt, input, config, hookEnv, approvalConfig, audit, stderr, embeddingGenerator).ConfigureAwait(false);
         }
         catch (Exception ex) when (evt == CopilotHookEvent.PreToolUse)
