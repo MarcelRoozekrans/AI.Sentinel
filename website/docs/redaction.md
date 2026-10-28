@@ -253,6 +253,30 @@ The MCP proxy keeps the PII placeholders it minted in memory for the run, so it 
 - The [dashboard](/docs/getting-started/dashboard) shows a "redacted" badge and a "Redacted" filter chip.
 - The caller is told through `InterventionAppliedNotification` with `Action = Redact` and the counts. `ThreatDetectedNotification` does not fire for a redaction alone.
 
+### A quarantined prompt audits its redactions
+
+When the prompt scan quarantines a call, the `REDACTED` entries are still written. The prompt was masked, so its redactions are on record, and the entries are counts only as always. Before, a quarantined prompt wrote the detections and no `REDACTED` entry.
+
+When the inner client throws after a prompt was masked, the entries are written too. So are they when the call is cancelled.
+
+## Detections, sessions and cancellation
+
+These middleware fixes shipped together with [screening](./screening):
+
+- **Every detection is kept on quarantine.** `ThreatDetected.Detections` and `SentinelException.PipelineResult` carry every non-clean detection of the scan, with the score of the whole set. Before, only the top one survived. `ThreatDetected.Result` is still the representative detection.
+- **SEC-23 names every PII type.** When `PiiLeakageDetector` reports a finding without masking it, the reason lists each type found, at the highest severity among them, such as `Phone number and date of birth detected`. Before, it named the first hit only.
+- **`SessionIdKey` accepts a `SessionId`.** Put either a non-blank string or a `SessionId` under `SentinelPipeline.SessionIdKey` in `ChatOptions.AdditionalProperties`:
+
+  ```csharp
+  var options = new ChatOptions
+  {
+      AdditionalProperties = new() { [SentinelPipeline.SessionIdKey] = new SessionId("ticket-4711") },
+  };
+  ```
+
+- **The rate limiter honours `ConversationId`.** It reads the caller's session the way the audit does: `SessionIdKey`, else `ChatOptions.ConversationId`. Without either, calls share the `__global__` key as before.
+- **Cancellation is not wrapped.** When `CancellationToken` is cancelled and the inner client throws `OperationCanceledException`, it reaches the caller as it is. Before, it became a pipeline failure and then an `InvalidOperationException`.
+
 ## Policies and approvals see real values
 
 Authorization policies and approval requests receive the real argument values, so an approver can judge the actual call. A user-written policy that puts argument values in its deny reason puts them in the audit. Keep values out of deny reasons.
