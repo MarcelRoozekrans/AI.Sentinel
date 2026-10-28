@@ -20,12 +20,13 @@ public abstract record SentinelError
 
         /// <summary>
         /// Every non-clean detection of the scan, <see cref="Result"/> being the representative one.
-        /// Defaults to <see cref="Result"/> alone when the producer did not supply the full set.
+        /// Defaults to <see cref="Result"/> alone when the producer did not supply the full set. An empty or
+        /// <see langword="null"/> list is treated as unset.
         /// </summary>
         public IReadOnlyList<DetectionResult> Detections
         {
             get => _detections ?? [Result];
-            init => _detections = value;
+            init => _detections = value is { Count: > 0 } ? value : null;
         }
     }
 

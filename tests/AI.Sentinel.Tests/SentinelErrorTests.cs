@@ -63,4 +63,16 @@ public class SentinelErrorTests
         var d = DetectionResult.WithSeverity(new("SEC-01"), Severity.High, "x");
         Assert.Equal([d], new SentinelError.ThreatDetected(d, SentinelAction.Quarantine, SessionId.New()).Detections);
     }
+
+    [Fact]
+    public void ThreatDetected_EmptyDetections_FallsBackToResult()
+    {
+        var d = DetectionResult.WithSeverity(new("SEC-01"), Severity.High, "x");
+        var error = new SentinelError.ThreatDetected(d, SentinelAction.Quarantine, SessionId.New()) { Detections = [] };
+
+        Assert.Equal([d], error.Detections);
+        var ex = Assert.IsType<SentinelException>(error.ToException());
+        Assert.Equal([d], ex.PipelineResult.Detections);
+        Assert.Equal(70, ex.PipelineResult.Score.Value);
+    }
 }

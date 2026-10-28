@@ -52,6 +52,17 @@ public class SentinelScreenerRegistrationTests
     }
 
     [Fact]
+    public async Task NamedScreener_WithoutDefaultCall_ThrowsSharedInfrastructureMissing()
+    {
+        using var provider = new ServiceCollection().AddAISentinel("strict", _ => { }).BuildServiceProvider();
+
+        var screener = provider.GetRequiredKeyedService<ISentinelScreener>("strict");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () => await screener.ScreenAsync(Phone, ct: Ct));
+        Assert.Contains("shared infrastructure", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Screener_WritesToTheSharedAuditStore()
     {
         using var provider = new ServiceCollection().AddAISentinel().BuildServiceProvider();

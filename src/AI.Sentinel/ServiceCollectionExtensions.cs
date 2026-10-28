@@ -371,31 +371,16 @@ public static class ServiceCollectionExtensions
             return BuildNamedChatClient(sp, name, inner);
         });
 
-    private static SentinelChatClient BuildNamedChatClient(IServiceProvider sp, string name, IChatClient inner)
-    {
-        var opts = sp.GetRequiredKeyedService<SentinelOptions>(name);
-        var pipeline = sp.GetRequiredKeyedService<IDetectionPipeline>(name);
-        var engine = sp.GetRequiredKeyedService<InterventionEngine>(name);
-        RequireSharedInfrastructure(sp, name);
-        WarnIfSemanticDetectionInert(sp, opts, pipelineName: name);
-
-        return new SentinelChatClient(
-            inner,
-            pipeline,
-            sp.GetRequiredService<IAuditStore>(),     // shared
-            engine,
-            opts,
-            sp.GetRequiredService<IAlertSink>(),      // shared
-            sp.GetServices<IAuditForwarder>(),        // shared
-            pipelineName: name);
-    }
+    private static SentinelChatClient BuildNamedChatClient(IServiceProvider sp, string name, IChatClient inner) =>
+        new(BuildNamedSentinelPipeline(sp, name, inner));
 
     private static SentinelPipeline BuildNamedSentinelPipeline(IServiceProvider sp, string name, IChatClient inner)
     {
+        // First: building the keyed detection pipeline or engine also needs the shared services.
+        RequireSharedInfrastructure(sp, name);
         var opts = sp.GetRequiredKeyedService<SentinelOptions>(name);
         var pipeline = sp.GetRequiredKeyedService<IDetectionPipeline>(name);
         var engine = sp.GetRequiredKeyedService<InterventionEngine>(name);
-        RequireSharedInfrastructure(sp, name);
         WarnIfSemanticDetectionInert(sp, opts, pipelineName: name);
 
         return new SentinelPipeline(
