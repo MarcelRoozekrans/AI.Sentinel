@@ -46,6 +46,51 @@ public class SentinelChatClientTests
                 new List<ChatMessage> { new(ChatRole.User, "inject") }, default, TestContext.Current.CancellationToken));
     }
 
+    [Fact]
+    public async Task InnerClientCancelled_PropagatesOperationCanceledException()
+    {
+        using var cts = new CancellationTokenSource();
+        var client = BuildSentinelClient(new CancellingChatClient(cts));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => client.GetResponseAsync(new List<ChatMessage> { new(ChatRole.User, "hi") }, default, cts.Token));
+    }
+
+    [Fact]
+    public async Task InnerClientCancelled_Streaming_PropagatesOperationCanceledException()
+    {
+        using var cts = new CancellationTokenSource();
+        var client = BuildSentinelClient(new CancellingChatClient(cts));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var _ in client.GetStreamingResponseAsync(new List<ChatMessage> { new(ChatRole.User, "hi") }, default, cts.Token))
+            {
+            }
+        });
+    }
+
+    private sealed class CancellingChatClient(CancellationTokenSource cts) : IChatClient
+    {
+        public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            cts.Cancel();
+            throw new OperationCanceledException(cts.Token);
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            if (cts.IsCancellationRequested)
+                yield break;
+            await cts.CancelAsync();
+            throw new OperationCanceledException(cts.Token);
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
+    }
+
     private sealed class FakeCriticalDetector : IDetector
     {
         public DetectorId Id => new("TST-99");

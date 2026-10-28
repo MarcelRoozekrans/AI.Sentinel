@@ -25,9 +25,16 @@ public sealed class SentinelChatClient : DelegatingChatClient
         IAlertSink? alertSink = null,
         IEnumerable<IAuditForwarder>? forwarders = null,
         string? pipelineName = null)
-        : base(innerClient)
+        : this(new SentinelPipeline(
+            innerClient, pipeline, auditStore, interventionEngine, options, alertSink, forwarders, pipelineName))
     {
-        _sentinel = new(innerClient, pipeline, auditStore, interventionEngine, options, alertSink, forwarders, pipelineName);
+    }
+
+    /// <summary>Runs every call through <paramref name="sentinel"/>, which forwards to its inner client.</summary>
+    internal SentinelChatClient(SentinelPipeline sentinel)
+        : base(sentinel.InnerClient)
+    {
+        _sentinel = sentinel;
     }
 
     public override async Task<ChatResponse> GetResponseAsync(

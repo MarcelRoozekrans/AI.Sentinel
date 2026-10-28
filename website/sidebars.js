@@ -24,6 +24,7 @@ const sidebars = {
     },
     'eu-ai-act',
     'redaction',
+    'screening',
     'transparency',
     'compliance-report',
     {

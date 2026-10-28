@@ -98,6 +98,35 @@ Override the threshold properties (`HighThreshold`/`MediumThreshold`/`LowThresho
 
 **Set `EmbeddingGenerator` before constructing the detector** — `SemanticDetectorBase` captures it in its constructor and won't observe later changes.
 
+## Redacting detectors
+
+A detector that can say *where* its matches are can have them masked instead of flagged. Implement `IRedactingDetector` and return one `RedactionSpan` per match, sorted by `Start` ascending (longer span first on equal starts), with no span contained in another. See [Redaction](../redaction).
+
+```csharp
+public sealed class TicketNumberDetector : IRedactingDetector
+{
+    private static readonly Regex Pattern = new(@"\bTCK-\d{6}\b", RegexOptions.None, TimeSpan.FromSeconds(1));
+    private static readonly DetectorId _id = new("MYORG-02");
+
+    public DetectorId Id => _id;
+    public DetectorCategory Category => DetectorCategory.Security;
+
+    public IReadOnlyList<RedactionSpan> FindSpans(string text) =>
+        Pattern.Matches(text)
+            .Select(m => new RedactionSpan(m.Index, m.Length, "TICKET") { Severity = Severity.Low })
+            .ToList();
+
+    public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+        ValueTask.FromResult(Pattern.IsMatch(ctx.TextContent)
+            ? DetectionResult.WithSeverity(_id, Severity.Low, "Ticket number detected")
+            : DetectionResult.Clean(_id));
+}
+```
+
+`RedactionSpan.Severity` is optional and `null` by default. A detector that sets it has the value reported on the `RedactionFinding` that [screening](../screening#redactions) returns; a detector that leaves it off reports `null`. It does not change the detector's own result.
+
+`IRedactingDetector.RestoreIntoToolArguments` defaults to `true`. A detector of secrets returns `false`, so the tool receives the placeholder and never the secret.
+
 ## Registering it
 
 ```csharp

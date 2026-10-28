@@ -439,9 +439,10 @@ public class RedactionStreamingTests
         });
         var (sentinel, audit) = Direct(model);
 
-        var result = await sentinel.GetStreamingResultAsync([new ChatMessage(ChatRole.User, $"Mail {Email}")], null, cts.Token);
+        // A cancelled call propagates the cancellation, and the redactions it made are still audited.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await sentinel.GetStreamingResultAsync([new ChatMessage(ChatRole.User, $"Mail {Email}")], null, cts.Token));
 
-        Assert.True(result.IsFailure);
         var entry = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(audit));
         Assert.Equal("REDACTED", entry.PolicyCode);
         Assert.Equal("Redacted 1 EMAIL", entry.Summary);

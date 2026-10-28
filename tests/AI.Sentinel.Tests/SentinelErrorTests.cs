@@ -44,4 +44,35 @@ public class SentinelErrorTests
         var sentinelEx = Assert.IsType<SentinelException>(ex);
         Assert.Contains("user-42", sentinelEx.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void ThreatDetected_ToException_CarriesEveryDetection()
+    {
+        var injection = DetectionResult.WithSeverity(new("SEC-01"), Severity.Critical, "injection");
+        var pii = DetectionResult.WithSeverity(new("SEC-23"), Severity.Medium, "Phone number detected");
+        var error = new SentinelError.ThreatDetected(injection, SentinelAction.Quarantine, SessionId.New()) { Detections = [injection, pii] };
+
+        var ex = Assert.IsType<SentinelException>(error.ToException());
+        Assert.Equal([injection, pii], ex.PipelineResult.Detections);
+        Assert.Equal(100, ex.PipelineResult.Score.Value);
+    }
+
+    [Fact]
+    public void ThreatDetected_Detections_DefaultsToResult()
+    {
+        var d = DetectionResult.WithSeverity(new("SEC-01"), Severity.High, "x");
+        Assert.Equal([d], new SentinelError.ThreatDetected(d, SentinelAction.Quarantine, SessionId.New()).Detections);
+    }
+
+    [Fact]
+    public void ThreatDetected_EmptyDetections_FallsBackToResult()
+    {
+        var d = DetectionResult.WithSeverity(new("SEC-01"), Severity.High, "x");
+        var error = new SentinelError.ThreatDetected(d, SentinelAction.Quarantine, SessionId.New()) { Detections = [] };
+
+        Assert.Equal([d], error.Detections);
+        var ex = Assert.IsType<SentinelException>(error.ToException());
+        Assert.Equal([d], ex.PipelineResult.Detections);
+        Assert.Equal(70, ex.PipelineResult.Score.Value);
+    }
 }

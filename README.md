@@ -499,8 +499,8 @@ builder.Services.AddAISentinel(opts =>
     // Optional: per-session token-bucket circuit breaker.
     // MaxCallsPerSecond = steady-state refill rate; BurstSize = initial token count.
     // Pass "sentinel.session_id" in ChatOptions.AdditionalProperties for per-user buckets.
-    // Without that key, all calls share a global bucket. The same key, or else
-    // ChatOptions.ConversationId, also groups a conversation's audit entries into one session.
+    // Without that key, all calls share a global bucket; ConversationId is not a rate-limit key.
+    // The same key, or else ChatOptions.ConversationId, also groups a conversation's audit entries into one session.
     opts.MaxCallsPerSecond = 5;   // allow 5 calls/sec per session (steady state)
     opts.BurstSize = 20;          // up-front burst before throttling kicks in
 
@@ -572,6 +572,18 @@ services.AddAISentinel(opts =>
 `Redact` is invalid on `OnCritical`, `OnHigh`, `OnMedium` and `OnLow`, and on a detector that cannot redact; `AddAISentinel` throws an `ArgumentException` for either. In an app, the placeholder mapping lives in memory for one call and is never logged, audited or forwarded. A redaction is audited as one informational `REDACTED` entry with counts only, and never counts as a threat. When redaction is not possible, the detection uses its severity action and the audit summary ends with `; not redacted`. That covers the response scan, and in the hook CLIs and the MCP proxy, tool-call arguments and the Claude Code `UserPromptSubmit` and Copilot `userPromptSubmitted` prompts.
 
 **Hook CLIs and MCP proxy (3.1).** With `SENTINEL_HOOK_REDACT` and `SENTINEL_MCP_REDACT` on, the default, `sentinel-hook` redacts Claude Code `PostToolUse` output through `updatedToolOutput`, `sentinel-copilot-hook` redacts Copilot `postToolUse` results through `modifiedResult` and, experimentally, the `userPromptTransformed` prompt, and `sentinel-mcp` redacts tool results, prompts and text resources. The proxy keeps the PII placeholders it minted in memory, never logged, and restores them into later tool calls for `SENTINEL_MCP_REDACT_TTL_MIN` minutes after their last use, 30 by default; secrets never. The hooks keep no mapping, so they deny writes and shell commands that carry a placeholder. Full details, including what is not redacted and the known limitation with `UseFunctionInvocation`: [Redaction](https://marcelroozekrans.github.io/AI.Sentinel/docs/redaction).
+
+### Screening text without a chat call
+
+`ISentinelScreener` (resolved from DI) and `SentinelPipeline.ScreenAsync` run one text through the same detectors, redaction and audit as a chat call, with no chat client. The outcome is a value: `Passed`, `Quarantined`, `RateLimited` or `Failed`. Both scanned cases carry the masked text, every detection and every redaction with its offsets in the input. If masking fails, the outcome is `Failed` and the text is never returned unmasked. Full details: [Screening](https://marcelroozekrans.github.io/AI.Sentinel/docs/screening).
+
+```csharp
+var options = new ScreeningOptions { Placeholder = f => f.EntityType == "PHONE" ? "[TELEFOON]" : $"[{f.EntityType}]" };
+var outcome = await screener.ScreenAsync("Bel Jan de Vries op 0612345678.", options, ct);
+
+if (outcome is ScreeningOutcome.Passed passed)
+    Store(passed.RedactedText);   // "Bel Jan de Vries op [TELEFOON]."
+```
 
 ### Tuning individual detectors
 

@@ -132,4 +132,33 @@ public class PiiLeakageDetectorTests
         Assert.Equal(Severity.High, r.Severity);
         Assert.Contains("tax ID", r.Reason, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void FindSpans_ReportsSeverityPerEntityType()
+    {
+        var spans = new PiiLeakageDetector().FindSpans("born 12-03-1987, call +31 6 1234 5678, card 4111 1111 1111 1111");
+        Assert.Equal(Severity.Medium, spans.Single(s => string.Equals(s.EntityType, "DATE_OF_BIRTH", StringComparison.Ordinal)).Severity);
+        Assert.Equal(Severity.Medium, spans.Single(s => string.Equals(s.EntityType, "PHONE", StringComparison.Ordinal)).Severity);
+        Assert.Equal(Severity.Critical, spans.Single(s => string.Equals(s.EntityType, "CREDIT_CARD", StringComparison.Ordinal)).Severity);
+    }
+
+    [Fact]
+    public async Task Analyze_NamesEveryTypeFound_AtHighestSeverity()
+    {
+        var r = await new PiiLeakageDetector().AnalyzeAsync(Ctx("geboren 12-03-1987, bel 0612345678, IBAN NL91ABNA0417164300"), TestContext.Current.CancellationToken);
+        Assert.Equal(Severity.High, r.Severity);
+        Assert.Equal("IBAN, phone number and date of birth detected", r.Reason);
+    }
+
+    [Fact]
+    public async Task Analyze_TwoTypes_JoinedWithAnd()
+    {
+        var r = await new PiiLeakageDetector().AnalyzeAsync(Ctx("bel 0612345678, geboren 12-03-1987"), TestContext.Current.CancellationToken);
+        Assert.Equal(Severity.Medium, r.Severity);
+        Assert.Equal("Phone number and date of birth detected", r.Reason);
+    }
+
+    [Fact]
+    public void RedactionSpan_SeverityDefaultsToNull()
+        => Assert.Null(new RedactionSpan(0, 1, "X").Severity);
 }

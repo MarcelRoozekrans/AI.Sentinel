@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using AI.Sentinel.Domain;
 
 namespace AI.Sentinel.Detection;
 
@@ -7,12 +8,13 @@ internal static class RedactionSpanCollector
 {
     // Keyword-prefixed patterns name their value group, so the span excludes the keyword. Spans over the
     // current call's own placeholders are dropped by the redaction session, which knows which it minted.
-    internal static void Collect(Regex pattern, string entityType, string text, List<RedactionSpan> spans)
+    internal static void Collect(Regex pattern, string entityType, string text, List<RedactionSpan> spans,
+        Severity? severity = null)
     {
         foreach (Match m in pattern.Matches(text))
         {
             var target = Target(m);
-            spans.Add(new RedactionSpan(target.Index, target.Length, entityType));
+            spans.Add(new RedactionSpan(target.Index, target.Length, entityType) { Severity = severity });
         }
     }
 

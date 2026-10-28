@@ -3,7 +3,10 @@ using System.Diagnostics.Metrics;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Detectors.Security;
+using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
+using AI.Sentinel.Redaction;
 using Xunit;
 
 namespace AI.Sentinel.Tests;
@@ -79,6 +82,85 @@ public class SentinelPipelineRateLimitTests
         // Session-B is independent — should succeed
         var resultB = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], opts2, TestContext.Current.CancellationToken);
         Assert.True(resultB.IsSuccess);
+    }
+
+    // ConversationId is the previous response id on the OpenAI Responses API, so keying on it would give each turn a fresh bucket.
+    [Fact]
+    public async Task RateLimit_IgnoresConversationId_SharesGlobalBucket()
+    {
+        var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
+        var a = new ChatOptions { ConversationId = "a" };
+        var b = new ChatOptions { ConversationId = "b" };
+
+        var first = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], a, TestContext.Current.CancellationToken);
+        var second = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], b, TestContext.Current.CancellationToken);
+
+        Assert.True(first.IsSuccess);
+        Assert.Equal(new SentinelError.RateLimitExceeded("__global__"), second.Error);
+    }
+
+    [Fact]
+    public async Task RateLimit_TypedSessionId_SeparatesBuckets()
+    {
+        var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
+        ChatOptions For(string id) => new() { AdditionalProperties = new AdditionalPropertiesDictionary { [SentinelPipeline.SessionIdKey] = new SessionId(id) } };
+
+        var first = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], For("a"), TestContext.Current.CancellationToken);
+        var second = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], For("a"), TestContext.Current.CancellationToken);
+        var third = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], For("b"), TestContext.Current.CancellationToken);
+
+        Assert.True(first.IsSuccess);
+        Assert.Equal(new SentinelError.RateLimitExceeded("a"), second.Error);
+        Assert.True(third.IsSuccess);
+    }
+
+    // Ruling 1: a host path keeps the shared __global__ key even when it names a session, with or without a redactor.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RedactAndScan_LimitsOnGlobalKey_NotOnTheSession(bool withRedactor)
+    {
+        var opts = new SentinelOptions { MaxCallsPerSecond = 1, BurstSize = 1 };
+        IDetector[] detectors = withRedactor ? [new PiiLeakageDetector()] : [];
+        var sentinel = new SentinelPipeline(new NoOpChatClient(),
+            new DetectionPipeline(detectors, configurations: null, escalationClient: null),
+            new RingBufferAuditStore(100), new InterventionEngine(opts, null), opts);
+        var request = new HostRedactionRequest { Content = [HostContent.FromText("hi")] };
+
+        var first = await sentinel.RedactAndScanAsync(request, new SessionId("host-a"), TestContext.Current.CancellationToken);
+        var second = await sentinel.RedactAndScanAsync(request, new SessionId("host-b"), TestContext.Current.CancellationToken);
+
+        Assert.Null(first.Error);
+        Assert.Equal(new SentinelError.RateLimitExceeded("__global__"), second.Error);
+    }
+
+    [Fact]
+    public async Task ScanMessages_IgnoresConversationId_SharesGlobalBucket()
+    {
+        var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
+        var a = new ChatOptions { ConversationId = "a" };
+        var b = new ChatOptions { ConversationId = "b" };
+
+        var first = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], a, ct: TestContext.Current.CancellationToken);
+        var second = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], b, ct: TestContext.Current.CancellationToken);
+
+        Assert.Null(first);
+        Assert.Equal(new SentinelError.RateLimitExceeded("__global__"), second);
+    }
+
+    [Fact]
+    public async Task ScanMessages_TypedSessionId_SeparatesBuckets()
+    {
+        var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
+        ChatOptions For(string id) => new() { AdditionalProperties = new AdditionalPropertiesDictionary { [SentinelPipeline.SessionIdKey] = new SessionId(id) } };
+
+        var first = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], For("a"), ct: TestContext.Current.CancellationToken);
+        var second = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], For("a"), ct: TestContext.Current.CancellationToken);
+        var third = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], For("b"), ct: TestContext.Current.CancellationToken);
+
+        Assert.Null(first);
+        Assert.Equal(new SentinelError.RateLimitExceeded("a"), second);
+        Assert.Null(third);
     }
 
     [Fact]

@@ -120,7 +120,14 @@ internal sealed class RedactionSession
     /// </summary>
     public JsonElement RedactJsonValues(JsonElement element) => MapJson(element, RedactMap, mapNames: false);
 
-    public string Redact(string text)
+    public string Redact(string text) => Redact(text, replaced: null);
+
+    /// <summary>
+    /// Redacts <paramref name="text"/> and, when <paramref name="replaced"/> is given, appends one entry per span it
+    /// replaced, in input order with input offsets. Spans left alone because they sit over a known placeholder are
+    /// not listed.
+    /// </summary>
+    public string Redact(string text, List<ReplacedSpan>? replaced)
     {
         if (string.IsNullOrEmpty(text))
         {
@@ -130,7 +137,7 @@ internal sealed class RedactionSession
         // Detectors run outside the lock; any exception (including regex timeouts) propagates to the caller.
         var found = new List<Found>();
         Collect(text, found, member: null);
-        return Apply(text, found);
+        return Apply(text, found, replaced);
     }
 
     /// <summary>
@@ -152,7 +159,7 @@ internal sealed class RedactionSession
         Collect(value, found, member: null);
         var member = JsonScanText.RenderMember(name, value);
         Collect(member.Text, found, member);
-        return Apply(value, found);
+        return Apply(value, found, replaced: null);
     }
 
     /// <summary>Redacts a string of a walked value: in the context of its member's name when it has one.</summary>
@@ -192,12 +199,12 @@ internal sealed class RedactionSession
                     start = valueStart;
                     length = valueEnd - valueStart;
                 }
-                found.Add(new Found(start, length, NormalizeType(span.EntityType), id, redactor.RestoreIntoToolArguments, order, found.Count));
+                found.Add(new Found(start, length, NormalizeType(span.EntityType), id, redactor.RestoreIntoToolArguments, order, found.Count, span.Severity));
             }
         }
     }
 
-    private string Apply(string text, List<Found> found)
+    private string Apply(string text, List<Found> found, List<ReplacedSpan>? replaced)
     {
         if (found.Count == 0)
         {
@@ -206,11 +213,11 @@ internal sealed class RedactionSession
 
         lock (_gate)
         {
-            return ApplyLocked(text, found);
+            return ApplyLocked(text, found, replaced);
         }
     }
 
-    private string ApplyLocked(string text, List<Found> found)
+    private string ApplyLocked(string text, List<Found> found, List<ReplacedSpan>? replaced)
     {
         // A span over a placeholder this session minted is its own output, for example the value part of
         // `api_key=[API_KEY_1_k3f9x2]` echoed by a tool in this call: replacing it again would nest placeholders.
@@ -258,7 +265,9 @@ internal sealed class RedactionSession
             }
 
             sb.Append(text, pos, start - pos);
-            sb.Append(TokenFor(winner.EntityType, text.Substring(start, end - start), toolRestorable));
+            var token = TokenFor(winner.EntityType, text.Substring(start, end - start), toolRestorable);
+            sb.Append(token);
+            replaced?.Add(new ReplacedSpan(start, end - start, winner.DetectorId, winner.EntityType, winner.Severity, token));
             pos = end;
             Count(winner.DetectorId, winner.EntityType);
         }
@@ -1014,5 +1023,5 @@ internal sealed class RedactionSession
     /// the value of, or null for a string with no name: text, an item of a list, a name itself.</summary>
     private delegate string TextMap(string text, string? name);
 
-    private readonly record struct Found(int Start, int Length, string EntityType, string DetectorId, bool ToolRestorable, int DetectorOrder, int Sequence);
+    private readonly record struct Found(int Start, int Length, string EntityType, string DetectorId, bool ToolRestorable, int DetectorOrder, int Sequence, Severity? Severity);
 }
