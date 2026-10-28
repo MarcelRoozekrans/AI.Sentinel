@@ -183,7 +183,7 @@ Detectors run in these modes:
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| `SEC‑01` | PromptInjection | Rule + Semantic ⚠️ | Override/injection phrase patterns. The unambiguous phrasings (`ignore all previous instructions`, `you are now a different AI`) are matched by rule and need no generator; paraphrases need one |
+| `SEC‑01` | PromptInjection | Rule + Semantic ⚠️ | Override/injection phrase patterns. The unambiguous phrasings (`ignore all previous instructions`, `you are now a different AI`) are matched by rule, in English and Dutch, and need no generator; paraphrases need one |
 | `SEC‑02` | CredentialExposure | Rule-based | API keys, tokens, private keys, secrets in output |
 | `SEC‑03` | ToolPoisoning | Semantic ⚠️ | Suspicious tool-call manipulation patterns |
 | `SEC‑04` | DataExfiltration | Semantic ⚠️ | Base64 blobs, high-entropy encoded data |

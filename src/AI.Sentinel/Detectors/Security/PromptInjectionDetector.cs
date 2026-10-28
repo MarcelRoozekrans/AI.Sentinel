@@ -21,7 +21,14 @@ public sealed partial class PromptInjectionDetector(SentinelOptions options) : S
         @"forget\s+(all\s+)?(your\s+)?(previous|prior)\s+instructions?|" +
         @"forget\s+your\s+instructions\b|" +
         @"override\s+your\s+system\s+prompt|" +
-        @"you\s+are\s+now\s+a\s+different\s+(ai|assistant|model|bot))",
+        @"you\s+are\s+now\s+a\s+different\s+(ai|assistant|model|bot)|" +
+        // Dutch counterparts. Like the English phrasings they take no article, so "negeer de vorige
+        // instructies over de sleutelkast" in an ordinary message stays clean.
+        @"\bnegeer\s+(alle\s+|al\s+je\s+|je\s+|jouw\s+)?(vorige|eerdere|voorgaande|bovenstaande)\s+(instructies?|richtlijnen)\b|" +
+        @"\bvergeet\s+(alle\s+|al\s+je\s+|je\s+|jouw\s+)?(vorige|eerdere|voorgaande)\s+instructies?\b|" +
+        @"\bvergeet\s+(al\s+)?(je|jouw)\s+instructies\b|" +
+        @"\b(overschrijf|negeer)\s+(je|jouw)\s+systeem\s?prompt|" +
+        @"\bje\s+bent\s+nu\s+een\s+andere\s+(ai|assistent|model|bot)\b)",
         RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex InjectionPattern();

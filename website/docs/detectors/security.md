@@ -11,7 +11,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| **SEC-01** | `PromptInjectionDetector` | Rule + Semantic ⚠️ | Override / injection phrase patterns. The unambiguous phrasings are matched by rule and need no generator; paraphrases need one |
+| **SEC-01** | `PromptInjectionDetector` | Rule + Semantic ⚠️ | Override / injection phrase patterns. The unambiguous phrasings are matched by rule, in English and Dutch, and need no generator; paraphrases need one |
 | **SEC-02** | `CredentialExposureDetector` | Rule-based | API keys, tokens, private keys, secrets in output |
 | **SEC-03** | `ToolPoisoningDetector` | Semantic ⚠️ | Suspicious tool-call manipulation patterns |
 | **SEC-04** | `DataExfiltrationDetector` | Semantic ⚠️ | Base64 blobs, high-entropy encoded data |
