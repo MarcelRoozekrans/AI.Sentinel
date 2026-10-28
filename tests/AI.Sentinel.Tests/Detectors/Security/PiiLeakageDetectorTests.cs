@@ -147,9 +147,15 @@ public class PiiLeakageDetectorTests
     {
         var r = await new PiiLeakageDetector().AnalyzeAsync(Ctx("geboren 12-03-1987, bel 0612345678, IBAN NL91ABNA0417164300"), TestContext.Current.CancellationToken);
         Assert.Equal(Severity.High, r.Severity);
-        Assert.Contains("IBAN", r.Reason, StringComparison.Ordinal);
-        Assert.Contains("phone number", r.Reason, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("date of birth", r.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("IBAN, phone number and date of birth detected", r.Reason);
+    }
+
+    [Fact]
+    public async Task Analyze_TwoTypes_JoinedWithAnd()
+    {
+        var r = await new PiiLeakageDetector().AnalyzeAsync(Ctx("bel 0612345678, geboren 12-03-1987"), TestContext.Current.CancellationToken);
+        Assert.Equal(Severity.Medium, r.Severity);
+        Assert.Equal("Phone number and date of birth detected", r.Reason);
     }
 
     [Fact]

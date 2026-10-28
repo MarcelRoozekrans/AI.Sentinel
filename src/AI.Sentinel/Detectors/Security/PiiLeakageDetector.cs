@@ -1,3 +1,5 @@
+using System.Numerics;
+using System.Text;
 using System.Text.RegularExpressions;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
@@ -99,56 +101,67 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
         @"(?:jan(?:uar[iy])?|feb(?:ruar[iy])?|maart|march|mrt|mar|apr(?:il)?|mei|may|jun[ie]?|jul[iy]?" +
         @"|aug(?:ust(?:us)?)?|sep(?:t(?:ember)?)?|o[kc]t(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
 
+    // Every PII type in severity order: the pattern, the redaction entity type, the name in the reason and the
+    // severity of a hit. AnalyzeAsync and FindSpans both read it, so a type's severity is set in one place.
+    private static readonly (Func<Regex> Pattern, string EntityType, string Name, Severity Severity)[] _types =
+    [
+        (CreditCardPattern, "CREDIT_CARD", "credit card number", Severity.Critical),
+        (SsnPattern, "SSN", "SSN", Severity.High),
+        (IbanPattern, "IBAN", "IBAN", Severity.High),
+        (BsnPattern, "BSN", "BSN", Severity.High),
+        (UkNinoPattern, "NINO", "UK National Insurance number", Severity.High),
+        (PassportPattern, "PASSPORT", "passport number", Severity.High),
+        (DeTaxIdPattern, "TAX_ID", "German tax ID", Severity.High),
+        (BareEmailPattern, "EMAIL", "email address", Severity.Medium),
+        (PhonePattern, "PHONE", "phone number", Severity.Medium),
+        (DobPattern, "DATE_OF_BIRTH", "date of birth", Severity.Medium),
+    ];
+
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         var text = ctx.TextContent;
         var severity = Severity.None;
-        var names = new List<string>();
+        var found = 0;
 
         // Every pattern is tested, in severity order, so the reason names each type found.
-        Probe(CreditCardPattern(), Severity.Critical, "credit card number");
-        Probe(SsnPattern(), Severity.High, "SSN");
-        Probe(IbanPattern(), Severity.High, "IBAN");
-        Probe(BsnPattern(), Severity.High, "BSN");
-        Probe(UkNinoPattern(), Severity.High, "UK National Insurance number");
-        Probe(PassportPattern(), Severity.High, "passport number");
-        Probe(DeTaxIdPattern(), Severity.High, "German tax ID");
-        Probe(BareEmailPattern(), Severity.Medium, "email address");
-        Probe(PhonePattern(), Severity.Medium, "phone number");
-        Probe(DobPattern(), Severity.Medium, "date of birth");
-
-        if (names.Count == 0)
-            return ValueTask.FromResult(_clean);
-
-        var list = names.Count == 1
-            ? names[0]
-            : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
-        return Hit(severity, char.ToUpperInvariant(list[0]) + list[1..] + " detected");
-
-        void Probe(Regex pattern, Severity patternSeverity, string name)
+        for (var i = 0; i < _types.Length; i++)
         {
-            if (!pattern.IsMatch(text))
-                return;
-            names.Add(name);
-            if (patternSeverity > severity)
-                severity = patternSeverity;
+            if (!_types[i].Pattern().IsMatch(text))
+                continue;
+            found |= 1 << i;
+            if (_types[i].Severity > severity)
+                severity = _types[i].Severity;
         }
+
+        return found == 0 ? ValueTask.FromResult(_clean) : Hit(severity, Reason(found));
+    }
+
+    /// <summary>"Phone number and date of birth detected": the names of the types in <paramref name="found"/>,
+    /// a bit per <see cref="_types"/> entry, in table order.</summary>
+    private static string Reason(int found)
+    {
+        var count = BitOperations.PopCount((uint)found);
+        var reason = new StringBuilder();
+        for (var i = 0; i < _types.Length; i++)
+        {
+            if ((found & (1 << i)) == 0)
+                continue;
+            if (reason.Length > 0)
+                reason.Append(--count == 1 ? " and " : ", ");
+            reason.Append(_types[i].Name);
+        }
+        reason[0] = char.ToUpperInvariant(reason[0]);
+        return reason.Append(" detected").ToString();
     }
 
     /// <inheritdoc />
     public IReadOnlyList<RedactionSpan> FindSpans(string text)
     {
         var spans = new List<RedactionSpan>();
-        RedactionSpanCollector.Collect(CreditCardPattern(), "CREDIT_CARD", text, spans, Severity.Critical);
-        RedactionSpanCollector.Collect(SsnPattern(), "SSN", text, spans, Severity.High);
-        RedactionSpanCollector.Collect(IbanPattern(), "IBAN", text, spans, Severity.High);
-        RedactionSpanCollector.Collect(BsnPattern(), "BSN", text, spans, Severity.High);
-        RedactionSpanCollector.Collect(UkNinoPattern(), "NINO", text, spans, Severity.High);
-        RedactionSpanCollector.Collect(PassportPattern(), "PASSPORT", text, spans, Severity.High);
-        RedactionSpanCollector.Collect(DeTaxIdPattern(), "TAX_ID", text, spans, Severity.High);
-        RedactionSpanCollector.Collect(BareEmailPattern(), "EMAIL", text, spans, Severity.Medium);
-        RedactionSpanCollector.Collect(PhonePattern(), "PHONE", text, spans, Severity.Medium);
-        RedactionSpanCollector.Collect(DobPattern(), "DATE_OF_BIRTH", text, spans, Severity.Medium);
+        foreach (var (pattern, entityType, _, severity) in _types)
+        {
+            RedactionSpanCollector.Collect(pattern(), entityType, text, spans, severity);
+        }
         return RedactionSpanCollector.Normalize(spans);
     }
 
