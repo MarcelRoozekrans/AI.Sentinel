@@ -122,6 +122,19 @@ public class SentinelPipelineSessionIdTests
     }
 
     [Fact]
+    public async Task SessionIdKey_AcceptsTypedSessionId()
+    {
+        var (p, audit) = Build();
+        var options = new ChatOptions
+        {
+            AdditionalProperties = new AdditionalPropertiesDictionary { [SentinelPipeline.SessionIdKey] = new SessionId("typed-1") },
+        };
+        await AskAsync(p, options);
+
+        Assert.Equal(["typed-1"], await SessionIdsAsync(audit));
+    }
+
+    [Fact]
     public async Task Streaming_UsesTheSameId()
     {
         var (p, audit) = Build();

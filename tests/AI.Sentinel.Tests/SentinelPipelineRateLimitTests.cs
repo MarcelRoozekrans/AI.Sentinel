@@ -82,6 +82,22 @@ public class SentinelPipelineRateLimitTests
     }
 
     [Fact]
+    public async Task RateLimit_KeysOnConversationId()
+    {
+        var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
+        var a = new ChatOptions { ConversationId = "a" };
+        var b = new ChatOptions { ConversationId = "b" };
+
+        var first = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], a, TestContext.Current.CancellationToken);
+        var second = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], a, TestContext.Current.CancellationToken);
+        var third = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], b, TestContext.Current.CancellationToken);
+
+        Assert.True(first.IsSuccess);
+        Assert.IsType<SentinelError.RateLimitExceeded>(second.Error);
+        Assert.True(third.IsSuccess);
+    }
+
+    [Fact]
     public async Task ExceedsLimit_EmitsMetric()
     {
         var measurements = new ConcurrentBag<(string Name, string? Session)>();
