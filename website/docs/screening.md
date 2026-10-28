@@ -14,6 +14,8 @@ It is not a second scanner. It uses the options, the verdict rule, the alerts, t
 Resolve `ISentinelScreener` from DI after `AddAISentinel`. It is a singleton, unkeyed for the default pipeline and keyed by name for a [named pipeline](/docs/configuration/named-pipelines). The pipeline is built on first use, so registering it has no side effects.
 
 ```csharp
+using System.Diagnostics;
+
 public sealed class TicketIntake(ISentinelScreener screener)
 {
     public async Task<string?> MaskAsync(string text, CancellationToken ct)
@@ -52,7 +54,7 @@ A verdict is a value, never an exception.
 - `Redactions`: every masked occurrence, in input order.
 - `Session`: the session the audit entries were written for.
 
-`Failed.Inner` holds the underlying exception when one may be kept. A masking failure keeps none, because its message can carry the value.
+`Failed.Inner` holds the underlying exception when the scan or its audit threw. A masking failure keeps none, because its message can carry the value.
 
 ## Redactions
 
@@ -110,6 +112,8 @@ No masked value reaches an audit entry, an exception message or a `ToString()`.
 ## Fails closed
 
 If masking fails, the outcome is `Failed`. The text is never scanned or returned unmasked, because returning the input as "masked" would put the personal data exactly where the caller promised it would not go.
+
+If the scan or its audit throws, for example because the audit store cannot write, the outcome is `Failed` too, with the exception in `Inner`. An exception a placeholder formatter throws is not caught: it reaches the caller as it is.
 
 ## Cancellation
 
