@@ -34,11 +34,11 @@ public class ScreenAsyncTests
         }
     }
 
-    /// <summary>A model that always answers with an empty assistant message.</summary>
-    private sealed class EmptyReplyClient : IChatClient
+    /// <summary>A model that always answers with the same short, clean reply, so the response scan adds no entries.</summary>
+    private sealed class CleanReplyClient : IChatClient
     {
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
-            => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, string.Empty)));
+            => Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "Dank je, de melding is genoteerd.")));
 
         public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
@@ -58,6 +58,24 @@ public class ScreenAsyncTests
             ValueTask.FromResult(DetectionResult.Clean(Id));
         public IReadOnlyList<RedactionSpan> FindSpans(string text) =>
             throw new RegexMatchTimeoutException(text, "pattern", TimeSpan.FromSeconds(1));
+    }
+
+    /// <summary>A ring-buffer store whose <see cref="AppendAsync"/> throws what <paramref name="fail"/> returns for an entry.</summary>
+    private sealed class FailingAuditStore(Func<AuditEntry, Exception?> fail) : IAuditStore
+    {
+        private readonly RingBufferAuditStore _inner = new(100);
+
+        public ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct) =>
+            fail(entry) is { } ex ? throw ex : _inner.AppendAsync(entry, ct);
+
+        public IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query, CancellationToken ct) => _inner.QueryAsync(query, ct);
+    }
+
+    private static SentinelPipeline BuildWithStore(IAuditStore store)
+    {
+        var services = new ServiceCollection().AddAISentinel();
+        services.AddSingleton(store);
+        return services.BuildServiceProvider().BuildSentinelPipeline(new NeverCalledClient());
     }
 
     private static (SentinelPipeline Pipeline, IAuditStore Audit) Build(Action<SentinelOptions>? configure = null)
@@ -260,11 +278,11 @@ public class ScreenAsyncTests
     [Fact]
     public async Task RateLimited_IsAValue_KeyedOnGivenSessionElseGlobal()
     {
-        var (pipeline, _) = Build(o =>
-        {
-            o.MaxCallsPerSecond = 1;
-            o.BurstSize = 1;
-        });
+        // No detectors, as in SentinelPipelineRateLimitTests: a cold scan must not outlast the 1 s refill.
+        var opts = new SentinelOptions { MaxCallsPerSecond = 1, BurstSize = 1 };
+        var pipeline = new SentinelPipeline(new NeverCalledClient(),
+            new DetectionPipeline([], configurations: null, escalationClient: null),
+            new RingBufferAuditStore(100), new InterventionEngine(opts, null), opts);
         var withSession = new ScreeningOptions { Session = new SessionId("s1") };
 
         Assert.IsType<ScreeningOutcome.Passed>(await pipeline.ScreenAsync(Normal, ct: Ct));
@@ -290,6 +308,8 @@ public class ScreenAsyncTests
 
         var failed = Assert.IsType<ScreeningOutcome.Failed>(outcome);
         Assert.Null(failed.Inner);
+        Assert.Contains(nameof(RegexMatchTimeoutException), failed.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("sent", failed.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(email, failed.Message, StringComparison.Ordinal);
         Assert.DoesNotContain(email, failed.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain(await RecordingAuditForwarder.ReadAllAsync(audit), IsRedacted);
@@ -310,20 +330,25 @@ public class ScreenAsyncTests
     [InlineData(Pii)]
     [InlineData(Injection)]
     [InlineData(Injection + " Bel 0612345678.")]
-    public async Task SameVerdictAsMiddleware_ForTheDemoTexts(string text)
+    public async Task SameVerdictAndAuditEntriesAsMiddleware_ForTheDemoTexts(string text)
     {
         var services = new ServiceCollection();
         services.AddAISentinel();
-        services.AddChatClient(_ => (IChatClient)new EmptyReplyClient()).UseAISentinel();
+        services.AddChatClient(_ => (IChatClient)new CleanReplyClient()).UseAISentinel();
         var provider = services.BuildServiceProvider();
         var screener = provider.BuildSentinelPipeline(new NeverCalledClient());
         var client = provider.GetRequiredService<IChatClient>();
+        var audit = provider.GetRequiredService<IAuditStore>();
 
-        var outcome = await screener.ScreenAsync(text, ct: Ct);
+        var outcome = await screener.ScreenAsync(text, new ScreeningOptions { Session = new SessionId("screen") }, Ct);
         var blocked = false;
         try
         {
-            await client.GetResponseAsync([new ChatMessage(ChatRole.User, text)], cancellationToken: Ct);
+            var chatOptions = new ChatOptions
+            {
+                AdditionalProperties = new AdditionalPropertiesDictionary { [SentinelPipeline.SessionIdKey] = "chat" },
+            };
+            await client.GetResponseAsync([new ChatMessage(ChatRole.User, text)], chatOptions, Ct);
         }
         catch (SentinelException)
         {
@@ -332,5 +357,94 @@ public class ScreenAsyncTests
 
         Assert.Equal(blocked, outcome is ScreeningOutcome.Quarantined);
         Assert.True(outcome is ScreeningOutcome.Passed or ScreeningOutcome.Quarantined, outcome.ToString());
+
+        var entries = await RecordingAuditForwarder.ReadAllAsync(audit);
+        Assert.Equal(Entries(entries, "chat"), Entries(entries, "screen"));
+        if (string.Equals(text, Normal, StringComparison.Ordinal))
+            Assert.Empty(Entries(entries, "screen"));
+    }
+
+    /// <summary>The session's entries as a sorted multiset of what the dashboard shows per entry.</summary>
+    private static List<string> Entries(IReadOnlyList<AuditEntry> entries, string session) =>
+        entries
+            .Where(e => string.Equals(e.SessionId, session, StringComparison.Ordinal))
+            .Select(e => $"{e.DetectorId}|{e.Severity}|{e.PolicyCode}")
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+    [Fact]
+    public async Task AuditStoreThrows_IsFailed_WithTheException()
+    {
+        var boom = new IOException("disk full");
+        var pipeline = BuildWithStore(new FailingAuditStore(_ => boom));
+
+        var outcome = await pipeline.ScreenAsync(Injection, ct: Ct);
+
+        var failed = Assert.IsType<ScreeningOutcome.Failed>(outcome);
+        Assert.Same(boom, failed.Inner);
+        Assert.Contains(nameof(IOException), failed.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(Injection, failed.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RedactionAuditThrows_IsFailed()
+    {
+        var boom = new IOException("disk full");
+        var pipeline = BuildWithStore(new FailingAuditStore(e => IsRedacted(e) ? boom : null));
+
+        var outcome = await pipeline.ScreenAsync(Pii, ct: Ct);
+
+        var failed = Assert.IsType<ScreeningOutcome.Failed>(outcome);
+        Assert.Same(boom, failed.Inner);
+        Assert.DoesNotContain(Phone, failed.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CancelledDuringScan_ThrowsOperationCanceled_NotFailed()
+    {
+        using var cts = new CancellationTokenSource();
+        var pipeline = BuildWithStore(new FailingAuditStore(_ =>
+        {
+            cts.Cancel();
+            return new OperationCanceledException(cts.Token);
+        }));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await pipeline.ScreenAsync(Injection, ct: cts.Token));
+    }
+
+    [Fact]
+    public async Task FormatterReturnsNull_Throws()
+    {
+        var (pipeline, _) = Build();
+        var options = new ScreeningOptions { Placeholder = _ => null! };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await pipeline.ScreenAsync(Pii, options, Ct));
+    }
+
+    [Fact]
+    public async Task MediumDetection_Passes_WithLogAction()
+    {
+        var (pipeline, _) = Build(o => o.RedactByDefault = false);
+
+        var outcome = await pipeline.ScreenAsync("bel 0612345678", ct: Ct);
+
+        var passed = Assert.IsType<ScreeningOutcome.Passed>(outcome);
+        Assert.Equal(SentinelAction.Log, passed.Action);
+        Assert.Contains(passed.Detections, d => string.Equals(d.DetectorId.Value, "SEC-23", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task MediumDetection_OnMediumAlert_Passes_WithAlertAction()
+    {
+        var (pipeline, _) = Build(o =>
+        {
+            o.RedactByDefault = false;
+            o.OnMedium = SentinelAction.Alert;
+        });
+
+        var outcome = await pipeline.ScreenAsync("bel 0612345678", ct: Ct);
+
+        var passed = Assert.IsType<ScreeningOutcome.Passed>(outcome);
+        Assert.Equal(SentinelAction.Alert, passed.Action);
     }
 }

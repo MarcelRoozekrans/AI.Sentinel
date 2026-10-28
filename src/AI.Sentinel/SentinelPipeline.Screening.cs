@@ -18,8 +18,10 @@ public sealed partial class SentinelPipeline
     /// <see cref="ScreeningOptions.Session"/> when one is given and otherwise on the shared <c>__global__</c> key. The
     /// <c>REDACTED</c> audit entries are written whenever anything was masked, also when the text is quarantined: the
     /// masked text is returned either way. When redaction fails the outcome is <see cref="ScreeningOutcome.Failed"/>;
-    /// the text is never scanned or returned unmasked. A <see cref="ScreeningOptions.Placeholder"/> formatter runs after
-    /// the scan and the audit, so it cannot change the verdict; an exception it throws reaches the caller as it is.
+    /// the text is never scanned or returned unmasked. When the scan or its audit throws, the outcome is also
+    /// <see cref="ScreeningOutcome.Failed"/>, with the exception as <see cref="ScreeningOutcome.Failed.Inner"/>. A
+    /// <see cref="ScreeningOptions.Placeholder"/> formatter runs after the scan and the audit, so it cannot change the
+    /// verdict; an exception it throws reaches the caller as it is.
     /// </remarks>
     /// <param name="text">The text to screen.</param>
     /// <param name="options">The session and placeholder formatter; <see langword="null"/> for the defaults.</param>
@@ -49,23 +51,26 @@ public sealed partial class SentinelPipeline
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            return new ScreeningOutcome.Failed(RedactionFailed(ex).Message);
+            // Not chained: a regex or detector exception can carry the text being masked.
+            return new ScreeningOutcome.Failed(
+                $"AI.Sentinel could not mask the text ({ex.GetType().Name}); it was not scanned or returned.");
         }
 
         var findings = new List<ScanFinding>();
-        var error = await ScanCollectingAsync([new ChatMessage(ChatRole.User, masked)], sessionId, findings,
-            RedactionScope.ExemptPlaceholders(session, parent: null), newMessagesFrom: 0, ct).ConfigureAwait(false);
-
-        switch (error)
+        SentinelError? error;
+        try
         {
-            case SentinelError.PipelineFailure failure:
-                return new ScreeningOutcome.Failed(failure.Message, failure.Inner);
-            case SentinelError.RateLimitExceeded rate:
-                return new ScreeningOutcome.RateLimited(rate.SessionKey);
-        }
+            error = await ScanCollectingAsync([new ChatMessage(ChatRole.User, masked)], sessionId, findings,
+                RedactionScope.ExemptPlaceholders(session, parent: null), newMessagesFrom: 0, ct).ConfigureAwait(false);
 
-        // The masked text is returned on both verdicts, so its redactions are recorded on both.
-        await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
+            // The masked text is returned on both verdicts, so its redactions are recorded on both.
+            await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // In practice the audit store; its entries hold reasons and counts, never the text, so the exception is kept.
+            return new ScreeningOutcome.Failed($"AI.Sentinel could not screen the text ({ex.GetType().Name}).", ex);
+        }
 
         var (redactedText, redactions) = Placeholders(text, masked, replaced, options?.Placeholder);
         var detections = findings.ConvertAll(f => f.Detection);

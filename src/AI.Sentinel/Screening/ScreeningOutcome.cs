@@ -39,9 +39,9 @@ public abstract record ScreeningOutcome
     /// <param name="SessionKey">The rate-limit key that ran out: the caller's session, or <c>__global__</c>.</param>
     public sealed record RateLimited(string SessionKey) : ScreeningOutcome;
 
-    /// <summary>The pipeline itself failed, including a failed redaction. Never used for cancellation.</summary>
+    /// <summary>The pipeline itself failed: masking, the scan or its audit. Never used for cancellation.</summary>
     /// <param name="Message">A description of the failure; it never holds the screened text.</param>
-    /// <param name="Inner">The underlying exception, if one may be kept; a redaction failure keeps none, because its
-    /// message can carry the value.</param>
+    /// <param name="Inner">The underlying exception for a scan or audit failure; none for a masking failure, because
+    /// its message can carry the value.</param>
     public sealed record Failed(string Message, Exception? Inner = null) : ScreeningOutcome;
 }

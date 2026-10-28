@@ -15,7 +15,8 @@ public sealed record ScreeningOptions
     /// Formats the placeholder that replaces a masked value in the returned text, such as <c>[TELEFOON]</c>. It is
     /// called once per finding, with <see cref="RedactionFinding.Placeholder"/> set to the library token, and never
     /// sees the value. <see langword="null"/> keeps the library tokens such as <c>[PHONE_1_k3f9x2]</c>. The scan always
-    /// judges the library tokens, so the formatter cannot change the verdict.
+    /// judges the library tokens, so the formatter cannot change the verdict. Returning <see langword="null"/> throws
+    /// <see cref="InvalidOperationException"/>.
     /// </summary>
     public Func<RedactionFinding, string>? Placeholder { get; init; }
 }
