@@ -8,13 +8,15 @@ namespace AI.Sentinel.Tests.Redaction;
 
 public class RedactionSessionReplacedSpanTests
 {
-    private sealed class FixedSpanRedactor(string id, int start, int length, string entityType) : IRedactingDetector
+    private sealed class FixedSpanRedactor(string id, int start, int length, string entityType, Severity? severity = null)
+        : IRedactingDetector
     {
         public DetectorId Id { get; } = new(id);
         public DetectorCategory Category => DetectorCategory.Security;
         public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
             ValueTask.FromResult(DetectionResult.Clean(Id));
-        public IReadOnlyList<RedactionSpan> FindSpans(string text) => [new RedactionSpan(start, length, entityType)];
+        public IReadOnlyList<RedactionSpan> FindSpans(string text) =>
+            [new RedactionSpan(start, length, entityType) { Severity = severity }];
     }
 
     [Fact]
@@ -36,13 +38,16 @@ public class RedactionSessionReplacedSpanTests
     [Fact]
     public void Redact_OverlappingSpansFromTwoDetectors_ReportOneMergedSpan()
     {
-        // A reports [5,10) as SHORT, B reports [7,15) as LONGER (length 8 > 5).
+        // A reports [5,10) as SHORT at Critical, B reports [7,15) as LONGER (length 8 > 5) with no severity.
         var replaced = new List<ReplacedSpan>();
-        new RedactionSession([new FixedSpanRedactor("TST-A", 5, 5, "SHORT"), new FixedSpanRedactor("TST-B", 7, 8, "LONGER")])
-            .Redact("0123456789abcdefghij", replaced);
+        new RedactionSession([
+            new FixedSpanRedactor("TST-A", 5, 5, "SHORT", Severity.Critical),
+            new FixedSpanRedactor("TST-B", 7, 8, "LONGER"),
+        ]).Redact("0123456789abcdefghij", replaced);
 
         var span = Assert.Single(replaced);
         Assert.Equal((5, 10, "TST-B", "LONGER"), (span.Start, span.Length, span.DetectorId, span.EntityType));
+        Assert.Null(span.Severity);
     }
 
     [Fact]
