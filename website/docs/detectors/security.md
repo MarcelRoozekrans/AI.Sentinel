@@ -33,7 +33,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-20** | `SystemPromptLeakageDetector` | Semantic ⚠️ | Requests to reveal the system prompt or hidden instructions. Does **not** detect the system prompt itself appearing in output — it has no copy to compare against |
 | **SEC-21** | `ExcessiveAgencyDetector` | Semantic ⚠️ | Autonomous-action language ("I deleted", "I deployed", "I executed") |
 | **SEC-22** | `HumanTrustManipulationDetector` | Semantic ⚠️ | Rapport / authority manipulation ("you can trust me", "I am your advisor") |
-| **SEC-23** | `PiiLeakageDetector` | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email + name, phone, DOB |
+| **SEC-23** | `PiiLeakageDetector` | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email + name, phone, DOB. Phone and DOB also match Dutch forms |
 | **SEC-24** | `AdversarialUnicodeDetector` | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions, in message text, tool calls and tool results. A joiner between emoji, or a non-joiner between Arabic-script or Indic letters, is not counted |
 | **SEC-25** | `CodeInjectionDetector` | Semantic ⚠️ | SQL injection, shell metacharacters, path traversal in LLM-generated code |
 | **SEC-26** | `PromptTemplateLeakageDetector` | Semantic ⚠️ | Prompt scaffolding markers — `{{variable}}`, `<SYSTEM>`, `[INST]` |

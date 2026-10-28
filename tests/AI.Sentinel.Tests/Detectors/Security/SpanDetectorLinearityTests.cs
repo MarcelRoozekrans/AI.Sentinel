@@ -33,6 +33,12 @@ public class SpanDetectorLinearityTests
     [InlineData("born", "")]
     [InlineData("DOB", "")]
     [InlineData("date of birth", "")]
+    [InlineData("geboren", "")]
+    [InlineData("geboortedatum", "")]
+    [InlineData("geb.", "")]
+    [InlineData("born on", "")]
+    [InlineData("geboren op 12", "")]
+    [InlineData("born March", "")]
     [InlineData("BSN", ":")]
     [InlineData("\"date_of_birth\"", "=")]
     public void PiiLeakage_KeywordThenLongWhitespace_StaysLinear(string keyword, string separator)

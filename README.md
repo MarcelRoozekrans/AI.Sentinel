@@ -202,7 +202,7 @@ Detectors run in these modes:
 | `SEC‑17` | SupplyChainPoisoning | Semantic ⚠️ | Compromised dependency suggestions |
 | `SEC‑18` | ToolDescriptionDivergence | Stub | Tool description changed at runtime vs. original declaration — **not implemented; always returns `Clean`** (requires a tool-descriptor snapshot) |
 | `SEC‑20` | SystemPromptLeakage | Semantic ⚠️ | Requests to reveal the system prompt or hidden instructions (not the prompt itself appearing in output) |
-| `SEC‑23` | PiiLeakage | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email+name, phone, DOB |
+| `SEC‑23` | PiiLeakage | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email+name, phone, DOB. Phone and DOB also match Dutch forms |
 | `SEC‑24` | AdversarialUnicode | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions |
 | `SEC‑25` | CodeInjection | Semantic ⚠️ | SQL injection, shell metacharacters, path traversal in LLM-generated code |
 | `SEC‑26` | PromptTemplateLeakage | Semantic ⚠️ | `{{variable}}`, `<SYSTEM>`, `[INST]` and other prompt scaffolding markers |
