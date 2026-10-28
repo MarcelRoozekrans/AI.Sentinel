@@ -105,7 +105,7 @@ public sealed partial class SentinelPipeline
     {
         var callerSession = CallerSessionIdFor(chatOptions);
         var sessionId = callerSession ?? SessionId.New();
-        var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, callerSession, sessionId, ct).ConfigureAwait(false);
+        var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, sessionId, ct).ConfigureAwait(false);
         if (requestError is not null)
             return Result<ChatResponse, SentinelError>.Failure(requestError);
 
@@ -206,9 +206,9 @@ public sealed partial class SentinelPipeline
 
     /// <summary>Checks the rate limit, redacts the request and scans the redacted request.</summary>
     private async ValueTask<(PreparedRequest Request, SentinelError? Error)> PrepareRequestAsync(
-        IEnumerable<ChatMessage> messages, ChatOptions? chatOptions, SessionId? callerSession, SessionId sessionId, CancellationToken ct)
+        IEnumerable<ChatMessage> messages, ChatOptions? chatOptions, SessionId sessionId, CancellationToken ct)
     {
-        var rateError = CheckRateLimit(callerSession);
+        var rateError = CheckRateLimit(RateLimitSessionIdFor(chatOptions));
         if (rateError is not null)
             return (default, rateError);
 
@@ -439,7 +439,7 @@ public sealed partial class SentinelPipeline
     {
         var callerSession = CallerSessionIdFor(chatOptions);
         var sessionId = callerSession ?? SessionId.New();
-        var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, callerSession, sessionId, ct).ConfigureAwait(false);
+        var (request, requestError) = await PrepareRequestAsync(messages, chatOptions, sessionId, ct).ConfigureAwait(false);
         if (requestError is not null)
             return Result<IReadOnlyList<ChatResponseUpdate>, SentinelError>.Failure(requestError);
 
@@ -564,7 +564,7 @@ public sealed partial class SentinelPipeline
             return await ScanHostVerbatimAsync(request, sid, fellBack: false, checkRateLimit: true, ct).ConfigureAwait(false);
 
         // As on the chat path, the rate limit is checked before anything is redacted.
-        var rateError = CheckRateLimit(callerSession: null);
+        var rateError = CheckRateLimit(rateSession: null);
         if (rateError is not null)
             return new HostRedactionResult(request.Content, [], rateError, EmptyCounts, [], FellBack: false) { SessionId = sid.Value };
 
@@ -653,7 +653,7 @@ public sealed partial class SentinelPipeline
     private async ValueTask<HostRedactionResult> ScanHostVerbatimAsync(
         HostRedactionRequest request, SessionId sessionId, bool fellBack, bool checkRateLimit, CancellationToken ct)
     {
-        if (checkRateLimit && CheckRateLimit(callerSession: null) is { } rateError)
+        if (checkRateLimit && CheckRateLimit(rateSession: null) is { } rateError)
             return new HostRedactionResult(request.Content, [], rateError, EmptyCounts, [], fellBack) { SessionId = sessionId.Value };
 
         var findings = new List<ScanFinding>();
@@ -700,7 +700,7 @@ public sealed partial class SentinelPipeline
         int newMessagesFrom,
         CancellationToken ct)
     {
-        var rateError = CheckRateLimit(CallerSessionIdFor(chatOptions));
+        var rateError = CheckRateLimit(RateLimitSessionIdFor(chatOptions));
         if (rateError is not null) return rateError;
 
         var messageList = messages as IReadOnlyList<ChatMessage> ?? messages.ToList();
@@ -747,7 +747,8 @@ public sealed partial class SentinelPipeline
 
     /// <summary>
     /// The <see cref="ChatOptions.AdditionalProperties"/> key that names the caller's session. The value is a
-    /// non-blank string or a <see cref="SessionId"/>.
+    /// non-blank string or a <see cref="SessionId"/>. It is the only caller input the rate limiter keys on; the audit
+    /// also falls back to <see cref="ChatOptions.ConversationId"/>.
     /// </summary>
     public const string SessionIdKey = "sentinel.session_id";
 
@@ -761,13 +762,28 @@ public sealed partial class SentinelPipeline
     /// <summary>The session the caller named, or <see langword="null"/> when this call is its own session.</summary>
     private static SessionId? CallerSessionIdFor(ChatOptions? chatOptions)
     {
+        if (NamedSessionIdFrom(chatOptions) is { } named)
+            return named;
+        if (!string.IsNullOrWhiteSpace(chatOptions?.ConversationId))
+            return new SessionId(chatOptions.ConversationId);
+        return null;
+    }
+
+    /// <summary>
+    /// The rate-limit key the caller named under <see cref="SessionIdKey"/>, else <see langword="null"/> for the shared
+    /// <c>__global__</c> key. <see cref="ChatOptions.ConversationId"/> is not a key: with the OpenAI Responses API it is
+    /// the previous response id, so every turn would get a fresh bucket.
+    /// </summary>
+    private static SessionId? RateLimitSessionIdFor(ChatOptions? chatOptions) => NamedSessionIdFrom(chatOptions);
+
+    /// <summary>The string or <see cref="SessionId"/> under <see cref="SessionIdKey"/>, when it is not blank.</summary>
+    private static SessionId? NamedSessionIdFrom(ChatOptions? chatOptions)
+    {
         var named = chatOptions?.AdditionalProperties?.GetValueOrDefault(SessionIdKey);
         if (named is SessionId typed && !string.IsNullOrWhiteSpace(typed.Value))
             return typed;
         if (named is string key && !string.IsNullOrWhiteSpace(key))
             return new SessionId(key);
-        if (!string.IsNullOrWhiteSpace(chatOptions?.ConversationId))
-            return new SessionId(chatOptions.ConversationId);
         return null;
     }
 
@@ -931,11 +947,11 @@ public sealed partial class SentinelPipeline
         return copy;
     }
 
-    private SentinelError? CheckRateLimit(SessionId? callerSession)
+    private SentinelError? CheckRateLimit(SessionId? rateSession)
     {
         if (options.MaxCallsPerSecond is not int maxRps) return null;
 
-        var sessionKey = callerSession?.Value ?? "__global__";
+        var sessionKey = rateSession?.Value ?? "__global__";
         var burst = options.BurstSize ?? maxRps;
         var entry = _rateLimiters.GetOrAdd(sessionKey,
             _ => new RateLimiterEntry(new RateLimiter(maxRps, burst, RateLimitScope.Instance)));

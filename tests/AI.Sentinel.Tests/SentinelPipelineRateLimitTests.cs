@@ -84,19 +84,33 @@ public class SentinelPipelineRateLimitTests
         Assert.True(resultB.IsSuccess);
     }
 
+    // ConversationId is the previous response id on the OpenAI Responses API, so keying on it would give each turn a fresh bucket.
     [Fact]
-    public async Task RateLimit_KeysOnConversationId()
+    public async Task RateLimit_IgnoresConversationId_SharesGlobalBucket()
     {
         var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
         var a = new ChatOptions { ConversationId = "a" };
         var b = new ChatOptions { ConversationId = "b" };
 
         var first = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], a, TestContext.Current.CancellationToken);
-        var second = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], a, TestContext.Current.CancellationToken);
-        var third = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], b, TestContext.Current.CancellationToken);
+        var second = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], b, TestContext.Current.CancellationToken);
 
         Assert.True(first.IsSuccess);
-        Assert.IsType<SentinelError.RateLimitExceeded>(second.Error);
+        Assert.Equal(new SentinelError.RateLimitExceeded("__global__"), second.Error);
+    }
+
+    [Fact]
+    public async Task RateLimit_TypedSessionId_SeparatesBuckets()
+    {
+        var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
+        ChatOptions For(string id) => new() { AdditionalProperties = new AdditionalPropertiesDictionary { [SentinelPipeline.SessionIdKey] = new SessionId(id) } };
+
+        var first = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], For("a"), TestContext.Current.CancellationToken);
+        var second = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], For("a"), TestContext.Current.CancellationToken);
+        var third = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, "hi")], For("b"), TestContext.Current.CancellationToken);
+
+        Assert.True(first.IsSuccess);
+        Assert.Equal(new SentinelError.RateLimitExceeded("a"), second.Error);
         Assert.True(third.IsSuccess);
     }
 
@@ -121,15 +135,28 @@ public class SentinelPipelineRateLimitTests
     }
 
     [Fact]
-    public async Task ScanMessages_LimitsOnConversationId()
+    public async Task ScanMessages_IgnoresConversationId_SharesGlobalBucket()
     {
         var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
         var a = new ChatOptions { ConversationId = "a" };
         var b = new ChatOptions { ConversationId = "b" };
 
         var first = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], a, ct: TestContext.Current.CancellationToken);
-        var second = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], a, ct: TestContext.Current.CancellationToken);
-        var third = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], b, ct: TestContext.Current.CancellationToken);
+        var second = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], b, ct: TestContext.Current.CancellationToken);
+
+        Assert.Null(first);
+        Assert.Equal(new SentinelError.RateLimitExceeded("__global__"), second);
+    }
+
+    [Fact]
+    public async Task ScanMessages_TypedSessionId_SeparatesBuckets()
+    {
+        var sentinel = Build(maxCallsPerSecond: 1, burstSize: 1);
+        ChatOptions For(string id) => new() { AdditionalProperties = new AdditionalPropertiesDictionary { [SentinelPipeline.SessionIdKey] = new SessionId(id) } };
+
+        var first = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], For("a"), ct: TestContext.Current.CancellationToken);
+        var second = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], For("a"), ct: TestContext.Current.CancellationToken);
+        var third = await sentinel.ScanMessagesAsync([new ChatMessage(ChatRole.User, "hi")], For("b"), ct: TestContext.Current.CancellationToken);
 
         Assert.Null(first);
         Assert.Equal(new SentinelError.RateLimitExceeded("a"), second);

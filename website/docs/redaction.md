@@ -274,7 +274,7 @@ These middleware fixes shipped together with [screening](./screening):
   };
   ```
 
-- **The rate limiter honours `ConversationId`.** It reads the caller's session the way the audit does: `SessionIdKey`, else `ChatOptions.ConversationId`. Without either, calls share the `__global__` key as before.
+- **The rate limiter keys only on `SessionIdKey`.** A non-blank string or a `SessionId` under `SentinelPipeline.SessionIdKey` gives a per-session bucket; without it calls share the `__global__` key as before. `ChatOptions.ConversationId` still groups the audit but is not a rate-limit key, since with the OpenAI Responses API it is the previous response id and every turn would get a fresh bucket.
 - **Cancellation is not wrapped.** When `CancellationToken` is cancelled and the inner client throws `OperationCanceledException`, it reaches the caller as it is. Before, it became a pipeline failure and then an `InvalidOperationException`.
 
 ## Policies and approvals see real values

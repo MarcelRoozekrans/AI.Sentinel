@@ -130,9 +130,10 @@ detector id and severity. Today they only keep counts and tokens.
   detected", instead of only the first hit.
 - **Cancellation is not wrapped.** An `OperationCanceledException` from the inner client while `ct` is cancelled
   propagates as is, instead of becoming `PipelineFailure` and then an `InvalidOperationException`.
-- **Typed session id in `ChatOptions`.** `SessionIdKey` also accepts a `SessionId` value. The rate limiter reads the
-  caller's session the same way the audit does, so it also honours `ConversationId`; without a caller session it
-  keeps the `__global__` key.
+- **Typed session id in `ChatOptions`.** `SessionIdKey` also accepts a `SessionId` value. The rate limiter reads
+  `SessionIdKey` only; without it the call keeps the `__global__` key. `ConversationId` still groups the audit but is
+  not a rate-limit key: with the OpenAI Responses API it is the previous response id, so each turn would get a fresh
+  bucket and the limit would be off.
 
 ## Constraints
 
