@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.6.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.6.1...v3.6.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* Dutch input in the SEC-01, SEC-05 and SEC-23 rule paths ([#490](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/490)) ([7ac3ec7](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/7ac3ec7d26ec2e9b4f9b0d2337549622412d0309))
+
 ## [3.6.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.6.0...v3.6.1) (2026-10-25)
 
 
