@@ -187,7 +187,7 @@ Detectors run in these modes:
 | `SEC‑02` | CredentialExposure | Rule-based | API keys, tokens, private keys, secrets in output |
 | `SEC‑03` | ToolPoisoning | Semantic ⚠️ | Suspicious tool-call manipulation patterns |
 | `SEC‑04` | DataExfiltration | Semantic ⚠️ | Base64 blobs, high-entropy encoded data |
-| `SEC‑05` | Jailbreak | Rule + Semantic ⚠️ | Jailbreak attempt phrases. Unambiguous ones (`DAN mode`, `unrestricted AI mode`) are matched by rule; roleplay exploits need a generator |
+| `SEC‑05` | Jailbreak | Rule + Semantic ⚠️ | Jailbreak attempt phrases. Unambiguous ones (`DAN mode`, `unrestricted AI mode`) are matched by rule, in English and Dutch; roleplay exploits need a generator |
 | `SEC‑06` | PrivilegeEscalation | Semantic ⚠️ | Role/permission escalation requests |
 | `SEC‑07` | CovertChannel | Semantic ⚠️ | Encoding-based hidden payloads |
 | `SEC‑08` | EntropyCovertChannel | Rule-based | Long, structureless, high-entropy runs — the shape encoded or encrypted data takes when smuggled through text. Tuned to exclude hashes, identifiers and URLs |
