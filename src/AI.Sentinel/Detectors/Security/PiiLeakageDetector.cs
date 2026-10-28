@@ -102,50 +102,53 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         var text = ctx.TextContent;
+        var severity = Severity.None;
+        var names = new List<string>();
 
-        // Critical
-        if (CreditCardPattern().IsMatch(text))
-            return Hit(Severity.Critical, "Credit card number detected");
+        // Every pattern is tested, in severity order, so the reason names each type found.
+        Probe(CreditCardPattern(), Severity.Critical, "credit card number");
+        Probe(SsnPattern(), Severity.High, "SSN");
+        Probe(IbanPattern(), Severity.High, "IBAN");
+        Probe(BsnPattern(), Severity.High, "BSN");
+        Probe(UkNinoPattern(), Severity.High, "UK National Insurance number");
+        Probe(PassportPattern(), Severity.High, "passport number");
+        Probe(DeTaxIdPattern(), Severity.High, "German tax ID");
+        Probe(BareEmailPattern(), Severity.Medium, "email address");
+        Probe(PhonePattern(), Severity.Medium, "phone number");
+        Probe(DobPattern(), Severity.Medium, "date of birth");
 
-        // High
-        if (SsnPattern().IsMatch(text))
-            return Hit(Severity.High, "SSN detected");
-        if (IbanPattern().IsMatch(text))
-            return Hit(Severity.High, "IBAN detected");
-        if (BsnPattern().IsMatch(text))
-            return Hit(Severity.High, "BSN detected");
-        if (UkNinoPattern().IsMatch(text))
-            return Hit(Severity.High, "UK National Insurance number detected");
-        if (PassportPattern().IsMatch(text))
-            return Hit(Severity.High, "Passport number detected");
-        if (DeTaxIdPattern().IsMatch(text))
-            return Hit(Severity.High, "German tax ID detected");
+        if (names.Count == 0)
+            return ValueTask.FromResult(_clean);
 
-        // Medium
-        if (BareEmailPattern().IsMatch(text))
-            return Hit(Severity.Medium, "Email address detected");
-        if (PhonePattern().IsMatch(text))
-            return Hit(Severity.Medium, "Phone number detected");
-        if (DobPattern().IsMatch(text))
-            return Hit(Severity.Medium, "Date of birth detected");
+        var list = names.Count == 1
+            ? names[0]
+            : string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1];
+        return Hit(severity, char.ToUpperInvariant(list[0]) + list[1..] + " detected");
 
-        return ValueTask.FromResult(_clean);
+        void Probe(Regex pattern, Severity patternSeverity, string name)
+        {
+            if (!pattern.IsMatch(text))
+                return;
+            names.Add(name);
+            if (patternSeverity > severity)
+                severity = patternSeverity;
+        }
     }
 
     /// <inheritdoc />
     public IReadOnlyList<RedactionSpan> FindSpans(string text)
     {
         var spans = new List<RedactionSpan>();
-        RedactionSpanCollector.Collect(CreditCardPattern(), "CREDIT_CARD", text, spans);
-        RedactionSpanCollector.Collect(SsnPattern(), "SSN", text, spans);
-        RedactionSpanCollector.Collect(IbanPattern(), "IBAN", text, spans);
-        RedactionSpanCollector.Collect(BsnPattern(), "BSN", text, spans);
-        RedactionSpanCollector.Collect(UkNinoPattern(), "NINO", text, spans);
-        RedactionSpanCollector.Collect(PassportPattern(), "PASSPORT", text, spans);
-        RedactionSpanCollector.Collect(DeTaxIdPattern(), "TAX_ID", text, spans);
-        RedactionSpanCollector.Collect(BareEmailPattern(), "EMAIL", text, spans);
-        RedactionSpanCollector.Collect(PhonePattern(), "PHONE", text, spans);
-        RedactionSpanCollector.Collect(DobPattern(), "DATE_OF_BIRTH", text, spans);
+        RedactionSpanCollector.Collect(CreditCardPattern(), "CREDIT_CARD", text, spans, Severity.Critical);
+        RedactionSpanCollector.Collect(SsnPattern(), "SSN", text, spans, Severity.High);
+        RedactionSpanCollector.Collect(IbanPattern(), "IBAN", text, spans, Severity.High);
+        RedactionSpanCollector.Collect(BsnPattern(), "BSN", text, spans, Severity.High);
+        RedactionSpanCollector.Collect(UkNinoPattern(), "NINO", text, spans, Severity.High);
+        RedactionSpanCollector.Collect(PassportPattern(), "PASSPORT", text, spans, Severity.High);
+        RedactionSpanCollector.Collect(DeTaxIdPattern(), "TAX_ID", text, spans, Severity.High);
+        RedactionSpanCollector.Collect(BareEmailPattern(), "EMAIL", text, spans, Severity.Medium);
+        RedactionSpanCollector.Collect(PhonePattern(), "PHONE", text, spans, Severity.Medium);
+        RedactionSpanCollector.Collect(DobPattern(), "DATE_OF_BIRTH", text, spans, Severity.Medium);
         return RedactionSpanCollector.Normalize(spans);
     }
 

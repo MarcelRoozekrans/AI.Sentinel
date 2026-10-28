@@ -28,7 +28,7 @@ public class PiiLeakageDetectorDutchTests
         Assert.Contains("Phone", r.Reason, StringComparison.Ordinal);
 
         var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
-        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, "PHONE"), span);
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, "PHONE"), span with { Severity = null });
     }
 
     // Digit runs of another length, or that are part of a larger token, are not a Dutch phone number.
@@ -75,7 +75,7 @@ public class PiiLeakageDetectorDutchTests
         Assert.Contains("Date of birth", r.Reason, StringComparison.Ordinal);
 
         var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
-        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, "DATE_OF_BIRTH"), span);
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, "DATE_OF_BIRTH"), span with { Severity = null });
     }
 
     [Theory]

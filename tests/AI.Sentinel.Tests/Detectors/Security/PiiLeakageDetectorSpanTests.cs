@@ -18,7 +18,7 @@ public class PiiLeakageDetectorSpanTests
     {
         var spans = new PiiLeakageDetector().FindSpans("mail jan@acme.nl now");
         var span = Assert.Single(spans);
-        Assert.Equal(new RedactionSpan(5, 11, "EMAIL"), span);
+        Assert.Equal(new RedactionSpan(5, 11, "EMAIL"), span with { Severity = null });
     }
 
     [Fact]
@@ -27,9 +27,9 @@ public class PiiLeakageDetectorSpanTests
         const string text = "from NL91ABNA0417164300 to DE89BANK3704004405 or call +1-800-555-0199";
         var spans = new PiiLeakageDetector().FindSpans(text);
         Assert.Equal(3, spans.Count);
-        Assert.Contains(new RedactionSpan(text.IndexOf("NL91", StringComparison.Ordinal), 18, "IBAN"), spans);
-        Assert.Contains(new RedactionSpan(text.IndexOf("DE89", StringComparison.Ordinal), 18, "IBAN"), spans);
-        Assert.Contains(new RedactionSpan(text.IndexOf("+1-800", StringComparison.Ordinal), 15, "PHONE"), spans);
+        Assert.Contains(new RedactionSpan(text.IndexOf("NL91", StringComparison.Ordinal), 18, "IBAN") { Severity = Severity.High }, spans);
+        Assert.Contains(new RedactionSpan(text.IndexOf("DE89", StringComparison.Ordinal), 18, "IBAN") { Severity = Severity.High }, spans);
+        Assert.Contains(new RedactionSpan(text.IndexOf("+1-800", StringComparison.Ordinal), 15, "PHONE") { Severity = Severity.Medium }, spans);
     }
 
     [Theory]
@@ -41,7 +41,7 @@ public class PiiLeakageDetectorSpanTests
     {
         var spans = new PiiLeakageDetector().FindSpans(text);
         var span = Assert.Single(spans);
-        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span);
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span with { Severity = null });
     }
 
     [Theory]
@@ -52,7 +52,7 @@ public class PiiLeakageDetectorSpanTests
     {
         var text = "x " + value + " y";
         var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
-        Assert.Equal(new RedactionSpan(2, value.Length, entity), span);
+        Assert.Equal(new RedactionSpan(2, value.Length, entity), span with { Severity = null });
     }
 
     [Fact]
@@ -77,7 +77,7 @@ public class PiiLeakageDetectorSpanTests
         const string text = "a@b.com and c.d@e.org";
         var spans = new PiiLeakageDetector().FindSpans(text);
         Assert.Equal(
-            new[] { new RedactionSpan(0, 7, "EMAIL"), new RedactionSpan(12, 9, "EMAIL") },
+            new[] { new RedactionSpan(0, 7, "EMAIL") { Severity = Severity.Medium }, new RedactionSpan(12, 9, "EMAIL") { Severity = Severity.Medium } },
             spans);
     }
 
@@ -91,7 +91,7 @@ public class PiiLeakageDetectorSpanTests
     [InlineData("user@163.com")]
     [InlineData("jan@3m.com")]
     public void FindSpans_DomainStartingWithDigit_IsEmail(string text)
-        => Assert.Equal(new RedactionSpan(0, text.Length, "EMAIL"), Assert.Single(new PiiLeakageDetector().FindSpans(text)));
+        => Assert.Equal(new RedactionSpan(0, text.Length, "EMAIL"), Assert.Single(new PiiLeakageDetector().FindSpans(text)) with { Severity = null });
 
     [Theory]
     [InlineData("a-")]
@@ -113,7 +113,7 @@ public class PiiLeakageDetectorSpanTests
     {
         var detector = new PiiLeakageDetector();
         var span = Assert.Single(detector.FindSpans(text));
-        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span);
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span with { Severity = null });
         Assert.NotEqual(Severity.None, (await detector.AnalyzeAsync(Ctx(text), TestContext.Current.CancellationToken)).Severity);
     }
 
@@ -130,7 +130,7 @@ public class PiiLeakageDetectorSpanTests
     public void FindSpans_MultiWordKeywordAsIdentifier_SpanCoversValueOnly(string text, string value, string entity)
     {
         var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
-        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span);
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span with { Severity = null });
     }
 
     // The plain-text forms these patterns matched before still match the same value.
@@ -145,7 +145,7 @@ public class PiiLeakageDetectorSpanTests
     public void FindSpans_MultiWordKeywordPlainText_Unchanged(string text, string value, string entity)
     {
         var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
-        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span);
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span with { Severity = null });
     }
 
     [Theory]
@@ -156,7 +156,7 @@ public class PiiLeakageDetectorSpanTests
     public void FindSpans_KeywordCaseAndSeparatorVariants_SpanCoversValueOnly(string text, string value, string entity)
     {
         var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
-        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span);
+        Assert.Equal(new RedactionSpan(text.IndexOf(value, StringComparison.Ordinal), value.Length, entity), span with { Severity = null });
     }
 
     [Fact]
@@ -164,7 +164,7 @@ public class PiiLeakageDetectorSpanTests
     {
         const string text = "Contact John Smith at john.smith@example.com";
         var span = Assert.Single(new PiiLeakageDetector().FindSpans(text));
-        Assert.Equal(new RedactionSpan(22, 22, "EMAIL"), span);
+        Assert.Equal(new RedactionSpan(22, 22, "EMAIL"), span with { Severity = null });
     }
 
     [Fact]
