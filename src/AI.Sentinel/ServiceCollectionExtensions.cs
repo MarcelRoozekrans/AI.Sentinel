@@ -8,6 +8,7 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Intervention;
+using AI.Sentinel.Screening;
 using AI.Sentinel.Transparency;
 using ZeroAlloc.Authorization;
 
@@ -83,6 +84,8 @@ public static class ServiceCollectionExtensions
             RegisterUserDetectors(services, opts);
             services.AddSingleton<IDetectionPipeline>(sp => BuildDetectionPipeline(opts, sp));
             services.AddSingleton<IToolCallGuard>(sp => BuildToolCallGuard(services, opts, sp));
+            services.AddSingleton<ISentinelScreener>(sp =>
+                new SentinelScreener(() => sp.BuildSentinelPipeline(NeverCalledChatClient.Instance)));
         }
         else
         {
@@ -100,6 +103,8 @@ public static class ServiceCollectionExtensions
             RegisterUserDetectors(services, opts);
 
             services.AddKeyedSingleton<IDetectionPipeline>(name, (sp, _) => BuildDetectionPipeline(opts, sp));
+            services.AddKeyedSingleton<ISentinelScreener>(name, (sp, _) =>
+                new SentinelScreener(() => BuildNamedSentinelPipeline(sp, name, NeverCalledChatClient.Instance)));
         }
 
         return services;
@@ -363,33 +368,60 @@ public static class ServiceCollectionExtensions
         {
             ArgumentNullException.ThrowIfNull(name);
 
-            var opts = sp.GetRequiredKeyedService<SentinelOptions>(name);
-            var pipeline = sp.GetRequiredKeyedService<IDetectionPipeline>(name);
-            var engine = sp.GetRequiredKeyedService<InterventionEngine>(name);
-
-            // Shared infrastructure (audit store, alert sink, forwarders) is registered ONLY
-            // by the default unnamed AddAISentinel(...) call. Surface a clearer error than
-            // "No service for type 'IAuditStore' has been registered" if the user skipped it.
-            // We probe IAuditStore as the canary — if it's missing, the alert sink and
-            // forwarders are almost certainly missing too.
-            if (sp.GetService<IAuditStore>() is null)
-            {
-                throw new InvalidOperationException(
-                    $"AI.Sentinel pipeline '{name}': shared infrastructure (IAuditStore, IAlertSink, IAuditForwarder) is missing. Call services.AddAISentinel(...) once before registering or resolving named pipelines — the default unnamed call wires the shared audit store, forwarders, and alert sink.");
-            }
-
-            WarnIfSemanticDetectionInert(sp, opts, pipelineName: name);
-
-            return new SentinelChatClient(
-                inner,
-                pipeline,
-                sp.GetRequiredService<IAuditStore>(),     // shared
-                engine,
-                opts,
-                sp.GetRequiredService<IAlertSink>(),      // shared
-                sp.GetServices<IAuditForwarder>(),        // shared
-                pipelineName: name);
+            return BuildNamedChatClient(sp, name, inner);
         });
+
+    private static SentinelChatClient BuildNamedChatClient(IServiceProvider sp, string name, IChatClient inner)
+    {
+        var opts = sp.GetRequiredKeyedService<SentinelOptions>(name);
+        var pipeline = sp.GetRequiredKeyedService<IDetectionPipeline>(name);
+        var engine = sp.GetRequiredKeyedService<InterventionEngine>(name);
+        RequireSharedInfrastructure(sp, name);
+        WarnIfSemanticDetectionInert(sp, opts, pipelineName: name);
+
+        return new SentinelChatClient(
+            inner,
+            pipeline,
+            sp.GetRequiredService<IAuditStore>(),     // shared
+            engine,
+            opts,
+            sp.GetRequiredService<IAlertSink>(),      // shared
+            sp.GetServices<IAuditForwarder>(),        // shared
+            pipelineName: name);
+    }
+
+    private static SentinelPipeline BuildNamedSentinelPipeline(IServiceProvider sp, string name, IChatClient inner)
+    {
+        var opts = sp.GetRequiredKeyedService<SentinelOptions>(name);
+        var pipeline = sp.GetRequiredKeyedService<IDetectionPipeline>(name);
+        var engine = sp.GetRequiredKeyedService<InterventionEngine>(name);
+        RequireSharedInfrastructure(sp, name);
+        WarnIfSemanticDetectionInert(sp, opts, pipelineName: name);
+
+        return new SentinelPipeline(
+            inner,
+            pipeline,
+            sp.GetRequiredService<IAuditStore>(),     // shared
+            engine,
+            opts,
+            sp.GetRequiredService<IAlertSink>(),      // shared
+            sp.GetServices<IAuditForwarder>(),        // shared
+            pipelineName: name);
+    }
+
+    // Shared infrastructure (audit store, alert sink, forwarders) is registered ONLY
+    // by the default unnamed AddAISentinel(...) call. Surface a clearer error than
+    // "No service for type 'IAuditStore' has been registered" if the user skipped it.
+    // We probe IAuditStore as the canary — if it's missing, the alert sink and
+    // forwarders are almost certainly missing too.
+    private static void RequireSharedInfrastructure(IServiceProvider sp, string name)
+    {
+        if (sp.GetService<IAuditStore>() is null)
+        {
+            throw new InvalidOperationException(
+                $"AI.Sentinel pipeline '{name}': shared infrastructure (IAuditStore, IAlertSink, IAuditForwarder) is missing. Call services.AddAISentinel(...) once before registering or resolving named pipelines — the default unnamed call wires the shared audit store, forwarders, and alert sink.");
+        }
+    }
 
     /// <summary>Builds the "semantic detection is inert" warning, or <see langword="null"/> when it is active.</summary>
     private static string? InertSemanticWarning(SentinelOptions? opts, IServiceProvider sp, string? pipelineName)
