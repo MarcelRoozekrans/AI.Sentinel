@@ -14,7 +14,7 @@ using ZeroAlloc.Results;
 namespace AI.Sentinel;
 
 /// <summary>Wraps an <see cref="IChatClient"/> with threat detection, intervention, and auditing for both prompt and response messages.</summary>
-public sealed class SentinelPipeline
+public sealed partial class SentinelPipeline
 {
     private static readonly ActivitySource _activitySource = new("ai.sentinel");
     private readonly ConcurrentDictionary<string, RateLimiterEntry> _rateLimiters = new(StringComparer.Ordinal);
