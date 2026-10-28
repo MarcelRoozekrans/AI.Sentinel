@@ -14,7 +14,20 @@ public abstract record SentinelError
     /// <param name="Result">The highest-severity detection that triggered this error.</param>
     /// <param name="Action">The action taken in response to the detection.</param>
     /// <param name="Session">The session in which the threat was detected.</param>
-    public sealed record ThreatDetected(DetectionResult Result, SentinelAction Action, SessionId Session) : SentinelError;
+    public sealed record ThreatDetected(DetectionResult Result, SentinelAction Action, SessionId Session) : SentinelError
+    {
+        private readonly IReadOnlyList<DetectionResult>? _detections;
+
+        /// <summary>
+        /// Every non-clean detection of the scan, <see cref="Result"/> being the representative one.
+        /// Defaults to <see cref="Result"/> alone when the producer did not supply the full set.
+        /// </summary>
+        public IReadOnlyList<DetectionResult> Detections
+        {
+            get => _detections ?? [Result];
+            init => _detections = value;
+        }
+    }
 
     /// <summary>Indicates the pipeline itself failed with an unhandled exception or internal error.</summary>
     /// <param name="Message">A human-readable description of the failure.</param>
@@ -30,7 +43,7 @@ public abstract record SentinelError
     {
         ThreatDetected t => new SentinelException(
             $"AI.Sentinel quarantined message: {t.Result.Severity} threat detected by {t.Result.DetectorId.Value}.",
-            new PipelineResult(SeverityToScore(t.Result.Severity), [t.Result])),
+            new PipelineResult(SeverityToScore(t.Detections.Max(d => d.Severity)), t.Detections)),
         PipelineFailure f => new InvalidOperationException(f.Message, f.Inner),
         RateLimitExceeded r => new SentinelException(
             $"AI.Sentinel rate limit exceeded for session '{r.SessionKey}'."),

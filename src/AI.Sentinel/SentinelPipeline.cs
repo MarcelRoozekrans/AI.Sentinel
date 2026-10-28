@@ -829,7 +829,7 @@ public sealed class SentinelPipeline
             var top = Representative(pipelineResult, action);
             // Fire-and-forget: alert failures must never propagate to the caller.
             // Implementations of IAlertSink are expected to swallow their own exceptions.
-            _ = alertSink.SendAsync(new SentinelError.ThreatDetected(top, action, sessionId), CancellationToken.None).AsTask();
+            _ = alertSink.SendAsync(new SentinelError.ThreatDetected(top, action, sessionId) { Detections = pipelineResult.Detections }, CancellationToken.None).AsTask();
         }
 
         try
@@ -840,10 +840,11 @@ public sealed class SentinelPipeline
         {
             // Quarantine: convert throw to Result instead of re-throwing.
             // Use the PipelineResult carried by the exception — it has the real detections.
-            var top = ex.PipelineResult.Detections.Count > 0
-                ? Representative(ex.PipelineResult, action)
-                : Representative(pipelineResult, action);
-            return new SentinelError.ThreatDetected(top, action, sessionId);
+            var caught = ex.PipelineResult.Detections.Count > 0 ? ex.PipelineResult : pipelineResult;
+            return new SentinelError.ThreatDetected(Representative(caught, action), action, sessionId)
+            {
+                Detections = caught.Detections,
+            };
         }
 
         return null;
