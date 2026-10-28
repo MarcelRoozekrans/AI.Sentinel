@@ -21,7 +21,12 @@ public sealed partial class JailbreakDetector(SentinelOptions options) : Semanti
         @"unrestricted\s+ai\s+mode|" +
         @"evil\s+mode\s+activated|" +
         @"pretend\s+you\s+have\s+no\s+(ethical\s+)?(constraints?|guidelines?|restrictions?)|" +
-        @"you\s+are\s+freed\s+from\s+all\s+limitations)",
+        @"you\s+are\s+freed\s+from\s+all\s+limitations|" +
+        // Dutch counterparts. DAN is matched case-sensitively here, because "dan" is an everyday Dutch word.
+        @"\b(?-i:DAN)[\s-]+modus\b|" +
+        @"\bonbeperkte\s+ai[\s-]?modus\b|" +
+        @"\bdoe\s+alsof\s+je\s+geen\s+(ethische\s+)?(beperkingen|regels|richtlijnen)\s+hebt\b|" +
+        @"\bje\s+bent\s+bevrijd\s+van\s+alle\s+beperkingen\b)",
         RegexOptions.IgnoreCase | RegexOptions.ExplicitCapture | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex JailbreakPattern();

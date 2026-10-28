@@ -75,17 +75,29 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex BareEmailPattern();
 
+    // The last alternative is a Dutch number written without a separator: 0, a non-zero digit, eight more
+    // digits, not part of a longer token, so an IBAN or a reference code ending in ten digits stays clean.
     [GeneratedRegex(
-        @"(?<!\d)(?:\+\d{1,3}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{4}\b|\(?\d{1,4}\)?[\s.-]\d{3,4}[\s.-]?\d{4}\b)",
+        @"(?<!\d)(?:\+\d{1,3}[\s.-]?\(?\d{1,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{4}\b|\(?\d{1,4}\)?[\s.-]\d{3,4}[\s.-]?\d{4}\b)" +
+        @"|(?<!\w)0[1-9]\d{8}(?!\w)",
         RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex PhonePattern();
 
+    // English and Dutch keywords, an optional "on" or "op" before the value, and three date shapes:
+    // numeric, day month-name year, and the English month-name day year. A month name is written out
+    // or abbreviated, with an optional dot. A written date needs a four-digit year.
     [GeneratedRegex(
-        @"(?:born|DOB|date(?:\s+|[_-])?of(?:\s+|[_-])?birth)[""']?\s*(?:[:=]\s*)?[""']?(?<value>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\b",
+        @"(?:born|DOB|date(?:\s+|[_-])?of(?:\s+|[_-])?birth|geboren|geboorte(?:\s+|[_-])?datum|geb\.(?:\s?datum)?)" +
+        @"[""']?\s*(?:[:=]\s*)?[""']?(?:o[np]\s+)?" +
+        @"(?<value>\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{1,2}\s+" + Month + @"\.?\s+\d{4}|" + Month + @"\.?\s+\d{1,2},?\s+\d{4})\b",
         RegexOptions.IgnoreCase | RegexOptions.Compiled,
         matchTimeoutMilliseconds: 1000)]
     private static partial Regex DobPattern();
+
+    private const string Month =
+        @"(?:jan(?:uar[iy])?|feb(?:ruar[iy])?|maart|march|mrt|mar|apr(?:il)?|mei|may|jun[ie]?|jul[iy]?" +
+        @"|aug(?:ust(?:us)?)?|sep(?:t(?:ember)?)?|o[kc]t(?:ober)?|nov(?:ember)?|dec(?:ember)?)";
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {

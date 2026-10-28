@@ -183,11 +183,11 @@ Detectors run in these modes:
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
-| `SEC‑01` | PromptInjection | Rule + Semantic ⚠️ | Override/injection phrase patterns. The unambiguous phrasings (`ignore all previous instructions`, `you are now a different AI`) are matched by rule and need no generator; paraphrases need one |
+| `SEC‑01` | PromptInjection | Rule + Semantic ⚠️ | Override/injection phrase patterns. The unambiguous phrasings (`ignore all previous instructions`, `you are now a different AI`) are matched by rule, in English and Dutch, and need no generator; paraphrases need one |
 | `SEC‑02` | CredentialExposure | Rule-based | API keys, tokens, private keys, secrets in output |
 | `SEC‑03` | ToolPoisoning | Semantic ⚠️ | Suspicious tool-call manipulation patterns |
 | `SEC‑04` | DataExfiltration | Semantic ⚠️ | Base64 blobs, high-entropy encoded data |
-| `SEC‑05` | Jailbreak | Rule + Semantic ⚠️ | Jailbreak attempt phrases. Unambiguous ones (`DAN mode`, `unrestricted AI mode`) are matched by rule; roleplay exploits need a generator |
+| `SEC‑05` | Jailbreak | Rule + Semantic ⚠️ | Jailbreak attempt phrases. Unambiguous ones (`DAN mode`, `unrestricted AI mode`) are matched by rule, in English and Dutch; roleplay exploits need a generator |
 | `SEC‑06` | PrivilegeEscalation | Semantic ⚠️ | Role/permission escalation requests |
 | `SEC‑07` | CovertChannel | Semantic ⚠️ | Encoding-based hidden payloads |
 | `SEC‑08` | EntropyCovertChannel | Rule-based | Long, structureless, high-entropy runs — the shape encoded or encrypted data takes when smuggled through text. Tuned to exclude hashes, identifiers and URLs |
@@ -202,7 +202,7 @@ Detectors run in these modes:
 | `SEC‑17` | SupplyChainPoisoning | Semantic ⚠️ | Compromised dependency suggestions |
 | `SEC‑18` | ToolDescriptionDivergence | Stub | Tool description changed at runtime vs. original declaration — **not implemented; always returns `Clean`** (requires a tool-descriptor snapshot) |
 | `SEC‑20` | SystemPromptLeakage | Semantic ⚠️ | Requests to reveal the system prompt or hidden instructions (not the prompt itself appearing in output) |
-| `SEC‑23` | PiiLeakage | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email+name, phone, DOB |
+| `SEC‑23` | PiiLeakage | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email+name, phone, DOB. Phone and DOB also match Dutch forms |
 | `SEC‑24` | AdversarialUnicode | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions |
 | `SEC‑25` | CodeInjection | Semantic ⚠️ | SQL injection, shell metacharacters, path traversal in LLM-generated code |
 | `SEC‑26` | PromptTemplateLeakage | Semantic ⚠️ | `{{variable}}`, `<SYSTEM>`, `[INST]` and other prompt scaffolding markers |
