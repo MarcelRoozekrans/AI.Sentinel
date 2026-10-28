@@ -4,6 +4,7 @@ using AI.Sentinel;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Cli;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Domain;
 using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Tests.Helpers;
@@ -85,5 +86,30 @@ public class ReplayRunnerTests
         Assert.Equal(2, result.Turns.Count);
         Assert.Empty(result.Turns[0].Detections);
         Assert.NotEmpty(result.Turns[1].Detections);
+    }
+
+    private sealed class FixedDetector(string id, Severity severity) : IDetector
+    {
+        public DetectorId Id { get; } = new(id);
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(DetectionResult.WithSeverity(Id, severity, $"{id} fired"));
+    }
+
+    [Fact]
+    public async Task RunAsync_TwoDetectorsFire_ListsBoth()
+    {
+        var conv = Conversation(("hi", "hello"));
+        var inner = new SentinelReplayClient([conv.Turns[0].Response]);
+        var pipeline = BuildPipeline([new FixedDetector("TST-HIGH", Severity.High), new FixedDetector("TST-LOW", Severity.Low)], inner);
+
+        var result = await ReplayRunner.RunAsync("test.json", conv, pipeline, TestContext.Current.CancellationToken);
+
+        var turn = Assert.Single(result.Turns);
+        Assert.Equal(2, turn.Detections.Count);
+        Assert.Contains(turn.Detections, d => string.Equals(d.DetectorId, "TST-HIGH", StringComparison.Ordinal) && d.Severity == Severity.High);
+        Assert.Contains(turn.Detections, d => string.Equals(d.DetectorId, "TST-LOW", StringComparison.Ordinal) && d.Severity == Severity.Low);
+        Assert.Equal(Severity.High, turn.MaxSeverity);
+        Assert.Equal(Severity.High, result.MaxSeverity);
     }
 }

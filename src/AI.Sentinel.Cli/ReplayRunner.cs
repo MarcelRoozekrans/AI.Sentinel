@@ -12,12 +12,8 @@ public static class ReplayRunner
     /// a serializable <see cref="ReplayResult"/>.
     /// </summary>
     /// <remarks>
-    /// <strong>Known limitation:</strong> each <see cref="TurnResult"/> contains at most one
-    /// <see cref="TurnDetection"/> — the highest-severity hit per turn. This is a consequence
-    /// of <c>SentinelError.ThreatDetected</c> carrying a single <c>DetectionResult</c>. If
-    /// multiple detectors fire on the same turn, only the top-severity match is reported.
-    /// Future enhancement: plumb the full <c>PipelineResult</c> through a new error variant
-    /// or query the audit store directly.
+    /// A turn the pipeline quarantines lists every non-clean detection of its scan, not only the one that
+    /// triggered the quarantine.
     /// </remarks>
     public static async Task<ReplayResult> RunAsync(
         string file,
@@ -47,11 +43,13 @@ public static class ReplayRunner
             var turnMaxSeverity = Severity.None;
             if (callResult.IsFailure && callResult.Error is SentinelError.ThreatDetected t)
             {
-                detections = [new TurnDetection(
-                    t.Result.DetectorId.Value,
-                    t.Result.Severity,
-                    t.Result.Reason)];
-                turnMaxSeverity = t.Result.Severity;
+                var all = new List<TurnDetection>(t.Detections.Count);
+                foreach (var d in t.Detections)
+                {
+                    all.Add(new TurnDetection(d.DetectorId.Value, d.Severity, d.Reason));
+                    if (d.Severity > turnMaxSeverity) turnMaxSeverity = d.Severity;
+                }
+                detections = all;
             }
             else
             {
