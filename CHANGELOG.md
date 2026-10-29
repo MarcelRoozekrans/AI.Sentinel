@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.7.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.7.1...v3.7.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* keep the generated authorization registration internal ([#504](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/504)) ([a38786c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/a38786cda6c4188e3d27a837e806eafd29b8996f)), closes [#493](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/493)
+
 ## [3.7.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.7.0...v3.7.1) (2026-10-29)
 
 
