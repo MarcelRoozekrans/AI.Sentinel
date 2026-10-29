@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.7.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.7.0...v3.7.1) (2026-10-29)
+
+
+### Bug Fixes
+
+* a second default AddAISentinel call throws instead of registering duplicates ([#502](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/502)) ([024107c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/024107cfeedae31ae5b8b95c4757d6a393eec24a)), closes [#496](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/496)
+
 ## [3.7.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.6.2...v3.7.0) (2026-10-29)
 
 
