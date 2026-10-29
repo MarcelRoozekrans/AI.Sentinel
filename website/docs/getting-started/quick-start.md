@@ -75,6 +75,16 @@ builder.Services.AddAISentinel(opts =>
 });
 ```
 
+If your app already registers its generator the Microsoft.Extensions.AI way, leave `opts.EmbeddingGenerator` unset: AI.Sentinel then uses the `IEmbeddingGenerator<string, Embedding<float>>` registered in DI, with its middleware, and resolves it when the pipeline is first built, so the order of the two calls does not matter:
+
+```csharp
+builder.Services.AddEmbeddingGenerator(sp => openAiClient.GetEmbeddingClient("text-embedding-3-small").AsIEmbeddingGenerator())
+    .UseOpenTelemetry();
+builder.Services.AddAISentinel();
+```
+
+A generator set on `opts.EmbeddingGenerator` wins over the one in DI. See [Embedding cache](../configuration/embedding-cache#embedding-generator-from-di) for the details.
+
 Without an embedding generator, the 30+ semantic detectors return `Clean` for everything. Rule-based detectors still run as expected — you're just running with reduced coverage.
 
 ## Add audit persistence (optional)

@@ -51,9 +51,12 @@ services.AddChatClient("openai-lenient", b =>
 | `IAuditForwarder[]` | | ✓ |
 | `IAlertSink` | | ✓ |
 | Detector pool (`IDetector`s) | | ✓ |
+| Embedding generator used by semantic detectors | | ✓ |
 | `IToolCallGuard` | | ✓ |
 
 Audit infrastructure is **shared** across all pipelines so operational dashboards see all pipelines through one feed. User-added detectors via `opts.AddDetector<T>()` register globally; per-pipeline detector tuning rides on `opts.Configure<T>(c => ...)`.
+
+Because the detector pool is shared, semantic detectors in every pipeline embed with the **default** pipeline's generator: `opts.EmbeddingGenerator` on the unnamed `AddAISentinel(...)` call, or else the `IEmbeddingGenerator<string, Embedding<float>>` registered in DI, for example with `services.AddEmbeddingGenerator(...)`. Configure it there. A keyed generator registered under a pipeline's name, as `AddKeyedEmbeddingGenerator` does, is not used.
 
 ## Default + named coexist
 
@@ -153,14 +156,13 @@ services.AddChatClient("anthropic", b => b.UseAISentinel().Use(new AnthropicChat
 ### Per-tier (paying tier gets LLM escalation)
 
 ```csharp
+services.AddAISentinel(opts => opts.EmbeddingGenerator = realGen);  // semantic detectors are shared
 services.AddAISentinel("free", opts =>
 {
-    opts.EmbeddingGenerator = realGen;
     // No EscalationClient — LLM-escalation detectors no-op
 });
 services.AddAISentinel("paying", opts =>
 {
-    opts.EmbeddingGenerator = realGen;
     opts.EscalationClient = upgradeClient;   // LLM second-pass classifier
 });
 

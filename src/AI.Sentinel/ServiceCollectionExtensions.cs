@@ -88,15 +88,17 @@ public static class ServiceCollectionExtensions
 
         if (name is null)
         {
-            // Default (unnamed) pipeline — unkeyed singletons, full v1.0 backward compat
-            services.AddSingleton(opts);
-            services.AddSingleton<IAlertSink>(_ => BuildAlertSink(opts));
+            // Default (unnamed) pipeline — unkeyed singletons, full v1.0 backward compat. The options are
+            // resolved, not registered as an instance, so the embedding generator can come from the container;
+            // everything below reads that resolved instance, which the detectors are built with too.
+            services.AddSingleton(sp => WithEmbeddingGeneratorFromServices(opts, sp));
+            services.AddSingleton<IAlertSink>(sp => BuildAlertSink(sp.GetRequiredService<SentinelOptions>()));
             services.AddSingleton<IAuditStore>(BuildAuditStore(opts));
-            services.AddSingleton(sp => BuildInterventionEngine(opts, sp));
+            services.AddSingleton(sp => BuildInterventionEngine(sp.GetRequiredService<SentinelOptions>(), sp));
             AddOfficialDetectorsOnce(services);
             RegisterUserDetectors(services, opts);
-            services.AddSingleton<IDetectionPipeline>(sp => BuildDetectionPipeline(opts, sp));
-            services.AddSingleton<IToolCallGuard>(sp => BuildToolCallGuard(services, opts, sp));
+            services.AddSingleton<IDetectionPipeline>(sp => BuildDetectionPipeline(sp.GetRequiredService<SentinelOptions>(), sp));
+            services.AddSingleton<IToolCallGuard>(sp => BuildToolCallGuard(services, sp.GetRequiredService<SentinelOptions>(), sp));
             services.AddSingleton<ISentinelScreener>(sp =>
                 new SentinelScreener(() => sp.BuildSentinelPipeline(NeverCalledChatClient.Instance)));
         }
@@ -122,6 +124,17 @@ public static class ServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>The default pipeline's options as this provider uses them: <paramref name="opts"/> itself when it
+    /// sets <see cref="SentinelOptions.EmbeddingGenerator"/> or the container has no generator, otherwise a copy
+    /// that uses the container's.</summary>
+    /// <remarks>A copy, not an assignment: <paramref name="opts"/> is shared by every provider built from the same
+    /// collection, so writing one provider's generator into it would hand that generator to the next provider
+    /// and make it look explicitly configured there.</remarks>
+    private static SentinelOptions WithEmbeddingGeneratorFromServices(SentinelOptions opts, IServiceProvider sp) =>
+        opts.EmbeddingGenerator is null && sp.GetService<IEmbeddingGenerator<string, Embedding<float>>>() is { } generator
+            ? opts.WithEmbeddingGenerator(generator)
+            : opts;
 
     private static void RejectInvalidTransparencyOptions(SentinelOptions opts, string paramName)
     {
@@ -422,9 +435,13 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>Builds the "semantic detection is inert" warning, or <see langword="null"/> when it is active.</summary>
+    /// <remarks>The detectors are shared by every pipeline and built with the default pipeline's resolved options,
+    /// so their generator is the default's, set or taken from the container. A named pipeline that sets its own
+    /// generator is not warned about either, although the shared detectors do not read it.</remarks>
     private static string? InertSemanticWarning(SentinelOptions? opts, IServiceProvider sp, string? pipelineName)
     {
-        if (opts is null || opts.EmbeddingGenerator is not null)
+        if (opts is null || opts.EmbeddingGenerator is not null
+            || (pipelineName is not null && sp.GetService<SentinelOptions>()?.EmbeddingGenerator is not null))
         {
             return null;
         }
@@ -453,7 +470,7 @@ public static class ServiceCollectionExtensions
         // SEC-01 and SEC-05 are deliberately excluded from the count: their rule layer fires without
         // a generator, so naming them here would contradict the Critical block the very next line of
         // output may carry.
-        return $"{scope}: EmbeddingGenerator is not configured — {count} semantic detectors return Clean on every scan. SEC-01 PromptInjection and SEC-05 Jailbreak still catch the unambiguous phrasings through their rule layer, but paraphrases go undetected. Set SENTINEL_EMBEDDING_ENDPOINT and SENTINEL_EMBEDDING_MODEL, or SentinelOptions.EmbeddingGenerator, to enable the rest.";
+        return $"{scope}: EmbeddingGenerator is not configured — {count} semantic detectors return Clean on every scan. SEC-01 PromptInjection and SEC-05 Jailbreak still catch the unambiguous phrasings through their rule layer, but paraphrases go undetected. Set SENTINEL_EMBEDDING_ENDPOINT and SENTINEL_EMBEDDING_MODEL, set SentinelOptions.EmbeddingGenerator, or register an IEmbeddingGenerator in the container to enable the rest.";
     }
 
     private static void WarnIfSemanticDetectionInert(IServiceProvider sp, SentinelOptions? opts, string? pipelineName)

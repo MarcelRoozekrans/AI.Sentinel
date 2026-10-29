@@ -116,6 +116,8 @@ services.AddChatClient("openai-lenient", b =>
 ```
 
 Each named pipeline gets its own `SentinelOptions`, `IDetectionPipeline`, and `InterventionEngine`.
+The detector pool is shared, so semantic detectors in every pipeline use the default pipeline's embedding
+generator: `opts.EmbeddingGenerator` on the default call, or else the one registered in DI.
 The audit store, forwarders, and alert sink are shared — operational dashboards see all pipelines
 through one feed. User-added detectors via `opts.AddDetector<T>()` register globally; per-pipeline
 detector tuning rides on `opts.Configure<T>(c => ...)`.
@@ -174,12 +176,12 @@ IChatClient.GetResponseAsync(messages)
 Detectors run in these modes:
 
 - **Rule-based** — fast regex or heuristic, always active, sub-microsecond per call
-- **Semantic ⚠️** — uses embedding cosine similarity via `EmbeddingGenerator`. Language-agnostic. **Returns `Clean` on every scan until `opts.EmbeddingGenerator` is configured.** The ⚠️ marks a detector that is inactive in a default install. Since 3.1 each message that is new in a scan is scored on its own, and the most severe match decides; see [How semantic detectors score](https://marcelroozekrans.github.io/AI.Sentinel/docs/detectors/overview#how-semantic-detectors-score).
+- **Semantic ⚠️** — uses embedding cosine similarity via `EmbeddingGenerator`. Language-agnostic. **Returns `Clean` on every scan until an embedding generator is configured, on `opts.EmbeddingGenerator` or in DI.** The ⚠️ marks a detector that is inactive in a default install. Since 3.1 each message that is new in a scan is scored on its own, and the most severe match decides; see [How semantic detectors score](https://marcelroozekrans.github.io/AI.Sentinel/docs/detectors/overview#how-semantic-detectors-score).
 - **Rule + Semantic ⚠️** — a high-precision rule layer runs first and always, so the unambiguous phrasings are caught with no generator; anything needing context falls through to the semantic path. The ⚠️ applies to that second half only.
 - **LLM escalation** — not a detector type but a second pass: when `opts.EscalationClient` is set, a finding already at `Medium` or above is re-classified by an LLM. It upgrades or downgrades existing findings; it cannot create one.
 - **Stub** — a placeholder with no implementation; always returns `Clean`. Setting `opts.EscalationClient` does **not** activate it, because escalation only re-classifies findings a detector has already produced.
 
-> **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so the 43 detectors marked `Semantic ⚠️` return `Clean` on every scan. `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls, are the exception: their rule layer catches the unambiguous phrasings regardless, and only paraphrases need a generator. Set `opts.EmbeddingGenerator` to turn it on; AI.Sentinel warns at startup when it is missing. The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` — see [Enabling semantic detection in the CLIs](#enabling-semantic-detection-in-the-clis).
+> **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so the 43 detectors marked `Semantic ⚠️` return `Clean` on every scan. `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls, are the exception: their rule layer catches the unambiguous phrasings regardless, and only paraphrases need a generator. Set `opts.EmbeddingGenerator`, or register an `IEmbeddingGenerator<string, Embedding<float>>` in DI with `services.AddEmbeddingGenerator(...)`, to turn it on; AI.Sentinel warns at startup when both are missing. See [Embedding generator from DI](#embedding-generator-from-di). The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` — see [Enabling semantic detection in the CLIs](#enabling-semantic-detection-in-the-clis).
 
 ### Security (32)
 
@@ -263,7 +265,7 @@ Requests to use the model for a practice Art. 5 of the [EU AI Act](#eu-ai-act-co
 | `CMP‑03` | SensitiveBiometricCategorisation | Semantic ⚠️ | Deducing race, religion, political views, trade union membership or sexual orientation from photos, voice or other biometric data |
 | `CMP‑04` | ProfilingCrimePrediction | Semantic ⚠️ | Predicting that a person will commit a crime from profiling or personality traits alone |
 
-> **Semantic detectors** are no-ops until `opts.EmbeddingGenerator` is configured. They use embedding cosine similarity and are language-agnostic — no LLM round-trip required.
+> **Semantic detectors** are no-ops until an embedding generator is configured, on `opts.EmbeddingGenerator` or registered in DI. They use embedding cosine similarity and are language-agnostic — no LLM round-trip required.
 
 > **LLM escalation** re-classifies findings that are already `Medium` or above; set `opts.EscalationClient` to a cheap fast model (e.g. GPT-4o-mini) to enable it. It cannot make a `Stub` detector fire — a stub returns `Clean`, so there is nothing to escalate.
 
@@ -474,7 +476,8 @@ builder.Services.AddAISentinel(opts =>
     opts.OnLow      = SentinelAction.Log;
     // opts.OnLow   = SentinelAction.PassThrough;  // silent
 
-    // Optional: embedding provider for the 45 semantic detectors: 41 on by default, plus the 4 opt-in compliance detectors
+    // Optional: embedding provider for the 45 semantic detectors: 41 on by default, plus the 4 opt-in compliance detectors.
+    // Left unset, the IEmbeddingGenerator registered in DI is used; see "Embedding generator from DI" below.
     opts.EmbeddingGenerator = new OpenAIEmbeddingGenerator(...);
     // Optional: custom embedding cache (default: in-memory LRU, 1 024 entries)
     // options.EmbeddingCache = new MyRedisEmbeddingCache(...);
@@ -531,6 +534,27 @@ builder.Services.AddAISentinel(opts =>
 | `PassThrough` | No action. Detections are still audited. |
 
 Alert sink behaviour: when `opts.AlertWebhook` is set, `WebhookAlertSink` POSTs a JSON payload (type, severity, detector, reason, action, session) to the configured URL on `Quarantine` or `Alert` actions. The `DeduplicatingAlertSink` wraps the webhook sink and suppresses repeat alerts for the same detector+session, controlled by `opts.AlertDeduplicationWindow`.
+
+#### Embedding generator from DI
+
+When `opts.EmbeddingGenerator` is not set, AI.Sentinel uses the `IEmbeddingGenerator<string, Embedding<float>>`
+registered in the container, so a generator registered the Microsoft.Extensions.AI way reaches the semantic
+detectors with its middleware, such as OpenTelemetry and logging:
+
+```csharp
+builder.Services.AddEmbeddingGenerator(sp => openAiClient.GetEmbeddingClient("text-embedding-3-small").AsIEmbeddingGenerator())
+    .UseOpenTelemetry();
+
+builder.Services.AddAISentinel(opts => opts.OnHigh = SentinelAction.Alert); // no EmbeddingGenerator needed
+```
+
+- The generator is resolved when the pipeline is first built, not by `AddAISentinel`, so it can be registered before or after it.
+- A generator set on `opts.EmbeddingGenerator` always wins over the container.
+- A test host replaces it through ordinary DI, for example `services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(fake)` in a `WebApplicationFactory`.
+- `EmbeddingCache` and `ExampleEmbeddingCache` apply exactly as they do to a generator set on the options.
+- Named pipelines share the default pipeline's detectors, and with them its generator: the one set on the default options, or else the one in the container. A keyed generator, such as one from `AddKeyedEmbeddingGenerator`, is not used.
+
+With neither, the semantic detectors return `Clean` and AI.Sentinel logs a startup warning.
 
 #### Embedding cache
 

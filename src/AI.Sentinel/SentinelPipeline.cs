@@ -63,8 +63,8 @@ public sealed partial class SentinelPipeline
         RedactionScope.InstallToolHook(innerClient);
     }
 
-    // EmbeddingGenerator not set — all SemanticDetectorBase subclasses return Clean.
-    // Set SentinelOptions.EmbeddingGenerator to enable language-agnostic detection.
+    // No EmbeddingGenerator on the options and none registered in DI — all SemanticDetectorBase subclasses return Clean.
+    // Set SentinelOptions.EmbeddingGenerator, or register an IEmbeddingGenerator, to enable language-agnostic detection.
 
     /// <summary>The client this pipeline forwards to; a <see cref="SentinelChatClient"/> delegates to the same one.</summary>
     internal IChatClient InnerClient => innerClient;

@@ -140,9 +140,28 @@ public sealed class SentinelOptions
     /// <summary>
     /// Optional embedding generator. When set, all semantic detectors use
     /// cosine similarity against pre-computed threat phrase embeddings instead
-    /// of regex. If null, semantic detectors return Clean.
+    /// of regex.
     /// </summary>
+    /// <remarks>
+    /// When this is <see langword="null"/>, the default pipeline uses the
+    /// <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/> of <see cref="string"/> and
+    /// <see cref="Embedding{T}"/> of <see cref="float"/> registered in the container, for example with
+    /// <c>services.AddEmbeddingGenerator(...)</c>. It is resolved when the pipeline is first built, so it may be
+    /// registered before or after <c>AddAISentinel</c>, and a test host can replace it through ordinary DI. A
+    /// generator set here always wins over the container. Named pipelines share the default pipeline's
+    /// detectors, and so its generator; a keyed generator is not used. With neither, semantic detectors return
+    /// Clean and AI.Sentinel logs a warning when the pipeline is built.
+    /// </remarks>
     public IEmbeddingGenerator<string, Embedding<float>>? EmbeddingGenerator { get; set; }
+
+    /// <summary>A copy of these options that uses <paramref name="generator"/>, for the generator taken from the
+    /// container. A shallow copy: the detector configurations, registrations and bindings stay shared.</summary>
+    internal SentinelOptions WithEmbeddingGenerator(IEmbeddingGenerator<string, Embedding<float>> generator)
+    {
+        var copy = (SentinelOptions)MemberwiseClone();
+        copy.EmbeddingGenerator = generator;
+        return copy;
+    }
 
     /// <summary>
     /// Cache for scan-time message embeddings, shared by every semantic detector. When it is not set, each
@@ -160,8 +179,8 @@ public sealed class SentinelOptions
     /// When <see langword="null"/> (the default) example phrases are embedded on every first scan.
     /// A long-lived host pays that once at startup; a per-invocation host pays it every time, which is
     /// what makes a persistent implementation such as <see cref="FileSystemEmbeddingCache"/> worth
-    /// supplying there. No bundled CLI sets this yet — they cannot configure an embedding generator at
-    /// all, so nothing to cache.
+    /// supplying there. The bundled CLIs and the MCP proxy set it, through <see cref="Embeddings.SentinelEmbeddingSetup"/>,
+    /// when <c>SENTINEL_EMBEDDING_ENDPOINT</c> and <c>SENTINEL_EMBEDDING_MODEL</c> configure a generator.
     /// </para></summary>
     public IEmbeddingCache? ExampleEmbeddingCache { get; set; }
 
