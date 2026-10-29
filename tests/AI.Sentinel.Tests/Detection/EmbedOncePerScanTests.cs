@@ -105,8 +105,7 @@ public class EmbedOncePerScanTests
 
         var result = await pipeline.RunAsync(Ctx(User(FirstText), Assistant(SecondText)), TestContext.Current.CancellationToken);
 
-        // The example calls are one per detector, each holding only the assistant text; the scan call holds both.
-        Assert.Equal(3, gen.Calls);
+        // The user text is no example phrase, so the one call holding it is the scan call.
         var batch = Assert.Single(gen.Batches, b => b.Contains(FirstText, StringComparer.Ordinal));
         Assert.Equal(2, batch.Count);
         Assert.Contains(SecondText, batch, StringComparer.Ordinal);
@@ -195,6 +194,67 @@ public class EmbedOncePerScanTests
 
         Assert.True(Has(result, "TST-RULE", Severity.High));
         Assert.Single(failures);
+    }
+
+    [Fact]
+    public async Task Detector_scores_exactly_the_texts_collected_for_the_scan()
+    {
+        // An override that answers differently on each call: the first call is the one the pipeline embeds, and
+        // scoring a second, different list would look up texts that are not in the scan and skip them unreported.
+        var calls = 0;
+        var gen = new YieldingEmbeddingGenerator();
+        var stateful = new TestSemantic("TST-STATEFUL", [FirstText],
+            texts: _ => Interlocked.Increment(ref calls) == 1 ? [FirstText] : [SecondText]);
+        var (pipeline, failures) = Pipeline([stateful], gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText), User(SecondText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, calls);
+        Assert.True(Has(result, "TST-STATEFUL", Severity.High));
+        Assert.DoesNotContain(gen.Inputs, i => i is SecondText);
+        Assert.Empty(failures);
+    }
+
+    [Fact]
+    public async Task Throwing_text_selection_is_reported_as_that_detectors_failure()
+    {
+        var gen = new YieldingEmbeddingGenerator();
+        var detectors = SixDetectors();
+        detectors.Add(new TestSemantic("TST-THROWS", [FirstText], texts: _ => throw new InvalidOperationException("selection failed")));
+        detectors.Add(new TestSemantic("TST-GOOD", [FirstText]));
+        var (pipeline, failures) = Pipeline(detectors, gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.True(Has(result, "TST-GOOD", Severity.High));
+        Assert.False(Fired(result, "TST-THROWS"));
+        var message = Assert.Single(failures);
+        Assert.Contains("detector TST-THROWS failed", message, StringComparison.Ordinal);
+    }
+
+    private sealed class ThrowingCache : IEmbeddingCache
+    {
+        public bool TryGet(string text, out Embedding<float> embedding) =>
+            throw new InvalidOperationException("cache unavailable");
+        public void Set(string text, Embedding<float> embedding) =>
+            throw new InvalidOperationException("cache unavailable");
+    }
+
+    [Fact]
+    public async Task Throwing_scan_cache_fails_every_text_once_and_rule_layer_still_runs()
+    {
+        var gen = new YieldingEmbeddingGenerator();
+        var detectors = SixDetectors();
+        detectors.Add(new TestSemantic("TST-RULE", [FirstText], fastPath: new Regex("calm", RegexOptions.None, TimeSpan.FromSeconds(1))));
+        var (pipeline, failures) = Pipeline(detectors, gen, new ThrowingCache());
+
+        // The rule layer reads the newest message, so the matching text comes last.
+        var result = await pipeline.RunAsync(Ctx(User(SecondText), User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.True(Has(result, "TST-RULE", Severity.High));
+        var message = Assert.Single(failures);
+        Assert.Contains("2 of 2", message, StringComparison.Ordinal);
+        Assert.Contains("InvalidOperationException", message, StringComparison.Ordinal);
     }
 
     [Fact]

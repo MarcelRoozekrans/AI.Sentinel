@@ -230,15 +230,17 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>Analyzes with the scope and the scan vectors of the pipeline that runs this detector.</summary>
     /// <remarks>The pipeline embedded the texts of every semantic detector in <paramref name="scan"/> once, so this
     /// overload never calls the generator for scan texts: it only awaits the example vectors of
-    /// <paramref name="scope"/>'s generator. A text that is not in <paramref name="scan"/> could not be embedded and
-    /// is skipped; the pipeline has reported it.</remarks>
+    /// <paramref name="scope"/>'s generator. <paramref name="texts"/> is what <see cref="TextsToEmbed"/> returned for
+    /// this scan, so an override of <see cref="GetTextsToScore"/> runs once and the texts scored are the texts
+    /// embedded. A text that is not in <paramref name="scan"/> could not be embedded and is skipped; the pipeline has
+    /// reported it.</remarks>
     internal async ValueTask<DetectionResult> AnalyzeAsync(
-        SentinelContext ctx, DetectorConfiguration? configuration, EmbeddingScope scope, ScanEmbeddings scan, CancellationToken ct)
+        SentinelContext ctx, DetectorConfiguration? configuration, EmbeddingScope scope, ScanEmbeddings scan,
+        IReadOnlyList<string> texts, CancellationToken ct)
     {
         if (EarlyResult(ctx) is { } early)
             return early;
 
-        var texts = SelectTextsToScore(ctx);
         if (texts.Count == 0)
             return DetectionResult.Clean(Id);
 

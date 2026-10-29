@@ -172,11 +172,19 @@ public sealed class DetectionPipeline : IDetectionPipeline
             if (embedded is null)
                 return await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false);
 
+            if (embedded.TextsFailures[index] is { } textsFailure)
+            {
+                // As without a scope: the rule layer still decides, and otherwise the failure is this detector's own.
+                var rule = semantic.AnalyzeRuleLayer(ctx);
+                if (!rule.IsClean) return rule;
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(textsFailure);
+            }
+
             // Its example phrases failed and were reported once for the scan; calling it would retry and report again.
             if (embedded.ExamplesFailed[index])
                 return semantic.AnalyzeRuleLayer(ctx);
 
-            return await semantic.AnalyzeAsync(ctx, configuration, embedded.Scope, embedded.Scan, ct).ConfigureAwait(false);
+            return await semantic.AnalyzeAsync(ctx, configuration, embedded.Scope, embedded.Scan, embedded.Texts[index], ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -192,9 +200,12 @@ public sealed class DetectionPipeline : IDetectionPipeline
         }
     }
 
-    /// <summary>The scan vectors every semantic detector shares, and which detectors' example phrases failed.</summary>
-    /// <param name="ExamplesFailed">Indexed like <c>_detectors</c>.</param>
-    private sealed record EmbeddedScan(EmbeddingScope Scope, ScanEmbeddings Scan, bool[] ExamplesFailed);
+    /// <summary>The scan vectors every semantic detector shares, each detector's texts, and which detectors' text
+    /// selection or example phrases failed.</summary>
+    /// <param name="Texts">Each semantic detector's texts, collected once so it scores exactly what was embedded.
+    /// Indexed like <c>_detectors</c>, as are <paramref name="TextsFailures"/> and <paramref name="ExamplesFailed"/>.</param>
+    private sealed record EmbeddedScan(
+        EmbeddingScope Scope, ScanEmbeddings Scan, IReadOnlyList<string>[] Texts, Exception?[] TextsFailures, bool[] ExamplesFailed);
 
     /// <summary>Embeds the distinct texts of every semantic detector once, and their example phrases, before the
     /// detectors run, and reports each kind of failure once for the scan.</summary>
@@ -203,6 +214,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
     private async Task<EmbeddedScan> EmbedScanAsync(EmbeddingScope scope, SentinelContext ctx, CancellationToken ct)
     {
         var union = new HashSet<string>(StringComparer.Ordinal);
+        var detectorTexts = new IReadOnlyList<string>[_detectors.Length];
+        var textsFailures = new Exception?[_detectors.Length];
         var exampleTasks = new Task<Exception?>[_semanticIndices.Length];
         for (var s = 0; s < _semanticIndices.Length; s++)
         {
@@ -214,10 +227,12 @@ public sealed class DetectionPipeline : IDetectionPipeline
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // The detector throws the same from its own call, where SafeAnalyzeAsync reports it.
+                // Reported by SafeAnalyzeAsync as this detector's failure, as when the detector selects its own texts.
+                textsFailures[_semanticIndices[s]] = ex;
                 texts = [];
             }
 
+            detectorTexts[_semanticIndices[s]] = texts;
             union.UnionWith(texts);
 
             // As before, a detector with nothing to score never embeds its example phrases.
@@ -230,14 +245,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         await Task.WhenAll([scanTask, .. exampleTasks]).ConfigureAwait(false);
 
         var scan = await scanTask.ConfigureAwait(false);
-        if (scan.FailedCount > 0)
-        {
-            var ex = scan.FirstFailure;
-            var message = $"AI.Sentinel: {scan.FailedCount} of {scan.TotalCount} texts could not be embedded and were skipped for this scan ({ex?.GetType().Name}: {ex?.Message}). Other texts and detectors still ran.";
-            _logger?.LogWarning(ex, "AI.Sentinel: {Failed} of {Total} texts could not be embedded and were skipped for this scan ({ExType}: {ExMessage}). Other texts and detectors still ran.",
-                scan.FailedCount, scan.TotalCount, ex?.GetType().Name, ex?.Message);
-            _onDetectorFailure?.Invoke(message);
-        }
+        ReportScanFailure(scan);
 
         var examplesFailed = new bool[_detectors.Length];
         var failedIds = new List<string>();
@@ -251,16 +259,32 @@ public sealed class DetectionPipeline : IDetectionPipeline
             firstExampleFailure ??= failure;
         }
 
-        if (firstExampleFailure is { } exampleFailure)
-        {
-            var ids = string.Join(", ", failedIds);
-            var message = $"AI.Sentinel: the example phrases of detector(s) {ids} could not be embedded, so they were skipped for this scan ({exampleFailure.GetType().Name}: {exampleFailure.Message}). Other detectors still ran.";
-            _logger?.LogWarning(exampleFailure, "AI.Sentinel: the example phrases of detector(s) {DetectorIds} could not be embedded, so they were skipped for this scan ({ExType}: {ExMessage}). Other detectors still ran.",
-                ids, exampleFailure.GetType().Name, exampleFailure.Message);
-            _onDetectorFailure?.Invoke(message);
-        }
+        if (firstExampleFailure is not null) ReportExampleFailure(failedIds, firstExampleFailure);
 
-        return new EmbeddedScan(scope, scan, examplesFailed);
+        return new EmbeddedScan(scope, scan, detectorTexts, textsFailures, examplesFailed);
+    }
+
+    /// <summary>Reports the texts of <paramref name="scan"/> that could not be embedded, once for the scan.</summary>
+    private void ReportScanFailure(ScanEmbeddings scan)
+    {
+        if (scan.FailedCount == 0) return;
+
+        // ScanEmbeddings records a failure with every failed text.
+        var ex = scan.FirstFailure!;
+        var message = $"AI.Sentinel: {scan.FailedCount} of {scan.TotalCount} texts could not be embedded and were skipped for this scan ({ex.GetType().Name}: {ex.Message}). Other texts and detectors still ran.";
+        _logger?.LogWarning(ex, "AI.Sentinel: {Failed} of {Total} texts could not be embedded and were skipped for this scan ({ExType}: {ExMessage}). Other texts and detectors still ran.",
+            scan.FailedCount, scan.TotalCount, ex.GetType().Name, ex.Message);
+        _onDetectorFailure?.Invoke(message);
+    }
+
+    /// <summary>Reports the detectors whose example phrases could not be embedded, once for the scan.</summary>
+    private void ReportExampleFailure(List<string> detectorIds, Exception ex)
+    {
+        var ids = string.Join(", ", detectorIds);
+        var message = $"AI.Sentinel: the example phrases of detector(s) {ids} could not be embedded, so they were skipped for this scan ({ex.GetType().Name}: {ex.Message}). Other detectors still ran.";
+        _logger?.LogWarning(ex, "AI.Sentinel: the example phrases of detector(s) {DetectorIds} could not be embedded, so they were skipped for this scan ({ExType}: {ExMessage}). Other detectors still ran.",
+            ids, ex.GetType().Name, ex.Message);
+        _onDetectorFailure?.Invoke(message);
     }
 
     private static readonly Task<Exception?> NoFailure = Task.FromResult<Exception?>(null);
