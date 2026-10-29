@@ -99,9 +99,10 @@ public class ExampleVectorStoreTests
         cts.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => caller1);
 
+        Assert.True(detector.TryPeekExampleTask(gen, out var shared));
         gen.Gate.SetResult();
-        // Let the abandoned shared task run to its fault; nobody is waiting on it, so there is no signal to await.
-        await Task.Delay(100, ct);
+        _ = await Task.WhenAny(shared);
+        Assert.True(shared.IsFaulted);
         failing = false;
         gen.Gate = null;
 

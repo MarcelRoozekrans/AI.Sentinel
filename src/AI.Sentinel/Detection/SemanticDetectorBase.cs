@@ -387,6 +387,14 @@ public abstract class SemanticDetectorBase : IDetector
         }
     }
 
+    /// <summary>The shared embedding task currently held for <paramref name="generator"/>. For tests.</summary>
+    internal bool TryPeekExampleTask(
+        IEmbeddingGenerator<string, Embedding<float>> generator, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Task<ExampleVectors>? task)
+    {
+        task = _exampleSlots.TryGetValue(generator, out var slot) ? slot.Task : null;
+        return task is not null;
+    }
+
     private async Task RunEmbeddingAsync(
         TaskCompletionSource<ExampleVectors> target,
         IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct)
