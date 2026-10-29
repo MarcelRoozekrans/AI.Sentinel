@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.7.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.6.2...v3.7.0) (2026-10-29)
+
+
+### Features
+
+* screen text without a chat call ([#497](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/497)) ([c6bbc80](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/c6bbc80a2803c4e9774f147448bbb31a25519ed9))
+
 ## [3.6.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.6.1...v3.6.2) (2026-10-28)
 
 
