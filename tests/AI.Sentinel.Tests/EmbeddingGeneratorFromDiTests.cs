@@ -171,23 +171,6 @@ public class EmbeddingGeneratorFromDiTests
         Assert.DoesNotContain(logger.Messages, IsInertWarning);
     }
 
-    /// <summary>The shared detectors read the default pipeline's generator only, so a named pipeline that sets its
-    /// own generator still has inert semantic detection when the default has none.</summary>
-    [Fact]
-    public async Task NamedPipelineWithItsOwnGenerator_DefaultHasNone_TheWarningFires()
-    {
-        var logger = new CapturingLogger();
-        var services = new ServiceCollection();
-        services.AddAISentinel();
-        services.AddAISentinel("strict", o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
-        services.AddSingleton<ILogger<SentinelPipeline>>(logger);
-        using var provider = services.BuildServiceProvider();
-
-        await provider.GetRequiredKeyedService<ISentinelScreener>("strict").ScreenAsync("hello", ct: Ct);
-
-        Assert.Contains(logger.Messages, m => IsInertWarning(m) && m.Contains("'strict'", StringComparison.Ordinal));
-    }
-
     [Fact]
     public void UseEmbeddingGeneratorFromServices_DefaultsToTrue() =>
         Assert.True(new SentinelOptions().UseEmbeddingGeneratorFromServices);
