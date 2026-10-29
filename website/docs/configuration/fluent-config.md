@@ -81,10 +81,10 @@ When a pipeline is built, an override is checked against the other, built-in thr
 
 ## How clamping works
 
-The `DetectionPipeline` runs every detector, then applies the clamp pass between dispatch and LLM escalation:
+The `DetectionPipeline` runs every detector, then applies the clamp pass between dispatch and LLM escalation, and again after escalation so the LLM verdict stays within Floor and Cap:
 
 ```
-[detect] → [clamp Floor/Cap] → [escalate ILlmEscalatingDetector hits] → [aggregate]
+[detect] → [clamp Floor/Cap] → [escalate ILlmEscalatingDetector hits] → [clamp Floor/Cap] → [aggregate]
 ```
 
 The clamp uses the C# record `with`-expression so `DetectorId` and `Reason` are preserved verbatim:
