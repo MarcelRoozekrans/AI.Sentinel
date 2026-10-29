@@ -129,6 +129,8 @@ services.AddAISentinel(baseCfg);
 services.AddAISentinel("strict", opts => { baseCfg(opts); opts.OnCritical = SentinelAction.Quarantine; });
 ```
 
+Call the default `AddAISentinel(...)` once per `IServiceCollection`: a second default call throws `InvalidOperationException` ("The default AI.Sentinel pipeline is already registered."), the same as registering a named pipeline twice. Put it in the composition root only; a helper or library extension that also calls it fails at startup.
+
 **Phase A limitations** (planned for Phase B when a real user need surfaces):
 
 - **Always register the default unnamed `AddAISentinel(...)` first.** The shared audit store, forwarders, alert sink, and tool-call guard are wired by the default call. Skipping it and registering only named pipelines causes the named chat client to throw a missing-shared-infrastructure error the first time it's resolved (during request handling).

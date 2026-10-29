@@ -83,4 +83,51 @@ public class ServiceCollectionExtensionsTests
         public object? GetService(Type serviceType, object? key = null) => null;
         public void Dispose() { }
     }
+
+    [Fact]
+    public void AddAISentinel_DefaultCalledTwice_Throws()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => services.AddAISentinel(o => { }));
+
+        Assert.Equal("The default AI.Sentinel pipeline is already registered.", ex.Message);
+    }
+
+    [Fact]
+    public void AddAISentinel_DefaultCalledTwice_DoesNotAddSecondSetOfSingletons()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel();
+        var count = services.Count;
+
+        Assert.Throws<InvalidOperationException>(() => services.AddAISentinel());
+
+        Assert.Equal(count, services.Count);
+    }
+
+    [Fact]
+    public void AddAISentinel_DefaultThenNamed_BothRegister()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel();
+        services.AddAISentinel("strict", o => { });
+
+        using var provider = services.BuildServiceProvider();
+        Assert.NotNull(provider.GetRequiredService<IDetectionPipeline>());
+        Assert.NotNull(provider.GetRequiredKeyedService<IDetectionPipeline>("strict"));
+    }
+
+    [Fact]
+    public void AddAISentinel_NamedThenDefault_BothRegister()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel("strict", o => { });
+        services.AddAISentinel();
+
+        using var provider = services.BuildServiceProvider();
+        Assert.NotNull(provider.GetRequiredService<IDetectionPipeline>());
+        Assert.NotNull(provider.GetRequiredKeyedService<IDetectionPipeline>("strict"));
+    }
 }

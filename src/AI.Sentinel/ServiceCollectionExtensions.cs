@@ -16,10 +16,23 @@ namespace AI.Sentinel;
 
 public static class ServiceCollectionExtensions
 {
+    /// <summary>Registers the default (unnamed) AI.Sentinel pipeline: unkeyed <see cref="SentinelOptions"/>,
+    /// <see cref="IDetectionPipeline"/>, <see cref="InterventionEngine"/>, and the shared audit store,
+    /// alert sink and tool-call guard. Named pipelines added with
+    /// <see cref="AddAISentinel(IServiceCollection, string, Action{SentinelOptions})"/> may come before or after it.</summary>
+    /// <exception cref="InvalidOperationException">The default pipeline is already registered on this
+    /// collection, which includes an unkeyed <see cref="SentinelOptions"/> registered by hand. Call this once,
+    /// for example from the composition root only.</exception>
     public static IServiceCollection AddAISentinel(
         this IServiceCollection services,
         Action<SentinelOptions>? configure = null)
     {
+        ArgumentNullException.ThrowIfNull(services);
+        if (services.Any(d => !d.IsKeyedService && d.ServiceType == typeof(SentinelOptions)))
+        {
+            throw new InvalidOperationException("The default AI.Sentinel pipeline is already registered.");
+        }
+
         return RegisterPipeline(services, name: null, configure);
     }
 
