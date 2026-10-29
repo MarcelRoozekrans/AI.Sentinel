@@ -56,7 +56,7 @@ services.AddChatClient("openai-lenient", b =>
 
 Audit infrastructure is **shared** across all pipelines so operational dashboards see all pipelines through one feed. User-added detectors via `opts.AddDetector<T>()` register globally; per-pipeline detector tuning rides on `opts.Configure<T>(c => ...)`.
 
-Because the detector pool is shared, semantic detectors in every pipeline embed with the **default** pipeline's generator: `opts.EmbeddingGenerator` on the unnamed `AddAISentinel(...)` call, or else the `IEmbeddingGenerator<string, Embedding<float>>` registered in DI, for example with `services.AddEmbeddingGenerator(...)`. Configure it there. A keyed generator registered under a pipeline's name, as `AddKeyedEmbeddingGenerator` does, is not used.
+Because the detector pool is shared, semantic detectors in every pipeline embed with the **default** pipeline's generator: `opts.EmbeddingGenerator` on the unnamed `AddAISentinel(...)` call, or else the `IEmbeddingGenerator<string, Embedding<float>>` registered in DI, for example with `services.AddEmbeddingGenerator(...)`, unless the default options set `UseEmbeddingGeneratorFromServices = false`. Configure it there; a generator set on a named pipeline's options is not used by the shared detectors, and AI.Sentinel warns for that pipeline when the default has none. A keyed generator registered under a pipeline's name, as `AddKeyedEmbeddingGenerator` does, is not used.
 
 ## Default + named coexist
 

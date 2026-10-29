@@ -146,18 +146,37 @@ public sealed class SentinelOptions
     /// When this is <see langword="null"/>, the default pipeline uses the
     /// <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/> of <see cref="string"/> and
     /// <see cref="Embedding{T}"/> of <see cref="float"/> registered in the container, for example with
-    /// <c>services.AddEmbeddingGenerator(...)</c>. It is resolved when the pipeline is first built, so it may be
-    /// registered before or after <c>AddAISentinel</c>, and a test host can replace it through ordinary DI. A
-    /// generator set here always wins over the container. Named pipelines share the default pipeline's
-    /// detectors, and so its generator; a keyed generator is not used. With neither, semantic detectors return
-    /// Clean and AI.Sentinel logs a warning when the pipeline is built.
+    /// <c>services.AddEmbeddingGenerator(...)</c>, unless <see cref="UseEmbeddingGeneratorFromServices"/> is
+    /// <see langword="false"/>. It is resolved when the provider first resolves <see cref="SentinelOptions"/>, so it
+    /// may be registered before or after <c>AddAISentinel</c>, and a test host can replace it through ordinary DI.
+    /// Register it as a singleton, which is the <c>AddEmbeddingGenerator</c> default: the options are a singleton
+    /// and keep the instance they were given, so a scoped generator would outlive its scope. A generator set here
+    /// always wins over the container. Named pipelines share the default pipeline's detectors, and so its
+    /// generator; a keyed generator is not used. With neither, semantic detectors return Clean and AI.Sentinel
+    /// logs a warning when the pipeline is built.
     /// </remarks>
     public IEmbeddingGenerator<string, Embedding<float>>? EmbeddingGenerator { get; set; }
+
+    /// <summary>
+    /// Whether the default pipeline falls back to the <see cref="IEmbeddingGenerator{TInput, TEmbedding}"/> of
+    /// <see cref="string"/> and <see cref="Embedding{T}"/> of <see cref="float"/> registered in the container when
+    /// <see cref="EmbeddingGenerator"/> is <see langword="null"/>. Defaults to <see langword="true"/>.
+    /// </summary>
+    /// <remarks>
+    /// Set it to <see langword="false"/> to keep semantic detection off when the app registers a generator for
+    /// other purposes, such as its own retrieval, and does not want every screened message embedded with it.
+    /// Semantic detectors then return Clean unless <see cref="EmbeddingGenerator"/> is set, and the inert-semantic
+    /// warning is logged as without a generator. Only the default pipeline's value counts: named pipelines share
+    /// its detectors.
+    /// </remarks>
+    public bool UseEmbeddingGeneratorFromServices { get; set; } = true;
 
     /// <summary>A copy of these options that uses <paramref name="generator"/>, for the generator taken from the
     /// container. A shallow copy: the detector configurations, registrations and bindings stay shared.</summary>
     internal SentinelOptions WithEmbeddingGenerator(IEmbeddingGenerator<string, Embedding<float>> generator)
     {
+        // MemberwiseClone shares every reference member with the original. A future per-instance mutable field,
+        // such as a lazy cache or a frozen flag, must be reset or copied here.
         var copy = (SentinelOptions)MemberwiseClone();
         copy.EmbeddingGenerator = generator;
         return copy;

@@ -64,7 +64,8 @@ public sealed partial class SentinelPipeline
     }
 
     // No EmbeddingGenerator on the options and none registered in DI — all SemanticDetectorBase subclasses return Clean.
-    // Set SentinelOptions.EmbeddingGenerator, or register an IEmbeddingGenerator, to enable language-agnostic detection.
+    // Set SentinelOptions.EmbeddingGenerator, or register an IEmbeddingGenerator and leave
+    // UseEmbeddingGeneratorFromServices on, to enable language-agnostic detection.
 
     /// <summary>The client this pipeline forwards to; a <see cref="SentinelChatClient"/> delegates to the same one.</summary>
     internal IChatClient InnerClient => innerClient;

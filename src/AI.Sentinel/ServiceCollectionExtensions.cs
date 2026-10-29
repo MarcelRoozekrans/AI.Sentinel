@@ -126,13 +126,15 @@ public static class ServiceCollectionExtensions
     }
 
     /// <summary>The default pipeline's options as this provider uses them: <paramref name="opts"/> itself when it
-    /// sets <see cref="SentinelOptions.EmbeddingGenerator"/> or the container has no generator, otherwise a copy
-    /// that uses the container's.</summary>
+    /// sets <see cref="SentinelOptions.EmbeddingGenerator"/>, turns
+    /// <see cref="SentinelOptions.UseEmbeddingGeneratorFromServices"/> off or the container has no generator,
+    /// otherwise a copy that uses the container's.</summary>
     /// <remarks>A copy, not an assignment: <paramref name="opts"/> is shared by every provider built from the same
     /// collection, so writing one provider's generator into it would hand that generator to the next provider
     /// and make it look explicitly configured there.</remarks>
     private static SentinelOptions WithEmbeddingGeneratorFromServices(SentinelOptions opts, IServiceProvider sp) =>
-        opts.EmbeddingGenerator is null && sp.GetService<IEmbeddingGenerator<string, Embedding<float>>>() is { } generator
+        opts.EmbeddingGenerator is null && opts.UseEmbeddingGeneratorFromServices
+        && sp.GetService<IEmbeddingGenerator<string, Embedding<float>>>() is { } generator
             ? opts.WithEmbeddingGenerator(generator)
             : opts;
 
@@ -470,7 +472,7 @@ public static class ServiceCollectionExtensions
         // SEC-01 and SEC-05 are deliberately excluded from the count: their rule layer fires without
         // a generator, so naming them here would contradict the Critical block the very next line of
         // output may carry.
-        return $"{scope}: EmbeddingGenerator is not configured — {count} semantic detectors return Clean on every scan. SEC-01 PromptInjection and SEC-05 Jailbreak still catch the unambiguous phrasings through their rule layer, but paraphrases go undetected. Set SENTINEL_EMBEDDING_ENDPOINT and SENTINEL_EMBEDDING_MODEL, set SentinelOptions.EmbeddingGenerator, or register an IEmbeddingGenerator in the container to enable the rest.";
+        return $"{scope}: EmbeddingGenerator is not configured — {count} semantic detectors return Clean on every scan. SEC-01 PromptInjection and SEC-05 Jailbreak still catch the unambiguous phrasings through their rule layer, but paraphrases go undetected. Set SENTINEL_EMBEDDING_ENDPOINT and SENTINEL_EMBEDDING_MODEL, set SentinelOptions.EmbeddingGenerator, or register an IEmbeddingGenerator<string, Embedding<float>> in the container with UseEmbeddingGeneratorFromServices left on to enable the rest.";
     }
 
     private static void WarnIfSemanticDetectionInert(IServiceProvider sp, SentinelOptions? opts, string? pipelineName)

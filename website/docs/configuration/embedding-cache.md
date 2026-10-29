@@ -45,13 +45,19 @@ services.AddAISentinel(opts =>
 });
 ```
 
-- **Resolved lazily.** The generator is looked up when the pipeline is first built, never by `AddAISentinel`, so it may be registered after it.
+- **Resolved lazily.** The generator is looked up when the provider first resolves `SentinelOptions`, never by `AddAISentinel`, so it may be registered after it.
+- **Singleton.** Register it as a singleton, which is the `AddEmbeddingGenerator` default. The options are a singleton and keep the generator they resolve, so a scoped one would be captured past its scope.
 - **Explicit wins.** A generator set on `opts.EmbeddingGenerator` is always used instead of the one in DI.
 - **Same path.** The semantic detectors get the DI generator through the same options they would read an explicit one from, so `EmbeddingCache` and `ExampleEmbeddingCache` behave identically.
 - **Test doubles.** A test host swaps the generator through ordinary DI, for example `services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(fake)` in a `WebApplicationFactory`; the last registration wins.
 - **Named pipelines** share the default pipeline's detectors, so they use its generator: the one on the default options, or else the one in DI. A keyed generator registered with `AddKeyedEmbeddingGenerator` is not used.
+- **Opt-out.** Set `opts.UseEmbeddingGeneratorFromServices = false` to keep semantic detection off although the container has a generator, for example one the app registers for its own retrieval. Only the default pipeline's setting counts.
 
 With neither an explicit nor a DI generator, the semantic detectors return `Clean` and AI.Sentinel logs a warning when the pipeline is built. The CLIs and the MCP proxy are unaffected: they set the generator from `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL`.
+
+:::caution Upgrading to 3.8
+An app that already registers an `IEmbeddingGenerator<string, Embedding<float>>` for other purposes, and leaves `opts.EmbeddingGenerator` unset, now uses that generator for screening. Every screened message is embedded with it, which adds embedding cost and latency, and the semantic detectors start producing findings they did not produce before. To keep the 3.7 behaviour, set `opts.UseEmbeddingGeneratorFromServices = false`.
+:::
 
 ## How semantic detectors use it
 

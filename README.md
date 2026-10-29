@@ -548,13 +548,18 @@ builder.Services.AddEmbeddingGenerator(sp => openAiClient.GetEmbeddingClient("te
 builder.Services.AddAISentinel(opts => opts.OnHigh = SentinelAction.Alert); // no EmbeddingGenerator needed
 ```
 
-- The generator is resolved when the pipeline is first built, not by `AddAISentinel`, so it can be registered before or after it.
+- The generator is resolved when the provider first resolves `SentinelOptions`, not by `AddAISentinel`, so it can be registered before or after it.
+- Register it as a singleton, which is the `AddEmbeddingGenerator` default. The options are a singleton and keep the generator they resolve, so a scoped one would be captured past its scope.
 - A generator set on `opts.EmbeddingGenerator` always wins over the container.
 - A test host replaces it through ordinary DI, for example `services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(fake)` in a `WebApplicationFactory`.
 - `EmbeddingCache` and `ExampleEmbeddingCache` apply exactly as they do to a generator set on the options.
 - Named pipelines share the default pipeline's detectors, and with them its generator: the one set on the default options, or else the one in the container. A keyed generator, such as one from `AddKeyedEmbeddingGenerator`, is not used.
 
+- Set `opts.UseEmbeddingGeneratorFromServices = false` to keep semantic detection off although the container has a generator, for example one the app registers for its own retrieval.
+
 With neither, the semantic detectors return `Clean` and AI.Sentinel logs a startup warning.
+
+> **Upgrading to 3.8.** An app that already registers an `IEmbeddingGenerator<string, Embedding<float>>` for other purposes, and leaves `opts.EmbeddingGenerator` unset, now uses that generator for screening. Every screened message is embedded with it, which adds embedding cost and latency, and the semantic detectors start producing findings they did not produce before. To keep the 3.7 behaviour, set `opts.UseEmbeddingGeneratorFromServices = false`.
 
 #### Embedding cache
 

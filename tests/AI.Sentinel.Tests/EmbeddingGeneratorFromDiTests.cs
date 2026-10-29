@@ -167,6 +167,32 @@ public class EmbeddingGeneratorFromDiTests
         Assert.Contains(logger.Messages, m => IsInertWarning(m) && m.Contains("'strict'", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void UseEmbeddingGeneratorFromServices_DefaultsToTrue() =>
+        Assert.True(new SentinelOptions().UseEmbeddingGeneratorFromServices);
+
+    /// <summary>An app that registers a generator for its own purposes can keep semantic detection off.</summary>
+    [Fact]
+    public async Task OptedOut_GeneratorInDi_IsNotUsed_SemanticDetectorsStayClean_AndTheWarningFires()
+    {
+        var generator = new RecordingEmbeddingGenerator(new FakeEmbeddingGenerator());
+        var logger = new CapturingLogger();
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.UseEmbeddingGeneratorFromServices = false);
+        services.AddEmbeddingGenerator(generator);
+        services.AddSingleton<ILogger<SentinelPipeline>>(logger);
+        using var provider = services.BuildServiceProvider();
+
+        var result = await provider.GetRequiredService<IDetectionPipeline>().RunAsync(Context(Paraphrase), Ct);
+        await provider.GetRequiredService<ISentinelScreener>().ScreenAsync(Paraphrase, ct: Ct);
+
+        Assert.Equal(0, generator.Calls);
+        Assert.Null(provider.GetRequiredService<SentinelOptions>().EmbeddingGenerator);
+        Assert.DoesNotContain(result.Detections, d => d.DetectorId.Value.Equals("SEC-01", StringComparison.Ordinal));
+        Assert.NotNull(provider.DescribeInertSemanticDetection());
+        Assert.Contains(logger.Messages, IsInertWarning);
+    }
+
     /// <summary>The instance <c>AddAISentinel</c> builds is shared by every provider built from the collection, so
     /// the generator one provider resolves must not reach another.</summary>
     [Fact]
