@@ -106,6 +106,22 @@ public class EmbeddingGeneratorFromDiTests
         Assert.Contains(Paraphrase, generator.Inputs, StringComparer.Ordinal);
     }
 
+    /// <summary>The opt-out is read from the default pipeline only, so it has no effect on a named pipeline.</summary>
+    [Fact]
+    public async Task OptOutOnlyOnANamedPipeline_TheDefaultsValueWins_TheGeneratorIsUsed()
+    {
+        var generator = new RecordingEmbeddingGenerator(new FakeEmbeddingGenerator());
+        var services = new ServiceCollection();
+        services.AddAISentinel();
+        services.AddAISentinel("strict", o => o.UseEmbeddingGeneratorFromServices = false);
+        services.AddEmbeddingGenerator(generator);
+        using var provider = services.BuildServiceProvider();
+
+        await provider.GetRequiredKeyedService<IDetectionPipeline>("strict").RunAsync(Context(Paraphrase), Ct);
+
+        Assert.Contains(Paraphrase, generator.Inputs, StringComparer.Ordinal);
+    }
+
     [Fact]
     public async Task NoGeneratorAnywhere_SemanticDetectorsStayClean_AndTheWarningFires()
     {

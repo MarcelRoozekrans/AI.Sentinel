@@ -555,7 +555,7 @@ builder.Services.AddAISentinel(opts => opts.OnHigh = SentinelAction.Alert); // n
 - `EmbeddingCache` and `ExampleEmbeddingCache` apply exactly as they do to a generator set on the options.
 - Named pipelines share the default pipeline's detectors, and with them its generator: the one set on the default options, or else the one in the container. A keyed generator, such as one from `AddKeyedEmbeddingGenerator`, is not used.
 
-- Set `opts.UseEmbeddingGeneratorFromServices = false` to keep semantic detection off although the container has a generator, for example one the app registers for its own retrieval.
+- Set `opts.UseEmbeddingGeneratorFromServices = false` to keep semantic detection off although the container has a generator, for example one the app registers for its own retrieval. Only the default pipeline's value counts; setting it on a named pipeline has no effect.
 
 With neither, the semantic detectors return `Clean` and AI.Sentinel logs a startup warning.
 
