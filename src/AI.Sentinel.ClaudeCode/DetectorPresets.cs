@@ -46,6 +46,9 @@ internal static class DetectorPresets
         // by the IDetector registrations, each handing out its own slot.
         services.RemoveAll<IDetector>();
         services.AddSingleton(sp => new PresetDetectors(Build(preset, sp.GetRequiredService<SentinelOptions>())));
+        // The slot count is needed now, before any provider exists. A throwaway set built with default options gives
+        // it, because which detectors a preset holds never depends on the options; they only configure each detector.
+        // Constructing them is cheap and happens once per call, so no separate count table is kept to drift.
         var count = Build(preset, new SentinelOptions()).Length;
         for (var i = 0; i < count; i++)
         {

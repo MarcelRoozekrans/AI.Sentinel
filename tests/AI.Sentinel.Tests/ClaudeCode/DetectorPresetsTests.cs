@@ -1,10 +1,10 @@
-using Xunit;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
-using Microsoft.Extensions.DependencyInjection;
 using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.DependencyInjection;
+using Xunit;
 
 namespace AI.Sentinel.Tests.ClaudeCode;
 
