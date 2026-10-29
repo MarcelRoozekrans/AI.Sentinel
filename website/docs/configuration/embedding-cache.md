@@ -51,7 +51,7 @@ services.AddAISentinel(opts =>
 - **Named pipelines** use their own generator when they set one, and otherwise the default pipeline's: the one on the default options, or else the one in DI. The generator and the caches move together; see [Named pipelines](./named-pipelines#whats-isolated-whats-shared). A keyed generator registered with `AddKeyedEmbeddingGenerator` is not used.
 - **Opt-out.** Set `opts.UseEmbeddingGeneratorFromServices = false` to keep semantic detection off although the container has a generator, for example one the app registers for its own retrieval. Only the default pipeline's setting counts.
 
-With neither an explicit nor a DI generator, the semantic detectors return `Clean` and AI.Sentinel logs a warning when the pipeline is built. The CLIs and the MCP proxy are unaffected: they set the generator from `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL`.
+With neither an explicit nor a DI generator, the semantic detectors return `Clean` and AI.Sentinel logs a warning when the pipeline is built. The CLIs and the MCP proxy are unaffected: they set the generator from `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL`. The MCP proxy pipeline also embeds each text once per scan.
 
 :::caution Upgrading to 3.8
 An app that already registers an `IEmbeddingGenerator<string, Embedding<float>>` for other purposes, and leaves `opts.EmbeddingGenerator` unset, now uses that generator for screening. Every screened message is embedded with it, which adds embedding cost and latency, and the semantic detectors start producing findings they did not produce before. To keep the 3.7 behaviour, set `opts.UseEmbeddingGeneratorFromServices = false`.
@@ -93,7 +93,7 @@ A provider can reject one input, for example one over its token limit, and that 
 Embedding the input is the cost; the per-detector cosine compare is free. A pipeline makes **one generator call per scan for all cache misses**, across all its semantic detectors, and none when every text hits:
 
 - **First scan of a new message** — 1 call, populates the cache
-- **A scan whose new messages are all in the cache** — 0 calls
+- **A scan whose new messages are all in the cache** — 0 calls for scan texts. The example phrases are embedded once per generator on first use, and not at all with a warm `ExampleEmbeddingCache`
 - **A scan with several new messages, for example a batch of tool results** — still 1 call, for the ones the cache has not seen
 
 Without the cache, every scan makes that one call for all of its new messages. If the batch fails, the retry makes one call per missing text, with the cut-off described above.

@@ -90,7 +90,7 @@ public sealed record PipelineResult(
 | Component | Typical cost per call |
 |---|---|
 | Rule-based detectors (14 of 60) | &lt;100 µs total, parallel |
-| Semantic detectors (45 of 60, two with a rule layer) | 1 ms per detector if embeddings cached, 50–500 ms uncached |
+| Semantic detectors (45 of 60, two with a rule layer) | 1 ms per detector if embeddings cached, 50–500 ms uncached, paid once per scan for all of them |
 | LLM-escalation detectors (rare hits only) | full LLM round-trip — ~200–2000 ms |
 | Intervention engine | &lt;10 µs |
 | Audit append (`RingBufferAuditStore`) | &lt;5 µs |
