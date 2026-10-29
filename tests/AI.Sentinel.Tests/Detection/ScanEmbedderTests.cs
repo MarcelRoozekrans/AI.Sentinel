@@ -135,6 +135,33 @@ public class ScanEmbedderTests
     }
 
     [Fact]
+    public async Task Failure_messages_never_contain_an_input_text()
+    {
+        var gen = new EmptyResultGenerator();
+        string[] texts = ["secret-alpha", "secret-beta", "secret-gamma"];
+
+        var result = await ScanEmbedder.EmbedAsync(Scope(gen, new InMemoryLruEmbeddingCache()), texts, CancellationToken.None);
+
+        Assert.NotNull(result.FirstFailure);
+        Assert.All(texts, t => Assert.DoesNotContain(t, result.FirstFailure.Message, StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Cancellation_wins_over_a_non_cancellation_exception(int cancelOnCall)
+    {
+        // Call 1 is the batch, call 2 the first single-input retry.
+        using var cts = new CancellationTokenSource();
+        var gen = new CancelThenThrowGenerator(cts, cancelOnCall);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            ScanEmbedder.EmbedAsync(Scope(gen, new InMemoryLruEmbeddingCache()), ["a", "b", "c"], cts.Token));
+
+        Assert.Equal(cancelOnCall, gen.Calls);
+    }
+
+    [Fact]
     public async Task Cancellation_propagates()
     {
         var gen = new YieldingEmbeddingGenerator(_ => true);
@@ -162,6 +189,28 @@ public class ScanEmbedderTests
                 return all;
             }
             return new GeneratedEmbeddings<Embedding<float>>(all.Take(list.Count - 1).ToList());
+        }
+
+        public object? GetService(Type serviceType, object? key = null) => null;
+        public void Dispose() { }
+    }
+
+    private sealed class CancelThenThrowGenerator(CancellationTokenSource cts, int cancelOnCall)
+        : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        private int _calls;
+        public int Calls => _calls;
+        public EmbeddingGeneratorMetadata Metadata { get; } = new("cancel-then-throw", null, null, 256);
+
+        public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values, EmbeddingGenerationOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            var call = Interlocked.Increment(ref _calls);
+            if (call == cancelOnCall)
+            {
+                await cts.CancelAsync();
+            }
+            throw new HttpRequestException("rejected");
         }
 
         public object? GetService(Type serviceType, object? key = null) => null;

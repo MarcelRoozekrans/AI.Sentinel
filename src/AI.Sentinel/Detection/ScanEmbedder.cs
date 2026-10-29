@@ -64,8 +64,10 @@ internal static class ScanEmbedder
             }
             return (null, true);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // A provider often surfaces a cancellation as its own exception type; cancellation wins.
+            ct.ThrowIfCancellationRequested();
             return (ex, false);
         }
     }
@@ -95,8 +97,9 @@ internal static class ScanEmbedder
                 Store(scope, vectors, text, single[0]);
                 succeeded++;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException && !ct.IsCancellationRequested)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
+                ct.ThrowIfCancellationRequested();
                 failed++;
                 // The batch exception stays the first failure; it is the most representative of the outage.
                 firstFailure ??= ex;
