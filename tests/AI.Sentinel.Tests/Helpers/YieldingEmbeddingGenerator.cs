@@ -51,12 +51,12 @@ public sealed class YieldingEmbeddingGenerator(
         {
             await gate.Task.ConfigureAwait(false);
         }
-        await Task.Delay(1, cancellationToken).ConfigureAwait(false);
-
         if (failWhen?.Invoke(list) == true)
         {
             throw new HttpRequestException("rejected");
         }
+
+        await Task.Delay(1, cancellationToken).ConfigureAwait(false);
 
         return await _inner.GenerateAsync(list, options, cancellationToken).ConfigureAwait(false);
     }

@@ -78,8 +78,35 @@ public class ExampleVectorStoreTests
 
         var vectors = await detector.GetExampleVectorsAsync(gen, null, ct);
 
+        Assert.Equal(1, callsAfterFailure);
         Assert.Equal(3, vectors.High.Length);
-        Assert.True(gen.Calls > callsAfterFailure);
+        Assert.Equal(4, gen.Calls);
+    }
+
+    [Fact]
+    public async Task Task_that_faults_after_all_callers_left_is_not_kept()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var failing = true;
+        var gen = new YieldingEmbeddingGenerator(_ => failing)
+        {
+            Gate = new(TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var detector = Detector();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+
+        var caller1 = detector.GetExampleVectorsAsync(gen, null, cts.Token);
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => caller1);
+
+        gen.Gate.SetResult();
+        // Let the abandoned shared task run to its fault; nobody is waiting on it, so there is no signal to await.
+        await Task.Delay(100, ct);
+        failing = false;
+        gen.Gate = null;
+
+        var vectors = await detector.GetExampleVectorsAsync(gen, null, ct);
+        Assert.Equal(3, vectors.High.Length);
     }
 
     [Fact]
@@ -116,6 +143,7 @@ public class ExampleVectorStoreTests
 
         gen.Gate.SetResult();
         Assert.Equal(3, (await caller1).High.Length);
+        Assert.Equal(3, gen.Calls);
     }
 
     [Fact]
@@ -149,7 +177,14 @@ public class ExampleVectorStoreTests
             new List<AuditEntry>());
 
         await detector.AnalyzeAsync(ctx, ct);
+        var callsAfterAnalyze = gen.Calls;
+        foreach (var example in High.Concat(Medium).Concat(Low))
+        {
+            Assert.Contains(gen.Inputs, i => string.Equals(i, example, StringComparison.Ordinal));
+        }
+
         await detector.GetExampleVectorsAsync(gen, null, ct);
+        Assert.Equal(callsAfterAnalyze, gen.Calls);
 
         foreach (var example in High.Concat(Medium).Concat(Low))
         {

@@ -32,7 +32,7 @@ public abstract class SemanticDetectorBase : IDetector
     private readonly IEmbeddingCache _cache;
     private readonly IEmbeddingCache? _exampleCache;
     // Keyed by generator instance, never by value: vectors from one generator must not be compared with another's,
-    // and a disposed generator takes its vectors with it.
+    // and once nothing references a generator, the table releases its vectors.
     private readonly ConditionalWeakTable<IEmbeddingGenerator<string, Embedding<float>>, ExampleSlot> _exampleSlots = new();
     private readonly bool _overridesGetText;
 
@@ -355,10 +355,21 @@ public abstract class SemanticDetectorBase : IDetector
         for (var attempt = 0; ; attempt++)
         {
             Task<ExampleVectors> task;
+            TaskCompletionSource<ExampleVectors>? owned = null;
             lock (slot.Lock)
             {
-                task = slot.Task ??= EmbedAllExamplesAsync(generator, exampleCache, ct);
+                // A task that failed while every caller had already stopped waiting was never evicted by one.
+                if (slot.Task is { IsCompleted: true, IsCompletedSuccessfully: false }) slot.Task = null;
+                if (slot.Task is null)
+                {
+                    owned = new TaskCompletionSource<ExampleVectors>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    slot.Task = owned.Task;
+                }
+                task = slot.Task;
             }
+
+            // Started outside the lock: the example cache lookups and a generator's synchronous prefix run here.
+            if (owned is not null) _ = RunEmbeddingAsync(owned, generator, exampleCache, ct);
 
             try
             {
@@ -373,6 +384,24 @@ public abstract class SemanticDetectorBase : IDetector
 
                 if (!(task.IsCanceled && !ct.IsCancellationRequested && attempt == 0)) throw;
             }
+        }
+    }
+
+    private async Task RunEmbeddingAsync(
+        TaskCompletionSource<ExampleVectors> target,
+        IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct)
+    {
+        try
+        {
+            target.TrySetResult(await EmbedAllExamplesAsync(generator, exampleCache, ct).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException ex)
+        {
+            target.TrySetCanceled(ex.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            target.TrySetException(ex);
         }
     }
 
