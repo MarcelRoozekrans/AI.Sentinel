@@ -210,6 +210,68 @@ public abstract class SemanticDetectorBase : IDetector
     /// arrive with each call from <see cref="DetectionPipeline"/> instead of being stored on the detector.</remarks>
     internal async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, DetectorConfiguration? configuration, CancellationToken ct)
     {
+        if (EarlyResult(ctx) is { } early)
+            return early;
+
+        if (_generator is null)
+            return DetectionResult.Clean(Id);
+
+        var texts = SelectTextsToScore(ctx);
+        if (texts.Count == 0)
+            return DetectionResult.Clean(Id);
+
+        var examples = await GetExampleVectorsAsync(_generator, _exampleCache, ct).ConfigureAwait(false);
+
+        var vectors = await GetEmbeddingsAsync(texts, ct).ConfigureAwait(false);
+
+        return Score(vectors, examples, configuration);
+    }
+
+    /// <summary>Analyzes with the scope and the scan vectors of the pipeline that runs this detector.</summary>
+    /// <remarks>The pipeline embedded the texts of every semantic detector in <paramref name="scan"/> once, so this
+    /// overload never calls the generator for scan texts: it only awaits the example vectors of
+    /// <paramref name="scope"/>'s generator. A text that is not in <paramref name="scan"/> could not be embedded and
+    /// is skipped; the pipeline has reported it.</remarks>
+    internal async ValueTask<DetectionResult> AnalyzeAsync(
+        SentinelContext ctx, DetectorConfiguration? configuration, EmbeddingScope scope, ScanEmbeddings scan, CancellationToken ct)
+    {
+        if (EarlyResult(ctx) is { } early)
+            return early;
+
+        var texts = SelectTextsToScore(ctx);
+        if (texts.Count == 0)
+            return DetectionResult.Clean(Id);
+
+        var examples = await GetExampleVectorsAsync(scope.Generator, scope.ExampleCache, ct).ConfigureAwait(false);
+
+        var vectors = new List<ReadOnlyMemory<float>>(texts.Count);
+        foreach (var text in texts)
+        {
+            if (scan.TryGet(text, out var vector)) vectors.Add(vector);
+        }
+
+        return Score(vectors, examples, configuration);
+    }
+
+    /// <summary>The texts the pipeline embeds for this detector in a scan: those it will score, or none when a legacy
+    /// <c>GetText</c> override returns blank.</summary>
+    internal IReadOnlyList<string> TextsToEmbed(SentinelContext ctx)
+    {
+#pragma warning disable SENTINEL001
+        if (_overridesGetText && string.IsNullOrWhiteSpace(GetText(ctx)))
+            return [];
+#pragma warning restore SENTINEL001
+
+        return SelectTextsToScore(ctx);
+    }
+
+    /// <summary>The result of the rule layer alone, or <see cref="DetectionResult.Clean"/>. For a scan whose example
+    /// vectors could not be embedded: the rule layer needs none.</summary>
+    internal DetectionResult AnalyzeRuleLayer(SentinelContext ctx) => EarlyResult(ctx) ?? DetectionResult.Clean(Id);
+
+    /// <summary>The result decided before any embedding: Clean for a legacy blank opt-out, or a rule match.</summary>
+    private DetectionResult? EarlyResult(SentinelContext ctx)
+    {
         // As in 3.0, a legacy GetText override that returns blank opts the scan out, before the rule layer runs.
 #pragma warning disable SENTINEL001
         if (_overridesGetText && string.IsNullOrWhiteSpace(GetText(ctx)))
@@ -227,17 +289,12 @@ public abstract class SemanticDetectorBase : IDetector
             }
         }
 
-        if (_generator is null)
-            return DetectionResult.Clean(Id);
+        return null;
+    }
 
-        var texts = SelectTextsToScore(ctx);
-        if (texts.Count == 0)
-            return DetectionResult.Clean(Id);
-
-        var examples = await GetExampleVectorsAsync(_generator, _exampleCache, ct).ConfigureAwait(false);
-
-        var vectors = await GetEmbeddingsAsync(texts, ct).ConfigureAwait(false);
-
+    /// <summary>The most severe bucket any of <paramref name="vectors"/> reaches, or Clean.</summary>
+    private DetectionResult Score(IEnumerable<ReadOnlyMemory<float>> vectors, ExampleVectors examples, DetectorConfiguration? configuration)
+    {
         var highThreshold = EffectiveHighThreshold(configuration);
         var mediumThreshold = EffectiveMediumThreshold(configuration);
         var ceiling = Max(HighSeverity, Max(MediumSeverity, LowSeverity));
