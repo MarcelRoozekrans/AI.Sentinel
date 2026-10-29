@@ -51,12 +51,23 @@ services.AddChatClient("openai-lenient", b =>
 | `IAuditForwarder[]` | | ✓ |
 | `IAlertSink` | | ✓ |
 | Detector pool (`IDetector`s) | | ✓ |
-| Embedding generator used by semantic detectors | | ✓ |
+| Embedding generator and caches used by semantic detectors | ✓ (when set) | ✓ (inherited) |
 | `IToolCallGuard` | | ✓ |
 
 Audit infrastructure is **shared** across all pipelines so operational dashboards see all pipelines through one feed. User-added detectors via `opts.AddDetector<T>()` register globally; per-pipeline detector tuning rides on `opts.Configure<T>(c => ...)`.
 
-Because the detector pool is shared, semantic detectors in every pipeline embed with the **default** pipeline's generator: `opts.EmbeddingGenerator` on the unnamed `AddAISentinel(...)` call, or else the `IEmbeddingGenerator<string, Embedding<float>>` registered in DI, for example with `services.AddEmbeddingGenerator(...)`, unless the default options set `UseEmbeddingGeneratorFromServices = false`. Configure it there; a generator set on a named pipeline's options is not used by the shared detectors, and AI.Sentinel warns for that pipeline when the default has none. A keyed generator registered under a pipeline's name, as `AddKeyedEmbeddingGenerator` does, is not used.
+The detector instances are shared, but the embedding generator and caches belong to the pipeline running the scan. A named pipeline can set its own `EmbeddingGenerator`, `EmbeddingCache` and `ExampleEmbeddingCache`; what it leaves unset follows the default pipeline. The generator and the caches move as one unit, so a named pipeline never reads the default's caches with a generator other than the default's:
+
+| Named pipeline sets | Generator | Scan cache | Example cache |
+|---|---|---|---|
+| a generator | its own | its own if set, otherwise a fresh in-memory cache | its own if set, otherwise none |
+| no generator | the default pipeline's | its own if set, otherwise the default's | its own if set, otherwise the default's |
+
+"The default pipeline's generator" is the one set on the unnamed `AddAISentinel(...)` options, or else the `IEmbeddingGenerator<string, Embedding<float>>` registered in DI, for example with `services.AddEmbeddingGenerator(...)`, unless the default options set `UseEmbeddingGeneratorFromServices = false`. A named pipeline's own `UseEmbeddingGeneratorFromServices` adds no container lookup: without a generator of its own it inherits the default's. A keyed generator registered under a pipeline's name, as `AddKeyedEmbeddingGenerator` does, is not used; set `EmbeddingGenerator` on the pipeline's options instead.
+
+Each pipeline embeds the texts of a scan once, with its own generator, however many semantic detectors it runs; see [Embedding cache](./embedding-cache). Two pipelines that share a generator instance also share its example-phrase vectors. Vectors from different generators are never compared with each other.
+
+The unused-generator warning is judged per pipeline on its effective generator: a named pipeline that sets its own generator is not reported, and one that sets none inherits the default's.
 
 ## Default + named coexist
 
@@ -156,7 +167,7 @@ services.AddChatClient("anthropic", b => b.UseAISentinel().Use(new AnthropicChat
 ### Per-tier (paying tier gets LLM escalation)
 
 ```csharp
-services.AddAISentinel(opts => opts.EmbeddingGenerator = realGen);  // semantic detectors are shared
+services.AddAISentinel(opts => opts.EmbeddingGenerator = realGen);  // the free and paying tiers inherit this generator
 services.AddAISentinel("free", opts =>
 {
     // No EscalationClient — LLM-escalation detectors no-op

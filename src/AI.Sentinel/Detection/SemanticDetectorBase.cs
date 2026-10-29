@@ -10,7 +10,8 @@ namespace AI.Sentinel.Detection;
 /// Subclasses declare <see cref="HighExamples"/>, <see cref="MediumExamples"/>, and
 /// <see cref="LowExamples"/> representative phrases. At first scan, all examples are
 /// embedded via <see cref="Microsoft.Extensions.AI.IEmbeddingGenerator{TInput,TEmbedding}"/>
-/// and cached in-process.
+/// and cached in-process, once per generator instance: concurrent first scans share one embedding of them,
+/// and a failed attempt is retried on the next scan.
 /// <para>
 /// Each scan scores the messages that are new in it, from <see cref="SentinelContext.NewMessagesFrom"/> on,
 /// one by one: the non-blank ones, at most 16, with redaction placeholders such as
@@ -20,6 +21,15 @@ namespace AI.Sentinel.Detection;
 /// cosine similarity against the reference vectors; for each text the first bucket, High, then Medium, then Low,
 /// whose max similarity reaches its threshold gives a severity, and the most severe of those is reported.
 /// Override <see cref="GetTextsToScore"/> to choose other texts.
+/// </para>
+/// <para>
+/// In a pipeline, the texts of all its semantic detectors are merged and each distinct one is embedded once per
+/// scan, in one batch, with the pipeline's generator and caches; a named pipeline uses its own generator when it
+/// sets one, otherwise the default pipeline's. A text the provider rejects is skipped by itself, the endpoint is
+/// treated as down after two single-input failures with no success, and a failure is reported once per scan. A
+/// detector left with no vectors returns <see cref="DetectionResult.Clean"/>, but one whose example phrases
+/// failed still runs its rule layer. Called directly, outside a pipeline, a detector embeds with the generator and
+/// caches of the <see cref="SentinelOptions"/> it was constructed with.
 /// </para>
 /// <para>
 /// When <see cref="SentinelOptions.EmbeddingGenerator"/> is <see langword="null"/>,
