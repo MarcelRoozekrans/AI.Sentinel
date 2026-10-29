@@ -276,7 +276,7 @@ public class ResourceReadInterceptorTests
         var forwarded = Assert.IsType<TextResourceContents>(result.Contents[0]);
         Assert.Equal("scan me — pipeline will throw", forwarded.Text);
         // (c) The degraded detectors are reported rather than passing silently as clean.
-        Assert.Contains("failed and was skipped", stderr, StringComparison.Ordinal);
+        Assert.Contains("could not be embedded and were skipped for this scan", stderr, StringComparison.Ordinal);
     }
 
     [Fact]

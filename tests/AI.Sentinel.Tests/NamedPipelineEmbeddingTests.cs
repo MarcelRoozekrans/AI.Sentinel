@@ -194,4 +194,40 @@ public class NamedPipelineEmbeddingTests
             warning, StringComparison.Ordinal);
         Assert.DoesNotContain("is not used", warning, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Named_pipeline_with_own_generator_and_own_cache_uses_that_cache()
+    {
+        var cacheN = new RecordingCache();
+        var genB = new YieldingEmbeddingGenerator();
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = new YieldingEmbeddingGenerator());
+        services.AddAISentinel("strict", o =>
+        {
+            o.EmbeddingGenerator = genB;
+            o.EmbeddingCache = cacheN;
+        });
+        using var provider = services.BuildServiceProvider();
+
+        await Scan(provider, "strict");
+
+        Assert.Contains(Text, cacheN.Sets, StringComparer.Ordinal);
+        Assert.Contains(Text, genB.Inputs, StringComparer.Ordinal);
+    }
+
+    /// <summary>Scope state lives in each provider, not in the shared collection.</summary>
+    [Fact]
+    public async Task Two_providers_from_one_collection_do_not_share_scan_cache()
+    {
+        var gen = new YieldingEmbeddingGenerator();
+        var services = new ServiceCollection();
+        services.AddAISentinel(o => o.EmbeddingGenerator = gen);
+        using var first = services.BuildServiceProvider();
+        using var second = services.BuildServiceProvider();
+
+        await Scan(first);
+        await Scan(second);
+
+        Assert.Equal(2, gen.Inputs.Count(i => string.Equals(i, Text, StringComparison.Ordinal)));
+    }
 }
