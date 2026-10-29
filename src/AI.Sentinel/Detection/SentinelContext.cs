@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using AI.Sentinel.Audit;
@@ -273,7 +274,7 @@ public sealed class SentinelContext(
     {
         string text => text,
         JsonElement { ValueKind: JsonValueKind.Undefined } => string.Empty,
-        JsonElement element => element.GetRawText(),
+        JsonElement element => WithNonAsciiUnescaped(element.GetRawText()),
         AIContent content => ContentText(content) ?? string.Empty,
         IEnumerable<AIContent> contents => ContentsText(contents) ?? string.Empty,
         _ => Serialize(result, result.GetType()),
@@ -289,11 +290,61 @@ public sealed class SentinelContext(
     {
         try
         {
-            return JsonSerializer.Serialize(value, CompactJsonOptions.GetTypeInfo(type));
+            return WithNonAsciiUnescaped(JsonSerializer.Serialize(value, CompactJsonOptions.GetTypeInfo(type)));
         }
         catch (Exception ex) when (ex is NotSupportedException or JsonException)
         {
             return string.Empty;
         }
+    }
+
+    /// <summary><paramref name="json"/> with each <c>\uXXXX</c> escape of a non-ASCII character written as the
+    /// character itself, so detectors read the text a tool call or result really carries.</summary>
+    /// <remarks>System.Text.Json escapes every character outside the Basic Multilingual Plane, whatever the encoder, so
+    /// tag characters and supplementary variation selectors used to smuggle hidden text would reach a detector only as
+    /// escape sequences (#441). ASCII escapes, such as a quote or a control character, and an unpaired surrogate stay
+    /// escaped, so the result is still valid JSON.</remarks>
+    internal static string WithNonAsciiUnescaped(string json)
+    {
+        if (!json.Contains("\\u", StringComparison.Ordinal)) return json;
+
+        StringBuilder? builder = null;
+        var copied = 0;
+        for (var i = 0; i < json.Length - 1; i++)
+        {
+            if (json[i] != '\\') continue;
+            if (json[i + 1] != 'u' || !TryReadEscape(json, i, out var unit) || unit < 0x80)
+            {
+                i++; // Skip the escaped character, so an escaped backslash does not start another escape.
+                continue;
+            }
+
+            var low = '\0';
+            if (char.IsSurrogate(unit)
+                && (char.IsLowSurrogate(unit) || !TryReadEscape(json, i + 6, out low) || !char.IsLowSurrogate(low)))
+            {
+                i += 5; // An unpaired surrogate stays escaped: written raw it would not be valid UTF-16.
+                continue;
+            }
+
+            builder ??= new StringBuilder(json.Length);
+            builder.Append(json, copied, i - copied).Append(unit);
+            if (low != '\0') builder.Append(low);
+            i += low != '\0' ? 11 : 5;
+            copied = i + 1;
+        }
+
+        if (builder is null) return json;
+        return builder.Append(json, copied, json.Length - copied).ToString();
+    }
+
+    /// <summary>Reads the <c>\uXXXX</c> escape at <paramref name="index"/> as one UTF-16 code unit.</summary>
+    private static bool TryReadEscape(string json, int index, out char unit)
+    {
+        unit = default;
+        if (index + 6 > json.Length || json[index] != '\\' || json[index + 1] != 'u') return false;
+        if (!ushort.TryParse(json.AsSpan(index + 2, 4), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var value)) return false;
+        unit = (char)value;
+        return true;
     }
 }

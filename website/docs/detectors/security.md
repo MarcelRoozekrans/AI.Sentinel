@@ -34,7 +34,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 | **SEC-21** | `ExcessiveAgencyDetector` | Semantic ⚠️ | Autonomous-action language ("I deleted", "I deployed", "I executed") |
 | **SEC-22** | `HumanTrustManipulationDetector` | Semantic ⚠️ | Rapport / authority manipulation ("you can trust me", "I am your advisor") |
 | **SEC-23** | `PiiLeakageDetector` | Rule-based | PII: SSN, credit card, IBAN, BSN, UK NINO, passport, DE tax ID, email + name, phone, DOB. Phone and DOB also match Dutch forms |
-| **SEC-24** | `AdversarialUnicodeDetector` | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions, in message text, tool calls and tool results. A joiner between emoji, or a non-joiner between Arabic-script or Indic letters, is not counted |
+| **SEC-24** | `AdversarialUnicodeDetector` | Rule-based | Zero-width spaces, homoglyphs, invisible characters used to smuggle hidden instructions, in message text, tool calls and tool results. Also tag-character ASCII smuggling (U+E0000–E007F) and bytes encoded as runs of variation selectors. A joiner between emoji, or a non-joiner between Arabic-script or Indic letters, is not counted; neither is a subdivision flag such as England's, or a single variation selector after a visible character, U+E0100 and up only after a CJK ideograph |
 | **SEC-25** | `CodeInjectionDetector` | Semantic ⚠️ | SQL injection, shell metacharacters, path traversal in LLM-generated code |
 | **SEC-26** | `PromptTemplateLeakageDetector` | Semantic ⚠️ | Prompt scaffolding markers — `{{variable}}`, `<SYSTEM>`, `[INST]` |
 | **SEC-27** | `LanguageSwitchAttackDetector` | Semantic ⚠️ | Abrupt script / language switch mid-response — injection vector via non-Latin text |

@@ -102,6 +102,82 @@ public sealed class AdversarialUnicodeDetector : IDetector
         or (>= 0xFE70 and <= 0xFEFC)
         or (>= 0x0900 and <= 0x0DFF);
 
+    /// <summary>Tag characters, U+E0000–E007F. They mirror ASCII and render invisibly, so a run of them can carry a
+    /// whole hidden instruction that a model still reads.</summary>
+    private static bool IsTag(Rune rune) => rune.Value is >= 0xE0000 and <= 0xE007F;
+
+    /// <summary>Variation selectors, U+FE00–FE0F and U+E0100–E01EF. A run of them after a visible character can encode
+    /// arbitrary bytes, one selector per byte.</summary>
+    private static bool IsVariationSelector(Rune rune) => rune.Value is (>= 0xFE00 and <= 0xFE0F) or (>= 0xE0100 and <= 0xE01EF);
+
+    /// <summary>The index just past the run of tag characters that starts at <paramref name="start"/>.</summary>
+    private static int TagRunEnd(string text, int start)
+    {
+        var i = start;
+        while (Rune.DecodeFromUtf16(text.AsSpan(i), out var rune, out var length) == OperationStatus.Done && IsTag(rune))
+            i += length;
+        return i;
+    }
+
+    private static int CountRunes(string text, int start, int end)
+    {
+        var count = 0;
+        for (var i = start; i < end; i += char.IsHighSurrogate(text[i]) ? 2 : 1) count++;
+        return count;
+    }
+
+    /// <summary>
+    /// A subdivision flag such as England's: the black flag U+1F3F4, then a subdivision code of 3 to 6 tag digits or
+    /// lowercase tag letters, closed by the cancel tag U+E007F. Any other tag run, uppercase or spaces included, is text.
+    /// </summary>
+    private static bool IsSubdivisionFlag(string text, int start, int end)
+    {
+        if (Rune.DecodeLastFromUtf16(text.AsSpan(0, start), out var before, out _) != OperationStatus.Done
+            || before.Value != 0x1F3F4)
+        {
+            return false;
+        }
+
+        var code = 0;
+        for (var i = start; i < end; i += 2)
+        {
+            var value = char.ConvertToUtf32(text[i], text[i + 1]);
+            if (i + 2 == end) return value == 0xE007F && code is >= 3 and <= 6;
+            if (value is not ((>= 0xE0030 and <= 0xE0039) or (>= 0xE0061 and <= 0xE007A))) return false;
+            code++;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// One selector right after a visible character, as in text-style or emoji-style presentation, a keycap or a
+    /// standardized variant. A selector from U+E0100 upward only follows a CJK ideograph, as in an ideographic variation
+    /// sequence for a name. Two selectors in a row, or one after a space or at the start, only hide data.
+    /// </summary>
+    private static bool IsSingleSelectorOnABase(string text, int index, Rune selector, int length)
+    {
+        if (Rune.DecodeLastFromUtf16(text.AsSpan(0, index), out var previous, out _) != OperationStatus.Done
+            || IsVariationSelector(previous) || IsTag(previous) || Rune.IsWhiteSpace(previous) || Rune.IsControl(previous))
+        {
+            return false;
+        }
+
+        if (Rune.DecodeFromUtf16(text.AsSpan(index + length), out var next, out _) == OperationStatus.Done
+            && IsVariationSelector(next))
+        {
+            return false;
+        }
+
+        return selector.Value <= 0xFE0F || IsCjkIdeograph(previous);
+    }
+
+    /// <summary>CJK unified and compatibility ideographs, the bases of ideographic variation sequences.</summary>
+    private static bool IsCjkIdeograph(Rune rune) => rune.Value is
+        (>= 0x3400 and <= 0x4DBF)
+        or (>= 0x4E00 and <= 0x9FFF)
+        or (>= 0xF900 and <= 0xFAFF)
+        or (>= 0x20000 and <= 0x323AF);
+
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         var count = 0;
@@ -111,8 +187,25 @@ public sealed class AdversarialUnicodeDetector : IDetector
             var text = SentinelContext.MessageText(message);
             for (var i = 0; i < text.Length; i++)
             {
-                if (IsSuspicious(text[i]) && !IsLegitimateJoiner(text, i) && !IsByteOrderMark(text, i))
+                if (Rune.DecodeFromUtf16(text.AsSpan(i), out var rune, out var length) != OperationStatus.Done)
+                    continue;
+
+                if (IsTag(rune))
+                {
+                    var end = TagRunEnd(text, i);
+                    if (!IsSubdivisionFlag(text, i, end)) count += CountRunes(text, i, end);
+                    i = end - 1;
+                }
+                else if (IsVariationSelector(rune))
+                {
+                    if (!IsSingleSelectorOnABase(text, i, rune, length)) count++;
+                }
+                else if (IsSuspicious(text[i]) && !IsLegitimateJoiner(text, i) && !IsByteOrderMark(text, i))
+                {
                     count++;
+                }
+
+                i += length - 1;
             }
         }
 
