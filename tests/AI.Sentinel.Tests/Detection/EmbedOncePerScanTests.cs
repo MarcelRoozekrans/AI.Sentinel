@@ -197,6 +197,67 @@ public class EmbedOncePerScanTests
     }
 
     [Fact]
+    public async Task Provider_timeout_on_scan_texts_keeps_the_rule_layer_and_is_reported_once()
+    {
+        // HttpClient reports its timeout as a TaskCanceledException while the caller's token is not cancelled.
+        var gen = new YieldingEmbeddingGenerator(batch => batch.Contains(FirstText, StringComparer.Ordinal))
+        {
+            Failure = _ => new TaskCanceledException("timed out"),
+        };
+        var detectors = SixDetectors();
+        detectors.Add(new TestSemantic("TST-RULE", ["rule detector example phrase"], fastPath: new Regex("calm", RegexOptions.None, TimeSpan.FromSeconds(1))));
+        var (pipeline, failures) = Pipeline(detectors, gen);
+
+        // The rule layer reads the newest message, so the matching text comes last.
+        var result = await pipeline.RunAsync(Ctx(User(SecondText), User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.True(Has(result, "TST-RULE", Severity.High));
+        Assert.Single(ScanBatches(gen, FirstText, SecondText));
+        var message = Assert.Single(failures);
+        Assert.Contains("2 of 2", message, StringComparison.Ordinal);
+        Assert.Contains("TaskCanceledException", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Provider_timeout_on_example_phrases_is_reported_once_as_an_example_failure()
+    {
+        const string BrokenExample = "example phrase the provider times out on";
+        var gen = new YieldingEmbeddingGenerator(batch => batch.Contains(BrokenExample, StringComparer.Ordinal))
+        {
+            Failure = _ => new TaskCanceledException("timed out"),
+        };
+        var detectors = SixDetectors();
+        detectors.Add(new TestSemantic("TST-BROKEN", [BrokenExample, FirstText]));
+        detectors.Add(new TestSemantic("TST-GOOD", [FirstText]));
+        var (pipeline, failures) = Pipeline(detectors, gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText), User(SecondText)), TestContext.Current.CancellationToken);
+
+        Assert.False(Fired(result, "TST-BROKEN"));
+        Assert.True(Has(result, "TST-GOOD", Severity.High));
+        var message = Assert.Single(failures);
+        Assert.Contains("example phrases of detector(s) TST-BROKEN", message, StringComparison.Ordinal);
+        Assert.Contains("TaskCanceledException", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Provider_timeout_without_scope_is_that_detectors_failure()
+    {
+        var gen = new YieldingEmbeddingGenerator(_ => true) { Failure = _ => new TaskCanceledException("timed out") };
+        var timingOut = new TestSemantic("TST-OPT", [FirstText], options: new SentinelOptions { EmbeddingGenerator = gen });
+        var rule = new TestSemantic("TST-RULE", ["rule detector example phrase"], fastPath: new Regex("calm", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        var failures = new ConcurrentQueue<string>();
+        var pipeline = new DetectionPipeline([timingOut, rule], configurations: null, escalationClient: null, onDetectorFailure: failures.Enqueue);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.True(Has(result, "TST-RULE", Severity.High));
+        var message = Assert.Single(failures);
+        Assert.Contains("TST-OPT", message, StringComparison.Ordinal);
+        Assert.Contains("TaskCanceledException", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Detector_scores_exactly_the_texts_collected_for_the_scan()
     {
         // An override that answers differently on each call: the first call is the one the pipeline embeds, and

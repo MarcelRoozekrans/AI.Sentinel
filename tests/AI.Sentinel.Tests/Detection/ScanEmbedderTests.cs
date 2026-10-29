@@ -146,6 +146,38 @@ public class ScanEmbedderTests
         Assert.All(texts, t => Assert.DoesNotContain(t, result.FirstFailure.Message, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task Batch_timeout_on_a_live_token_fails_every_input_without_retries()
+    {
+        // HttpClient reports its timeout as a TaskCanceledException while the caller's token is not cancelled.
+        var gen = new YieldingEmbeddingGenerator(_ => true) { Failure = _ => new TaskCanceledException("timed out") };
+        string[] texts = ["a", "b", "c"];
+
+        var result = await ScanEmbedder.EmbedAsync(Scope(gen, new InMemoryLruEmbeddingCache()), texts, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, gen.Calls);
+        Assert.Equal(3, result.FailedCount);
+        Assert.IsType<TaskCanceledException>(result.FirstFailure);
+        Assert.All(texts, t => Assert.False(result.TryGet(t, out _)));
+    }
+
+    [Fact]
+    public async Task Single_input_timeout_on_a_live_token_counts_as_a_failure()
+    {
+        var gen = new YieldingEmbeddingGenerator(_ => true)
+        {
+            Failure = batch => batch.Count > 1 ? new HttpRequestException("rejected") : new TaskCanceledException("timed out"),
+        };
+        string[] texts = ["a", "b", "c"];
+
+        var result = await ScanEmbedder.EmbedAsync(Scope(gen, new InMemoryLruEmbeddingCache()), texts, TestContext.Current.CancellationToken);
+
+        // The batch, then two single failures trip the cut-off.
+        Assert.Equal(3, gen.Calls);
+        Assert.Equal(3, result.FailedCount);
+        Assert.IsType<HttpRequestException>(result.FirstFailure);
+    }
+
     [Theory]
     [InlineData(1)]
     [InlineData(2)]

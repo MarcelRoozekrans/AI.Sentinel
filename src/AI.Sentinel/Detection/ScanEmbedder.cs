@@ -3,6 +3,8 @@ using Microsoft.Extensions.AI;
 namespace AI.Sentinel.Detection;
 
 /// <summary>Embeds a scan's distinct texts once: one batch call, then per-input retries if it fails.</summary>
+/// <remarks>An <see cref="OperationCanceledException"/> is cancellation only when the caller's token is cancelled.
+/// Otherwise it is a provider failure: HttpClient reports its timeout that way.</remarks>
 internal static class ScanEmbedder
 {
     // Two failures before any success read as an outage, not a bad input, so the rest are not tried.
@@ -38,10 +40,11 @@ internal static class ScanEmbedder
             return new ScanEmbeddings(vectors, texts.Count, 0, null);
         }
 
-        // A single miss was the whole batch, so retrying it would repeat the same call.
-        if (misses.Count == 1)
+        // A single miss was the whole batch, so retrying it would repeat the same call. A batch that timed out
+        // reads as an outage: retrying each input would wait out one timeout per input.
+        if (misses.Count == 1 || batchFailure is OperationCanceledException)
         {
-            return new ScanEmbeddings(vectors, texts.Count, 1, batchFailure);
+            return new ScanEmbeddings(vectors, texts.Count, misses.Count, batchFailure);
         }
 
         var (failed, firstFailure) = await RetryEachAsync(scope, misses, vectors, batchFailure, ct).ConfigureAwait(false);
@@ -64,7 +67,7 @@ internal static class ScanEmbedder
             }
             return (null, true);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             // A provider often surfaces a cancellation as its own exception type; cancellation wins.
             ct.ThrowIfCancellationRequested();
@@ -97,7 +100,7 @@ internal static class ScanEmbedder
                 Store(scope, vectors, text, single[0]);
                 succeeded++;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 ct.ThrowIfCancellationRequested();
                 failed++;

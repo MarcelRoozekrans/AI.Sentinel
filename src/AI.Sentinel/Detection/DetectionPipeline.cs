@@ -186,9 +186,10 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
             return await semantic.AnalyzeAsync(ctx, configuration, embedded.Scope, embedded.Scan, embedded.Texts[index], ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // The caller asked to stop; that is not a detector fault.
+            // The caller asked to stop; that is not a detector fault. On a live token it is one, such as an
+            // HttpClient timeout, and is reported below.
             throw;
         }
         catch (Exception ex)
@@ -225,13 +226,15 @@ public sealed class DetectionPipeline : IDetectionPipeline
             {
                 texts = semantic.TextsToEmbed(ctx);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 // Reported by SafeAnalyzeAsync as this detector's failure, as when the detector selects its own texts.
                 textsFailures[_semanticIndices[s]] = ex;
                 texts = [];
             }
 
+            // A detector whose rule layer will match still contributes its texts: the other semantic detectors
+            // embed the same texts anyway, and keeping the rule check in the detector avoids running it twice.
             detectorTexts[_semanticIndices[s]] = texts;
             union.UnionWith(texts);
 
@@ -297,9 +300,10 @@ public sealed class DetectionPipeline : IDetectionPipeline
             await semantic.GetExampleVectorsAsync(scope.Generator, scope.ExampleCache, ct).ConfigureAwait(false);
             return null;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            // A provider often surfaces a cancellation as its own exception type; cancellation wins.
+            // On a live token an OperationCanceledException is a provider failure, such as an HttpClient timeout.
+            // A provider also often surfaces a cancellation as its own exception type; cancellation wins.
             ct.ThrowIfCancellationRequested();
             return ex;
         }
@@ -313,7 +317,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         {
             return await ScanEmbedder.EmbedAsync(scope, texts, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             ct.ThrowIfCancellationRequested();
             return new ScanEmbeddings(new Dictionary<string, ReadOnlyMemory<float>>(StringComparer.Ordinal), texts.Count, texts.Count, ex);

@@ -76,7 +76,7 @@ Within a pipeline, every semantic detector shares one embedding step per scan:
 
 The cache key is the normalised message text, so the same message carrying a different placeholder suffix in another session still hits. Each new message is one lookup. History that is scored again, for example from a client that resends the conversation without assistant messages, and a tool result that repeats hit the cache instead of the generator.
 
-The detector's reference examples are embedded **once** per generator instance (lazily on first scan) and kept in the process, not in the LRU. Concurrent first scans share one embedding of them, and a failed attempt is retried on the next scan. Pipelines that share a generator instance share the vectors; different generators never do. The LRU's job is to dedupe **incoming-message** embeddings so the same message scanned twice within the cache window costs zero embedding calls.
+The detector's reference examples are embedded **once** per generator instance (lazily on first scan) and kept in the process, not in the LRU. Concurrent first scans share one embedding of them, and a failed attempt is retried on the next scan. Pipelines that share a generator instance share the vectors; different generators never do. The caches are keyed by text alone, so do not set the same `EmbeddingCache` or `ExampleEmbeddingCache` instance on two pipelines that use different generators: one would read the other's vectors. The LRU's job is to dedupe **incoming-message** embeddings so the same message scanned twice within the cache window costs zero embedding calls.
 
 ### When the generator rejects an input
 

@@ -65,7 +65,7 @@ The detector instances are shared, but the embedding generator and caches belong
 
 "The default pipeline's generator" is the one set on the unnamed `AddAISentinel(...)` options, or else the `IEmbeddingGenerator<string, Embedding<float>>` registered in DI, for example with `services.AddEmbeddingGenerator(...)`, unless the default options set `UseEmbeddingGeneratorFromServices = false`. A named pipeline's own `UseEmbeddingGeneratorFromServices` adds no container lookup: without a generator of its own it inherits the default's. A keyed generator registered under a pipeline's name, as `AddKeyedEmbeddingGenerator` does, is not used; set `EmbeddingGenerator` on the pipeline's options instead.
 
-Each pipeline embeds the texts of a scan once, with its own generator, however many semantic detectors it runs; see [Embedding cache](./embedding-cache). Two pipelines that share a generator instance also share its example-phrase vectors. Vectors from different generators are never compared with each other.
+Each pipeline embeds the texts of a scan once, with its own generator, however many semantic detectors it runs; see [Embedding cache](./embedding-cache). Two pipelines that share a generator instance also share its example-phrase vectors. Vectors from different generators are never compared with each other, as long as you do not set the same `EmbeddingCache` or `ExampleEmbeddingCache` instance on two pipelines with different generators: the caches are keyed by text alone, so a shared instance would hand one generator's vectors to the other.
 
 The unused-generator warning is judged per pipeline on its effective generator: a named pipeline that sets its own generator is not reported, and one that sets none inherits the default's.
 

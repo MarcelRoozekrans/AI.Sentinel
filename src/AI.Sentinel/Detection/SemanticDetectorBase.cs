@@ -415,13 +415,15 @@ public abstract class SemanticDetectorBase : IDetector
     /// later and concurrent caller with the same generator instance.</summary>
     /// <remarks>The first caller starts the embedding on its own token and the others await that task. A task
     /// that fails or is cancelled is dropped, so the next call retries. A waiter whose own token is cancelled
-    /// stops waiting without touching the shared task. If the shared task was cancelled by another caller's
-    /// token, this caller retries once with a task of its own.</remarks>
+    /// stops waiting without touching the shared task. If the shared task was cancelled by its owner's token,
+    /// this caller retries for as long as its own token is live: it joins the next shared task or owns one on
+    /// its own token, which only that token can cancel. An <see cref="OperationCanceledException"/> while the
+    /// owner's token is live, such as an HttpClient timeout, is a fault: every waiter gets it and none retries.</remarks>
     internal async Task<ExampleVectors> GetExampleVectorsAsync(
         IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct)
     {
         var slot = _exampleSlots.GetValue(generator, static _ => new ExampleSlot());
-        for (var attempt = 0; ; attempt++)
+        while (true)
         {
             Task<ExampleVectors> task;
             TaskCompletionSource<ExampleVectors>? owned = null;
@@ -451,7 +453,7 @@ public abstract class SemanticDetectorBase : IDetector
                     if (ReferenceEquals(slot.Task, task)) slot.Task = null;
                 }
 
-                if (!(task.IsCanceled && !ct.IsCancellationRequested && attempt == 0)) throw;
+                if (!task.IsCanceled || ct.IsCancellationRequested) throw;
             }
         }
     }
@@ -472,7 +474,7 @@ public abstract class SemanticDetectorBase : IDetector
         {
             target.TrySetResult(await EmbedAllExamplesAsync(generator, exampleCache, ct).ConfigureAwait(false));
         }
-        catch (OperationCanceledException ex)
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
         {
             target.TrySetCanceled(ex.CancellationToken);
         }

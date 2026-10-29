@@ -148,6 +148,97 @@ public class ExampleVectorStoreTests
     }
 
     [Fact]
+    public async Task Owner_timeout_on_a_live_token_faults_the_shared_task()
+    {
+        // HttpClient reports its timeout as a TaskCanceledException while the caller's token is not cancelled.
+        var ct = TestContext.Current.CancellationToken;
+        var gen = new YieldingEmbeddingGenerator(_ => true)
+        {
+            Gate = new(TaskCreationOptions.RunContinuationsAsynchronously),
+            Failure = _ => new TaskCanceledException("timed out"),
+        };
+        var detector = Detector();
+
+        var owner = detector.GetExampleVectorsAsync(gen, null, ct);
+        var waiter = detector.GetExampleVectorsAsync(gen, null, ct);
+        Assert.True(detector.TryPeekExampleTask(gen, out var shared));
+        gen.Gate.SetResult();
+
+        await Assert.ThrowsAsync<TaskCanceledException>(() => owner);
+        await Assert.ThrowsAsync<TaskCanceledException>(() => waiter);
+        // A fault, not an owner cancellation, so the waiter does not start a second timeout of its own.
+        Assert.True(shared.IsFaulted);
+        Assert.Equal(1, gen.Calls);
+        Assert.False(detector.TryPeekExampleTask(gen, out _));
+    }
+
+    [Fact]
+    public async Task Waiter_outlives_successive_cancelled_owners()
+    {
+        // Each owner's task is cancelled by its own token. Which caller owns the retry task is a race,
+        // so the scenario repeats until a second owner cancelled under the waiter.
+        var ct = TestContext.Current.CancellationToken;
+        var secondOwnerCancelled = 0;
+        for (var round = 0; round < 50; round++)
+        {
+            using var first = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            using var second = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var gen = new OwnerCancellingGenerator(first, second);
+            var detector = Detector();
+
+            var owner1 = detector.GetExampleVectorsAsync(gen, null, first.Token);
+            var waiter = round % 2 == 0 ? detector.GetExampleVectorsAsync(gen, null, ct) : null;
+            var owner2 = detector.GetExampleVectorsAsync(gen, null, second.Token);
+            waiter ??= detector.GetExampleVectorsAsync(gen, null, ct);
+            gen.Gate.SetResult();
+
+            Assert.Equal(3, (await waiter).High.Length);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => owner1);
+            if (gen.SecondCancelled)
+            {
+                secondOwnerCancelled++;
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => owner2);
+            }
+        }
+
+        Assert.True(secondOwnerCancelled > 0, "No round had a second cancelled owner under the waiter.");
+    }
+
+    /// <summary>Holds every call at <see cref="Gate"/>, then cancels the caller's token if it belongs to
+    /// <c>first</c> or <c>second</c> and throws, so that caller's task ends cancelled by its owner.</summary>
+    private sealed class OwnerCancellingGenerator(CancellationTokenSource first, CancellationTokenSource second)
+        : IEmbeddingGenerator<string, Embedding<float>>
+    {
+        private readonly FakeEmbeddingGenerator _inner = new();
+        private int _secondCancelled;
+
+        public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool SecondCancelled => Volatile.Read(ref _secondCancelled) == 1;
+        public EmbeddingGeneratorMetadata Metadata { get; } = new("owner-cancelling", null, null, 256);
+
+        public async Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
+            IEnumerable<string> values, EmbeddingGenerationOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            var list = values.ToList();
+            await Gate.Task.ConfigureAwait(false);
+            if (cancellationToken == first.Token)
+            {
+                await first.CancelAsync();
+            }
+            else if (cancellationToken == second.Token)
+            {
+                Volatile.Write(ref _secondCancelled, 1);
+                await second.CancelAsync();
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            return await _inner.GenerateAsync(list, options, cancellationToken).ConfigureAwait(false);
+        }
+
+        public object? GetService(Type serviceType, object? key = null) => null;
+        public void Dispose() { }
+    }
+
+    [Fact]
     public async Task Example_cache_hits_skip_the_generator()
     {
         var ct = TestContext.Current.CancellationToken;

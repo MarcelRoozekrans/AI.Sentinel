@@ -8,7 +8,7 @@ namespace AI.Sentinel.Tests.Helpers;
 /// <see cref="FakeEmbeddingGenerator"/> after a one-millisecond delay, and records every call.
 /// </summary>
 /// <param name="failWhen">When it returns <see langword="true"/> for a call's inputs, that call throws
-/// <see cref="HttpRequestException"/>.</param>
+/// <see cref="HttpRequestException"/>, or the exception <see cref="Failure"/> returns.</param>
 public sealed class YieldingEmbeddingGenerator(
     Func<IReadOnlyList<string>, bool>? failWhen = null) : IEmbeddingGenerator<string, Embedding<float>>
 {
@@ -23,6 +23,10 @@ public sealed class YieldingEmbeddingGenerator(
 
     /// <summary>When set, every call awaits it before embedding.</summary>
     public TaskCompletionSource? Gate { get; set; }
+
+    /// <summary>When set, a failing call throws the exception this returns instead of <see cref="HttpRequestException"/>,
+    /// for example a <see cref="TaskCanceledException"/> on an uncancelled token, as an HttpClient timeout throws.</summary>
+    public Func<IReadOnlyList<string>, Exception>? Failure { get; init; }
 
     /// <summary>The number of <see cref="GenerateAsync"/> calls.</summary>
     public int Calls { get { lock (_lock) { return _calls; } } }
@@ -53,7 +57,7 @@ public sealed class YieldingEmbeddingGenerator(
         }
         if (failWhen?.Invoke(list) == true)
         {
-            throw new HttpRequestException("rejected");
+            throw Failure?.Invoke(list) ?? new HttpRequestException("rejected");
         }
 
         await Task.Delay(1, cancellationToken).ConfigureAwait(false);
