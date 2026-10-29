@@ -8,6 +8,10 @@
     <RootNamespace>AI.Sentinel</RootNamespace>
     <!-- EPS06/EPC12 fire exclusively in source-generator output (*.g.cs); suppress globally -->
     <NoWarn>$(NoWarn);EPS06;EPC12</NoWarn>
+    <!-- Every project that references AI.Sentinel gets the ZeroAlloc.Authorization generator transitively.
+         A shipped package must not export the generated registration: an app with its own policies would
+         see two public AddZeroAllocAuthorization extensions and get CS0121 (issues #493, #512). -->
+    <ZeroAllocAuthorizationRegistration>internal</ZeroAllocAuthorizationRegistration>
   </PropertyGroup>
 
   <!-- Shared NuGet packaging metadata. Per-package csproj sets PackageId/Description/PackageTags. -->

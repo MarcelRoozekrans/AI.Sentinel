@@ -3,8 +3,6 @@
     <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <!-- CS0168: generated proxy emits a try/catch with _ex when [Count]/[Histogram] are used without [Trace] -->
     <NoWarn>$(NoWarn);CS0168</NoWarn>
-    <!-- A library must not ship the public generated registration: apps with their own policies would get CS0121 on AddZeroAllocAuthorization (issue #493) -->
-    <ZeroAllocAuthorizationRegistration>internal</ZeroAllocAuthorizationRegistration>
     <PackageId>AI.Sentinel</PackageId>
     <Description>Security monitoring middleware for IChatClient — prompt injection, hallucination, and operational anomaly detection with an intervention engine.</Description>
     <Version>0.1.0</Version>
