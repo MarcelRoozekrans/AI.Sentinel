@@ -94,6 +94,7 @@ This is intentional: avoids the surprise of "I changed the default and now stric
 | `AddAISentinel(name: null, ...)` | Throws `ArgumentNullException` |
 | `AddAISentinel(name: "", ...)` or whitespace | Throws `ArgumentException` |
 | `AddAISentinel("name", ...)` for an already-registered name | Throws `InvalidOperationException` |
+| A second default `AddAISentinel(...)` on the same `IServiceCollection` | Throws `InvalidOperationException` ("The default AI.Sentinel pipeline is already registered."). Call it once, in the composition root |
 | `.UseAISentinel("never-registered")` | Throws `InvalidOperationException` at chat-client construction time (first request resolution) |
 | `.UseAISentinel("name")` when `IAuditStore` etc. are unregistered | Throws `InvalidOperationException` with a clear message pointing at the missing default |
 

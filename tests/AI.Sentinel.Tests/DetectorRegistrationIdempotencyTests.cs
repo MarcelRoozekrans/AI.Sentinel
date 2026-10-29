@@ -29,11 +29,11 @@ public class DetectorRegistrationIdempotencyTests
             .ToList();
 
     [Fact]
-    public void AddAISentinel_CalledTwice_DoesNotDuplicateDetectors()
+    public void AddAISentinel_DefaultPlusNamedPipeline_DoesNotDuplicateDetectors()
     {
         var services = new ServiceCollection();
         services.AddAISentinel();
-        services.AddAISentinel();
+        services.AddAISentinel("strict", o => { });
 
         Assert.Empty(DuplicateDetectorTypes(services.BuildServiceProvider()));
     }
@@ -54,19 +54,20 @@ public class DetectorRegistrationIdempotencyTests
     }
 
     [Fact]
-    public void AddAISentinel_ManyTimes_KeepsTheOfficialSetAtItsFullSize()
+    public void AddAISentinel_WithNamedPipelines_KeepsTheOfficialSetAtItsFullSize()
     {
-        var baseline = BuildOfficialDetectorCount(callCount: 1);
+        var baseline = BuildOfficialDetectorCount(namedCount: 0);
 
-        Assert.Equal(baseline, BuildOfficialDetectorCount(callCount: 2));
-        Assert.Equal(baseline, BuildOfficialDetectorCount(callCount: 5));
+        Assert.Equal(baseline, BuildOfficialDetectorCount(namedCount: 1));
+        Assert.Equal(baseline, BuildOfficialDetectorCount(namedCount: 4));
 
-        static int BuildOfficialDetectorCount(int callCount)
+        static int BuildOfficialDetectorCount(int namedCount)
         {
             var services = new ServiceCollection();
-            for (var i = 0; i < callCount; i++)
+            services.AddAISentinel();
+            for (var i = 0; i < namedCount; i++)
             {
-                services.AddAISentinel();
+                services.AddAISentinel($"named-{i}", o => { });
             }
 
             return services.BuildServiceProvider().GetServices<IDetector>().Count();
