@@ -27,7 +27,8 @@ internal static class DetectorPresets
     /// Narrows the detectors <c>AddAISentinel</c> registered in <paramref name="services"/> to
     /// <paramref name="preset"/>. <see cref="DetectorPreset.All"/> keeps them all; any other preset replaces every
     /// <see cref="IDetector"/> registration with its own detectors, built with the <see cref="SentinelOptions"/> the
-    /// default <c>AddAISentinel</c> call registered. That includes detectors added with
+    /// provider resolves for the default <c>AddAISentinel</c> call, so a generator it takes from the container reaches
+    /// them too. That includes detectors added with
     /// <see cref="SentinelOptions.AddDetector{T}"/>, which <c>AddAISentinel</c> registers itself, so call it only for
     /// a pipeline that adds none.
     /// </summary>
@@ -38,13 +39,29 @@ internal static class DetectorPresets
         if (preset == DetectorPreset.All)
             return services;
 
-        var options = services.LastOrDefault(d => d.ServiceType == typeof(SentinelOptions) && !d.IsKeyedService)
-            ?.ImplementationInstance as SentinelOptions
-            ?? throw new InvalidOperationException("Call AddAISentinel before UseDetectorPreset.");
+        if (!services.Any(d => d.ServiceType == typeof(SentinelOptions) && !d.IsKeyedService))
+            throw new InvalidOperationException("Call AddAISentinel before UseDetectorPreset.");
+
+        // The options are resolved per provider (#506), so the preset is built on first resolution: one set, shared
+        // by the IDetector registrations, each handing out its own slot.
         services.RemoveAll<IDetector>();
-        foreach (var detector in Build(preset, options))
-            services.AddSingleton(detector);
+        services.AddSingleton(sp => new PresetDetectors(Build(preset, sp.GetRequiredService<SentinelOptions>())));
+        // The slot count is needed now, before any provider exists. A throwaway set built with default options gives
+        // it, because which detectors a preset holds never depends on the options; they only configure each detector.
+        // Constructing them is cheap and happens once per call, so no separate count table is kept to drift.
+        var count = Build(preset, new SentinelOptions()).Length;
+        for (var i = 0; i < count; i++)
+        {
+            var index = i;
+            services.AddSingleton<IDetector>(sp => sp.GetRequiredService<PresetDetectors>().Detectors[index]);
+        }
         return services;
+    }
+
+    /// <summary>The preset's detectors, built once per provider.</summary>
+    private sealed class PresetDetectors(IDetector[] detectors)
+    {
+        public IDetector[] Detectors { get; } = detectors;
     }
 
     internal static IDetector[] BuildSecurity() => BuildSecurity(new SentinelOptions());
