@@ -436,12 +436,12 @@ public static class ServiceCollectionExtensions
 
     /// <summary>Builds the "semantic detection is inert" warning, or <see langword="null"/> when it is active.</summary>
     /// <remarks>The detectors are shared by every pipeline and built with the default pipeline's resolved options,
-    /// so their generator is the default's, set or taken from the container. A named pipeline that sets its own
-    /// generator is not warned about either, although the shared detectors do not read it.</remarks>
+    /// so their generator is the default's, set or taken from the container. A named pipeline is therefore judged
+    /// by those options, not by a generator it sets itself, which the shared detectors never read.</remarks>
     private static string? InertSemanticWarning(SentinelOptions? opts, IServiceProvider sp, string? pipelineName)
     {
-        if (opts is null || opts.EmbeddingGenerator is not null
-            || (pipelineName is not null && sp.GetService<SentinelOptions>()?.EmbeddingGenerator is not null))
+        var generatorSource = pipelineName is null ? opts : sp.GetService<SentinelOptions>();
+        if (opts is null || generatorSource?.EmbeddingGenerator is not null)
         {
             return null;
         }
