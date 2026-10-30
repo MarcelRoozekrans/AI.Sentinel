@@ -147,8 +147,8 @@ public class McpProxyTests
 
         var limits = McpProxy.ReviewLimitsFor(setup);
 
-        Assert.Equal(TimeSpan.FromSeconds(5), limits!.Value.Timeout);
-        Assert.Equal(4, limits.Value.MaxPerScan);
+        Assert.Equal(TimeSpan.FromSeconds(5), limits!.Timeout);
+        Assert.Equal(4, limits!.MaxPerScan);
         Assert.Null(McpProxy.ReviewLimitsFor(null));
     }
 

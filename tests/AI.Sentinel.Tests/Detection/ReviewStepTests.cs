@@ -36,7 +36,8 @@ public class ReviewStepTests
 
         var d = Assert.Single(result.Detections);
         Assert.Equal(Severity.High, d.Severity);
-        Assert.Equal("Reviewed: confirmed — clear override", d.Reason);
+        // The bucket's own reason, not the capped one, stays in front of the review's outcome.
+        Assert.Equal("Semantic match — medium-severity threat pattern — Reviewed: confirmed — clear override", d.Reason);
         var request = Assert.Single(reviewer.Requests);
         Assert.Equal(new DetectorId("REV-CONFIRM"), request.DetectorId);
         Assert.Equal(TestCriterion, request.Criterion);
@@ -147,7 +148,7 @@ public class ReviewStepTests
         Assert.Null(request.Score);
         Assert.Equal(Severity.Medium, request.ProposedSeverity);
         Assert.Equal(Severity.Critical, request.MaximumSeverity);
-        Assert.Equal("Reviewed: confirmed — confirmed", Assert.Single(result.Detections).Reason);
+        Assert.Equal("fake — Reviewed: confirmed — confirmed", Assert.Single(result.Detections).Reason);
     }
 
     [Fact]
@@ -170,7 +171,17 @@ public class ReviewStepTests
 
         var d = Assert.Single(result.Detections);
         Assert.Equal(Severity.Low, d.Severity);
-        Assert.Equal("Reviewed: lowered — benign", d.Reason);
+        Assert.Equal("fake — Reviewed: lowered — benign", d.Reason);
+    }
+
+    [Fact]
+    public async Task Review_EmptyReviewerReason_KeepsDetectorReasonWithoutTrailingPart()
+    {
+        var reviewer = new FakeReviewer((_, _) => new ReviewVerdict(Severity.High, "  "));
+
+        var result = await RunAsync([new FakeEscalatingDetector("REV-EMPTY", Severity.Medium)], reviewer);
+
+        Assert.Equal("fake — Reviewed: raised", Assert.Single(result.Detections).Reason);
     }
 
     [Fact]
@@ -335,43 +346,67 @@ public class ReviewStepTests
     }
 
     [Fact]
-    public async Task Review_ReviewerIgnoresToken_TimesOutAndKeepsCappedResult()
+    public async Task Review_ReviewerIgnoresToken_TimesOutAtTheTimeoutAndKeepsCappedResult()
     {
         using var metrics = new ReviewMetrics();
         var failures = new ConcurrentQueue<string>();
-        var reviewer = new FakeReviewer(async (_, _) =>
+        var clock = new ManualTimeProvider();
+        var gate = new TaskCompletionSource<ReviewVerdict>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reviewer = new FakeReviewer((_, _) => new ValueTask<ReviewVerdict>(gate.Task));
+        try
         {
-            await Task.Delay(Timeout.Infinite, CancellationToken.None);
-            return new ReviewVerdict(Severity.High, "x");
-        });
+            var run = RunAsync(
+                [Semantic("TIME-OUT", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer,
+                limits: new ReviewLimits(4, ClockTimeout, clock), onFailure: failures.Enqueue);
+            await clock.TimersCreated(1);
 
-        var result = await RunAsync(
-            [Semantic("TIME-OUT", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer,
-            limits: new ReviewLimits(4, TimeSpan.FromMilliseconds(50)), onFailure: failures.Enqueue);
+            clock.Advance(ClockTimeout - TimeSpan.FromTicks(1));
+            Assert.False(run.IsCompleted);
+            clock.Advance(TimeSpan.FromTicks(1));
+            var result = await run.WaitAsync(Generous, TestContext.Current.CancellationToken);
 
-        var d = Assert.Single(result.Detections);
-        Assert.Equal(Severity.Medium, d.Severity);
-        Assert.Equal("Semantic match — capped at Medium pending review", d.Reason);
-        Assert.Equal(1, metrics.Count("timed_out", "TIME-OUT"));
-        Assert.Single(failures);
+            var d = Assert.Single(result.Detections);
+            Assert.Equal(Severity.Medium, d.Severity);
+            Assert.Equal("Semantic match — capped at Medium pending review", d.Reason);
+            Assert.Equal(1, metrics.Count("timed_out", "TIME-OUT"));
+            Assert.Single(failures);
+        }
+        finally
+        {
+            gate.TrySetResult(ReviewVerdict.None);
+        }
     }
 
     [Fact]
-    public async Task Review_ReviewerHonoursToken_TimesOut()
+    public async Task Review_ReviewerHonoursToken_TimesOutAndStops()
     {
         using var metrics = new ReviewMetrics();
+        var clock = new ManualTimeProvider();
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var reviewer = new FakeReviewer(async (_, token) =>
         {
-            await Task.Delay(Timeout.Infinite, token);
+            try
+            {
+                await Task.Delay(Timeout.Infinite, token);
+            }
+            finally
+            {
+                stopped.TrySetResult();
+            }
+
             return new ReviewVerdict(Severity.High, "x");
         });
 
-        var result = await RunAsync(
+        var run = RunAsync(
             [Semantic("TIME-HONOUR", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer,
-            limits: new ReviewLimits(4, TimeSpan.FromMilliseconds(50)));
+            limits: new ReviewLimits(4, ClockTimeout, clock));
+        await clock.TimersCreated(1);
+        clock.Advance(ClockTimeout);
+        var result = await run.WaitAsync(Generous, TestContext.Current.CancellationToken);
 
         Assert.Equal(Severity.Medium, Assert.Single(result.Detections).Severity);
         Assert.Equal(1, metrics.Count("timed_out", "TIME-HONOUR"));
+        await stopped.Task.WaitAsync(Generous, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -423,20 +458,155 @@ public class ReviewStepTests
     }
 
     [Fact]
+    public async Task Review_ReviewerThrowsTimeoutAfterCallerCancels_CancellationPropagates()
+    {
+        // The timeout path: a reviewer whose client reports the caller's cancellation as a timeout.
+        using var metrics = new ReviewMetrics();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var failures = new ConcurrentQueue<string>();
+        var logger = new CapturingLogger();
+        var reviewer = new FakeReviewer((Func<ReviewRequest, CancellationToken, ValueTask<ReviewVerdict>>)((_, _) =>
+        {
+            cts.Cancel();
+            throw new TimeoutException("the client timed out as the caller cancelled");
+        }));
+        var pipeline = new DetectionPipeline(
+            [new FakeEscalatingDetector("CANCEL-TIMEOUT", Severity.Medium)], configurations: null, reviewer: reviewer,
+            logger: logger, onDetectorFailure: failures.Enqueue, reviewLimits: new ReviewLimits(4, Generous));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await pipeline.RunAsync(Ctx(new ChatMessage(ChatRole.User, ScanText)), cts.Token));
+
+        Assert.Equal(0, metrics.Count(outcome: null, "CANCEL-TIMEOUT"));
+        Assert.Empty(failures);
+        Assert.Empty(logger.Warnings);
+    }
+
+    [Fact]
+    public async Task Review_ReviewerCancelledAfterCallerCancels_CancellationPropagates()
+    {
+        // The cancellation path: a reviewer stops on its own token, which the caller's cancellation cancelled too.
+        using var metrics = new ReviewMetrics();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var logger = new CapturingLogger();
+        var reviewer = new FakeReviewer((Func<ReviewRequest, CancellationToken, ValueTask<ReviewVerdict>>)((_, token) =>
+        {
+            cts.Cancel();
+            token.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new ReviewVerdict(Severity.High, "x"));
+        }));
+        var pipeline = new DetectionPipeline(
+            [new FakeEscalatingDetector("CANCEL-OCE", Severity.Medium)], configurations: null, reviewer: reviewer,
+            logger: logger, reviewLimits: new ReviewLimits(4, Generous));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await pipeline.RunAsync(Ctx(new ChatMessage(ChatRole.User, ScanText)), cts.Token));
+
+        Assert.Equal(0, metrics.Count(outcome: null, "CANCEL-OCE"));
+        Assert.Empty(logger.Warnings);
+    }
+
+    [Fact]
     public async Task Review_TimedOut_CancelsTheAbandonedReviewersToken()
     {
+        var clock = new ManualTimeProvider();
         var tokenCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var reviewer = new FakeReviewer(async (_, token) =>
+        var gate = new TaskCompletionSource<ReviewVerdict>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reviewer = new FakeReviewer((_, token) =>
         {
             token.Register(() => tokenCancelled.TrySetResult());
-            await Task.Delay(Timeout.Infinite, CancellationToken.None);
-            return new ReviewVerdict(Severity.High, "x");
+            return new ValueTask<ReviewVerdict>(gate.Task);
         });
+        try
+        {
+            var run = RunAsync([new FakeEscalatingDetector("TIME-TOKEN", Severity.Medium)], reviewer,
+                limits: new ReviewLimits(4, ClockTimeout, clock));
+            await clock.TimersCreated(1);
+            Assert.False(tokenCancelled.Task.IsCompleted);
 
-        await RunAsync([new FakeEscalatingDetector("TIME-TOKEN", Severity.Medium)], reviewer,
-            limits: new ReviewLimits(4, TimeSpan.FromMilliseconds(50)));
+            clock.Advance(ClockTimeout);
+            await run.WaitAsync(Generous, TestContext.Current.CancellationToken);
 
-        await tokenCancelled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await tokenCancelled.Task.WaitAsync(Generous, TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            gate.TrySetResult(ReviewVerdict.None);
+        }
+    }
+
+    [Fact]
+    public async Task Review_TimedOut_BlockingCancellationCallback_DoesNotStallTheScan()
+    {
+        var clock = new ManualTimeProvider();
+        using var release = new ManualResetEventSlim();
+        var callbackStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var gate = new TaskCompletionSource<ReviewVerdict>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reviewer = new FakeReviewer((_, token) =>
+        {
+            token.Register(() =>
+            {
+                callbackStarted.TrySetResult();
+                release.Wait(Generous);
+            });
+            return new ValueTask<ReviewVerdict>(gate.Task);
+        });
+        try
+        {
+            var run = RunAsync([new FakeEscalatingDetector("TIME-BLOCK", Severity.Medium)], reviewer,
+                limits: new ReviewLimits(4, ClockTimeout, clock));
+            await clock.TimersCreated(1);
+            clock.Advance(ClockTimeout);
+
+            // The scan finishes while the reviewer's callback is still blocked.
+            var result = await run.WaitAsync(Generous, TestContext.Current.CancellationToken);
+            await callbackStarted.Task.WaitAsync(Generous, TestContext.Current.CancellationToken);
+
+            Assert.Equal(Severity.Medium, Assert.Single(result.Detections).Severity);
+            Assert.False(release.IsSet);
+        }
+        finally
+        {
+            release.Set();
+            gate.TrySetResult(ReviewVerdict.None);
+        }
+    }
+
+    [Fact]
+    public async Task Review_TimedOut_ThrowingCancellationCallback_IsLoggedWithTheTimeout()
+    {
+        using var metrics = new ReviewMetrics();
+        var clock = new ManualTimeProvider();
+        var logger = new CapturingLogger();
+        var gate = new TaskCompletionSource<ReviewVerdict>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reviewer = new FakeReviewer((_, token) =>
+        {
+            token.Register(() => throw new InvalidOperationException("callback failed"));
+            return new ValueTask<ReviewVerdict>(gate.Task);
+        });
+        var pipeline = new DetectionPipeline(
+            [new FakeEscalatingDetector("TIME-CALLBACK", Severity.Medium)], configurations: null, reviewer: reviewer,
+            logger: logger, reviewLimits: new ReviewLimits(4, ClockTimeout, clock));
+        try
+        {
+            var run = pipeline.RunAsync(Ctx(new ChatMessage(ChatRole.User, ScanText)), TestContext.Current.CancellationToken).AsTask();
+            await clock.TimersCreated(1);
+            clock.Advance(ClockTimeout);
+            var result = await run.WaitAsync(Generous, TestContext.Current.CancellationToken);
+
+            // The callback failure does not turn the timeout into a failed scan or a failed review.
+            Assert.Equal(Severity.Medium, Assert.Single(result.Detections).Severity);
+            Assert.Equal(1, metrics.Count("timed_out", "TIME-CALLBACK"));
+
+            var failure = await logger.CallbackFailure.Task.WaitAsync(Generous, TestContext.Current.CancellationToken);
+            var aggregate = Assert.IsType<AggregateException>(failure);
+            Assert.IsType<TimeoutException>(aggregate.InnerExceptions[0]);
+            Assert.Contains(aggregate.Flatten().InnerExceptions, e => e is InvalidOperationException { Message: "callback failed" });
+        }
+        finally
+        {
+            gate.TrySetResult(ReviewVerdict.None);
+        }
     }
 
     [Fact]
@@ -457,7 +627,7 @@ public class ReviewStepTests
     [Fact]
     public async Task Review_ReasonIsSanitisedAndTruncated()
     {
-        const string Prefix = "Reviewed: confirmed — ";
+        const string Prefix = "fake — Reviewed: confirmed — ";
         var reviewer = new FakeReviewer((_, _) => new ReviewVerdict(Severity.Medium, "a\nb\r\n" + new string('x', 10_000)));
 
         var result = await RunAsync([new FakeEscalatingDetector("REV-SANITISE", Severity.Medium)], reviewer);
@@ -525,6 +695,41 @@ public class ReviewStepTests
     }
 
     [Fact]
+    public async Task Review_TextSelectionFailed_RuleLayerMatchIsNeitherCappedNorReviewed()
+    {
+        // The pipeline's fallback when a detector's texts could not be selected: its rule layer still decides.
+        var reviewer = new FakeReviewer((_, _) => new ReviewVerdict(Severity.None, "x"));
+        var options = new SentinelOptions { EmbeddingGenerator = new VectorEmbeddingGenerator(Examples) };
+        var detector = new FallbackDetector(options, throwOnTexts: true);
+
+        var result = await RunScopedAsync(detector, reviewer, options, Ctx(new ChatMessage(ChatRole.User, FastPathText)));
+
+        var d = Assert.Single(result.Detections);
+        Assert.Equal(Severity.Critical, d.Severity);
+        Assert.Empty(reviewer.Requests);
+    }
+
+    [Fact]
+    public async Task Review_ExamplePhrasesFailed_RuleLayerMatchIsNeitherCappedNorReviewed()
+    {
+        // The pipeline's fallback when a detector's example phrases could not be embedded.
+        var reviewer = new FakeReviewer((_, _) => new ReviewVerdict(Severity.None, "x"));
+        var options = new SentinelOptions
+        {
+            EmbeddingGenerator = new VectorEmbeddingGenerator(t => string.Equals(t, HighExample, StringComparison.Ordinal)
+                ? throw new InvalidOperationException("examples failed")
+                : Examples(t)),
+        };
+        var detector = new FallbackDetector(options, throwOnTexts: false);
+
+        var result = await RunScopedAsync(detector, reviewer, options, Ctx(new ChatMessage(ChatRole.User, FastPathText)));
+
+        var d = Assert.Single(result.Detections);
+        Assert.Equal(Severity.Critical, d.Severity);
+        Assert.Empty(reviewer.Requests);
+    }
+
+    [Fact]
     public async Task Review_NoReviewer_KeepsCappedResult()
     {
         var result = await RunAsync([Semantic("NOREV", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer: null);
@@ -535,6 +740,19 @@ public class ReviewStepTests
     // ---- helpers ----
 
     private const string ScanText = "the scanned text";
+
+    /// <summary>The review timeout of the tests that drive a <see cref="ManualTimeProvider"/>.</summary>
+    private static readonly TimeSpan ClockTimeout = TimeSpan.FromSeconds(5);
+
+    /// <summary>Runs <paramref name="detector"/> in a pipeline with an embedding scope, so the scope's fallbacks apply.</summary>
+    private static async Task<PipelineResult> RunScopedAsync(
+        IDetector detector, IDetectionReviewer reviewer, SentinelOptions options, SentinelContext ctx)
+    {
+        var pipeline = new DetectionPipeline(
+            [detector], configurations: null, reviewer: reviewer,
+            embeddingScope: new EmbeddingScope(options.EmbeddingGenerator!, new InMemoryLruEmbeddingCache(), null));
+        return await pipeline.RunAsync(ctx, TestContext.Current.CancellationToken);
+    }
 
     private static SentinelContext Ctx(params ChatMessage[] messages) => new(
         new AgentId("a"), new AgentId("b"), SessionId.New(), messages, new List<AuditEntry>());
@@ -616,6 +834,22 @@ public class ReviewStepTests
         protected override float ReviewThreshold => reviewThreshold ?? base.ReviewThreshold;
     }
 
+    /// <summary>A detector with a Critical rule layer whose text selection can throw.</summary>
+    private sealed class FallbackDetector(SentinelOptions options, bool throwOnTexts) : SemanticDetectorBase(options)
+    {
+        protected override string ReviewCriterion => TestCriterion;
+        public override DetectorId Id => new("REV-FALLBACK");
+        public override DetectorCategory Category => DetectorCategory.Security;
+        protected override string[] HighExamples => [HighExample];
+        protected override string[] MediumExamples => [MediumExample];
+        protected override string[] LowExamples => [LowExample];
+        protected override Severity FastPathSeverity => Severity.Critical;
+        protected override Regex? FastPathPattern => new(FastPathText, RegexOptions.None, TimeSpan.FromSeconds(1));
+
+        protected override IEnumerable<string> GetTextsToScore(SentinelContext ctx) =>
+            throwOnTexts ? throw new InvalidOperationException("selection failed") : base.GetTextsToScore(ctx);
+    }
+
     private sealed class FakeEscalatingDetector(string id, Severity severity) : ILlmEscalatingDetector
     {
         public const string Criterion = "A rule-based test detector; its criterion reaches the reviewer.";
@@ -657,12 +891,18 @@ public class ReviewStepTests
     {
         public ConcurrentQueue<string> Warnings { get; } = new();
 
+        /// <summary>The exception logged with the warning about a reviewer's cancellation callback.</summary>
+        public TaskCompletionSource<Exception?> CallbackFailure { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
         public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
         public bool IsEnabled(LogLevel logLevel) => true;
 
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
-            if (logLevel == LogLevel.Warning) Warnings.Enqueue(formatter(state, exception));
+            if (logLevel != LogLevel.Warning) return;
+            var message = formatter(state, exception);
+            Warnings.Enqueue(message);
+            if (message.Contains("cancellation callback", StringComparison.Ordinal)) CallbackFailure.TrySetResult(exception);
         }
     }
 

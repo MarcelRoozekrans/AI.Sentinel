@@ -357,7 +357,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// <param name="Request">What the reviewer is asked.</param>
     /// <param name="RuleBased">True for an <see cref="ILlmEscalatingDetector"/>, which ranks before a semantic
     /// candidate of the same proposed severity.</param>
-    private sealed record Candidate(int Index, ReviewRequest Request, bool RuleBased);
+    /// <param name="Reason">The detector's own reason, before the semantic cap; empty for a text that reached no
+    /// bucket. A verdict keeps it in front of the review's outcome.</param>
+    private sealed record Candidate(int Index, ReviewRequest Request, bool RuleBased, string Reason);
 
     /// <summary>How one review ended before its verdict is applied.</summary>
     private enum ReviewStatus { Answered, Failed, TimedOut }
@@ -380,18 +382,18 @@ public sealed class DetectionPipeline : IDetectionPipeline
         IDetectionReviewer reviewer, SentinelContext ctx, DetectionResult[] results, Severity[] proposed,
         SemanticOutcome?[] outcomes, CancellationToken ct)
     {
-        var candidates = CollectCandidates(ctx, proposed, outcomes);
+        var candidates = CollectCandidates(ctx, results, proposed, outcomes);
         if (candidates.Count == 0) return;
 
         candidates.Sort(CompareCandidates);
 
         var reviewed = Math.Min(candidates.Count, _reviewLimits.MaxPerScan);
         for (var c = reviewed; c < candidates.Count; c++)
-            CountReview("over_budget", candidates[c].Request.DetectorId);
+            CountReview(ReviewOutcomes.OverBudget, candidates[c].Request.DetectorId);
 
         var reviews = new Task<(ReviewStatus Status, ReviewVerdict? Verdict, Exception? Failure)>[reviewed];
         for (var c = 0; c < reviewed; c++)
-            reviews[c] = ReviewOneAsync(reviewer, candidates[c].Request, _reviewLimits.Timeout, ct);
+            reviews[c] = ReviewOneAsync(reviewer, candidates[c].Request, ct);
 
         // Awaits every review, so a cancellation in one leaves none of the others unobserved.
         await Task.WhenAll(reviews).ConfigureAwait(false);
@@ -406,7 +408,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
             {
                 failed++;
                 firstFailure ??= failure;
-                CountReview(status == ReviewStatus.TimedOut ? "timed_out" : "failed", candidate.Request.DetectorId);
+                CountReview(status == ReviewStatus.TimedOut ? ReviewOutcomes.TimedOut : ReviewOutcomes.Failed, candidate.Request.DetectorId);
                 continue;
             }
 
@@ -420,7 +422,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
     }
 
     /// <summary>The review candidates of this scan, unranked.</summary>
-    private List<Candidate> CollectCandidates(SentinelContext ctx, Severity[] proposed, SemanticOutcome?[] outcomes)
+    private List<Candidate> CollectCandidates(
+        SentinelContext ctx, DetectionResult[] results, Severity[] proposed, SemanticOutcome?[] outcomes)
     {
         var candidates = new List<Candidate>();
         for (var i = 0; i < _detectors.Length; i++)
@@ -440,9 +443,11 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 var maximum = cfg?.SeverityFloor is { } floor && floor > semantic.MaximumBucketSeverity
                     ? floor
                     : semantic.MaximumBucketSeverity;
+
+                // The outcome holds the result before the semantic cap, so its reason is the bucket's.
                 candidates.Add(new Candidate(i, new ReviewRequest(
                     semantic.Id, semantic.Criterion, found.Text, found.Role, found.Score, proposed[i],
-                    Limit(maximum, cap)), RuleBased: false));
+                    Limit(maximum, cap)), RuleBased: false, outcome.Result.Reason));
             }
             else if (_detectors[i] is ILlmEscalatingDetector escalating && proposed[i] >= Severity.Medium)
             {
@@ -452,7 +457,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 candidates.Add(new Candidate(i, new ReviewRequest(
                     escalating.Id, escalating.ReviewCriterion,
                     newest is null ? string.Empty : SentinelContext.MessageText(newest), newest?.Role, Score: null,
-                    proposed[i], Limit(Severity.Critical, cap)), RuleBased: true));
+                    proposed[i], Limit(Severity.Critical, cap)), RuleBased: true, results[i].Reason));
             }
         }
 
@@ -472,18 +477,19 @@ public sealed class DetectionPipeline : IDetectionPipeline
         return byScore != 0 ? byScore : a.Index.CompareTo(b.Index);
     }
 
-    /// <summary>One review under <paramref name="timeout"/>. A reviewer that ignores its token is abandoned at the
-    /// timeout, with its token cancelled and a later fault observed. Only the caller's cancellation escapes, and it
-    /// wins over any failure or timeout seen at the same time.</summary>
-    private static async Task<(ReviewStatus Status, ReviewVerdict? Verdict, Exception? Failure)> ReviewOneAsync(
-        IDetectionReviewer reviewer, ReviewRequest request, TimeSpan timeout, CancellationToken ct)
+    /// <summary>One review under the review timeout, timed by <see cref="ReviewLimits.TimeProvider"/>. A reviewer
+    /// still running at the timeout is abandoned: its token is cancelled and a later fault observed. Only the caller's
+    /// cancellation escapes, and it wins over any failure or timeout seen at the same time.</summary>
+    private async Task<(ReviewStatus Status, ReviewVerdict? Verdict, Exception? Failure)> ReviewOneAsync(
+        IDetectionReviewer reviewer, ReviewRequest request, CancellationToken ct)
     {
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        timeoutCts.CancelAfter(timeout);
+        // The reviewer's token: the caller's cancellation, and the timeout once the review is abandoned.
+        var reviewCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var abandoned = false;
         try
         {
             // Inside the try: a reviewer may throw before it returns a task.
-            var review = reviewer.ReviewAsync(request, timeoutCts.Token).AsTask();
+            var review = reviewer.ReviewAsync(request, reviewCts.Token).AsTask();
 
             // A review abandoned at the timeout may still fault; observe it so it is not an unobserved task exception.
             _ = review.ContinueWith(
@@ -492,56 +498,63 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default);
 
-            var verdict = await review.WaitAsync(timeout, ct).ConfigureAwait(false);
+            var verdict = await review.WaitAsync(_reviewLimits.Timeout, _reviewLimits.TimeProvider, ct).ConfigureAwait(false);
             return (ReviewStatus.Answered, verdict, null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
-        catch (TimeoutException ex)
-        {
-            ct.ThrowIfCancellationRequested();
-
-            // The timer may not have fired yet, and disposing the source stops it: cancel now, so an abandoned
-            // reviewer that watches its token still learns to stop.
-            return (ReviewStatus.TimedOut, null, (Exception?)CancelAbandoned(timeoutCts) ?? ex);
-        }
-        catch (OperationCanceledException ex) when (timeoutCts.IsCancellationRequested)
-        {
-            // A reviewer that honours its token stops at the timeout with a cancellation, not a TimeoutException.
-            ct.ThrowIfCancellationRequested();
-            return (ReviewStatus.TimedOut, null, ex);
-        }
         catch (Exception ex)
         {
-            // A reviewer often surfaces the caller's cancellation as its own exception type; cancellation wins.
+            // A reviewer often surfaces the caller's cancellation as its own exception type, a timeout among them;
+            // cancellation wins.
             ct.ThrowIfCancellationRequested();
-            return (ReviewStatus.Failed, null, ex);
+            if (ex is not TimeoutException) return (ReviewStatus.Failed, null, ex);
+
+            abandoned = true;
+            Abandon(reviewCts, ex);
+            return (ReviewStatus.TimedOut, null, ex);
+        }
+        finally
+        {
+            // An abandoned review's source is disposed once its cancellation callbacks have run.
+            if (!abandoned) reviewCts.Dispose();
         }
     }
 
-    /// <summary>Cancels the token of an abandoned review. Returns what the reviewer's own cancellation callbacks threw,
-    /// which must not turn a timeout into a failed scan, or <see langword="null"/>.</summary>
-    private static AggregateException? CancelAbandoned(CancellationTokenSource source)
+    /// <summary>Cancels the token of a review abandoned at the timeout, so a reviewer that watches it learns to stop,
+    /// and disposes the source once that is done.</summary>
+    /// <remarks>The reviewer's own cancellation callbacks run off the scan thread, so one that blocks cannot stall the
+    /// scan. One that throws is logged with <paramref name="timeout"/>, as one failure; it must not turn the timeout
+    /// into a failed scan, and it is not known yet when the scan reports its review failures.</remarks>
+    private void Abandon(CancellationTokenSource source, Exception timeout)
     {
-        try
-        {
-            source.Cancel();
-            return null;
-        }
-        catch (AggregateException ex)
-        {
-            return ex.Flatten();
-        }
+        _ = source.CancelAsync().ContinueWith(
+            static (cancelling, state) =>
+            {
+                var (source, pipeline, timeout) = ((CancellationTokenSource, DetectionPipeline, Exception))state!;
+                source.Dispose();
+                if (cancelling.Exception is { } callbackFailure)
+                    pipeline.ReportCancellationCallbackFailure(new AggregateException(timeout, callbackFailure.Flatten()));
+            },
+            (source, this, timeout),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
+
+    /// <summary>Logs a reviewer cancellation callback that threw after its review timed out.</summary>
+    private void ReportCancellationCallbackFailure(AggregateException failure) =>
+        _logger?.LogWarning(failure, "AI.Sentinel: a reviewer's cancellation callback threw after its review timed out; the detection kept its capped severity.");
 
     /// <summary>Applies <paramref name="verdict"/> to the candidate's result and returns the <c>outcome</c> tag.</summary>
     /// <remarks>No verdict keeps the shown result. A verdict above the request's maximum is held to it. None clears
-    /// the result; any other verdict sets that severity, so confirming the proposed severity lifts the semantic cap.</remarks>
+    /// the result; any other verdict sets that severity, so confirming the proposed severity lifts the semantic cap.
+    /// The new reason keeps the detector's own reason, then names the outcome and the reviewer's reason.</remarks>
     private static string ApplyVerdict(DetectionResult[] results, Candidate candidate, ReviewVerdict? verdict)
     {
-        if (verdict?.Severity is not { } severity) return "no_verdict";
+        if (verdict?.Severity is not { } severity) return ReviewOutcomes.NoVerdict;
 
         var request = candidate.Request;
         if (severity > request.MaximumSeverity) severity = request.MaximumSeverity;
@@ -549,15 +562,16 @@ public sealed class DetectionPipeline : IDetectionPipeline
         if (severity == Severity.None)
         {
             results[candidate.Index] = DetectionResult.Clean(request.DetectorId);
-            return "cleared";
+            return ReviewOutcomes.Cleared;
         }
 
-        var outcome = severity == request.ProposedSeverity ? "confirmed"
-            : severity > request.ProposedSeverity ? "raised"
-            : "lowered";
+        var outcome = severity == request.ProposedSeverity ? ReviewOutcomes.Confirmed
+            : severity > request.ProposedSeverity ? ReviewOutcomes.Raised
+            : ReviewOutcomes.Lowered;
         var reason = SemanticDetectorBase.Sanitise(verdict.Reason ?? string.Empty, MaxReviewReasonLength);
+        var reviewed = reason.Length == 0 ? $"Reviewed: {outcome}" : $"Reviewed: {outcome} — {reason}";
         results[candidate.Index] = DetectionResult.WithSeverity(request.DetectorId, severity,
-            reason.Length == 0 ? $"Reviewed: {outcome}" : $"Reviewed: {outcome} — {reason}");
+            candidate.Reason.Length == 0 ? reviewed : $"{candidate.Reason} — {reviewed}");
         return outcome;
     }
 
