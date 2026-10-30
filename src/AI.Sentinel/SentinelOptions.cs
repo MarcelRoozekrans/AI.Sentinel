@@ -151,8 +151,8 @@ public sealed class SentinelOptions
     /// may be registered before or after <c>AddAISentinel</c>, and a test host can replace it through ordinary DI.
     /// Register it as a singleton, which is the <c>AddEmbeddingGenerator</c> default: the options are a singleton
     /// and keep the instance they were given, so a scoped generator would outlive its scope. A generator set here
-    /// always wins over the container. Named pipelines share the default pipeline's detectors, and so its
-    /// generator; a keyed generator is not used. With neither, semantic detectors return Clean and AI.Sentinel
+    /// always wins over the container. A named pipeline uses its own generator when it sets one, and otherwise the
+    /// default pipeline's; a keyed generator is not used. With neither, semantic detectors return Clean and AI.Sentinel
     /// logs a warning when the pipeline is built.
     /// </remarks>
     public IEmbeddingGenerator<string, Embedding<float>>? EmbeddingGenerator { get; set; }
@@ -166,8 +166,8 @@ public sealed class SentinelOptions
     /// Set it to <see langword="false"/> to keep semantic detection off when the app registers a generator for
     /// other purposes, such as its own retrieval, and does not want every screened message embedded with it.
     /// Semantic detectors then return Clean unless <see cref="EmbeddingGenerator"/> is set, and the inert-semantic
-    /// warning is logged as without a generator. Only the default pipeline's value counts: named pipelines share
-    /// its detectors.
+    /// warning is logged as without a generator. Only the default pipeline's value counts: a named pipeline without a
+    /// generator of its own inherits the default's.
     /// </remarks>
     public bool UseEmbeddingGeneratorFromServices { get; set; } = true;
 
@@ -183,14 +183,13 @@ public sealed class SentinelOptions
     }
 
     /// <summary>
-    /// Cache for scan-time message embeddings, shared by every semantic detector. When it is not set, each
-    /// detector creates its own in-memory LRU cache (1024 entries), so the same text is embedded once per
-    /// detector; setting it is recommended. Implement <see cref="IEmbeddingCache"/> to plug in
+    /// Cache for scan-time message embeddings, shared by every semantic detector of a pipeline. When it is not
+    /// set, the pipeline creates one in-memory LRU cache (1024 entries) for its scans. Implement <see cref="IEmbeddingCache"/> to plug in
     /// a persistent store (Redis, SQLite, etc.).
     /// </summary>
     public IEmbeddingCache? EmbeddingCache { get; set; }
 
-    /// <summary>Cache for the reference embeddings of each semantic detector's example phrases.
+    /// <summary>Cache for the reference embeddings of each semantic detector's example phrases, kept per generator.
     /// Separate from <see cref="EmbeddingCache"/>, which holds scan-time input vectors: example
     /// phrases are static and non-sensitive, so this cache is safe to persist, whereas scan input is
     /// the user's prompt and its embedding is invertible to approximate source text.

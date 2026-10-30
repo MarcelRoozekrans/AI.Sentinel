@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Domain;
@@ -9,7 +10,8 @@ namespace AI.Sentinel.Detection;
 /// Subclasses declare <see cref="HighExamples"/>, <see cref="MediumExamples"/>, and
 /// <see cref="LowExamples"/> representative phrases. At first scan, all examples are
 /// embedded via <see cref="Microsoft.Extensions.AI.IEmbeddingGenerator{TInput,TEmbedding}"/>
-/// and cached in-process.
+/// and cached in-process, once per generator instance: concurrent first scans share one embedding of them,
+/// and a failed attempt is retried on the next scan.
 /// <para>
 /// Each scan scores the messages that are new in it, from <see cref="SentinelContext.NewMessagesFrom"/> on,
 /// one by one: the non-blank ones, at most 16, with redaction placeholders such as
@@ -21,6 +23,15 @@ namespace AI.Sentinel.Detection;
 /// Override <see cref="GetTextsToScore"/> to choose other texts.
 /// </para>
 /// <para>
+/// In a pipeline, the texts of all its semantic detectors are merged and each distinct one is embedded once per
+/// scan, in one batch, with the pipeline's generator and caches; a named pipeline uses its own generator when it
+/// sets one, otherwise the default pipeline's. A text the provider rejects is skipped by itself, the endpoint is
+/// treated as down after two single-input failures with no success, and a failure is reported once per scan. A
+/// detector left with no vectors returns <see cref="DetectionResult.Clean"/>, but one whose example phrases
+/// failed still runs its rule layer. Called directly, outside a pipeline, a detector embeds with the generator and
+/// caches of the <see cref="SentinelOptions"/> it was constructed with.
+/// </para>
+/// <para>
 /// When <see cref="SentinelOptions.EmbeddingGenerator"/> is <see langword="null"/>,
 /// all scans return <see cref="DetectionResult.Clean"/>.
 /// </para>
@@ -30,11 +41,9 @@ public abstract class SemanticDetectorBase : IDetector
     private readonly IEmbeddingGenerator<string, Embedding<float>>? _generator;
     private readonly IEmbeddingCache _cache;
     private readonly IEmbeddingCache? _exampleCache;
-    private ReadOnlyMemory<float>[]? _highVectors;
-    private ReadOnlyMemory<float>[]? _mediumVectors;
-    private ReadOnlyMemory<float>[]? _lowVectors;
-    private readonly SemaphoreSlim _initLock = new(1, 1);
-    private volatile bool _initialized;
+    // Keyed by generator instance, never by value: vectors from one generator must not be compared with another's,
+    // and once nothing references a generator, the table releases its vectors.
+    private readonly ConditionalWeakTable<IEmbeddingGenerator<string, Embedding<float>>, ExampleSlot> _exampleSlots = new();
     private readonly bool _overridesGetText;
 
     protected SemanticDetectorBase(SentinelOptions options)
@@ -211,6 +220,70 @@ public abstract class SemanticDetectorBase : IDetector
     /// arrive with each call from <see cref="DetectionPipeline"/> instead of being stored on the detector.</remarks>
     internal async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, DetectorConfiguration? configuration, CancellationToken ct)
     {
+        if (EarlyResult(ctx) is { } early)
+            return early;
+
+        if (_generator is null)
+            return DetectionResult.Clean(Id);
+
+        var texts = SelectTextsToScore(ctx);
+        if (texts.Count == 0)
+            return DetectionResult.Clean(Id);
+
+        var examples = await GetExampleVectorsAsync(_generator, _exampleCache, ct).ConfigureAwait(false);
+
+        var vectors = await GetEmbeddingsAsync(texts, ct).ConfigureAwait(false);
+
+        return Score(vectors, examples, configuration);
+    }
+
+    /// <summary>Analyzes with the scope and the scan vectors of the pipeline that runs this detector.</summary>
+    /// <remarks>The pipeline embedded the texts of every semantic detector in <paramref name="scan"/> once, so this
+    /// overload never calls the generator for scan texts: it only awaits the example vectors of
+    /// <paramref name="scope"/>'s generator. <paramref name="texts"/> is what <see cref="TextsToEmbed"/> returned for
+    /// this scan, so an override of <see cref="GetTextsToScore"/> runs once and the texts scored are the texts
+    /// embedded. A text that is not in <paramref name="scan"/> could not be embedded and is skipped; the pipeline has
+    /// reported it.</remarks>
+    internal async ValueTask<DetectionResult> AnalyzeAsync(
+        SentinelContext ctx, DetectorConfiguration? configuration, EmbeddingScope scope, ScanEmbeddings scan,
+        IReadOnlyList<string> texts, CancellationToken ct)
+    {
+        if (EarlyResult(ctx) is { } early)
+            return early;
+
+        if (texts.Count == 0)
+            return DetectionResult.Clean(Id);
+
+        var examples = await GetExampleVectorsAsync(scope.Generator, scope.ExampleCache, ct).ConfigureAwait(false);
+
+        var vectors = new List<ReadOnlyMemory<float>>(texts.Count);
+        foreach (var text in texts)
+        {
+            if (scan.TryGet(text, out var vector)) vectors.Add(vector);
+        }
+
+        return Score(vectors, examples, configuration);
+    }
+
+    /// <summary>The texts the pipeline embeds for this detector in a scan: those it will score, or none when a legacy
+    /// <c>GetText</c> override returns blank.</summary>
+    internal IReadOnlyList<string> TextsToEmbed(SentinelContext ctx)
+    {
+#pragma warning disable SENTINEL001
+        if (_overridesGetText && string.IsNullOrWhiteSpace(GetText(ctx)))
+            return [];
+#pragma warning restore SENTINEL001
+
+        return SelectTextsToScore(ctx);
+    }
+
+    /// <summary>The result of the rule layer alone, or <see cref="DetectionResult.Clean"/>. For a scan whose example
+    /// vectors could not be embedded: the rule layer needs none.</summary>
+    internal DetectionResult AnalyzeRuleLayer(SentinelContext ctx) => EarlyResult(ctx) ?? DetectionResult.Clean(Id);
+
+    /// <summary>The result decided before any embedding: Clean for a legacy blank opt-out, or a rule match.</summary>
+    private DetectionResult? EarlyResult(SentinelContext ctx)
+    {
         // As in 3.0, a legacy GetText override that returns blank opts the scan out, before the rule layer runs.
 #pragma warning disable SENTINEL001
         if (_overridesGetText && string.IsNullOrWhiteSpace(GetText(ctx)))
@@ -228,24 +301,19 @@ public abstract class SemanticDetectorBase : IDetector
             }
         }
 
-        if (_generator is null)
-            return DetectionResult.Clean(Id);
+        return null;
+    }
 
-        var texts = SelectTextsToScore(ctx);
-        if (texts.Count == 0)
-            return DetectionResult.Clean(Id);
-
-        await EnsureInitializedAsync(ct).ConfigureAwait(false);
-
-        var vectors = await GetEmbeddingsAsync(texts, ct).ConfigureAwait(false);
-
+    /// <summary>The most severe bucket any of <paramref name="vectors"/> reaches, or Clean.</summary>
+    private DetectionResult Score(IEnumerable<ReadOnlyMemory<float>> vectors, ExampleVectors examples, DetectorConfiguration? configuration)
+    {
         var highThreshold = EffectiveHighThreshold(configuration);
         var mediumThreshold = EffectiveMediumThreshold(configuration);
         var ceiling = Max(HighSeverity, Max(MediumSeverity, LowSeverity));
         var best = DetectionResult.Clean(Id);
         foreach (var vector in vectors)
         {
-            var result = Classify(vector.Span, highThreshold, mediumThreshold);
+            var result = Classify(vector.Span, examples, highThreshold, mediumThreshold);
             if (result is not null && result.Severity > best.Severity)
             {
                 best = result;
@@ -260,13 +328,13 @@ public abstract class SemanticDetectorBase : IDetector
 
     /// <summary>The first bucket, High, then Medium, then Low, that <paramref name="vector"/> reaches, or
     /// <see langword="null"/>.</summary>
-    private DetectionResult? Classify(ReadOnlySpan<float> vector, float highThreshold, float mediumThreshold)
+    private DetectionResult? Classify(ReadOnlySpan<float> vector, ExampleVectors examples, float highThreshold, float mediumThreshold)
     {
-        if (_highVectors is { Length: > 0 } && MaxSimilarity(vector, _highVectors) >= highThreshold)
+        if (examples.High is { Length: > 0 } && MaxSimilarity(vector, examples.High) >= highThreshold)
             return DetectionResult.WithSeverity(Id, HighSeverity, "Semantic match — high-severity threat pattern");
-        if (_mediumVectors is { Length: > 0 } && MaxSimilarity(vector, _mediumVectors) >= mediumThreshold)
+        if (examples.Medium is { Length: > 0 } && MaxSimilarity(vector, examples.Medium) >= mediumThreshold)
             return DetectionResult.WithSeverity(Id, MediumSeverity, "Semantic match — medium-severity threat pattern");
-        if (_lowVectors is { Length: > 0 } && MaxSimilarity(vector, _lowVectors) >= LowThreshold)
+        if (examples.Low is { Length: > 0 } && MaxSimilarity(vector, examples.Low) >= LowThreshold)
             return DetectionResult.WithSeverity(Id, LowSeverity, "Semantic match — low-severity threat pattern");
 
         return null;
@@ -327,28 +395,112 @@ public abstract class SemanticDetectorBase : IDetector
         return collapsed.ToString().Trim();
     }
 
-    private async Task EnsureInitializedAsync(CancellationToken ct)
+    /// <summary>The reference vectors of each severity bucket.</summary>
+    internal sealed record ExampleVectors(
+        ReadOnlyMemory<float>[] High,
+        ReadOnlyMemory<float>[] Medium,
+        ReadOnlyMemory<float>[] Low);
+
+    private sealed class ExampleSlot
     {
-        if (_initialized) return;
-        await _initLock.WaitAsync(ct).ConfigureAwait(false);
-        try
-        {
-            if (_initialized) return;
-            _highVectors = await EmbedExamplesAsync(HighExamples, ct).ConfigureAwait(false);
-            _mediumVectors = await EmbedExamplesAsync(MediumExamples, ct).ConfigureAwait(false);
-            _lowVectors = await EmbedExamplesAsync(LowExamples, ct).ConfigureAwait(false);
-            _initialized = true;
-        }
-        finally { _initLock.Release(); }
+#if NET9_0_OR_GREATER
+        public readonly System.Threading.Lock Lock = new();
+#else
+        public readonly object Lock = new();
+#endif
+        public Task<ExampleVectors>? Task;
     }
 
-    private async Task<ReadOnlyMemory<float>[]> EmbedExamplesAsync(string[] examples, CancellationToken ct)
+    /// <summary>The example vectors for <paramref name="generator"/>, embedded on first use and shared by every
+    /// later and concurrent caller with the same generator instance.</summary>
+    /// <remarks>The first caller starts the embedding on its own token and the others await that task. A task
+    /// that fails or is cancelled is dropped, so the next call retries. A waiter whose own token is cancelled
+    /// stops waiting without touching the shared task. If the shared task was cancelled by its owner's token,
+    /// this caller retries for as long as its own token is live: it joins the next shared task or owns one on
+    /// its own token, which only that token can cancel. An <see cref="OperationCanceledException"/> while the
+    /// owner's token is live, such as an HttpClient timeout, is a fault: every waiter gets it and none retries.</remarks>
+    internal async Task<ExampleVectors> GetExampleVectorsAsync(
+        IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct)
+    {
+        var slot = _exampleSlots.GetValue(generator, static _ => new ExampleSlot());
+        while (true)
+        {
+            Task<ExampleVectors> task;
+            TaskCompletionSource<ExampleVectors>? owned = null;
+            lock (slot.Lock)
+            {
+                // A task that failed while every caller had already stopped waiting was never evicted by one.
+                if (slot.Task is { IsCompleted: true, IsCompletedSuccessfully: false }) slot.Task = null;
+                if (slot.Task is null)
+                {
+                    owned = new TaskCompletionSource<ExampleVectors>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    slot.Task = owned.Task;
+                }
+                task = slot.Task;
+            }
+
+            // Started outside the lock: the example cache lookups and a generator's synchronous prefix run here.
+            if (owned is not null) _ = RunEmbeddingAsync(owned, generator, exampleCache, ct);
+
+            try
+            {
+                return await task.WaitAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception) when (task.IsCompleted && !task.IsCompletedSuccessfully)
+            {
+                lock (slot.Lock)
+                {
+                    if (ReferenceEquals(slot.Task, task)) slot.Task = null;
+                }
+
+                if (!task.IsCanceled || ct.IsCancellationRequested) throw;
+            }
+        }
+    }
+
+    /// <summary>The shared embedding task currently held for <paramref name="generator"/>. For tests.</summary>
+    internal bool TryPeekExampleTask(
+        IEmbeddingGenerator<string, Embedding<float>> generator, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Task<ExampleVectors>? task)
+    {
+        task = _exampleSlots.TryGetValue(generator, out var slot) ? slot.Task : null;
+        return task is not null;
+    }
+
+    private async Task RunEmbeddingAsync(
+        TaskCompletionSource<ExampleVectors> target,
+        IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct)
+    {
+        try
+        {
+            target.TrySetResult(await EmbedAllExamplesAsync(generator, exampleCache, ct).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
+        {
+            target.TrySetCanceled(ex.CancellationToken);
+        }
+        catch (Exception ex)
+        {
+            target.TrySetException(ex);
+        }
+    }
+
+    private async Task<ExampleVectors> EmbedAllExamplesAsync(
+        IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct)
+    {
+        var high = await EmbedExamplesAsync(generator, exampleCache, HighExamples, ct).ConfigureAwait(false);
+        var medium = await EmbedExamplesAsync(generator, exampleCache, MediumExamples, ct).ConfigureAwait(false);
+        var low = await EmbedExamplesAsync(generator, exampleCache, LowExamples, ct).ConfigureAwait(false);
+        return new ExampleVectors(high, medium, low);
+    }
+
+    private static async Task<ReadOnlyMemory<float>[]> EmbedExamplesAsync(
+        IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, string[] examples, CancellationToken ct)
     {
         if (examples.Length == 0) return [];
 
-        if (_exampleCache is null)
+        if (exampleCache is null)
         {
-            var direct = await _generator!.GenerateAsync(examples, cancellationToken: ct).ConfigureAwait(false);
+            var direct = await generator.GenerateAsync(examples, cancellationToken: ct).ConfigureAwait(false);
             return [.. direct.Select(e => e.Vector)];
         }
 
@@ -360,7 +512,7 @@ public abstract class SemanticDetectorBase : IDetector
 
         for (var i = 0; i < examples.Length; i++)
         {
-            if (_exampleCache.TryGet(examples[i], out var hit))
+            if (exampleCache.TryGet(examples[i], out var hit))
             {
                 vectors[i] = hit.Vector;
             }
@@ -373,7 +525,7 @@ public abstract class SemanticDetectorBase : IDetector
 
         if (missingText.Count > 0)
         {
-            var fresh = await _generator!.GenerateAsync(missingText, cancellationToken: ct).ConfigureAwait(false);
+            var fresh = await generator.GenerateAsync(missingText, cancellationToken: ct).ConfigureAwait(false);
             if (fresh.Count != missingText.Count)
             {
                 // A provider that batches, dedupes or drops inputs would otherwise pair vectors with
@@ -384,7 +536,7 @@ public abstract class SemanticDetectorBase : IDetector
 
             for (var i = 0; i < missingIndex.Count; i++)
             {
-                _exampleCache.Set(missingText[i], fresh[i]);
+                exampleCache.Set(missingText[i], fresh[i]);
                 vectors[missingIndex[i]] = fresh[i].Vector;
             }
         }

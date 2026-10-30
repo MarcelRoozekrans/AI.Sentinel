@@ -14,6 +14,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
     private readonly ILogger<DetectionPipeline>? _logger;
     private readonly Action<string>? _onDetectorFailure;
     private readonly bool _redactByDefault;
+    private readonly EmbeddingScope? _embeddingScope;
+    // The indices in _detectors of the semantic detectors, whose scan texts the pipeline embeds once for all of them.
+    private readonly int[] _semanticIndices;
 
     internal DetectionPipeline(
         IEnumerable<IDetector> detectors,
@@ -21,7 +24,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
         IChatClient? escalationClient,
         ILogger<DetectionPipeline>? logger = null,
         Action<string>? onDetectorFailure = null,
-        bool redactByDefault = true)
+        bool redactByDefault = true,
+        EmbeddingScope? embeddingScope = null)
     {
         var enabled = new List<IDetector>();
         var redactors = new List<IRedactingDetector>();
@@ -67,6 +71,14 @@ public sealed class DetectionPipeline : IDetectionPipeline
         _logger = logger;
         _onDetectorFailure = onDetectorFailure;
         _redactByDefault = redactByDefault;
+        _embeddingScope = embeddingScope;
+
+        var semanticIndices = new List<int>();
+        for (var i = 0; i < _detectors.Length; i++)
+        {
+            if (_detectors[i] is SemanticDetectorBase) semanticIndices.Add(i);
+        }
+        _semanticIndices = semanticIndices.ToArray();
     }
 
     /// <inheritdoc />
@@ -86,13 +98,17 @@ public sealed class DetectionPipeline : IDetectionPipeline
         if (_detectors.Length == 0)
             return new PipelineResult(ThreatRiskScore.Zero, []);
 
+        var embedded = _embeddingScope is { } scope && _semanticIndices.Length > 0
+            ? await EmbedScanAsync(scope, ctx, ct).ConfigureAwait(false)
+            : null;
+
         var vTasks = ArrayPool<ValueTask<DetectionResult>>.Shared.Rent(_detectors.Length);
         DetectionResult[] results;
         try
         {
             // Start all detectors
             for (int i = 0; i < _detectors.Length; i++)
-                vTasks[i] = SafeAnalyzeAsync(_detectors[i], _configurations[i], ctx, ct);
+                vTasks[i] = SafeAnalyzeAsync(_detectors[i], _configurations[i], ctx, embedded, i, ct);
 
             // Fast path: all completed synchronously (typical for rule-based detectors with cached clean results)
             if (AllCompletedSuccessfully(vTasks, _detectors.Length))
@@ -145,17 +161,35 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// </para>
     /// </remarks>
     private async ValueTask<DetectionResult> SafeAnalyzeAsync(
-        IDetector detector, DetectorConfiguration? configuration, SentinelContext ctx, CancellationToken ct)
+        IDetector detector, DetectorConfiguration? configuration, SentinelContext ctx,
+        EmbeddedScan? embedded, int index, CancellationToken ct)
     {
         try
         {
-            return detector is SemanticDetectorBase semantic
-                ? await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false)
-                : await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
+            if (detector is not SemanticDetectorBase semantic)
+                return await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
+
+            if (embedded is null)
+                return await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false);
+
+            if (embedded.TextsFailures[index] is { } textsFailure)
+            {
+                // As without a scope: the rule layer still decides, and otherwise the failure is this detector's own.
+                var rule = semantic.AnalyzeRuleLayer(ctx);
+                if (!rule.IsClean) return rule;
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(textsFailure);
+            }
+
+            // Its example phrases failed and were reported once for the scan; calling it would retry and report again.
+            if (embedded.ExamplesFailed[index])
+                return semantic.AnalyzeRuleLayer(ctx);
+
+            return await semantic.AnalyzeAsync(ctx, configuration, embedded.Scope, embedded.Scan, embedded.Texts[index], ct).ConfigureAwait(false);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // The caller asked to stop; that is not a detector fault.
+            // The caller asked to stop; that is not a detector fault. On a live token it is one, such as an
+            // HttpClient timeout, and is reported below.
             throw;
         }
         catch (Exception ex)
@@ -164,6 +198,129 @@ public sealed class DetectionPipeline : IDetectionPipeline
             _logger?.LogWarning(ex, "AI.Sentinel: detector {DetectorId} failed and was skipped for this scan.", detector.Id.Value);
             _onDetectorFailure?.Invoke(message);
             return DetectionResult.Clean(detector.Id);
+        }
+    }
+
+    /// <summary>The scan vectors every semantic detector shares, each detector's texts, and which detectors' text
+    /// selection or example phrases failed.</summary>
+    /// <param name="Texts">Each semantic detector's texts, collected once so it scores exactly what was embedded.
+    /// Indexed like <c>_detectors</c>, as are <paramref name="TextsFailures"/> and <paramref name="ExamplesFailed"/>.</param>
+    private sealed record EmbeddedScan(
+        EmbeddingScope Scope, ScanEmbeddings Scan, IReadOnlyList<string>[] Texts, Exception?[] TextsFailures, bool[] ExamplesFailed);
+
+    /// <summary>Embeds the distinct texts of every semantic detector once, and their example phrases, before the
+    /// detectors run, and reports each kind of failure once for the scan.</summary>
+    /// <remarks>Without this every semantic detector embedded its own texts, so one scan sent the same message to
+    /// the provider once per detector, and a rejected input or an outage was reported by each of them.</remarks>
+    private async Task<EmbeddedScan> EmbedScanAsync(EmbeddingScope scope, SentinelContext ctx, CancellationToken ct)
+    {
+        var union = new HashSet<string>(StringComparer.Ordinal);
+        var detectorTexts = new IReadOnlyList<string>[_detectors.Length];
+        var textsFailures = new Exception?[_detectors.Length];
+        var exampleTasks = new Task<Exception?>[_semanticIndices.Length];
+        for (var s = 0; s < _semanticIndices.Length; s++)
+        {
+            var semantic = (SemanticDetectorBase)_detectors[_semanticIndices[s]];
+            IReadOnlyList<string> texts;
+            try
+            {
+                texts = semantic.TextsToEmbed(ctx);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                // Reported by SafeAnalyzeAsync as this detector's failure, as when the detector selects its own texts.
+                textsFailures[_semanticIndices[s]] = ex;
+                texts = [];
+            }
+
+            // A detector whose rule layer will match still contributes its texts: the other semantic detectors
+            // embed the same texts anyway, and keeping the rule check in the detector avoids running it twice.
+            detectorTexts[_semanticIndices[s]] = texts;
+            union.UnionWith(texts);
+
+            // As before, a detector with nothing to score never embeds its example phrases.
+            exampleTasks[s] = texts.Count > 0 ? EmbedExamplesAsync(semantic, scope, ct) : NoFailure;
+        }
+
+        var scanTask = union.Count > 0 ? EmbedTextsAsync(scope, union, ct) : Task.FromResult(ScanEmbeddings.Empty);
+
+        // Awaits every task, so a cancellation or fault in one leaves none of the others unobserved.
+        await Task.WhenAll([scanTask, .. exampleTasks]).ConfigureAwait(false);
+
+        var scan = await scanTask.ConfigureAwait(false);
+        ReportScanFailure(scan);
+
+        var examplesFailed = new bool[_detectors.Length];
+        var failedIds = new List<string>();
+        Exception? firstExampleFailure = null;
+        for (var s = 0; s < _semanticIndices.Length; s++)
+        {
+            if (await exampleTasks[s].ConfigureAwait(false) is not { } failure) continue;
+
+            examplesFailed[_semanticIndices[s]] = true;
+            failedIds.Add(_detectors[_semanticIndices[s]].Id.Value);
+            firstExampleFailure ??= failure;
+        }
+
+        if (firstExampleFailure is not null) ReportExampleFailure(failedIds, firstExampleFailure);
+
+        return new EmbeddedScan(scope, scan, detectorTexts, textsFailures, examplesFailed);
+    }
+
+    /// <summary>Reports the texts of <paramref name="scan"/> that could not be embedded, once for the scan.</summary>
+    private void ReportScanFailure(ScanEmbeddings scan)
+    {
+        if (scan.FailedCount == 0) return;
+
+        // ScanEmbeddings records a failure with every failed text.
+        var ex = scan.FirstFailure!;
+        var message = $"AI.Sentinel: {scan.FailedCount} of {scan.TotalCount} texts could not be embedded and were skipped for this scan ({ex.GetType().Name}: {ex.Message}). Other texts and detectors still ran.";
+        _logger?.LogWarning(ex, "AI.Sentinel: {Failed} of {Total} texts could not be embedded and were skipped for this scan ({ExType}: {ExMessage}). Other texts and detectors still ran.",
+            scan.FailedCount, scan.TotalCount, ex.GetType().Name, ex.Message);
+        _onDetectorFailure?.Invoke(message);
+    }
+
+    /// <summary>Reports the detectors whose example phrases could not be embedded, once for the scan.</summary>
+    private void ReportExampleFailure(List<string> detectorIds, Exception ex)
+    {
+        var ids = string.Join(", ", detectorIds);
+        var message = $"AI.Sentinel: the example phrases of detector(s) {ids} could not be embedded, so they were skipped for this scan ({ex.GetType().Name}: {ex.Message}). Other detectors still ran.";
+        _logger?.LogWarning(ex, "AI.Sentinel: the example phrases of detector(s) {DetectorIds} could not be embedded, so they were skipped for this scan ({ExType}: {ExMessage}). Other detectors still ran.",
+            ids, ex.GetType().Name, ex.Message);
+        _onDetectorFailure?.Invoke(message);
+    }
+
+    private static readonly Task<Exception?> NoFailure = Task.FromResult<Exception?>(null);
+
+    /// <summary>The failure of <paramref name="semantic"/>'s example phrases, or <see langword="null"/>.</summary>
+    private static async Task<Exception?> EmbedExamplesAsync(SemanticDetectorBase semantic, EmbeddingScope scope, CancellationToken ct)
+    {
+        try
+        {
+            await semantic.GetExampleVectorsAsync(scope.Generator, scope.ExampleCache, ct).ConfigureAwait(false);
+            return null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            // On a live token an OperationCanceledException is a provider failure, such as an HttpClient timeout.
+            // A provider also often surfaces a cancellation as its own exception type; cancellation wins.
+            ct.ThrowIfCancellationRequested();
+            return ex;
+        }
+    }
+
+    /// <summary>The scan vectors of <paramref name="texts"/>. A fault outside the provider calls, which the embedder
+    /// already isolates, such as a throwing scan cache, counts as every text failing.</summary>
+    private static async Task<ScanEmbeddings> EmbedTextsAsync(EmbeddingScope scope, HashSet<string> texts, CancellationToken ct)
+    {
+        try
+        {
+            return await ScanEmbedder.EmbedAsync(scope, texts, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            ct.ThrowIfCancellationRequested();
+            return new ScanEmbeddings(new Dictionary<string, ReadOnlyMemory<float>>(StringComparer.Ordinal), texts.Count, texts.Count, ex);
         }
     }
 

@@ -242,7 +242,7 @@ public class CopilotHookCliFailClosedTests : IDisposable
         var (exit, _, stderr) = await RunAsync("pre-tool-use", PreToolUse, new ThrowingEmbeddingGenerator());
 
         Assert.Equal(0, exit);
-        Assert.Contains("failed and was skipped for this scan", stderr, StringComparison.Ordinal);
+        Assert.Contains("could not be embedded and were skipped for this scan", stderr, StringComparison.Ordinal);
         Assert.DoesNotContain("Sentinel internal error", stderr, StringComparison.Ordinal);
     }
 

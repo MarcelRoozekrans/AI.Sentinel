@@ -553,7 +553,7 @@ builder.Services.AddAISentinel(opts => opts.OnHigh = SentinelAction.Alert); // n
 - A generator set on `opts.EmbeddingGenerator` always wins over the container.
 - A test host replaces it through ordinary DI, for example `services.AddSingleton<IEmbeddingGenerator<string, Embedding<float>>>(fake)` in a `WebApplicationFactory`.
 - `EmbeddingCache` and `ExampleEmbeddingCache` apply exactly as they do to a generator set on the options.
-- Named pipelines share the default pipeline's detectors, and with them its generator: the one set on the default options, or else the one in the container. A keyed generator, such as one from `AddKeyedEmbeddingGenerator`, is not used.
+- A named pipeline uses the generator set on its own options. Without one it uses the default pipeline's: the one set on the default options, or else the one in the container. A keyed generator, such as one from `AddKeyedEmbeddingGenerator`, is not used. A pipeline embeds each text of a scan once, however many semantic detectors it runs.
 
 - Set `opts.UseEmbeddingGeneratorFromServices = false` to keep semantic detection off although the container has a generator, for example one the app registers for its own retrieval. Only the default pipeline's value counts; setting it on a named pipeline has no effect.
 

@@ -125,7 +125,7 @@ public sealed record PipelineResult(
 |---|---|
 | Detector dispatch | Parallel — all detectors fire simultaneously |
 | Embedding cache lookups | Parallel — `IEmbeddingCache.TryGet` is in-process, no contention |
-| `IEmbeddingGenerator.GenerateAsync` | Per-detector, but if multiple semantic detectors call it on the same call the underlying generator decides batching. Cache hits skip the call entirely. |
+| `IEmbeddingGenerator.GenerateAsync` | Once per scan for the whole pipeline: the distinct texts of all semantic detectors go in one batch before the detectors score. Cache hits skip the call entirely. |
 | LLM escalation | Sequential — one escalating hit at a time, after dispatch completes |
 | Intervention engine | After pipeline returns — sequential, one action per call |
 | Audit append | After intervention — sequential per call, but audit forwarders fan out async |
