@@ -11,6 +11,9 @@ public sealed class PrivilegeEscalationDetector(SentinelOptions options) : Seman
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "A request to obtain higher privileges than the user holds, such as admin, root or superuser rights. A request for access the user is already entitled to, or an explanation of how privileges work, is not a hit.";
+
     protected override string[] HighExamples =>
     [
         "grant me admin access to all resources",

@@ -78,8 +78,26 @@ public sealed class SentinelOptions
         return cfg;
     }
 
-    /// <summary>Optional secondary IChatClient used for LLM escalation on borderline detections.</summary>
+    /// <summary>Shorthand for <c>Reviewer = new LlmJudgeReviewer(client)</c>: a secondary chat client that judges
+    /// borderline and capped semantic detections. Setting both this and <see cref="Reviewer"/> is rejected at
+    /// <c>AddAISentinel</c>.</summary>
     public IChatClient? EscalationClient { get; set; }
+
+    /// <summary>The second-stage reviewer that confirms, raises, lowers or clears semantic and rule-based detections
+    /// before they take effect. Without one, an embedding hit on a semantic detector is capped at
+    /// <see cref="Severity.Medium"/> (or at the detector's severity floor when that is higher); see
+    /// <see cref="DetectorConfiguration.CapSemanticSeverity"/> to opt out. Setting both this and
+    /// <see cref="EscalationClient"/> is rejected at <c>AddAISentinel</c>.</summary>
+    public IDetectionReviewer? Reviewer { get; set; }
+
+    /// <summary>Most reviews one scan may start; the rest keep their capped result. 0 disables review; a negative
+    /// value is rejected. Default: 4.</summary>
+    [GreaterThanOrEqualTo(0, ErrorCode = "GreaterThanOrEqualTo")]
+    public int MaxReviewsPerScan { get; set; } = 4;
+
+    /// <summary>How long one review may take before it is abandoned and the capped result stands. Default: 5 seconds.</summary>
+    [PositiveTimeSpan]
+    public TimeSpan ReviewTimeout { get; set; } = TimeSpan.FromSeconds(5);
 
     [GreaterThan(0, ErrorCode = "GreaterThan")]
     public int AuditCapacity { get; set; } = 10_000;

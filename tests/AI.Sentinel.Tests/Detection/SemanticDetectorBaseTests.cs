@@ -17,6 +17,7 @@ public class SemanticDetectorBaseTests
     // Minimal concrete subclass for testing
     private class TestDetector(SentinelOptions options) : SemanticDetectorBase(options)
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         /// <summary>Every example of every bucket, which the generator embeds at initialisation.</summary>
         public static readonly string[] Examples = [HighText, MediumText, LowText];
 
@@ -69,6 +70,7 @@ public class SemanticDetectorBaseTests
     // Subclass with empty High/Medium buckets, only Low defined
     private sealed class LowOnlyDetector(SentinelOptions options) : SemanticDetectorBase(options)
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         private static readonly DetectorId _id = new("TEST-02");
         public override DetectorId Id => _id;
         public override DetectorCategory Category => DetectorCategory.Security;

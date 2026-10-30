@@ -5,6 +5,7 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Mcp.Logging;
 using AI.Sentinel.Redaction;
@@ -15,6 +16,7 @@ using ModelContextProtocol.Server;
 using ZeroAlloc.Authorization;
 
 using AI.Sentinel.Embeddings;
+using AI.Sentinel.Review;
 
 namespace AI.Sentinel.Mcp;
 
@@ -66,7 +68,8 @@ internal static class McpProxy
         TimeSpan? approvalWait = null,
         IAuditStore? auditStore = null,
         IReadOnlyList<IAuditForwarder>? forwarders = null,
-        TimeSpan? placeholderIdleExpiry = null)
+        TimeSpan? placeholderIdleExpiry = null,
+        IDetectionReviewer? reviewer = null)
         => RunWithSessionAsync(
             hostTransport: hostTransport,
             targetTransport: targetTransport,
@@ -83,7 +86,8 @@ internal static class McpProxy
             auditStore: auditStore,
             forwarders: forwarders,
             sessionId: null,
-            placeholderIdleExpiry: placeholderIdleExpiry);
+            placeholderIdleExpiry: placeholderIdleExpiry,
+            reviewer: reviewer);
 
     /// <summary>Same as <see cref="RunAsync"/> but lets tests fix the per-run session id.</summary>
     internal static async Task RunWithSessionAsync(
@@ -102,7 +106,8 @@ internal static class McpProxy
         IAuditStore? auditStore = null,
         IReadOnlyList<IAuditForwarder>? forwarders = null,
         SessionId? sessionId = null,
-        TimeSpan? placeholderIdleExpiry = null)
+        TimeSpan? placeholderIdleExpiry = null,
+        IDetectionReviewer? reviewer = null)
     {
         ArgumentNullException.ThrowIfNull(hostTransport);
         ArgumentNullException.ThrowIfNull(targetTransport);
@@ -118,21 +123,25 @@ internal static class McpProxy
         {
             // The proxy is long-lived, so it pays the embedding cost once — but it still shares the
             // example cache so a restart is cheap.
+            var environment = ReadEnvironment();
             string? embeddingError = null;
             using var embeddings = embeddingGenerator is null
-                ? SentinelEmbeddingSetup.TryCreateFromEnvironment(ReadEmbeddingEnvironment(), out embeddingError)
+                ? SentinelEmbeddingSetup.TryCreateFromEnvironment(environment, out embeddingError)
                 : null;
             if (embeddingError is not null)
             {
                 await stderr.WriteLineAsync(embeddingError).ConfigureAwait(false);
             }
 
+            using var review = await ResolveReviewAsync(reviewer, environment, stderr).ConfigureAwait(false);
+            var reviewLimits = ReviewLimitsFor(review);
             var pipeline = McpPipelineFactory.Create(
                 config, preset, embeddingGenerator ?? embeddings?.Generator,
-                out var pipelineStore, out var inertSemanticWarning, embeddings?.ExampleCache,
-                ReportDetectorFailure, auditStore, forwarders);
+                out var pipelineStore, out var inertSemanticWarning, out var unreviewedSemanticWarning, embeddings?.ExampleCache,
+                ReportDetectorFailure, auditStore, forwarders, reviewer ?? review?.Reviewer, reviewLimits);
 
-            await WriteInertSemanticWarningAsync(config, inertSemanticWarning, stderr).ConfigureAwait(false);
+            await WriteSemanticWarningAsync(config, "semantic_detection_inert", inertSemanticWarning, stderr).ConfigureAwait(false);
+            await WriteSemanticWarningAsync(config, "semantic_detection_unreviewed", unreviewedSemanticWarning, stderr).ConfigureAwait(false);
             var placeholders = CreatePlaceholderStore(config, placeholderIdleExpiry);
 
             // One session per proxy process: every scan and authorization entry of this run shares it.
@@ -155,23 +164,47 @@ internal static class McpProxy
         }
     }
 
+    /// <summary>A caller-supplied reviewer wins; otherwise read SENTINEL_REVIEW_*. Without a reviewer a semantic hit is
+    /// capped at Medium, so the proxy can only forward it with a warning. A bad setting is reported by name.</summary>
+    private static async Task<SentinelReviewSetup?> ResolveReviewAsync(
+        IDetectionReviewer? supplied, IReadOnlyDictionary<string, string?> environment, TextWriter stderr)
+    {
+        if (supplied is not null) return null;
+
+        var setup = SentinelReviewSetup.TryCreateFromEnvironment(environment, out var error);
+        if (error is not null)
+        {
+            await stderr.WriteLineAsync(error).ConfigureAwait(false);
+        }
+
+        return setup;
+    }
+
+    /// <summary>The proxy keeps the library defaults, 5 s and 4 reviews, for what the setting leaves unset.</summary>
+    internal static ReviewLimits? ReviewLimitsFor(SentinelReviewSetup? review)
+    {
+        if (review is null) return null;
+        var defaults = new SentinelOptions();
+        return new ReviewLimits(review.MaxReviewsPerScan ?? defaults.MaxReviewsPerScan, review.ReviewTimeout ?? defaults.ReviewTimeout);
+    }
+
     /// <summary>
     /// No logging provider here either — surface it on stderr so an inert SEC-01 isn't mistaken
     /// for a clean scan. Routed through StderrLogger because this stream is structured
     /// (key=value, or NDJSON under SENTINEL_MCP_LOG_JSON=1); raw prose would break consumers.
     /// Emitted once per proxy process. Suppressible via SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING.
     /// </summary>
-    private static async Task WriteInertSemanticWarningAsync(HookConfig config, string? inertSemanticWarning, TextWriter stderr)
+    private static async Task WriteSemanticWarningAsync(HookConfig config, string eventName, string? warning, TextWriter stderr)
     {
-        if (config.SuppressSemanticWarning || inertSemanticWarning is null)
+        if (config.SuppressSemanticWarning || warning is null)
         {
             return;
         }
 
         await stderr.WriteLineAsync(StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["event"] = "semantic_detection_inert",
-            ["detail"] = inertSemanticWarning,
+            ["event"] = eventName,
+            ["detail"] = warning,
         })).ConfigureAwait(false);
     }
 
@@ -232,13 +265,14 @@ internal static class McpProxy
             ["detail"] = message,
         });
 
-    /// <summary>Embedding settings, read directly because they carry no host-specific prefix.</summary>
-    private static Dictionary<string, string?> ReadEmbeddingEnvironment()
+    /// <summary>Embedding and review settings, read directly because they carry no host-specific prefix.</summary>
+    private static Dictionary<string, string?> ReadEnvironment()
     {
         var env = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            if (entry.Key is string key && key.StartsWith("SENTINEL_EMBEDDING_", StringComparison.Ordinal))
+            if (entry.Key is string key && (key.StartsWith("SENTINEL_EMBEDDING_", StringComparison.Ordinal)
+                || key.StartsWith("SENTINEL_REVIEW_", StringComparison.Ordinal)))
             {
                 env[key] = entry.Value as string;
             }

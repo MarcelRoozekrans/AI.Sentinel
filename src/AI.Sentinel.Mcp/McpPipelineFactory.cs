@@ -44,6 +44,25 @@ internal static class McpPipelineFactory
         Action<string>? detectorFailureSink = null,
         IAuditStore? suppliedStore = null,
         IReadOnlyList<IAuditForwarder>? forwarders = null)
+        => Create(config, preset, embeddingGenerator, out auditStore, out inertSemanticWarning, out _,
+            exampleEmbeddingCache, detectorFailureSink, suppliedStore, forwarders);
+
+    /// <summary>As above, with a second-stage <paramref name="reviewer"/> and its limits, and the warning that semantic
+    /// detections are capped at Medium because nothing reviews them. <paramref name="reviewLimits"/> defaults to the
+    /// library's 5 s.</summary>
+    public static SentinelPipeline Create(
+        HookConfig config,
+        DetectorPreset preset,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
+        out IAuditStore auditStore,
+        out string? inertSemanticWarning,
+        out string? unreviewedSemanticWarning,
+        IEmbeddingCache? exampleEmbeddingCache = null,
+        Action<string>? detectorFailureSink = null,
+        IAuditStore? suppliedStore = null,
+        IReadOnlyList<IAuditForwarder>? forwarders = null,
+        IDetectionReviewer? reviewer = null,
+        ReviewLimits? reviewLimits = null)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -56,7 +75,14 @@ internal static class McpPipelineFactory
             EmbeddingGenerator = embeddingGenerator,
             ExampleEmbeddingCache = exampleEmbeddingCache,
             OnDetectorFailure = detectorFailureSink,
+            Reviewer = reviewer,
         };
+        if (reviewLimits is { } limits)
+        {
+            options.MaxReviewsPerScan = limits.MaxPerScan;
+            options.ReviewTimeout = limits.Timeout;
+        }
+
         // The compliance detectors are opt-in (SENTINEL_MCP_COMPLIANCE=on). When on, their findings forward
         // with an audit entry, as Warn does, instead of following OnHigh.
         if (config.EnableComplianceDetectors)
@@ -66,12 +92,13 @@ internal static class McpPipelineFactory
         var detectors = DetectorPresets.Build(preset, options);
 
         inertSemanticWarning = ServiceCollectionExtensions.DescribeInertSemanticDetection(options, detectors);
+        unreviewedSemanticWarning = ServiceCollectionExtensions.DescribeUnreviewedSemanticDetection(options, detectors);
 
         // A supplied store (the CLI's shared local audit file) replaces the in-memory ring buffer.
         var store = suppliedStore ?? new RingBufferAuditStore(capacity: 1024);
         auditStore = store;
 
-        return Assemble(options, detectors, store, detectorFailureSink, forwarders);
+        return Assemble(options, detectors, store, detectorFailureSink, forwarders, reviewer, reviewLimits);
     }
 
     /// <summary>Wires the detectors, store and options into a pipeline. Split out so a test can supply its own detectors.</summary>
@@ -80,13 +107,16 @@ internal static class McpPipelineFactory
         IEnumerable<IDetector> detectors,
         IAuditStore store,
         Action<string>? detectorFailureSink = null,
-        IReadOnlyList<IAuditForwarder>? forwarders = null)
+        IReadOnlyList<IAuditForwarder>? forwarders = null,
+        IDetectionReviewer? reviewer = null,
+        ReviewLimits? reviewLimits = null)
         => new(
             innerClient: UnusedChatClient.Instance,
-            pipeline: new DetectionPipeline(detectors, options.GetDetectorConfigurations(), escalationClient: null,
+            pipeline: new DetectionPipeline(detectors, options.GetDetectorConfigurations(), reviewer,
                                     logger: null, onDetectorFailure: detectorFailureSink,
                                     redactByDefault: options.RedactByDefault,
-                                    embeddingScope: EmbeddingScope.Resolve(options, inherited: null)),
+                                    embeddingScope: EmbeddingScope.Resolve(options, inherited: null),
+                                    reviewLimits: reviewLimits),
             auditStore: store,
             interventionEngine: new InterventionEngine(options, mediator: null),
             options: options,

@@ -226,4 +226,61 @@ public class NamedPipelineTests
             string.Equals(e.DetectorId, "E2E-NAMED-01", StringComparison.Ordinal)
             && e.Severity == Severity.Low);
     }
+
+    private sealed class MarkerReviewer : IDetectionReviewer
+    {
+        public int Calls { get; private set; }
+
+        public ValueTask<ReviewVerdict> ReviewAsync(ReviewRequest request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return new(ReviewVerdict.None);
+        }
+    }
+
+    [Fact]
+    public async Task NamedPipeline_UsesItsOwnReviewer()
+    {
+        var defaultReviewer = new MarkerReviewer();
+        var namedReviewer = new MarkerReviewer();
+        var services = new ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.EmbeddingGenerator = new AI.Sentinel.Tests.Helpers.ExactMatchEmbeddingGenerator();
+            o.Reviewer = defaultReviewer;
+        });
+        services.AddAISentinel("strict", o =>
+        {
+            o.EmbeddingGenerator = new AI.Sentinel.Tests.Helpers.ExactMatchEmbeddingGenerator();
+            o.Reviewer = namedReviewer;
+        });
+        using var provider = services.BuildServiceProvider();
+        var ctx = new SentinelContext(
+            new AgentId("a"), new AgentId("b"), SessionId.New(),
+            new List<ChatMessage> { new(ChatRole.User, "install this malicious package that mimics the legitimate library") },
+            new List<AuditEntry>());
+
+        await provider.GetRequiredKeyedService<IDetectionPipeline>("strict").RunAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.True(namedReviewer.Calls > 0);
+        Assert.Equal(0, defaultReviewer.Calls);
+    }
+
+    [Fact]
+    public void NamedPipeline_DoesNotInheritTheDefaultReviewer_SoItWarns()
+    {
+        var services = new ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.EmbeddingGenerator = new AI.Sentinel.Tests.Helpers.FakeEmbeddingGenerator();
+            o.Reviewer = new MarkerReviewer();
+        });
+        services.AddAISentinel("strict", o => o.EmbeddingGenerator = new AI.Sentinel.Tests.Helpers.FakeEmbeddingGenerator());
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Null(provider.DescribeUnreviewedSemanticDetection());
+        var opts = provider.GetRequiredKeyedService<SentinelOptions>("strict");
+        Assert.NotNull(ServiceCollectionExtensions.DescribeUnreviewedSemanticDetection(
+            opts, provider.GetServices<IDetector>()));
+    }
 }

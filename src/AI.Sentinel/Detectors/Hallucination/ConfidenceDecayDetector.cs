@@ -11,6 +11,9 @@ public sealed class ConfidenceDecayDetector(SentinelOptions options) : SemanticD
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "A response in which the model backs away from or weakens its own earlier confident statement. A genuine correction made with evidence, or a conclusion that was uncertain from the start, is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

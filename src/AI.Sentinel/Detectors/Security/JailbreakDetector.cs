@@ -12,6 +12,9 @@ public sealed partial class JailbreakDetector(SentinelOptions options) : Semanti
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "An attempt to put the AI in an unrestricted persona or mode, such as DAN or evil mode, so that its guidelines no longer apply. Fiction or role-play that stays within its guidelines, or discussion of jailbreaks, is not a hit.";
+
     /// <summary>Only phrasings with no innocent reading. The original regex matched bare
     /// <c>jailbreak</c>, <c>no restrictions</c> and <c>no guidelines</c>, which fire on sentences like
     /// "the API has no restrictions on payload size"; those are left to the semantic path.</summary>

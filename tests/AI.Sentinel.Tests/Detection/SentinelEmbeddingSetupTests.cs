@@ -127,4 +127,18 @@ public class SentinelEmbeddingSetupTests
             || (!string.IsNullOrEmpty(home) && directory.StartsWith(home, StringComparison.OrdinalIgnoreCase)),
             $"default cache directory '{directory}' is not under the user profile");
     }
+
+    [Theory]
+    [InlineData("https://user:pass@")]
+    [InlineData("ftp://user:pass@example.invalid/x")]
+    public void BadEndpoint_NamesTheVariable_WithoutEchoingTheValue(string endpoint)
+    {
+        var setup = SentinelEmbeddingSetup.TryCreateFromEnvironment(Env(
+            ("SENTINEL_EMBEDDING_ENDPOINT", endpoint),
+            ("SENTINEL_EMBEDDING_MODEL", "m")), out var error);
+
+        Assert.Null(setup);
+        Assert.Contains("SENTINEL_EMBEDDING_ENDPOINT", error, StringComparison.Ordinal);
+        Assert.DoesNotContain("pass", error, StringComparison.Ordinal);
+    }
 }

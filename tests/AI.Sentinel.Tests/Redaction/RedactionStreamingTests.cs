@@ -45,7 +45,7 @@ public class RedactionStreamingTests
     {
         var audit = new RingBufferAuditStore();
         options ??= new SentinelOptions();
-        var pipeline = new DetectionPipeline([detector ?? new PiiLeakageDetector()], configurations: null, escalationClient: null);
+        var pipeline = new DetectionPipeline([detector ?? new PiiLeakageDetector()], configurations: null, reviewer: null);
         return (new SentinelPipeline(model, pipeline, audit, new InterventionEngine(options, mediator: null), options), audit);
     }
 

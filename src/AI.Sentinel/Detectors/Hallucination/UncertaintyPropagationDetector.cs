@@ -11,6 +11,9 @@ public sealed class UncertaintyPropagationDetector(SentinelOptions options) : Se
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "A response that builds a firm conclusion on a hedged premise, so that uncertainty is dropped as the reasoning proceeds. A response that keeps its hedging through to the conclusion is not a hit.";
+
     // MediumSeverity/LowSeverity keep base defaults (Medium/Low)
 
     protected override string[] HighExamples => [];

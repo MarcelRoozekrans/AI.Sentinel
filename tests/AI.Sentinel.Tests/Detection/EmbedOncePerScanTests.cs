@@ -24,6 +24,7 @@ public class EmbedOncePerScanTests
         Regex? fastPath = null,
         SentinelOptions? options = null) : SemanticDetectorBase(options ?? new SentinelOptions())
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public override DetectorId Id => new(id);
         public override DetectorCategory Category => DetectorCategory.Security;
         protected override string[] HighExamples => high;
@@ -37,6 +38,7 @@ public class EmbedOncePerScanTests
 
     private sealed class LegacyBlankDetector(string[] high) : SemanticDetectorBase(new SentinelOptions())
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public override DetectorId Id => new("TST-LEGACY");
         public override DetectorCategory Category => DetectorCategory.Security;
         protected override string[] HighExamples => high;
@@ -58,12 +60,16 @@ public class EmbedOncePerScanTests
     private static ChatMessage User(string text) => new(ChatRole.User, text);
     private static ChatMessage Assistant(string text) => new(ChatRole.Assistant, text);
 
+    /// <summary>These tests are about embedding once per scan, not about the severity: the semantic cap is off.</summary>
+    private static readonly Dictionary<Type, DetectorConfiguration> Uncapped =
+        new() { [typeof(TestSemantic)] = new DetectorConfiguration { CapSemanticSeverity = false } };
+
     private static (DetectionPipeline Pipeline, ConcurrentQueue<string> Failures) Pipeline(
         IEnumerable<IDetector> detectors, YieldingEmbeddingGenerator gen, IEmbeddingCache? scanCache = null)
     {
         var failures = new ConcurrentQueue<string>();
         var pipeline = new DetectionPipeline(
-            detectors, configurations: null, escalationClient: null,
+            detectors, Uncapped, reviewer: null,
             onDetectorFailure: failures.Enqueue,
             embeddingScope: new EmbeddingScope(gen, scanCache ?? new InMemoryLruEmbeddingCache(), null));
         return (pipeline, failures);
@@ -247,7 +253,7 @@ public class EmbedOncePerScanTests
         var timingOut = new TestSemantic("TST-OPT", [FirstText], options: new SentinelOptions { EmbeddingGenerator = gen });
         var rule = new TestSemantic("TST-RULE", ["rule detector example phrase"], fastPath: new Regex("calm", RegexOptions.None, TimeSpan.FromSeconds(1)));
         var failures = new ConcurrentQueue<string>();
-        var pipeline = new DetectionPipeline([timingOut, rule], configurations: null, escalationClient: null, onDetectorFailure: failures.Enqueue);
+        var pipeline = new DetectionPipeline([timingOut, rule], configurations: null, reviewer: null, onDetectorFailure: failures.Enqueue);
 
         var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
 
@@ -340,7 +346,7 @@ public class EmbedOncePerScanTests
     {
         var gen = new YieldingEmbeddingGenerator();
         var detector = new TestSemantic("TST-OPT", [FirstText], options: new SentinelOptions { EmbeddingGenerator = gen });
-        var pipeline = new DetectionPipeline([detector], configurations: null, escalationClient: null);
+        var pipeline = new DetectionPipeline([detector], Uncapped, reviewer: null);
 
         var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
 

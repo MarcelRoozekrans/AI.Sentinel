@@ -11,6 +11,9 @@ public sealed class WaitingForContextDetector(SentinelOptions options) : Semanti
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Operational;
 
+    protected override string ReviewCriterion =>
+        "A reply that stalls by asking for more context, details or permission instead of making progress on a task it already had enough to start on. A targeted question that names exactly what is missing and why it blocks the work is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

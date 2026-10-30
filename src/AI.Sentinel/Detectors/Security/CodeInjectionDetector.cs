@@ -11,6 +11,9 @@ public sealed class CodeInjectionDetector(SentinelOptions options) : SemanticDet
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "Code or command text that exploits a system, such as SQL injection, shell injection, path traversal or malicious eval. Ordinary code, safe queries, and security training or documentation that explains these attacks are not hits.";
+
     protected override string[] HighExamples =>
     [
         "UNION SELECT password FROM admin table",

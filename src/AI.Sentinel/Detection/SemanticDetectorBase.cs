@@ -45,6 +45,9 @@ public abstract class SemanticDetectorBase : IDetector
     // and once nothing references a generator, the table releases its vectors.
     private readonly ConditionalWeakTable<IEmbeddingGenerator<string, Embedding<float>>, ExampleSlot> _exampleSlots = new();
     private readonly bool _overridesGetText;
+    // True when neither GetTextsToScore nor the legacy GetText is overridden: then each scored text comes from known
+    // messages, and a review candidate can carry the role of the message it came from.
+    private readonly bool _tracksRoles;
 
     protected SemanticDetectorBase(SentinelOptions options)
     {
@@ -59,6 +62,8 @@ public abstract class SemanticDetectorBase : IDetector
 #pragma warning disable SENTINEL001
         _overridesGetText = new Func<SentinelContext, string>(GetText).Method.DeclaringType != typeof(SemanticDetectorBase);
 #pragma warning restore SENTINEL001
+        _tracksRoles = !_overridesGetText
+            && new Func<SentinelContext, IEnumerable<string>>(GetTextsToScore).Method.DeclaringType == typeof(SemanticDetectorBase);
     }
 
     public abstract DetectorId Id { get; }
@@ -76,6 +81,15 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>Representative phrases that indicate a low-severity threat.</summary>
     protected abstract string[] LowExamples { get; }
 
+    /// <summary>What this detector looks for, in one or two plain sentences, for the pipeline's
+    /// <see cref="IDetectionReviewer"/>. State the intent that counts as a hit and name the closest legitimate
+    /// look-alike that does not. Do not use braces: leaving them out keeps the prompt and its JSON answer format
+    /// unambiguous.</summary>
+    protected abstract string ReviewCriterion { get; }
+
+    /// <summary>The review criterion, for the reviewer.</summary>
+    internal string Criterion => ReviewCriterion;
+
     /// <summary>Severity returned when the High bucket threshold is exceeded. Defaults to <see cref="Severity.High"/>.</summary>
     protected virtual Severity HighSeverity => Severity.High;
     /// <summary>Severity returned when the Medium bucket threshold is exceeded. Defaults to <see cref="Severity.Medium"/>.</summary>
@@ -86,6 +100,16 @@ public abstract class SemanticDetectorBase : IDetector
     protected virtual float HighThreshold => 0.90f;
     protected virtual float MediumThreshold => 0.82f;
     protected virtual float LowThreshold => 0.75f;
+
+    /// <summary>Similarity to any example set at or above which a text that reached no bucket is still a candidate for
+    /// a second-stage review. Defaults to <see cref="LowThreshold"/>.</summary>
+    protected virtual float ReviewThreshold => LowThreshold;
+
+    /// <summary>The review threshold <paramref name="configuration"/> sets, or this detector's built-in one.</summary>
+    internal float EffectiveReviewThreshold(DetectorConfiguration? configuration) => configuration?.ReviewThreshold ?? ReviewThreshold;
+
+    /// <summary>The highest severity any of this detector's buckets reports.</summary>
+    internal Severity MaximumBucketSeverity => Max(HighSeverity, Max(MediumSeverity, LowSeverity));
 
     /// <summary>The High threshold <paramref name="configuration"/> sets, or this detector's built-in one.</summary>
     internal float EffectiveHighThreshold(DetectorConfiguration? configuration) => configuration?.HighThreshold ?? HighThreshold;
@@ -103,6 +127,22 @@ public abstract class SemanticDetectorBase : IDetector
         {
             throw new InvalidOperationException(
                 $"AI.Sentinel: detector {GetType().Name} has MediumThreshold {medium} above HighThreshold {high}. Medium must not exceed High.");
+        }
+    }
+
+    /// <summary>Throws when <paramref name="configuration"/> sets a review threshold above the effective Medium
+    /// threshold, which only the instance knows when Medium is left unset.</summary>
+    /// <remarks>Only a configured review threshold is checked. A built-in one above the Medium threshold, such as the
+    /// default <see cref="LowThreshold"/> on a detector tuned to a low Medium threshold, only narrows its own band.</remarks>
+    internal void ThrowIfReviewAboveMedium(DetectorConfiguration? configuration)
+    {
+        if (configuration?.ReviewThreshold is not { } review) return;
+
+        var medium = EffectiveMediumThreshold(configuration);
+        if (review > medium)
+        {
+            throw new InvalidOperationException(
+                $"AI.Sentinel: detector {GetType().Name} has ReviewThreshold {review} above MediumThreshold {medium}. ReviewThreshold must not exceed Medium.");
         }
     }
 
@@ -124,6 +164,8 @@ public abstract class SemanticDetectorBase : IDetector
     internal Severity EvaluationMediumSeverity => MediumSeverity;
     /// <summary>The severity of the Low bucket, for the offline threshold evaluation.</summary>
     internal Severity EvaluationLowSeverity => LowSeverity;
+    /// <summary>The review threshold, for the offline threshold evaluation.</summary>
+    internal float EvaluationReviewThreshold => ReviewThreshold;
 
     /// <summary>High-precision pattern checked before any embedding call. A match returns
     /// <see cref="FastPathSeverity"/> immediately.</summary>
@@ -211,59 +253,109 @@ public abstract class SemanticDetectorBase : IDetector
         return newest.Role == ChatRole.User ? newest.Text ?? string.Empty : string.Empty;
     }
 
-    public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
-        AnalyzeAsync(ctx, configuration: null, ct);
+    public async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+        (await AnalyzeAsync(ctx, configuration: null, ct).ConfigureAwait(false)).Result;
 
-    /// <summary>Analyzes with the thresholds of the pipeline that runs this detector.</summary>
+    /// <summary>Analyzes with the thresholds of the pipeline that runs this detector, and reports the review
+    /// candidate next to the result.</summary>
     /// <remarks>One detector instance is shared by every named pipeline, so a pipeline's
-    /// <see cref="DetectorConfiguration.HighThreshold"/> and <see cref="DetectorConfiguration.MediumThreshold"/>
-    /// arrive with each call from <see cref="DetectionPipeline"/> instead of being stored on the detector.</remarks>
-    internal async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, DetectorConfiguration? configuration, CancellationToken ct)
+    /// <see cref="DetectorConfiguration.HighThreshold"/>, <see cref="DetectorConfiguration.MediumThreshold"/> and
+    /// <see cref="DetectorConfiguration.ReviewThreshold"/> arrive with each call from <see cref="DetectionPipeline"/>
+    /// instead of being stored on the detector.</remarks>
+    internal async ValueTask<SemanticOutcome> AnalyzeAsync(SentinelContext ctx, DetectorConfiguration? configuration, CancellationToken ct)
     {
-        if (EarlyResult(ctx) is { } early)
+        if (EarlyOutcome(ctx) is { } early)
             return early;
 
         if (_generator is null)
-            return DetectionResult.Clean(Id);
+            return CleanOutcome();
 
-        var texts = SelectTextsToScore(ctx);
+        var texts = SelectTexts(ctx, roles: null);
         if (texts.Count == 0)
-            return DetectionResult.Clean(Id);
+            return CleanOutcome();
 
         var examples = await GetExampleVectorsAsync(_generator, _exampleCache, ct).ConfigureAwait(false);
-
         var vectors = await GetEmbeddingsAsync(texts, ct).ConfigureAwait(false);
 
-        return Score(vectors, examples, configuration);
+        var (result, index, score) = Score(vectors, examples, configuration);
+        return new SemanticOutcome(
+            result, index < 0 ? null : new ReviewCandidate(texts[index], score, RoleOf(ctx, texts[index])), FromFastPath: false);
     }
 
-    /// <summary>Analyzes with the scope and the scan vectors of the pipeline that runs this detector.</summary>
+    /// <summary>Analyzes with the scope and the scan vectors of the pipeline that runs this detector, and reports the
+    /// review candidate next to the result.</summary>
     /// <remarks>The pipeline embedded the texts of every semantic detector in <paramref name="scan"/> once, so this
     /// overload never calls the generator for scan texts: it only awaits the example vectors of
     /// <paramref name="scope"/>'s generator. <paramref name="texts"/> is what <see cref="TextsToEmbed"/> returned for
     /// this scan, so an override of <see cref="GetTextsToScore"/> runs once and the texts scored are the texts
     /// embedded. A text that is not in <paramref name="scan"/> could not be embedded and is skipped; the pipeline has
     /// reported it.</remarks>
-    internal async ValueTask<DetectionResult> AnalyzeAsync(
+    internal async ValueTask<SemanticOutcome> AnalyzeAsync(
         SentinelContext ctx, DetectorConfiguration? configuration, EmbeddingScope scope, ScanEmbeddings scan,
         IReadOnlyList<string> texts, CancellationToken ct)
     {
-        if (EarlyResult(ctx) is { } early)
+        if (EarlyOutcome(ctx) is { } early)
             return early;
 
         if (texts.Count == 0)
-            return DetectionResult.Clean(Id);
+            return CleanOutcome();
 
         var examples = await GetExampleVectorsAsync(scope.Generator, scope.ExampleCache, ct).ConfigureAwait(false);
 
         var vectors = new List<ReadOnlyMemory<float>>(texts.Count);
+        var embeddedTexts = new List<string>(texts.Count);
         foreach (var text in texts)
         {
-            if (scan.TryGet(text, out var vector)) vectors.Add(vector);
+            if (!scan.TryGet(text, out var vector)) continue;
+
+            vectors.Add(vector);
+            embeddedTexts.Add(text);
         }
 
-        return Score(vectors, examples, configuration);
+        var (result, index, score) = Score(vectors, examples, configuration);
+        if (index < 0)
+            return new SemanticOutcome(result, Candidate: null, FromFastPath: false);
+
+        var candidateText = embeddedTexts[index];
+        return new SemanticOutcome(result, new ReviewCandidate(candidateText, score, RoleOf(ctx, candidateText)), FromFastPath: false);
     }
+
+    /// <summary>The role of the newest message that contributed <paramref name="text"/> to this scan's texts, or
+    /// <see langword="null"/> when this detector chooses its own texts.</summary>
+    /// <remarks>It runs only for a scan that has a candidate. With at most 16 new messages nothing is folded, so the
+    /// role is that of the newest message whose text, normalised, is <paramref name="text"/>: found from the newest
+    /// message back, usually at once. With more, the texts are selected again with their roles, which is safe: without
+    /// an override it calls no subclass code, and it gives the texts <see cref="TextsToEmbed"/> gave.</remarks>
+    private ChatRole? RoleOf(SentinelContext ctx, string text)
+    {
+        if (!_tracksRoles) return null;
+
+        if (ctx.Messages.Count - ctx.NewMessagesFrom <= MaxMessagesToScore)
+        {
+            for (var i = ctx.Messages.Count - 1; i >= ctx.NewMessagesFrom; i--)
+            {
+                var messageText = SentinelContext.MessageText(ctx.Messages[i]);
+                if (!string.IsNullOrWhiteSpace(messageText)
+                    && string.Equals(PlaceholderFormat.Normalise(messageText), text, StringComparison.Ordinal))
+                {
+                    return ctx.Messages[i].Role;
+                }
+            }
+
+            return null;
+        }
+
+        var roles = new List<Contribution>();
+        var texts = SelectTexts(ctx, roles);
+        for (var i = 0; i < texts.Count; i++)
+        {
+            if (string.Equals(texts[i], text, StringComparison.Ordinal)) return roles[i].Role;
+        }
+
+        return null;
+    }
+
+    private SemanticOutcome CleanOutcome() => new(DetectionResult.Clean(Id), Candidate: null, FromFastPath: false);
 
     /// <summary>The texts the pipeline embeds for this detector in a scan: those it will score, or none when a legacy
     /// <c>GetText</c> override returns blank.</summary>
@@ -274,20 +366,21 @@ public abstract class SemanticDetectorBase : IDetector
             return [];
 #pragma warning restore SENTINEL001
 
-        return SelectTextsToScore(ctx);
+        return SelectTexts(ctx, roles: null);
     }
 
     /// <summary>The result of the rule layer alone, or <see cref="DetectionResult.Clean"/>. For a scan whose example
     /// vectors could not be embedded: the rule layer needs none.</summary>
-    internal DetectionResult AnalyzeRuleLayer(SentinelContext ctx) => EarlyResult(ctx) ?? DetectionResult.Clean(Id);
+    internal DetectionResult AnalyzeRuleLayer(SentinelContext ctx) => EarlyOutcome(ctx)?.Result ?? DetectionResult.Clean(Id);
 
-    /// <summary>The result decided before any embedding: Clean for a legacy blank opt-out, or a rule match.</summary>
-    private DetectionResult? EarlyResult(SentinelContext ctx)
+    /// <summary>The outcome decided before any embedding: Clean for a legacy blank opt-out, or a rule match, which
+    /// has no review candidate.</summary>
+    private SemanticOutcome? EarlyOutcome(SentinelContext ctx)
     {
         // As in 3.0, a legacy GetText override that returns blank opts the scan out, before the rule layer runs.
 #pragma warning disable SENTINEL001
         if (_overridesGetText && string.IsNullOrWhiteSpace(GetText(ctx)))
-            return DetectionResult.Clean(Id);
+            return CleanOutcome();
 #pragma warning restore SENTINEL001
 
         // Rule layer first: it needs no generator, so it works in a default install, and it saves a
@@ -297,89 +390,194 @@ public abstract class SemanticDetectorBase : IDetector
             var match = pattern.Match(GetFastPathText(ctx));
             if (match.Success)
             {
-                return DetectionResult.WithSeverity(Id, FastPathSeverity, $"Rule match — '{Sanitise(match.Value)}'");
+                return new SemanticOutcome(
+                    DetectionResult.WithSeverity(Id, FastPathSeverity, $"Rule match — '{Sanitise(match.Value)}'"), Candidate: null, FromFastPath: true);
             }
         }
 
         return null;
     }
 
-    /// <summary>The most severe bucket any of <paramref name="vectors"/> reaches, or Clean.</summary>
-    private DetectionResult Score(IEnumerable<ReadOnlyMemory<float>> vectors, ExampleVectors examples, DetectorConfiguration? configuration)
+    /// <summary>The most severe bucket any of <paramref name="vectors"/> reaches, or Clean, with the index and score of
+    /// the review candidate, or -1 when there is none.</summary>
+    /// <remarks>The candidate is the first vector that reached the most severe bucket, scored by its similarity to that
+    /// bucket's examples. When no vector reached a bucket, it is the one most similar to any example set, if that
+    /// similarity reaches the review threshold. Stopping at the highest bucket severity is still exact: a vector there
+    /// is the candidate, and the below-bucket search is only needed when no vector reached a bucket.</remarks>
+    private (DetectionResult Result, int CandidateIndex, float CandidateScore) Score(
+        IReadOnlyList<ReadOnlyMemory<float>> vectors, ExampleVectors examples, DetectorConfiguration? configuration)
     {
         var highThreshold = EffectiveHighThreshold(configuration);
         var mediumThreshold = EffectiveMediumThreshold(configuration);
-        var ceiling = Max(HighSeverity, Max(MediumSeverity, LowSeverity));
+        var ceiling = MaximumBucketSeverity;
         var best = DetectionResult.Clean(Id);
-        foreach (var vector in vectors)
+        var bucketIndex = -1;
+        var bucketScore = 0f;
+        var bucketSeverity = Severity.None;
+        var nearestIndex = -1;
+        var nearestScore = 0f;
+        for (var i = 0; i < vectors.Count; i++)
         {
-            var result = Classify(vector.Span, examples, highThreshold, mediumThreshold);
-            if (result is not null && result.Severity > best.Severity)
+            var (result, score) = Classify(vectors[i].Span, examples, highThreshold, mediumThreshold);
+
+            // A bucket mapped to None reports nothing, so its text is a near miss like one that reached no bucket.
+            if (result is null || result.IsClean)
+            {
+                if (bucketIndex < 0 && score > nearestScore)
+                {
+                    nearestIndex = i;
+                    nearestScore = score;
+                }
+
+                continue;
+            }
+
+            if (bucketIndex < 0 || result.Severity > bucketSeverity)
+            {
+                bucketIndex = i;
+                bucketScore = score;
+                bucketSeverity = result.Severity;
+            }
+
+            if (result.Severity > best.Severity)
             {
                 best = result;
                 if (best.Severity == ceiling) break;
             }
         }
 
-        return best;
+        if (bucketIndex >= 0)
+            return (best, bucketIndex, bucketScore);
+
+        return nearestIndex >= 0 && nearestScore >= EffectiveReviewThreshold(configuration)
+            ? (best, nearestIndex, nearestScore)
+            : (best, -1, 0f);
     }
 
     private static Severity Max(Severity a, Severity b) => a >= b ? a : b;
 
-    /// <summary>The first bucket, High, then Medium, then Low, that <paramref name="vector"/> reaches, or
-    /// <see langword="null"/>.</summary>
-    private DetectionResult? Classify(ReadOnlySpan<float> vector, ExampleVectors examples, float highThreshold, float mediumThreshold)
+    /// <summary>The first bucket, High, then Medium, then Low, that <paramref name="vector"/> reaches, with its
+    /// similarity to that bucket's examples; or <see langword="null"/> with the best similarity to any example set.</summary>
+    private (DetectionResult? Result, float Score) Classify(ReadOnlySpan<float> vector, ExampleVectors examples, float highThreshold, float mediumThreshold)
     {
-        if (examples.High is { Length: > 0 } && MaxSimilarity(vector, examples.High) >= highThreshold)
-            return DetectionResult.WithSeverity(Id, HighSeverity, "Semantic match — high-severity threat pattern");
-        if (examples.Medium is { Length: > 0 } && MaxSimilarity(vector, examples.Medium) >= mediumThreshold)
-            return DetectionResult.WithSeverity(Id, MediumSeverity, "Semantic match — medium-severity threat pattern");
-        if (examples.Low is { Length: > 0 } && MaxSimilarity(vector, examples.Low) >= LowThreshold)
-            return DetectionResult.WithSeverity(Id, LowSeverity, "Semantic match — low-severity threat pattern");
+        var nearest = 0f;
+        if (examples.High is { Length: > 0 })
+        {
+            var similarity = MaxSimilarity(vector, examples.High);
+            if (similarity >= highThreshold)
+                return (DetectionResult.WithSeverity(Id, HighSeverity, "Semantic match — high-severity threat pattern"), similarity);
+            nearest = similarity;
+        }
 
-        return null;
+        if (examples.Medium is { Length: > 0 })
+        {
+            var similarity = MaxSimilarity(vector, examples.Medium);
+            if (similarity >= mediumThreshold)
+                return (DetectionResult.WithSeverity(Id, MediumSeverity, "Semantic match — medium-severity threat pattern"), similarity);
+            nearest = MathF.Max(nearest, similarity);
+        }
+
+        if (examples.Low is { Length: > 0 })
+        {
+            var similarity = MaxSimilarity(vector, examples.Low);
+            if (similarity >= LowThreshold)
+                return (DetectionResult.WithSeverity(Id, LowSeverity, "Semantic match — low-severity threat pattern"), similarity);
+            nearest = MathF.Max(nearest, similarity);
+        }
+
+        return (null, nearest);
     }
+
+    /// <summary>The role of the newest message that contributed a selected text, and the order of that contribution.</summary>
+    private readonly record struct Contribution(ChatRole? Role, int Order);
 
     /// <summary>The non-blank texts of <see cref="GetTextsToScore"/>, placeholders normalised, without duplicates,
     /// in order, at most 16. Past 16, the oldest are joined with a newline into the first text, so every text is
     /// still judged.</summary>
+    /// <param name="ctx">The scan.</param>
+    /// <param name="roles">Filled, when given, with each returned text's newest contributor: a duplicate takes the
+    /// later message's role, and the folded first text that of its newest contributor. Only meaningful without an
+    /// override of <see cref="GetTextsToScore"/> or <c>GetText</c>; with one, every role is <see langword="null"/>.
+    /// The scan path passes <see langword="null"/>, so it pays for no role tracking.</param>
     /// <remarks>Dropping the oldest instead would let a tool result hide an injection in its first block by
     /// following it with 16 benign ones.</remarks>
-    private List<string> SelectTextsToScore(SentinelContext ctx)
+    private List<string> SelectTexts(SentinelContext ctx, List<Contribution>? roles)
     {
-        // Blank texts and duplicates are dropped before the cap, so they do not cost a text its own slot.
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var texts = new List<string>();
-        foreach (var text in GetTextsToScore(ctx))
-        {
-            if (string.IsNullOrWhiteSpace(text)) continue;
+        ArgumentNullException.ThrowIfNull(ctx);
 
-            var normalised = PlaceholderFormat.Normalise(text);
-            if (seen.Add(normalised)) texts.Add(normalised);
+        // Blank texts and duplicates are dropped before the cap, so they do not cost a text its own slot.
+        var positions = new Dictionary<string, int>(StringComparer.Ordinal);
+        var texts = new List<string>();
+        var order = 0;
+
+        if (_tracksRoles)
+        {
+            // What the default GetTextsToScore yields, read straight from the messages so each one's role is at hand.
+            for (var i = ctx.NewMessagesFrom; i < ctx.Messages.Count; i++)
+            {
+                Add(SentinelContext.MessageText(ctx.Messages[i]), ctx.Messages[i].Role);
+            }
+        }
+        else
+        {
+            foreach (var text in GetTextsToScore(ctx)) Add(text, role: null);
         }
 
-        if (texts.Count <= MaxMessagesToScore)
-            return texts;
+        if (texts.Count > MaxMessagesToScore) Fold(texts, roles);
+        return texts;
 
-        // The oldest overflow plus the first kept text become one input, followed by the newest 15.
-        var folded = texts.Count - MaxMessagesToScore + 1;
-        var result = new List<string>(MaxMessagesToScore) { string.Join('\n', texts.GetRange(0, folded)) };
-        result.AddRange(texts.GetRange(folded, texts.Count - folded));
-        return result;
+        void Add(string text, ChatRole? role)
+        {
+            order++;
+            if (string.IsNullOrWhiteSpace(text)) return;
+
+            var normalised = PlaceholderFormat.Normalise(text);
+            if (positions.TryGetValue(normalised, out var position))
+            {
+                if (roles is not null) roles[position] = new Contribution(role, order);
+                return;
+            }
+
+            positions.Add(normalised, texts.Count);
+            texts.Add(normalised);
+            roles?.Add(new Contribution(role, order));
+        }
     }
 
-    /// <summary>Collapses whitespace and truncates matched text before it reaches a reason string.
-    /// The match is attacker-controlled and every whitespace class in these patterns spans newlines,
-    /// so an unsanitised value could forge extra lines in report output that prints one finding per
-    /// line.</summary>
-    private static string Sanitise(string value)
+    /// <summary>Joins the oldest overflow plus the first kept text of <paramref name="texts"/> into one input, followed
+    /// by the newest 15, and gives the joined text the role of its newest contributor in <paramref name="roles"/>.</summary>
+    private static void Fold(List<string> texts, List<Contribution>? roles)
     {
-        const int MaxLength = 120;
-        var collapsed = new System.Text.StringBuilder(Math.Min(value.Length, MaxLength));
+        var folded = texts.Count - MaxMessagesToScore + 1;
+        var joined = string.Join('\n', texts.GetRange(0, folded));
+        texts.RemoveRange(1, folded - 1);
+        texts[0] = joined;
+
+        if (roles is null) return;
+
+        var newestFolded = 0;
+        for (var i = 1; i < folded; i++)
+        {
+            if (roles[i].Order > roles[newestFolded].Order) newestFolded = i;
+        }
+
+        var contributor = roles[newestFolded];
+        roles.RemoveRange(1, folded - 1);
+        roles[0] = contributor;
+    }
+
+    /// <summary>Collapses whitespace and control characters and truncates text before it reaches a reason string.
+    /// A regex match or a reviewer's reason is attacker-influenced and can span newlines, so an unsanitised value
+    /// could forge extra lines in report output that prints one finding per line.</summary>
+    /// <param name="value">The text to sanitise.</param>
+    /// <param name="maxLength">The most characters kept.</param>
+    internal static string Sanitise(string value, int maxLength = 120)
+    {
+        var collapsed = new System.Text.StringBuilder(Math.Min(value.Length, maxLength));
         var lastWasSpace = false;
         foreach (var c in value)
         {
-            if (collapsed.Length >= MaxLength) break;
+            if (collapsed.Length >= maxLength) break;
 
             if (char.IsWhiteSpace(c) || char.IsControl(c))
             {

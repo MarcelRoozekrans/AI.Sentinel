@@ -13,7 +13,7 @@ A single `services.AddAISentinel(opts => ...)` call wires *one* `SentinelOptions
 
 - **Different actions per environment** — dev allows pass-through; prod quarantines
 - **Different detector tuning per endpoint** — strict for customer-facing chat, lenient for internal RAG
-- **Per-tier escalation policies** — paying tier gets LLM escalation, free tier doesn't
+- **Per-tier review policies** — paying tier gets a second-stage reviewer, free tier doesn't
 
 Named pipelines let you register multiple isolated configurations and select one at chat-client construction time.
 
@@ -164,21 +164,23 @@ services.AddChatClient("anthropic", b => b.UseAISentinel().Use(new AnthropicChat
 // Both share the default pipeline. Same detection, same intervention, same audit.
 ```
 
-### Per-tier (paying tier gets LLM escalation)
+### Per-tier (paying tier gets a second-stage reviewer)
 
 ```csharp
 services.AddAISentinel(opts => opts.EmbeddingGenerator = realGen);  // the free and paying tiers inherit this generator
 services.AddAISentinel("free", opts =>
 {
-    // No EscalationClient — LLM-escalation detectors no-op
+    // No Reviewer — semantic detections stay capped at Medium, and rule-based detectors are not re-classified
 });
 services.AddAISentinel("paying", opts =>
 {
-    opts.EscalationClient = upgradeClient;   // LLM second-pass classifier
+    opts.Reviewer = new LlmJudgeReviewer(upgradeClient);   // second-pass classifier; opts.EscalationClient = upgradeClient is the shorthand
 });
 
 services.AddChatClient("free-tier", b => b.UseAISentinel("free").Use(new ...));
 services.AddChatClient("paying-tier", b => b.UseAISentinel("paying").Use(new ...));
 ```
+
+A named pipeline reads its own `Reviewer`, `EscalationClient`, `MaxReviewsPerScan` and `ReviewTimeout`; none is inherited from the default pipeline. Setting both `Reviewer` and `EscalationClient` on one pipeline is rejected.
 
 ## Next: [Fluent per-detector config](./fluent-config) — disable / clamp individual detectors per pipeline

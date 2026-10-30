@@ -77,6 +77,8 @@ public static class ServiceCollectionExtensions
         RejectRedactOnNonRedactingDetectors(opts, nameof(configure));
         RejectInvalidTransparencyOptions(opts, nameof(configure));
         RejectInvalidThresholds(opts, nameof(configure));
+        RejectCapOnNonSemanticDetectors(opts, nameof(configure));
+        RejectInvalidReviewOptions(opts, nameof(configure));
 
         // Auto-register InMemoryApprovalStore if any binding has an ApprovalSpec and the user
         // hasn't registered an IApprovalStore yet. Keeps the happy path zero-config.
@@ -161,6 +163,28 @@ public static class ServiceCollectionExtensions
         }
     }
 
+    private static void RejectInvalidReviewOptions(SentinelOptions opts, string paramName)
+    {
+        if (opts.Reviewer is not null && opts.EscalationClient is not null)
+        {
+            throw new ArgumentException(
+                "AI.Sentinel: set either Reviewer or EscalationClient, not both. EscalationClient is shorthand for Reviewer = new LlmJudgeReviewer(client).",
+                paramName);
+        }
+        if (opts.MaxReviewsPerScan < 0)
+        {
+            throw new ArgumentException(
+                $"AI.Sentinel: SentinelOptions.MaxReviewsPerScan is {opts.MaxReviewsPerScan}. Use 0 to disable review or a positive number.",
+                paramName);
+        }
+        if (opts.ReviewTimeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                $"AI.Sentinel: SentinelOptions.ReviewTimeout is {opts.ReviewTimeout}. It must be greater than TimeSpan.Zero.",
+                paramName);
+        }
+    }
+
     private static void RejectRedactOnSeverityOptions(SentinelOptions opts)
     {
         foreach (var (option, action) in new[]
@@ -197,6 +221,21 @@ public static class ServiceCollectionExtensions
         }
     }
 
+    // The semantic cap acts on a semantic detector's embedding result; on any other detector it would silently do nothing.
+    private static void RejectCapOnNonSemanticDetectors(SentinelOptions opts, string paramName)
+    {
+        foreach (var (type, cfg) in opts.GetDetectorConfigurations())
+        {
+            if (cfg.CapSemanticSeverity is not null && !typeof(SemanticDetectorBase).IsAssignableFrom(type))
+            {
+                throw new ArgumentException(
+                    $"AI.Sentinel: detector {type.Name} is configured with CapSemanticSeverity but is not a semantic detector. " +
+                    "Only SemanticDetectorBase detectors have an embedding result to cap.",
+                    paramName);
+            }
+        }
+    }
+
     // Thresholds are honoured only by semantic detectors; on any other detector they would silently do nothing.
     // A threshold left unset takes the detector's built-in value, which only the instance knows, so a pair
     // that mixes the two is checked again by DetectionPipeline when it is built.
@@ -204,17 +243,17 @@ public static class ServiceCollectionExtensions
     {
         foreach (var (type, cfg) in opts.GetDetectorConfigurations())
         {
-            if (cfg.HighThreshold is null && cfg.MediumThreshold is null) continue;
+            if (cfg.HighThreshold is null && cfg.MediumThreshold is null && cfg.ReviewThreshold is null) continue;
 
             if (!typeof(SemanticDetectorBase).IsAssignableFrom(type))
             {
                 throw new ArgumentException(
-                    $"AI.Sentinel: detector {type.Name} is configured with a HighThreshold or MediumThreshold but is not a semantic detector. " +
+                    $"AI.Sentinel: detector {type.Name} is configured with a HighThreshold, MediumThreshold or ReviewThreshold but is not a semantic detector. " +
                     "Only SemanticDetectorBase detectors use similarity thresholds.",
                     paramName);
             }
 
-            foreach (var (name, value) in new[] { ("HighThreshold", cfg.HighThreshold), ("MediumThreshold", cfg.MediumThreshold) })
+            foreach (var (name, value) in new[] { ("HighThreshold", cfg.HighThreshold), ("MediumThreshold", cfg.MediumThreshold), ("ReviewThreshold", cfg.ReviewThreshold) })
             {
                 if (value is { } v && !(v > 0f && v <= 1f))
                 {
@@ -228,6 +267,13 @@ public static class ServiceCollectionExtensions
             {
                 throw new ArgumentException(
                     $"AI.Sentinel: detector {type.Name} has MediumThreshold {medium} above HighThreshold {high}. Medium must not exceed High.",
+                    paramName);
+            }
+
+            if (cfg.MediumThreshold is { } mediumSet && cfg.ReviewThreshold is { } review && review > mediumSet)
+            {
+                throw new ArgumentException(
+                    $"AI.Sentinel: detector {type.Name} has ReviewThreshold {review} above MediumThreshold {mediumSet}. ReviewThreshold must not exceed Medium.",
                     paramName);
             }
         }
@@ -256,11 +302,17 @@ public static class ServiceCollectionExtensions
             new DetectionPipeline(
                 sp.GetServices<IDetector>(),
                 opts.GetDetectorConfigurations(),
-                opts.EscalationClient,
+                EffectiveReviewer(opts),
                 sp.GetService<ILogger<DetectionPipeline>>(),
                 opts.OnDetectorFailure,
                 opts.RedactByDefault,
-                embeddingScope: embeddingScope));
+                embeddingScope: embeddingScope,
+                reviewLimits: new ReviewLimits(opts.MaxReviewsPerScan, opts.ReviewTimeout)));
+
+    /// <summary>The reviewer a pipeline uses: its own <see cref="SentinelOptions.Reviewer"/>, else the
+    /// <see cref="SentinelOptions.EscalationClient"/> shorthand. Named pipelines read their own options.</summary>
+    private static IDetectionReviewer? EffectiveReviewer(SentinelOptions opts) =>
+        opts.Reviewer ?? (opts.EscalationClient is { } client ? new LlmJudgeReviewer(client) : null);
 
     private static IToolCallGuard BuildToolCallGuard(IServiceCollection services, SentinelOptions opts, IServiceProvider sp)
     {
@@ -383,6 +435,7 @@ public static class ServiceCollectionExtensions
         {
             var opts = sp.GetRequiredService<SentinelOptions>();
             WarnIfSemanticDetectionInert(sp, opts, pipelineName: null);
+            WarnIfSemanticDetectionUnreviewed(sp, opts, pipelineName: null);
             return new SentinelChatClient(
                 inner,
                 sp.GetRequiredService<IDetectionPipeline>(),
@@ -416,6 +469,7 @@ public static class ServiceCollectionExtensions
         var pipeline = sp.GetRequiredKeyedService<IDetectionPipeline>(name);
         var engine = sp.GetRequiredKeyedService<InterventionEngine>(name);
         WarnIfSemanticDetectionInert(sp, opts, pipelineName: name);
+        WarnIfSemanticDetectionUnreviewed(sp, opts, pipelineName: name);
 
         return new SentinelPipeline(
             inner,
@@ -485,6 +539,94 @@ public static class ServiceCollectionExtensions
         return $"{scope}: EmbeddingGenerator is not configured — {count} semantic detectors return Clean on every scan. SEC-01 PromptInjection and SEC-05 Jailbreak still catch the unambiguous phrasings through their rule layer, but paraphrases go undetected. {hint}";
     }
 
+    /// <summary>Builds the "semantic detections are capped, nothing reviews them" warning, or <see langword="null"/>
+    /// when a reviewer is set, no generator resolves or no running semantic detector is capped.</summary>
+    private static string? UnreviewedSemanticWarning(SentinelOptions? opts, IServiceProvider sp, string? pipelineName)
+    {
+        var generator = pipelineName is null
+            ? opts?.EmbeddingGenerator
+            : opts?.EmbeddingGenerator ?? sp.GetService<SentinelOptions>()?.EmbeddingGenerator;
+        if (opts is null || generator is null || CanReview(opts))
+        {
+            return null;
+        }
+
+        var count = CountUnreviewedSemantic(opts, sp.GetServices<IDetector>());
+        return count == 0 ? null : UnreviewedSemanticMessage(count, pipelineName);
+    }
+
+    /// <summary>Whether a reviewer is set and allowed to run. <see cref="SentinelOptions.MaxReviewsPerScan"/> of 0 turns
+    /// the review off, so detections stay capped exactly as with no reviewer.</summary>
+    private static bool CanReview(SentinelOptions opts) => EffectiveReviewer(opts) is not null && opts.MaxReviewsPerScan > 0;
+
+    /// <summary>Semantic detectors this pipeline would run with the Medium cap on, whose severity the cap can lower.</summary>
+    private static int CountUnreviewedSemantic(SentinelOptions opts, IEnumerable<IDetector> detectors)
+    {
+        var configurations = opts.GetDetectorConfigurations();
+        return detectors.Count(d =>
+        {
+            var configuration = configurations.GetValueOrDefault(d.GetType());
+            return d is SemanticDetectorBase semantic
+                && DetectorConfiguration.IsEnabled(d, configuration)
+                && (configuration?.CapSemanticSeverity ?? true)
+                && SemanticCapCanLower(semantic, configuration);
+        });
+    }
+
+    /// <summary>Whether the semantic cap can lower a result of <paramref name="detector"/> under
+    /// <paramref name="configuration"/>. It cannot when the highest severity the detector can show, its highest bucket
+    /// raised to a configured floor and limited by a configured cap, is at or below the cap level: Medium, or the
+    /// floor when that is higher. A detector whose buckets reach Medium at most, or one capped below Medium, is
+    /// therefore not counted.</summary>
+    private static bool SemanticCapCanLower(SemanticDetectorBase detector, DetectorConfiguration? configuration)
+    {
+        var floor = configuration?.SeverityFloor ?? Severity.None;
+        var level = floor > Severity.Medium ? floor : Severity.Medium;
+        var highest = detector.MaximumBucketSeverity > floor ? detector.MaximumBucketSeverity : floor;
+        if (configuration?.SeverityCap is { } cap && highest > cap) highest = cap;
+        return highest > level;
+    }
+
+    private static string UnreviewedSemanticMessage(int count, string? pipelineName)
+    {
+        var scope = pipelineName is null ? "AI.Sentinel" : $"AI.Sentinel pipeline '{pipelineName}'";
+        return $"{scope}: {count} semantic detector(s) are capped at Medium because no reviewer is configured, or MaxReviewsPerScan is 0. Set SentinelOptions.Reviewer or EscalationClient, or SENTINEL_REVIEW_* for the CLI tools, to let a reviewer confirm High and Critical detections.";
+    }
+
+    private static void WarnIfSemanticDetectionUnreviewed(IServiceProvider sp, SentinelOptions? opts, string? pipelineName)
+    {
+        if (UnreviewedSemanticWarning(opts, sp, pipelineName) is not { } warning)
+        {
+            return;
+        }
+
+        sp.GetService<ILogger<SentinelPipeline>>()?.LogWarning("{SentinelWarning}", warning);
+    }
+
+    /// <summary>Returns a warning when semantic detections are capped at Medium and no reviewer can lift the cap,
+    /// or <see langword="null"/> otherwise. Hosts with an <see cref="ILogger"/> get this logged automatically
+    /// when the pipeline is built; hosts without one, such as the CLI tools, call this and write the result to stderr.</summary>
+    public static string? DescribeUnreviewedSemanticDetection(this IServiceProvider sp)
+    {
+        ArgumentNullException.ThrowIfNull(sp);
+        return UnreviewedSemanticWarning(sp.GetService<SentinelOptions>(), sp, pipelineName: null);
+    }
+
+    /// <summary>As <see cref="DescribeUnreviewedSemanticDetection(IServiceProvider)"/>, for hosts that compose
+    /// their detector set by hand instead of through DI.</summary>
+    public static string? DescribeUnreviewedSemanticDetection(SentinelOptions options, IEnumerable<IDetector> detectors)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(detectors);
+        if (options.EmbeddingGenerator is null || CanReview(options))
+        {
+            return null;
+        }
+
+        var count = CountUnreviewedSemantic(options, detectors);
+        return count == 0 ? null : UnreviewedSemanticMessage(count, pipelineName: null);
+    }
+
     private static void WarnIfSemanticDetectionInert(IServiceProvider sp, SentinelOptions? opts, string? pipelineName)
     {
         if (InertSemanticWarning(opts, sp, pipelineName) is not { } warning)
@@ -526,6 +668,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(innerClient);
         WarnIfSemanticDetectionInert(sp, sp.GetService<SentinelOptions>(), pipelineName: null);
+        WarnIfSemanticDetectionUnreviewed(sp, sp.GetService<SentinelOptions>(), pipelineName: null);
         return new SentinelPipeline(
             innerClient,
             sp.GetRequiredService<IDetectionPipeline>(),

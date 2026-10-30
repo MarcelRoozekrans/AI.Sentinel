@@ -57,6 +57,8 @@ dotnet add package AI.Sentinel.AspNetCore   # optional, for the dashboard
 
 ## Quick start
 
+> **Upgrading from 3.x?** 4.0 caps semantic detections at `Medium` until a reviewer confirms them, makes `ReviewCriterion` a required member for detector authors, and turns `EscalationClient` into shorthand for a reviewer that also judges semantic findings. See [Migrating to 4.0](https://marcelroozekrans.github.io/AI.Sentinel/docs/configuration/migrating-to-4).
+
 ```csharp
 // Program.cs
 builder.Services.AddAISentinel(opts =>
@@ -178,8 +180,8 @@ Detectors run in these modes:
 - **Rule-based** — fast regex or heuristic, always active, sub-microsecond per call
 - **Semantic ⚠️** — uses embedding cosine similarity via `EmbeddingGenerator`. Language-agnostic. **Returns `Clean` on every scan until an embedding generator is configured, on `opts.EmbeddingGenerator` or in DI.** The ⚠️ marks a detector that is inactive in a default install. Since 3.1 each message that is new in a scan is scored on its own, and the most severe match decides; see [How semantic detectors score](https://marcelroozekrans.github.io/AI.Sentinel/docs/detectors/overview#how-semantic-detectors-score).
 - **Rule + Semantic ⚠️** — a high-precision rule layer runs first and always, so the unambiguous phrasings are caught with no generator; anything needing context falls through to the semantic path. The ⚠️ applies to that second half only.
-- **LLM escalation** — not a detector type but a second pass: when `opts.EscalationClient` is set, a finding already at `Medium` or above is re-classified by an LLM. It upgrades or downgrades existing findings; it cannot create one.
-- **Stub** — a placeholder with no implementation; always returns `Clean`. Setting `opts.EscalationClient` does **not** activate it, because escalation only re-classifies findings a detector has already produced.
+- **Second-stage review** — not a detector type but a second pass over a detector's finding. Set `opts.Reviewer` (an `IDetectionReviewer`), or `opts.EscalationClient` as shorthand for `opts.Reviewer = new LlmJudgeReviewer(client)`; setting both is rejected at `AddAISentinel`. A reviewer can confirm, raise, lower or clear a finding. A finding at `Medium` or above from a rule-based detector that implements `ILlmEscalatingDetector` is reviewed: `SEC-02` CredentialExposure, `SEC-08` EntropyCovertChannel, `SEC-19` ToolCallFrequency, `SEC-23` PiiLeakage and `SEC-32` SystemPromptEcho. Other rule-based detectors are not reviewed. A semantic detector's embedding hit is reviewed too, and so is a text that reaches no bucket but scores at or above its `ReviewThreshold` (default: its Low threshold), so a reviewer can create a `Medium` finding the embeddings alone missed. Until a reviewer confirms it, an embedding hit on a semantic detector is capped at `Medium`, raised to the detector's `SeverityFloor` when one is set. Fast-path regex matches are never capped. `opts.Configure<T>(c => c.CapSemanticSeverity = false)` opts a detector out of the cap; it is still reviewed, and a verdict can lower or clear its finding. A reviewed finding keeps the detector's reason and adds the outcome and the reviewer's reason, such as `Semantic match — high-severity threat pattern — Reviewed: confirmed — <reason>`. Per scan, `opts.MaxReviewsPerScan` (default 4; 0 disables review) limits how many reviews start, and `opts.ReviewTimeout` (default 5 seconds) limits each one; a finding that is not reviewed keeps its capped result. AI.Sentinel warns at startup when a generator is configured, semantic detectors are capped and no reviewer is set.
+- **Stub** — a placeholder with no implementation; always returns `Clean`. Setting `opts.Reviewer` or `opts.EscalationClient` does **not** activate it, because a reviewer only judges findings a detector has already produced.
 
 > **Semantic detection is off in a default install.** `AddAISentinel()` does not configure an `EmbeddingGenerator`, so the 43 detectors marked `Semantic ⚠️` return `Clean` on every scan. `SEC‑01 PromptInjection` and `SEC‑05 Jailbreak`, the OWASP LLM01 controls, are the exception: their rule layer catches the unambiguous phrasings regardless, and only paraphrases need a generator. Set `opts.EmbeddingGenerator`, or register an `IEmbeddingGenerator<string, Embedding<float>>` in DI with `services.AddEmbeddingGenerator(...)`, to turn it on; AI.Sentinel warns at startup when both are missing. See [Embedding generator from DI](#embedding-generator-from-di). The CLIs and the MCP proxy take `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL` — see [Enabling semantic detection in the CLIs](#enabling-semantic-detection-in-the-clis).
 
@@ -267,7 +269,7 @@ Requests to use the model for a practice Art. 5 of the [EU AI Act](#eu-ai-act-co
 
 > **Semantic detectors** are no-ops until an embedding generator is configured, on `opts.EmbeddingGenerator` or registered in DI. They use embedding cosine similarity and are language-agnostic — no LLM round-trip required.
 
-> **LLM escalation** re-classifies findings that are already `Medium` or above; set `opts.EscalationClient` to a cheap fast model (e.g. GPT-4o-mini) to enable it. It cannot make a `Stub` detector fire — a stub returns `Clean`, so there is nothing to escalate.
+> **Second-stage review** confirms, raises, lowers or clears findings, and lifts the `Medium` cap on semantic detections; set `opts.Reviewer`, or `opts.EscalationClient` to a cheap fast model (e.g. GPT-4o-mini) as shorthand. Without a reviewer, semantic embedding hits stay capped at `Medium`. It cannot make a `Stub` detector fire — a stub returns `Clean`, so there is nothing to review.
 
 > **Streaming**: `GetStreamingResponseAsync` buffers the complete response before yielding tokens so the response scan can quarantine before any token reaches the application. Time-to-first-token equals full model response latency on this path.
 
@@ -933,6 +935,13 @@ Both adapters share the same env-var contract — configure once, applies to bot
 | `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |
 | `SENTINEL_EMBEDDING_DIMENSIONS` | — | Vector length, when the model allows a choice |
 | `SENTINEL_EMBEDDING_CACHE_DIR` | per-user cache dir | Where reference vectors are cached. Must not be world-writable — see below |
+| `SENTINEL_REVIEW_ENDPOINT` | — | Full chat completions URL of the second-stage reviewer, e.g. `https://api.openai.com/v1/chat/completions` or `http://localhost:11434/v1/chat/completions`. Without a reviewer, semantic detections are capped at Medium and only warn |
+| `SENTINEL_REVIEW_MODEL` | — | Model identifier of the reviewer. Required with the endpoint |
+| `SENTINEL_REVIEW_API_KEY` | — | Bearer token. Omit for local servers that need none |
+| `SENTINEL_REVIEW_MAX_PER_SCAN` | `4` | Reviews per scan. `0` turns the review off |
+| `SENTINEL_REVIEW_TIMEOUT_MS` | `3000 for the hooks, 5000 otherwise` | Per-review timeout in milliseconds |
+
+**What the review endpoint receives.** `SENTINEL_REVIEW_ENDPOINT` is sent each flagged text, up to its last 64 KiB. That text can contain the secret or personal data a credential or PII detector flagged, just as the embedding endpoint receives the texts it embeds, so choose a provider you would trust with that data, or a local one. The reviewer's reason comes back the other way: it becomes part of the finding's reason, which a hook's block or warning text, or the MCP proxy's block error, passes on to the model. It is sanitised to one line and capped at 200 characters.
 
 ### Enabling semantic detection in the CLIs
 

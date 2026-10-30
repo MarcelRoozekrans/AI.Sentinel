@@ -11,6 +11,9 @@ public sealed class CrossAgentContradictionDetector(SentinelOptions options) : S
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "Two agents in the same session giving conflicting facts, figures or conclusions about the same thing, stated as a contradiction. Agents that merely take different approaches, or a later answer that openly corrects an earlier one, are not hits.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

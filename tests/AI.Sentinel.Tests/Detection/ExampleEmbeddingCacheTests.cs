@@ -39,6 +39,7 @@ public class ExampleEmbeddingCacheTests
 
     private sealed class ProbeDetector(SentinelOptions options) : SemanticDetectorBase(options)
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public static readonly string[] Phrases = ["first probe phrase", "second probe phrase"];
         public override DetectorId Id => new("TST-01");
         public override DetectorCategory Category => DetectorCategory.Security;

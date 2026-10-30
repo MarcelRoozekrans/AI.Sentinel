@@ -165,7 +165,7 @@ public class DetectorOptInAndThresholdTests
         // Medium comes down with it, since Medium may not exceed High.
         Assert.Empty(await FiredIds(Pipeline(ProbeDetector.Probe60, cfg: null), ProbeDetector.Probe60));
 
-        var fired = await Pipeline(ProbeDetector.Probe60, new DetectorConfiguration { HighThreshold = 0.5f, MediumThreshold = 0.5f })
+        var fired = await Pipeline(ProbeDetector.Probe60, new DetectorConfiguration { HighThreshold = 0.5f, MediumThreshold = 0.5f, CapSemanticSeverity = false })
             .RunAsync(Ctx(ProbeDetector.Probe60), TestContext.Current.CancellationToken);
 
         Assert.Equal(Severity.High, Assert.Single(fired.Detections).Severity);
@@ -189,7 +189,7 @@ public class DetectorOptInAndThresholdTests
         var configurations = cfg is null
             ? null
             : new Dictionary<Type, DetectorConfiguration> { [typeof(ProbeDetector)] = cfg };
-        return new DetectionPipeline([detector], configurations, escalationClient: null);
+        return new DetectionPipeline([detector], configurations, reviewer: null);
     }
 
     [Fact]
@@ -308,9 +308,79 @@ public class DetectorOptInAndThresholdTests
         Assert.Contains("MediumThreshold", ex.Message, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(-0.1f)]
+    [InlineData(1.01f)]
+    [InlineData(float.NaN)]
+    public void ReviewThreshold_OutOfRange_Throws(float review)
+    {
+        var ex = Assert.Throws<ArgumentException>(() => new ServiceCollection().AddAISentinel(o =>
+            o.Configure<SocialScoringDetector>(c => c.ReviewThreshold = review)));
+
+        Assert.Contains("SocialScoringDetector", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ReviewThreshold", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReviewThreshold_AboveMedium_Throws()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => new ServiceCollection().AddAISentinel(o =>
+            o.Configure<SocialScoringDetector>(c =>
+            {
+                c.MediumThreshold = 0.4f;
+                c.ReviewThreshold = 0.5f;
+            })));
+
+        Assert.Contains("above MediumThreshold", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ReviewThreshold", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReviewThreshold_AboveTheBuiltInMedium_ThrowsWhenThePipelineIsBuilt()
+    {
+        // Only ReviewThreshold is set, so AddAISentinel cannot compare it with the built-in Medium (0.42 for CMP-01).
+        var provider = new ServiceCollection()
+            .AddAISentinel(o => o.Configure<SocialScoringDetector>(c =>
+            {
+                c.Enabled = true;
+                c.ReviewThreshold = 0.6f;
+            }))
+            .BuildServiceProvider();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => provider.GetRequiredService<IDetectionPipeline>());
+        Assert.Contains("above MediumThreshold", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ReviewThreshold", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReviewThreshold_AtOrBelowMedium_IsAccepted()
+    {
+        using var provider = new ServiceCollection()
+            .AddAISentinel(o => o.Configure<SocialScoringDetector>(c =>
+            {
+                c.Enabled = true;
+                c.ReviewThreshold = 0.42f;
+            }))
+            .BuildServiceProvider();
+
+        Assert.NotNull(provider.GetRequiredService<IDetectionPipeline>());
+    }
+
+    [Fact]
+    public void ReviewThreshold_OnNonSemanticDetector_Throws()
+    {
+        var ex = Assert.Throws<ArgumentException>(() => new ServiceCollection().AddAISentinel(o =>
+            o.Configure<CredentialExposureDetector>(c => c.ReviewThreshold = 0.5f)));
+
+        Assert.Contains("not a semantic detector", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ReviewThreshold", ex.Message, StringComparison.Ordinal);
+    }
+
     /// <summary>A semantic detector with one High and one Medium example, for controlled similarities.</summary>
     public sealed class ProbeDetector(SentinelOptions options) : SemanticDetectorBase(options)
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public const string HighExample = "high-example";
         public const string MediumExample = "medium-example";
         public const string Probe60 = "probe-0.6-high";

@@ -29,7 +29,7 @@ public class SentinelPipelineInstructionsTests
     private static SentinelPipeline Build(IDetector[] detectors, bool redactByDefault = true)
     {
         var opts = new SentinelOptions { RedactByDefault = redactByDefault };
-        var pipeline = new DetectionPipeline(detectors, configurations: null, escalationClient: null, redactByDefault: redactByDefault);
+        var pipeline = new DetectionPipeline(detectors, configurations: null, reviewer: null, redactByDefault: redactByDefault);
         return new SentinelPipeline(new RecordingClient(), pipeline, new RingBufferAuditStore(100), new InterventionEngine(opts, null), opts);
     }
 

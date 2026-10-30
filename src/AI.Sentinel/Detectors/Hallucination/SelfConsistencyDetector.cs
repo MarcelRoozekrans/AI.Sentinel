@@ -11,6 +11,9 @@ public sealed class SelfConsistencyDetector(SentinelOptions options) : SemanticD
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "A response whose figures contradict a statement made just before it, in the same answer or the immediately preceding reply, such as a quantity restated at a wildly different size. Figures about different things, an openly stated correction, or a contradiction with the distant past of the session are not hits.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples => [];
     protected override string[] LowExamples =>

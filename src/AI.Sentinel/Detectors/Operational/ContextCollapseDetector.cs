@@ -11,6 +11,9 @@ public sealed class ContextCollapseDetector(SentinelOptions options) : SemanticD
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Operational;
 
+    protected override string ReviewCriterion =>
+        "A response in which the AI says it has lost or cannot access earlier parts of the conversation. A limitation the user is told about up front, or a request to restate something, is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

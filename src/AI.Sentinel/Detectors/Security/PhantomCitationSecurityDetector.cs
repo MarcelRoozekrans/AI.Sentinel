@@ -11,6 +11,9 @@ public sealed class PhantomCitationSecurityDetector(SentinelOptions options) : S
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "A claim to authority from a cited document, policy or standard that does not exist or is fabricated, used to justify bypassing restrictions. A real, verifiable reference, or discussion of fake citations, is not a hit.";
+
     protected override Severity HighSeverity => Severity.Critical;
     protected override Severity MediumSeverity => Severity.High;
     protected override Severity LowSeverity => Severity.Medium;

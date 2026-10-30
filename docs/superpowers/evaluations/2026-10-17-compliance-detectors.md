@@ -123,6 +123,20 @@ The highest any positive scores against any of its detector's sets is 0.571, 0.6
 
 **Decision.** No benign text reaches any bucket on either model, so no security threshold changes in 3.1. None of the 18 positives reaches a bucket either: the semantic layer of these detectors catches near-verbatim matches, not paraphrases. That is not a threshold fix on its own, since on MiniLM a benign text about how attackers hide instructions in documents scores 0.604 against SEC-09's High set, above every SEC-09 positive. It is tracked in [#432](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/432): refine the examples and grow the labelled set, then set the thresholds from the same rule.
 
+## 4.0 second-stage review
+
+From 4.0 a semantic detector's embedding result is capped at Medium unless a reviewer confirms it, so the tool also reports what that costs and what a judge wins back. For each detector it scores the held-out phrases through an internal `DetectionPipeline` over that one detector, in three configurations:
+
+1. **Embeddings alone, uncapped.** `CapSemanticSeverity = false`, no reviewer: the behaviour before 4.0, and the one the tool's exit code still guards through the direct `AnalyzeAsync` path.
+2. **Embeddings capped at Medium.** The 4.0 default without a reviewer.
+3. **Embeddings plus judge.** The default cap, and an `LlmJudgeReviewer` on a Claude model through `ANTHROPIC_API_KEY`. The model is set with `--judge-model`, default `claude-sonnet-5-5`. Without a key the judge row is skipped and the report says "Judge columns skipped: ANTHROPIC_API_KEY not set."
+
+Each row gives positives and benign texts at High or above and at Medium or above, p50 and p95 added milliseconds (wall time of configuration 3 minus configuration 2 for the same phrase; embeddings are cached by configurations 1 and 2, so this is review latency only, not cold-scan latency), reviews per scan, and the share of review candidates over the per-scan budget. Reviews per scan excludes failed and timed-out reviews; configuration 3's outcome counts are printed beneath its row, and any failure prints a warning that the judge columns are not valid. A legitimate request that reaches High in configuration 3 is listed in the report but never fails the run, because judge output is not deterministic.
+
+**The split.** Every phrase carries `split`, `fit` or `heldout`. Examples, thresholds and `ReviewThreshold` are tuned on `fit` only; `heldout` phrases are scored and reported, never used for a tuning decision. The held-out tables only mean something when no tuning has seen the phrases.
+
+**Today the held-out tables are empty.** Every existing phrase is `fit`, so this change adds the mechanism and the report, and the tool prints "No held-out phrases yet" instead of numbers. [#432](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/432) and [#433](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/433) add the held-out phrases for the security and compliance detectors; the numbers belong here once they land.
+
 ## Limits
 
 - 17 positives and 52 legitimate requests are a small sample. The margins in the rule are there for that reason, but the blind near-misses showed that the 3.0 margins did not hold on unseen requests. They do not prove the false-positive rate on real traffic.

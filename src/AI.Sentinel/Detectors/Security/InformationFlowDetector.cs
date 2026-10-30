@@ -11,6 +11,9 @@ public sealed class InformationFlowDetector(SentinelOptions options) : SemanticD
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "An instruction to move confidential or restricted data across a security boundary, from a trusted context to an untrusted one. Sharing data that the policy allows, or discussing information flow control, is not a hit.";
+
     protected override Severity HighSeverity => Severity.Critical;
     protected override Severity MediumSeverity => Severity.High;
     protected override Severity LowSeverity => Severity.Medium;

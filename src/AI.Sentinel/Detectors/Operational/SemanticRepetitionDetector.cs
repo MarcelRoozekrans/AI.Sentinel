@@ -11,6 +11,9 @@ public sealed class SemanticRepetitionDetector(SentinelOptions options) : Semant
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Operational;
 
+    protected override string ReviewCriterion =>
+        "A response that repeats content already given earlier in the conversation, or says it is repeating itself. A summary the user asked for, a deliberate recap, or a short reference back to an earlier point is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

@@ -11,6 +11,9 @@ public sealed class PhantomCitationDetector(SentinelOptions options) : SemanticD
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "A reference to a paper, DOI, link or study that appears fabricated, or a vague attribution to unnamed research that gives nothing to verify. A real, checkable citation is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [
