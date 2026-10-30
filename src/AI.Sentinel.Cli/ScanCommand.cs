@@ -33,12 +33,10 @@ public static class ScanCommand
         {
             Description = "Minimum required max severity.",
         };
-        var baselineOpt = new Option<string?>("--baseline")
-        {
-            Description = "Path to a prior ReplayResult JSON for regression comparison.",
-        };
+        var baselineOpt = BaselineOption();
 
         var complianceOpt = ComplianceOption();
+        var maxScanBytesOpt = MaxScanBytesOption();
         var cmd = new Command("scan", "Run the AI.Sentinel detector pipeline against a saved conversation.")
         {
             fileArg,
@@ -48,6 +46,7 @@ public static class ScanCommand
             minSevOpt,
             baselineOpt,
             complianceOpt,
+            maxScanBytesOpt,
         };
 
         cmd.SetAction(async (parseResult, ct) =>
@@ -58,22 +57,43 @@ public static class ScanCommand
             var expected = parseResult.GetValue(expectOpt) ?? [];
             var minSev = parseResult.GetValue(minSevOpt);
             var baseline = parseResult.GetValue(baselineOpt);
-            var compliance = parseResult.GetValue(complianceOpt);
 
             var stdout = parseResult.InvocationConfiguration.Output;
             var stderr = parseResult.InvocationConfiguration.Error;
 
             return await RunAsync(file, format, output, stdout, stderr, ct,
-                expected, minSev, baseline, enableComplianceDetectors: compliance).ConfigureAwait(false);
+                expected, minSev, baseline, enableComplianceDetectors: parseResult.GetValue(complianceOpt),
+                maxScanBytes: parseResult.GetValue(maxScanBytesOpt)).ConfigureAwait(false);
         });
 
         return cmd;
     }
 
+    private static Option<string?> BaselineOption() => new("--baseline")
+    {
+        Description = "Path to a prior ReplayResult JSON for regression comparison.",
+    };
+
     private static Option<bool> ComplianceOption() => new("--compliance")
     {
         Description = "Also run the opt-in Art. 5 compliance detectors CMP-01 to CMP-04. SENTINEL_HOOK_COMPLIANCE=on does the same.",
     };
+
+    /// <summary><c>--max-scan-bytes</c>: the scan budget of each turn, <see cref="SentinelOptions.MaxScanBytes"/>. A turn
+    /// whose new content is larger is reported as <c>SEC-00</c>, as the hooks and the MCP proxy report it.</summary>
+    private static Option<int?> MaxScanBytesOption()
+    {
+        var option = new Option<int?>("--max-scan-bytes")
+        {
+            Description = "The most UTF-8 bytes of new content scanned per turn; larger content is reported as SEC-00. Default: 262144.",
+        };
+        option.Validators.Add(result =>
+        {
+            if (result.GetValueOrDefault<int?>() is <= 0)
+                result.AddError("--max-scan-bytes must be a positive number of bytes.");
+        });
+        return option;
+    }
 
     public static async Task<int> RunAsync(
         string file,
@@ -87,7 +107,8 @@ public static class ScanCommand
         string? baselinePath = null,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
         bool enableComplianceDetectors = false,
-        IDetectionReviewer? reviewer = null)
+        IDetectionReviewer? reviewer = null,
+        int? maxScanBytes = null)
     {
         ArgumentNullException.ThrowIfNull(stdout);
         ArgumentNullException.ThrowIfNull(stderr);
@@ -106,7 +127,7 @@ public static class ScanCommand
                 replayClient, embeddingGenerator ?? embeddings?.Generator, embeddings?.ExampleCache,
                 message => stderr.WriteLine(message),
                 enableComplianceDetectors || ComplianceFromEnvironment(),
-                reviewer ?? review?.Reviewer, review?.MaxReviewsPerScan, review?.ReviewTimeout);
+                reviewer ?? review?.Reviewer, review?.MaxReviewsPerScan, review?.ReviewTimeout, maxScanBytes);
             await using var _ = provider.ConfigureAwait(false);
 
             // No logging provider is registered here, so the library's ILogger warning reaches nobody.

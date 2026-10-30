@@ -20,6 +20,8 @@ public static class ForensicsPipelineFactory
     /// <param name="reviewer">Second-stage reviewer. Without one a semantic detection is capped at Medium.</param>
     /// <param name="maxReviewsPerScan">Reviews per scan; the library default when <see langword="null"/>.</param>
     /// <param name="reviewTimeout">Per-review timeout; the library default of 5 s when <see langword="null"/>.</param>
+    /// <param name="maxScanBytes">The scan budget, <see cref="SentinelOptions.MaxScanBytes"/>; the library default of
+    /// 262144 bytes when <see langword="null"/>.</param>
     /// <returns>The provider (for disposal) and the pipeline.</returns>
     public static (ServiceProvider Provider, SentinelPipeline Pipeline) Build(
         IChatClient innerClient,
@@ -29,7 +31,8 @@ public static class ForensicsPipelineFactory
         bool enableComplianceDetectors = false,
         IDetectionReviewer? reviewer = null,
         int? maxReviewsPerScan = null,
-        TimeSpan? reviewTimeout = null)
+        TimeSpan? reviewTimeout = null,
+        int? maxScanBytes = null)
     {
         ArgumentNullException.ThrowIfNull(innerClient);
 
@@ -46,6 +49,7 @@ public static class ForensicsPipelineFactory
             opts.Reviewer = reviewer;
             if (maxReviewsPerScan is { } max) opts.MaxReviewsPerScan = max;
             if (reviewTimeout is { } timeout) opts.ReviewTimeout = timeout;
+            if (maxScanBytes is { } budget) opts.MaxScanBytes = budget;
             // The Art. 5 compliance detectors are opt-in, so a scan runs them only when asked to.
             if (enableComplianceDetectors)
                 opts.EnableComplianceDetectors();
