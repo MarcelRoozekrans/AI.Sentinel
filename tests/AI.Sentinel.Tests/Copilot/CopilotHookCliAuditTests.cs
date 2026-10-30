@@ -28,7 +28,7 @@ public class CopilotHookCliAuditTests : IDisposable
     private static async Task<(int Exit, string Stderr)> RunAsync(string json)
     {
         var stderr = new StringWriter();
-        var exit = await Program.RunAsync([Event], new StringReader(json), new StringWriter(), stderr, new FakeEmbeddingGenerator());
+        var exit = await Program.RunAsync([Event], new StringReader(json), new StringWriter(), stderr, DetectorExamples.Embedder());
         return (exit, stderr.ToString());
     }
 
@@ -152,7 +152,7 @@ public class CopilotHookCliAuditTests : IDisposable
 
         var stdout = new StringWriter();
         var stderr = new StringWriter();
-        var exit = await Program.RunAsync(["post-tool-use"], new StringReader(json), stdout, stderr, new FakeEmbeddingGenerator());
+        var exit = await Program.RunAsync(["post-tool-use"], new StringReader(json), stdout, stderr, DetectorExamples.Embedder());
 
         Assert.Equal(0, exit);
         var (entries, intact) = await HookAuditTestSupport.ReadAsync(db);

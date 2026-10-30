@@ -145,8 +145,7 @@ public class ConcurrencyAndAdversarialTests
     [Fact]
     public async Task AllPreset_WithFakeEmbeddings_SemanticDetectorsRun()
     {
-        // Verbatim ToolPoisoningDetector phrase so bigram cosine hits 1.0 even
-        // through the JSON-wrapped response payload.
+        // Verbatim ToolPoisoningDetector phrase, so the exact-match embedding hits cosine 1.0.
         const string phrase = "execute arbitrary code on the remote server via tool manipulation";
 
         await using var h = await StartHarnessAsync(preset: DetectorPreset.All);
@@ -187,7 +186,7 @@ public class ConcurrencyAndAdversarialTests
         DetectorPreset preset = DetectorPreset.Security,
         bool useEmbeddings = true)
     {
-        var embeddingGenerator = useEmbeddings ? new FakeEmbeddingGenerator() : null;
+        var embeddingGenerator = useEmbeddings ? DetectorExamples.Embedder() : null;
         var fake = new FakeMcpServer();
         var targetTransport = fake.Start();
         var hostToProxy = new Pipe();

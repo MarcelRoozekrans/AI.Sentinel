@@ -8,7 +8,9 @@ namespace AI.Sentinel.Tests.Helpers;
 /// exactly one detector to fire: <see cref="FakeEmbeddingGenerator"/> scores two-character fragments,
 /// and long English sentences look alike under it, so a single prompt fires dozens of detectors.
 /// </summary>
-public sealed class ExactMatchEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
+/// <param name="recognised">Texts that are also recognised inside a larger text: a text that contains one embeds as
+/// that text, so an example wrapped in a tool result or followed by other content still matches it exactly.</param>
+public sealed class ExactMatchEmbeddingGenerator(params string[] recognised) : IEmbeddingGenerator<string, Embedding<float>>
 {
     private const int Dimensions = 1 << 16;
 
@@ -23,8 +25,17 @@ public sealed class ExactMatchEmbeddingGenerator : IEmbeddingGenerator<string, E
         return Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(embeddings));
     }
 
-    private static float[] Embed(string text)
+    private float[] Embed(string text)
     {
+        foreach (var known in recognised)
+        {
+            if (text.Contains(known, StringComparison.Ordinal))
+            {
+                text = known;
+                break;
+            }
+        }
+
         // FNV-1a, so the slot is stable across processes, unlike string.GetHashCode.
         var hash = 2166136261u;
         foreach (var c in text)
