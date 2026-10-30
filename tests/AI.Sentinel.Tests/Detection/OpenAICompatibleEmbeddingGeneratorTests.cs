@@ -191,4 +191,50 @@ public class OpenAICompatibleEmbeddingGeneratorTests
 
         Assert.Contains("dimension", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task GenerateAsync_ErrorStatus_NeverEchoesTheBody()
+    {
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized)
+        {
+            Content = new StringContent("""{"error":"Incorrect API key: sk-secret"}""", Encoding.UTF8, "application/json"),
+        });
+        using var client = new HttpClient(handler);
+        using var generator = new OpenAICompatibleEmbeddingGenerator(
+            client, new Uri("https://example.invalid/v1/embeddings"), "m", apiKey: null);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await generator.GenerateAsync(["x"], null, TestContext.Current.CancellationToken));
+
+        Assert.DoesNotContain("sk-secret", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("https://example.invalid/v1/embeddings?api-key=abc", "abc")]
+    [InlineData("https://user:pass@example.invalid/v1/embeddings", "pass")]
+    public async Task Messages_NeverContainQueryOrUserInfo(string endpoint, string secret)
+    {
+        var handler = new StubHandler(_ => Json(EmbeddingsResponse()));
+        using var client = new HttpClient(handler);
+        using var generator = new OpenAICompatibleEmbeddingGenerator(client, new Uri(endpoint), "m", apiKey: null);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await generator.GenerateAsync(["x"], null, TestContext.Current.CancellationToken));
+
+        Assert.DoesNotContain(secret, ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, generator.Metadata.ProviderUri!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GenerateAsync_OverTheLimit_ThrowsInvalidData()
+    {
+        var padding = new string('x', OpenAICompatibleEmbeddingGenerator.MaxResponseBytes);
+        var handler = new StubHandler(_ => Json($$"""{"data":[],"pad":"{{padding}}"}"""));
+        using var client = new HttpClient(handler);
+        using var generator = new OpenAICompatibleEmbeddingGenerator(
+            client, new Uri("https://example.invalid/v1/embeddings"), "m", apiKey: null);
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await generator.GenerateAsync(["x"], null, TestContext.Current.CancellationToken));
+    }
 }

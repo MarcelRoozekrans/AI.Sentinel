@@ -1,4 +1,5 @@
 using System.Globalization;
+using AI.Sentinel.Http;
 using AI.Sentinel.Detection;
 using Microsoft.Extensions.AI;
 
@@ -115,9 +116,9 @@ public sealed class SentinelEmbeddingSetup : IDisposable
             return null;
         }
 
-        if (!Uri.TryCreate(endpointValue, UriKind.Absolute, out var endpoint))
+        if (!SafeHttp.TryParseHttpEndpoint(endpointValue, out var endpoint))
         {
-            configurationError = $"AI.Sentinel: {EndpointKey} is not an absolute URL ('{endpointValue}') — semantic detection stays off.";
+            configurationError = $"AI.Sentinel: {EndpointKey} is not an absolute http or https URL — semantic detection stays off.";
             return null;
         }
 

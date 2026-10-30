@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using AI.Sentinel.Http;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
 using System.Text.Json.Serialization;
@@ -17,11 +18,23 @@ namespace AI.Sentinel.Review;
 /// <para>
 /// Supply the full endpoint URL rather than a base address, since providers differ on the path.
 /// Only what the reviewer needs is supported: text messages in, the first choice's text out, no
-/// streaming.
+/// streaming. The answer must be a plain string <c>content</c>: a provider that returns an array of
+/// content parts is rejected with <see cref="InvalidDataException"/>.
+/// </para>
+/// <para>
+/// The owned <see cref="HttpClient"/> has a 30 second timeout as an outer bound. The review step's
+/// <c>ReviewTimeout</c> cancels through the <see cref="CancellationToken"/> and normally fires first.
+/// </para>
+/// <para>
+/// Error messages carry the status code and the endpoint's scheme, host, port and path only: never
+/// the query string, userinfo or the response body, any of which can hold a key.
 /// </para>
 /// </remarks>
 public sealed class OpenAICompatibleChatClient : IChatClient
 {
+    /// <summary>The most response bytes read from the endpoint: a verdict is a few hundred bytes.</summary>
+    internal const int MaxResponseBytes = 1024 * 1024;
+
     private readonly HttpClient _http;
     private readonly bool _ownsClient;
     private readonly Uri _endpoint;
@@ -39,7 +52,7 @@ public sealed class OpenAICompatibleChatClient : IChatClient
 
     /// <summary>Creates a client owning its own <see cref="HttpClient"/>.</summary>
     public OpenAICompatibleChatClient(Uri endpoint, string model, string? apiKey)
-        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }, ownsClient: true, endpoint, model, apiKey)
+        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(30), MaxResponseContentBufferSize = MaxResponseBytes }, ownsClient: true, endpoint, model, apiKey)
     {
     }
 
@@ -56,7 +69,8 @@ public sealed class OpenAICompatibleChatClient : IChatClient
         _apiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey;
     }
 
-    /// <inheritdoc />
+    /// <summary>Sends the messages and returns the first choice's text.</summary>
+    /// <remarks><see cref="ChatOptions.ModelId"/> overrides the configured model for this call.</remarks>
     public async Task<Microsoft.Extensions.AI.ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
@@ -77,23 +91,24 @@ public sealed class OpenAICompatibleChatClient : IChatClient
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
         }
 
-        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            // HttpRequestException so callers get StatusCode, and because the review step counts any
+            // exception as a failed review. The body is not read: providers echo masked keys in it.
             throw new HttpRequestException(
-                $"Chat request to {_endpoint} failed with {(int)response.StatusCode} {response.ReasonPhrase}: {Truncate(detail)}",
+                $"Chat request to {SafeHttp.Describe(_endpoint)} failed with {(int)response.StatusCode} {response.ReasonPhrase}.",
                 inner: null,
                 response.StatusCode);
         }
 
-        var payload = await response.Content
-            .ReadFromJsonAsync(ReviewJsonContext.Default.CompletionResponse, cancellationToken)
+        var payload = await SafeHttp
+            .ReadJsonAsync(response.Content, ReviewJsonContext.Default.CompletionResponse, MaxResponseBytes, "Chat", cancellationToken)
             .ConfigureAwait(false);
 
         var content = payload?.Choices is { Count: > 0 } choices ? choices[0].Message?.Content : null;
         return content is null
-            ? throw new InvalidDataException($"Chat endpoint {_endpoint} returned no choices[0].message.content.")
+            ? throw new InvalidDataException($"Chat endpoint {SafeHttp.Describe(_endpoint)} returned no choices[0].message.content.")
             : new Microsoft.Extensions.AI.ChatResponse(new ChatMessage(ChatRole.Assistant, content));
     }
 
@@ -104,9 +119,6 @@ public sealed class OpenAICompatibleChatClient : IChatClient
         ChatOptions? options = null,
         CancellationToken cancellationToken = default) =>
         throw new NotSupportedException("OpenAICompatibleChatClient does not support streaming.");
-
-    private static string Truncate(string value) =>
-        value.Length <= 256 ? value : value[..256];
 
     /// <inheritdoc />
     public object? GetService(Type serviceType, object? serviceKey = null)

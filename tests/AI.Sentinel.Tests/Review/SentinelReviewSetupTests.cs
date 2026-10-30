@@ -112,4 +112,17 @@ public class SentinelReviewSetupTests
         Assert.Null(setup);
         Assert.Contains("SENTINEL_REVIEW_TIMEOUT_MS", error);
     }
+
+    [Theory]
+    [InlineData("ftp://user:pass@example.invalid/x")]
+    [InlineData("https://user:pass@")]
+    public void BadEndpoint_DoesNotEchoTheValue(string endpoint)
+    {
+        var setup = SentinelReviewSetup.TryCreateFromEnvironment(Env(
+            ("SENTINEL_REVIEW_ENDPOINT", endpoint),
+            ("SENTINEL_REVIEW_MODEL", "m")), out var error);
+
+        Assert.Null(setup);
+        Assert.DoesNotContain("pass", error, StringComparison.Ordinal);
+    }
 }

@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using AI.Sentinel.Http;
 using System.Text.Json.Serialization;
 using System.Net.Http.Json;
 using Microsoft.Extensions.AI;
@@ -25,6 +26,10 @@ namespace AI.Sentinel.Embeddings;
 /// </remarks>
 public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
 {
+    /// <summary>The most response bytes read: comfortably above a 64-input batch of 4096-dimension
+    /// vectors, which is about 3 MiB as JSON text.</summary>
+    internal const int MaxResponseBytes = 16 * 1024 * 1024;
+
     private readonly HttpClient _http;
     private readonly bool _ownsClient;
     private readonly Uri _endpoint;
@@ -46,7 +51,7 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
 
     /// <summary>Creates a generator owning its own <see cref="HttpClient"/>.</summary>
     public OpenAICompatibleEmbeddingGenerator(Uri endpoint, string model, string? apiKey, int? dimensions = null)
-        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(30) }, ownsClient: true, endpoint, model, apiKey, dimensions)
+        : this(new HttpClient { Timeout = TimeSpan.FromSeconds(30), MaxResponseContentBufferSize = MaxResponseBytes }, ownsClient: true, endpoint, model, apiKey, dimensions)
     {
     }
 
@@ -66,7 +71,7 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
 
         Metadata = new EmbeddingGeneratorMetadata(
             providerName: "openai-compatible",
-            providerUri: endpoint,
+            providerUri: SafeHttp.Redact(endpoint),
             defaultModelId: model,
             defaultModelDimensions: dimensions);
     }
@@ -97,16 +102,16 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _apiKey);
         }
 
-        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            var detail = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            // The body is not read: providers echo masked keys in it.
             throw new InvalidOperationException(
-                $"Embedding request to {_endpoint} failed with {(int)response.StatusCode} {response.ReasonPhrase}: {Truncate(detail)}");
+                $"Embedding request to {SafeHttp.Describe(_endpoint)} failed with {(int)response.StatusCode} {response.ReasonPhrase}.");
         }
 
-        var payload = await response.Content
-            .ReadFromJsonAsync(EmbeddingJsonContext.Default.EmbeddingResponse, cancellationToken)
+        var payload = await SafeHttp
+            .ReadJsonAsync(response.Content, EmbeddingJsonContext.Default.EmbeddingResponse, MaxResponseBytes, "Embedding", cancellationToken)
             .ConfigureAwait(false);
 
         return Materialise(payload, inputs.Count);
@@ -120,7 +125,7 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
             // A short or padded result would pair vectors with the wrong inputs — and with a persistent
             // cache, store them under the wrong keys.
             throw new InvalidOperationException(
-                $"Embedding endpoint {_endpoint} returned {data?.Count ?? 0} vectors for {expected} inputs.");
+                $"Embedding endpoint {SafeHttp.Describe(_endpoint)} returned {data?.Count ?? 0} vectors for {expected} inputs.");
         }
 
         var ordered = new float[expected][];
@@ -130,11 +135,11 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
             if (item.Index < 0 || item.Index >= expected || ordered[item.Index] is not null)
             {
                 throw new InvalidOperationException(
-                    $"Embedding endpoint {_endpoint} returned an invalid or duplicate index {item.Index}.");
+                    $"Embedding endpoint {SafeHttp.Describe(_endpoint)} returned an invalid or duplicate index {item.Index}.");
             }
 
             ordered[item.Index] = item.Embedding ?? throw new InvalidOperationException(
-                $"Embedding endpoint {_endpoint} returned an entry with no vector.");
+                $"Embedding endpoint {SafeHttp.Describe(_endpoint)} returned an entry with no vector.");
         }
 
         var result = new GeneratedEmbeddings<Embedding<float>>(expected);
@@ -147,7 +152,7 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
             if (_dimensions is { } expectedLength && vector.Length != expectedLength)
             {
                 throw new InvalidOperationException(
-                    $"Embedding endpoint {_endpoint} returned a vector of dimension {vector.Length}, but {expectedLength} was requested.");
+                    $"Embedding endpoint {SafeHttp.Describe(_endpoint)} returned a vector of dimension {vector.Length}, but {expectedLength} was requested.");
             }
 
             result.Add(new Embedding<float>(vector));
@@ -155,9 +160,6 @@ public sealed class OpenAICompatibleEmbeddingGenerator : IEmbeddingGenerator<str
 
         return result;
     }
-
-    private static string Truncate(string value) =>
-        value.Length <= 256 ? value : value[..256];
 
     /// <inheritdoc />
     public object? GetService(Type serviceType, object? serviceKey = null)

@@ -142,4 +142,97 @@ public class OpenAICompatibleChatClientTests
         _ = http.BaseAddress;
         http.DefaultRequestHeaders.Add("x-probe", "1");
     }
+
+    [Fact]
+    public async Task GetResponseAsync_NonSuccess_NeverEchoesTheBody()
+    {
+        var handler = new StubHandler(_ => Json("""{"error":"Incorrect API key: sk-secret"}""", HttpStatusCode.Unauthorized));
+        using var http = new HttpClient(handler);
+        using var client = new OpenAICompatibleChatClient(http, Endpoint, "m", apiKey: null);
+
+        var ex = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.GetResponseAsync(Messages(), cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.DoesNotContain("sk-secret", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(HttpStatusCode.Unauthorized, ex.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("https://example.invalid/v1/chat?api-key=abc", "abc")]
+    [InlineData("https://user:pass@example.invalid/v1/chat", "pass")]
+    public async Task Messages_NeverContainQueryOrUserInfo(string endpoint, string secret)
+    {
+        var failing = new StubHandler(_ => Json("{}", HttpStatusCode.BadGateway));
+        using var http = new HttpClient(failing);
+        using var client = new OpenAICompatibleChatClient(http, new Uri(endpoint), "m", apiKey: null);
+        var status = await Assert.ThrowsAsync<HttpRequestException>(
+            () => client.GetResponseAsync(Messages(), cancellationToken: TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(secret, status.Message, StringComparison.Ordinal);
+        Assert.Contains("example.invalid", status.Message, StringComparison.Ordinal);
+
+        var empty = new StubHandler(_ => Json("""{"choices":[]}"""));
+        using var http2 = new HttpClient(empty);
+        using var client2 = new OpenAICompatibleChatClient(http2, new Uri(endpoint), "m", apiKey: null);
+        var invalid = await Assert.ThrowsAsync<InvalidDataException>(
+            () => client2.GetResponseAsync(Messages(), cancellationToken: TestContext.Current.CancellationToken));
+        Assert.DoesNotContain(secret, invalid.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_OverTheLimit_ThrowsInvalidData()
+    {
+        var padding = new string('x', OpenAICompatibleChatClient.MaxResponseBytes);
+        var handler = new StubHandler(_ => Json($$$"""{"choices":[{"message":{"content":"{{{padding}}}"}}]}"""));
+        using var http = new HttpClient(handler);
+        using var client = new OpenAICompatibleChatClient(http, Endpoint, "m", apiKey: null);
+
+        var ex = await Assert.ThrowsAsync<InvalidDataException>(
+            () => client.GetResponseAsync(Messages(), cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Contains(OpenAICompatibleChatClient.MaxResponseBytes.ToString(System.Globalization.CultureInfo.InvariantCulture), ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_OverTheLimit_WithNoContentLength_ThrowsInvalidData()
+    {
+        var padding = new string('x', OpenAICompatibleChatClient.MaxResponseBytes);
+        var bytes = Encoding.UTF8.GetBytes($$$"""{"choices":[{"message":{"content":"{{{padding}}}"}}]}""");
+        var handler = new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StreamContent(new NonSeekableStream(bytes)),
+        });
+        using var http = new HttpClient(handler);
+        using var client = new OpenAICompatibleChatClient(http, Endpoint, "m", apiKey: null);
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => client.GetResponseAsync(Messages(), cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    /// <summary>Some providers return content as an array of parts; that is bad data, not a crash
+    /// in the JSON layer.</summary>
+    [Fact]
+    public async Task GetResponseAsync_ArrayContent_ThrowsInvalidData()
+    {
+        var handler = new StubHandler(_ => Json("""{"choices":[{"message":{"content":[{"type":"text","text":"hi"}]}}]}"""));
+        using var http = new HttpClient(handler);
+        using var client = new OpenAICompatibleChatClient(http, Endpoint, "m", apiKey: null);
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => client.GetResponseAsync(Messages(), cancellationToken: TestContext.Current.CancellationToken));
+    }
+
+    private sealed class NonSeekableStream(byte[] data) : Stream
+    {
+        private readonly MemoryStream _inner = new(data);
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => false;
+        public override long Length => throw new NotSupportedException();
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+        public override void Flush() { }
+        public override int Read(byte[] buffer, int offset, int count) => _inner.Read(buffer, offset, count);
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    }
 }

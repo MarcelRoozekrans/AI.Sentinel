@@ -1,4 +1,5 @@
 using System.Globalization;
+using AI.Sentinel.Http;
 using AI.Sentinel.Detection;
 using Microsoft.Extensions.AI;
 
@@ -82,10 +83,9 @@ public sealed class SentinelReviewSetup : IDisposable
             return null;
         }
 
-        if (!Uri.TryCreate(endpointValue, UriKind.Absolute, out var endpoint)
-            || !(endpoint.Scheme.Equals(Uri.UriSchemeHttp, StringComparison.Ordinal) || endpoint.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.Ordinal)))
+        if (!SafeHttp.TryParseHttpEndpoint(endpointValue, out var endpoint))
         {
-            configurationError = $"AI.Sentinel: {EndpointKey} is not an absolute http or https URL ('{endpointValue}') — the second-stage review stays off.";
+            configurationError = $"AI.Sentinel: {EndpointKey} is not an absolute http or https URL — the second-stage review stays off.";
             return null;
         }
 
