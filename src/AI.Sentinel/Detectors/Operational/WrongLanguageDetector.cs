@@ -40,20 +40,24 @@ public sealed partial class WrongLanguageDetector : IDetector
         : maxBytes is { } max ? Utf8Text.Truncate(text, max)
         : text;
 
+    private static int LastIndexOf(IReadOnlyList<ChatMessage> messages, ChatRole role)
+    {
+        for (var i = messages.Count - 1; i >= 0; i--)
+        {
+            if (messages[i].Role == role) return i;
+        }
+        return -1;
+    }
+
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        string? lastUserText = null;
-        string? lastAssistantText = null;
-
         // The pair is a property of the whole conversation: on the request leg the new messages are the user turn
-        // and the assistant message it answers is history. Each text is cut to the scan budget to bound the cost.
-        foreach (var message in ctx.Messages)
-        {
-            if (message.Role == ChatRole.User)
-                lastUserText = Bounded(message.Text, ctx.MaxScanBytes);
-            else if (message.Role == ChatRole.Assistant)
-                lastAssistantText = Bounded(message.Text, ctx.MaxScanBytes);
-        }
+        // and the assistant message it answers is history. Only those two are cut to the scan budget, which bounds
+        // the cost without reading any other message.
+        var lastUser = LastIndexOf(ctx.Messages, ChatRole.User);
+        var lastAssistant = LastIndexOf(ctx.Messages, ChatRole.Assistant);
+        var lastUserText = lastUser < 0 ? null : Bounded(ctx.Messages[lastUser].Text, ctx.MaxScanBytes);
+        var lastAssistantText = lastAssistant < 0 ? null : Bounded(ctx.Messages[lastAssistant].Text, ctx.MaxScanBytes);
 
         if (lastUserText is null || lastAssistantText is null)
             return ValueTask.FromResult(_clean);

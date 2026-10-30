@@ -77,7 +77,7 @@ public class ScanBudgetPipelineTests
         var finding = Assert.Single(detections, d => Is(d, Sec00));
         Assert.Equal(Severity.Critical, finding.Severity);
         Assert.Equal(SentinelAction.Quarantine, Assert.IsType<SentinelError.ThreatDetected>(result.Error).Action);
-        Assert.Equal("New content is 200 bytes; only the first 100 were scanned. Raise SentinelOptions.MaxScanBytes to scan more.", finding.Reason);
+        Assert.Equal("New content is 200 bytes; only the first 100 were scanned. Raise the scan budget (MaxScanBytes, SENTINEL_HOOK_MAX_SCAN_BYTES or SENTINEL_MCP_MAX_SCAN_BYTES) to scan more.", finding.Reason);
     }
 
     [Fact]
@@ -148,10 +148,12 @@ public class ScanBudgetPipelineTests
 
         var error = Assert.IsType<SentinelError.ThreatDetected>(result.Error);
         Assert.Contains(error.Detections, d => Is(d, Sec00));
+        Assert.Equal(SentinelAction.Quarantine, error.Action);
     }
 
+    // A named pipeline starts from default options, not from the default pipeline's.
     [Fact]
-    public void NamedPipeline_InheritsMaxScanBytes()
+    public void NamedPipeline_StartsFromDefaultMaxScanBytes()
     {
         var services = new ServiceCollection();
         services.AddAISentinel(o => o.MaxScanBytes = 100);
@@ -159,7 +161,7 @@ public class ScanBudgetPipelineTests
         using var provider = services.BuildServiceProvider();
 
         Assert.Equal(100, provider.GetRequiredService<SentinelOptions>().MaxScanBytes);
-        Assert.Equal(262144, provider.GetRequiredKeyedService<SentinelOptions>("strict").MaxScanBytes);
+        Assert.Equal(new SentinelOptions().MaxScanBytes, provider.GetRequiredKeyedService<SentinelOptions>("strict").MaxScanBytes);
     }
 
     [Fact]

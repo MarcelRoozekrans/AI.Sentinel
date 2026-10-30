@@ -182,7 +182,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
     private static DetectionResult ScanLimitFinding(SentinelContext ctx) =>
         DetectionResult.WithSeverity(ScanLimitId, Severity.Critical,
-            $"New content is {ctx.NewContentBytes} bytes; only the first {ctx.MaxScanBytes} were scanned. Raise SentinelOptions.MaxScanBytes to scan more.");
+            $"New content is {ctx.NewContentBytes} bytes; only the first {ctx.MaxScanBytes} were scanned. Raise the scan budget (MaxScanBytes, SENTINEL_HOOK_MAX_SCAN_BYTES or SENTINEL_MCP_MAX_SCAN_BYTES) to scan more.");
 
     /// <summary>Runs one detector, degrading a failure to Clean, except a regex timeout, which is Critical.</summary>
     /// <remarks>

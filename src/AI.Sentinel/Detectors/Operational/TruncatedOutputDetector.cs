@@ -16,6 +16,10 @@ public sealed class TruncatedOutputDetector : IDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
+        // Past the scan budget the view ends where the cut fell, not where the response did, so a split fence or
+        // sentence says nothing about the response; SEC-00 already reports the cut.
+        if (ctx.ExceedsScanBudget) return ValueTask.FromResult(_clean);
+
         var prose = ctx.NewMessageProse;
         var assistantText = new List<string>();
         for (var i = 0; i < prose.Count; i++)

@@ -175,6 +175,36 @@ public class DetectorFailureIsolationTests
             throw new RegexMatchTimeoutException("x", "p", TimeSpan.FromSeconds(1));
     }
 
+    private sealed class TextsTimeoutDetector(SentinelOptions options) : SemanticDetectorBase(options)
+    {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
+        public override DetectorId Id => new("TST-TEXTS-TIMEOUT");
+        public override DetectorCategory Category => DetectorCategory.Security;
+        protected override string[] HighExamples => ["high"];
+        protected override string[] MediumExamples => ["medium"];
+        protected override string[] LowExamples => ["low"];
+        protected override IEnumerable<string> GetTextsToScore(SentinelContext ctx) =>
+            throw new RegexMatchTimeoutException("x", "p", TimeSpan.FromSeconds(1));
+    }
+
+    // With an embedding scope the pipeline selects the texts itself and rethrows the failure in the detector's own
+    // slot, so a regex timeout there is Critical too, not Clean.
+    [Fact]
+    public async Task RegexTimeout_InTextSelection_WithEmbeddingScope_IsCritical()
+    {
+        var generator = new AI.Sentinel.Tests.Helpers.FakeEmbeddingGenerator();
+        var pipeline = new DetectionPipeline(
+            [new TextsTimeoutDetector(new SentinelOptions { EmbeddingGenerator = generator })],
+            configurations: null, reviewer: null,
+            embeddingScope: new EmbeddingScope(generator, new InMemoryLruEmbeddingCache(), null));
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        var detection = Assert.Single(result.Detections);
+        Assert.Equal("TST-TEXTS-TIMEOUT", detection.DetectorId.Value);
+        Assert.Equal(Severity.Critical, detection.Severity);
+    }
+
     [Fact]
     public async Task RegexTimeout_IsCriticalNotClean()
     {

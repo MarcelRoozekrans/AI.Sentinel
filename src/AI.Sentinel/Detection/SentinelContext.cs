@@ -83,43 +83,59 @@ public sealed class SentinelContext(
         }
     }
 
-    private string[]? _newMessageTexts;
-    private long _newContentBytes;
+    /// <summary>The budget-cut view of the new messages: the detection texts, the prose and the uncut byte total of
+    /// one computation. It is published through one reference, so a concurrent reader never pairs the texts of one
+    /// computation with the byte total of another, and a 64-bit total is never read half-written.</summary>
+    private sealed class NewMessagesView(string[] texts, string[] prose, long contentBytes)
+    {
+        public string[] Texts { get; } = texts;
+        public string[] Prose { get; } = prose;
+        public long ContentBytes { get; } = contentBytes;
+    }
+
+    private NewMessagesView? _newView;
+
+    private NewMessagesView NewView()
+    {
+        if (Volatile.Read(ref _newView) is { } cached) return cached;
+
+        var texts = CutNewMessages(MessageText, out var total);
+        var prose = CutNewMessages(static m => m.Text ?? string.Empty, out _);
+        var view = new NewMessagesView(texts, prose, total);
+
+        // The first view published wins, so every reader sees the same instances.
+        return Interlocked.CompareExchange(ref _newView, view, null) ?? view;
+    }
 
     /// <summary>
     /// The detection text of each message from <see cref="NewMessagesFrom"/> on, one entry per message, cut in order so
     /// that the UTF-8 bytes of all entries total at most <see cref="MaxScanBytes"/>. A cut never splits a surrogate
     /// pair, and a message past the budget is an empty string. Computed once and cached.
     /// </summary>
-    public IReadOnlyList<string> NewMessageTexts => NewTexts();
-
-    private string[] NewTexts()
-    {
-        if (_newMessageTexts is { } cached) return cached;
-
-        var texts = CutNewMessages(MessageText, out var total);
-        _newContentBytes = total;
-        return _newMessageTexts = texts;
-    }
+    public IReadOnlyList<string> NewMessageTexts => NewView().Texts;
 
     private string? _newTextContent;
 
     /// <summary>The cut texts of <see cref="NewMessageTexts"/>, joined by a single space: <see cref="TextContent"/>
     /// restricted to the new messages and bounded by <see cref="MaxScanBytes"/>.</summary>
-    public string NewTextContent => _newTextContent ??= string.Join(" ", NewMessageTexts);
-
-    private string[]? _newMessageProse;
+    public string NewTextContent =>
+        Volatile.Read(ref _newTextContent) ?? PublishOnce(ref _newTextContent, string.Join(" ", NewMessageTexts));
 
     /// <summary>The <see cref="ChatMessage.Text"/> of each new message, one entry per message and index-aligned: entry
     /// <c>i</c> belongs to <c>Messages[NewMessagesFrom + i]</c>. Cut by the same rule as
     /// <see cref="NewMessageTexts"/>, independently of it: prose only, without tool calls or tool results.</summary>
-    internal IReadOnlyList<string> NewMessageProse =>
-        _newMessageProse ??= CutNewMessages(static m => m.Text ?? string.Empty, out _);
+    internal IReadOnlyList<string> NewMessageProse => NewView().Prose;
 
     private string? _newProseContent;
 
     /// <summary>The cut texts of <see cref="NewMessageProse"/>, joined by a single space.</summary>
-    internal string NewProseContent => _newProseContent ??= string.Join(" ", NewMessageProse);
+    internal string NewProseContent =>
+        Volatile.Read(ref _newProseContent) ?? PublishOnce(ref _newProseContent, string.Join(" ", NewMessageProse));
+
+    /// <summary>Stores <paramref name="value"/> in <paramref name="field"/> unless another reader stored one first, and
+    /// returns the stored instance, so every reader sees the same one.</summary>
+    private static string PublishOnce(ref string? field, string value) =>
+        Interlocked.CompareExchange(ref field, value, null) ?? value;
 
     /// <summary>Projects each new message to text and cuts the projections in order to <see cref="MaxScanBytes"/>:
     /// the one place the budget cut rule lives. <paramref name="uncutBytes"/> is the UTF-8 total before the cut.</summary>
@@ -127,35 +143,31 @@ public sealed class SentinelContext(
     {
         var texts = new string[Messages.Count - NewMessagesFrom];
         uncutBytes = 0;
-        var remaining = (long?)MaxScanBytes;
+        var remaining = MaxScanBytes;
         for (var i = 0; i < texts.Length; i++)
         {
             var text = project(Messages[NewMessagesFrom + i]);
             var bytes = Encoding.UTF8.GetByteCount(text);
             uncutBytes += bytes;
-            texts[i] = remaining is { } left ? CutToBudget(text, bytes, ref left) : text;
-            remaining = remaining is null ? null : remaining - Encoding.UTF8.GetByteCount(texts[i]);
+            if (remaining is not { } left)
+            {
+                texts[i] = text;
+                continue;
+            }
+
+            texts[i] = Utf8Text.Truncate(text, bytes, left, out var kept);
+            remaining = left - kept;
         }
 
         return texts;
     }
 
     /// <summary>The UTF-8 byte total of the uncut detection texts of the new messages.</summary>
-    public long NewContentBytes
-    {
-        get
-        {
-            _ = NewTexts();
-            return _newContentBytes;
-        }
-    }
+    public long NewContentBytes => NewView().ContentBytes;
 
     /// <summary>Whether the new messages' detection text is larger than <see cref="MaxScanBytes"/>, so the view of
     /// it is cut and part of the content goes unjudged.</summary>
     public bool ExceedsScanBudget => MaxScanBytes is { } max && NewContentBytes > max;
-
-    private static string CutToBudget(string text, int bytes, ref long remaining) =>
-        bytes <= remaining ? text : Utf8Text.Truncate(text, (int)remaining);
 
     /// <summary>
     /// The placeholders <paramref name="detector"/> must not flag as a value: <see cref="RedactionPlaceholders"/>,

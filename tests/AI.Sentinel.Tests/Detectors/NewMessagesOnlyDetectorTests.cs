@@ -112,6 +112,51 @@ public class NewMessagesOnlyDetectorTests
         Assert.True((await detector.AnalyzeAsync(uncut, TestContext.Current.CancellationToken)).IsClean);
     }
 
+    // Only the last user and the last assistant message are paired; an earlier pair in another script is not read.
+    [Fact]
+    public async Task WrongLanguage_PairsOnlyTheLastUserAndAssistantMessages()
+    {
+        var messages = new ChatMessage[]
+        {
+            new(ChatRole.User, English), new(ChatRole.Assistant, Chinese),
+            new(ChatRole.User, English), new(ChatRole.Assistant, "Paris is the capital and largest city of France."),
+        };
+
+        var r = await new WrongLanguageDetector().AnalyzeAsync(Ctx(messages, newFrom: 3), TestContext.Current.CancellationToken);
+
+        Assert.True(r.IsClean);
+    }
+
+    // Past the scan budget the view ends at the cut, so a split fence or sentence is the cut's, not the response's.
+    [Theory]
+    [InlineData(nameof(TruncatedOutputDetector))]
+    [InlineData(nameof(IncompleteCodeBlockDetector))]
+    public async Task FenceAndTailChecks_SkippedPastTheScanBudget(string name)
+    {
+        var reply = "Here is the code:\n```python\nx = 1\n```\nThat is all.";
+        var messages = new ChatMessage[] { new(ChatRole.Assistant, reply) };
+        var cut = new SentinelContext(new AgentId("a"), new AgentId("b"), SessionId.New(), messages, new List<AuditEntry>())
+        { MaxScanBytes = 30 };
+        var detector = Create(name);
+
+        Assert.True(cut.ExceedsScanBudget);
+        Assert.True((await detector.AnalyzeAsync(cut, TestContext.Current.CancellationToken)).IsClean);
+        Assert.True((await detector.AnalyzeAsync(Ctx(messages, newFrom: 0), TestContext.Current.CancellationToken)).IsClean);
+    }
+
+    // Inside the budget the checks still run.
+    [Theory]
+    [InlineData(nameof(TruncatedOutputDetector))]
+    [InlineData(nameof(IncompleteCodeBlockDetector))]
+    public async Task FenceChecks_StillRunInsideTheScanBudget(string name)
+    {
+        var messages = new ChatMessage[] { new(ChatRole.Assistant, "```python\nx = 1") };
+        var ctx = new SentinelContext(new AgentId("a"), new AgentId("b"), SessionId.New(), messages, new List<AuditEntry>())
+        { MaxScanBytes = 1000 };
+
+        Assert.False((await Create(name).AnalyzeAsync(ctx, TestContext.Current.CancellationToken)).IsClean);
+    }
+
     [Theory]
     [InlineData("Loading...")]
     [InlineData("The answer is that we should,")]

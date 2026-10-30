@@ -131,4 +131,72 @@ public class SentinelContextScanBudgetTests
         Assert.Same(text, Utf8Text.Truncate(text, 3));
         Assert.Equal("", Utf8Text.Truncate(text, 0));
     }
+    // A lone surrogate encodes as the 3-byte replacement character, so it counts as 3 bytes.
+    [Fact]
+    public void LoneSurrogate_CountsAsThreeBytes()
+    {
+        var fits = Context(4, 0, "a\uD800");
+        Assert.Equal(4, fits.NewContentBytes);
+        Assert.False(fits.ExceedsScanBudget);
+        Assert.Equal(["a\uD800"], fits.NewMessageTexts);
+
+        var cut = Context(3, 0, "a\uD800");
+        Assert.True(cut.ExceedsScanBudget);
+        Assert.Equal(["a"], cut.NewMessageTexts);
+    }
+
+    [Fact]
+    public void Truncate_BudgetZero_IsEmpty()
+    {
+        Assert.Equal(string.Empty, Utf8Text.Truncate("abc", 0));
+        Assert.Equal(string.Empty, Utf8Text.Truncate("abc", 3, 0, out var kept));
+        Assert.Equal(0, kept);
+    }
+
+    // A cut that lands right after a 2-byte character keeps it; one that lands inside it drops it whole.
+    [Fact]
+    public void Cut_RightAfterTwoByteChar()
+    {
+        Assert.Equal(["a\u00e9"], Context(3, 0, "a\u00e9b").NewMessageTexts);
+        Assert.Equal(["a"], Context(2, 0, "a\u00e9b").NewMessageTexts);
+    }
+
+    [Fact]
+    public void Truncate_ReportsKeptBytes()
+    {
+        Assert.Equal("a\u00e9", Utf8Text.Truncate("a\u00e9b", 4, 3, out var kept));
+        Assert.Equal(3, kept);
+        Assert.Equal("ab", Utf8Text.Truncate("ab", 2, 5, out var whole));
+        Assert.Equal(2, whole);
+    }
+
+    [Fact]
+    public void Views_ReturnTheSameInstanceOnRepeatedReads()
+    {
+        var ctx = Context(8, 0, "aaaaaa", "bbbbbb");
+
+        Assert.Same(ctx.NewMessageTexts, ctx.NewMessageTexts);
+        Assert.Same(ctx.NewTextContent, ctx.NewTextContent);
+        Assert.Same(ctx.NewMessageProse, ctx.NewMessageProse);
+        Assert.Same(ctx.NewProseContent, ctx.NewProseContent);
+    }
+
+    // The texts, prose and byte total are one snapshot: concurrent first readers all see the same one.
+    [Fact]
+    public async Task ConcurrentFirstReads_SeeOneSnapshot()
+    {
+        var ctx = Context(8, 0, "aaaaaa", "bbbbbb");
+        using var start = new ManualResetEventSlim();
+        var readers = Enumerable.Range(0, 8).Select(_ => Task.Run(() =>
+        {
+            start.Wait(TestContext.Current.CancellationToken);
+            return (ctx.NewMessageTexts, ctx.NewContentBytes);
+        }, TestContext.Current.CancellationToken)).ToArray();
+
+        start.Set();
+        var seen = await Task.WhenAll(readers);
+
+        Assert.All(seen, s => Assert.Same(seen[0].NewMessageTexts, s.NewMessageTexts));
+        Assert.All(seen, s => Assert.Equal(12, s.NewContentBytes));
+    }
 }
