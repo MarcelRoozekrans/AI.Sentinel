@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [4.1.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v4.1.0...v4.1.1) (2026-10-30)
+
+
+### Bug Fixes
+
+* **aspnetcore:** redirect the dashboard prefix to its trailing-slash URL ([#539](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/539)) ([3ad730c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/3ad730c7eaee41be666c72bca5b1a132a5bb2a08))
+
 ## [4.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v4.0.0...v4.1.0) (2026-10-30)
 
 
