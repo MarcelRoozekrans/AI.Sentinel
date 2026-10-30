@@ -32,6 +32,8 @@ using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Review;
 using Microsoft.Extensions.AI;
 
+ReviewEvaluation.SelfCheck();
+ThresholdRule.SelfCheck();
 var ct = CancellationToken.None;
 var modelName = Option(args, "--model") ?? EmbeddingModel.Known[0].Name;
 var model = Array.Find(EmbeddingModel.Known, m => string.Equals(m.Name, modelName, StringComparison.OrdinalIgnoreCase));
@@ -91,7 +93,6 @@ SemanticDetectorBase[] detectors =
 ];
 
 var everyday = Phrase.Load(everydayPath);
-string[] history = [.. everyday.Take(5).Select(p => p.Text)];
 var compliancePhrases = Phrase.Load(phrasesPath);
 if (tuning)
 {
@@ -99,6 +100,7 @@ if (tuning)
     compliancePhrases = [.. compliancePhrases.Where(p => !p.IsHeldOut)];
 }
 
+string[] history = [.. everyday.Take(5).Select(p => p.Text)];
 Phrase[] phrases = [.. compliancePhrases, .. everyday];
 var summary = new StringBuilder();
 summary.AppendLine("| Detector | High / Medium threshold | Lowest positive, High set | Highest legitimate, High set | Highest legitimate, Medium set | Positives at High / Medium / missed | Legitimate at High / Medium | Rule's thresholds for this model: positives at High / Medium / missed | Multi-message agrees |");
@@ -149,8 +151,6 @@ using var judgeClient = string.IsNullOrWhiteSpace(apiKey)
     ? null
     : new OpenAICompatibleChatClient(new Uri("https://api.anthropic.com/v1/chat/completions"), judgeModel, apiKey);
 var scope = EmbeddingScope.Resolve(options, inherited: null)!;
-ReviewEvaluation.SelfCheck();
-ThresholdRule.SelfCheck();
 var judge = judgeClient is null ? null : new LlmJudgeReviewer(judgeClient);
 var reviewEvaluation = new ReviewEvaluation(scope, judge, toolMessages: false, ct);
 var securityReviewEvaluation = new ReviewEvaluation(scope, judge, toolMessages: true, ct);

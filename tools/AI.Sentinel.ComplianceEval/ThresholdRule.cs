@@ -16,6 +16,25 @@ internal static class ThresholdRule
         return (high, medium);
     }
 
+    /// <summary>Counts how positives fare under thresholds: at High, else at Medium, else missed.</summary>
+    /// <param name="positives">The High-set and Medium-set similarity of each positive.</param>
+    /// <param name="high">The High threshold.</param>
+    /// <param name="medium">The Medium threshold.</param>
+    public static (int AtHigh, int AtMedium, int Missed) Classify(
+        IEnumerable<(float High, float Medium)> positives, float high, float medium)
+    {
+        ArgumentNullException.ThrowIfNull(positives);
+        int atHigh = 0, atMedium = 0, missed = 0;
+        foreach (var (h, m) in positives)
+        {
+            if (h >= high) atHigh++;
+            else if (m >= medium) atMedium++;
+            else missed++;
+        }
+
+        return (atHigh, atMedium, missed);
+    }
+
     private static float RoundUp(float value) => MathF.Ceiling(MathF.Round(value * 100f, 3)) / 100f;
 
     /// <summary>Verifies <see cref="Suggest"/>; the tool has no test project.</summary>

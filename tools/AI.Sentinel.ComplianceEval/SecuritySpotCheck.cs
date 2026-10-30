@@ -74,7 +74,7 @@ internal sealed class SecuritySpotCheck(
             }
 
             tally.Record(row.IsPositive, bucket, highSimilarity, mediumSimilarity);
-            if (!row.IsHeldOut) tally.RecordFit(row.IsPositive, bucket, highSimilarity, mediumSimilarity, lowSimilarity);
+            if (!row.IsHeldOut) tally.RecordFit(row.IsPositive, highSimilarity, mediumSimilarity, lowSimilarity);
             var lowCell = low.Length == 0 ? "-" : lowSimilarity.ToString("0.000", CultureInfo.InvariantCulture);
             table.AppendLine(CultureInfo.InvariantCulture,
                 $"| {row.Display} | {row.Detector} | {row.Expected} | {highSimilarity:0.000} | {mediumSimilarity:0.000} | {lowCell} | {Label(bucket, actual, row.IsPositive)} |");
@@ -140,7 +140,7 @@ internal sealed class SecuritySpotCheck(
         public float HighestBenignHigh { get; private set; }
         public float HighestBenignMedium { get; private set; }
 
-        private readonly List<(float High, float Medium, Bucket Bucket)> _fitPositives = [];
+        private readonly List<(float High, float Medium)> _fitPositives = [];
         private readonly List<float> _fitBenignAny = [];
         private float _fitBenignHigh;
         private float _fitBenignMedium;
@@ -154,12 +154,12 @@ internal sealed class SecuritySpotCheck(
             $"| {id} | {thresholds} | {Evaluator.Format(LowestPositive)} | {HighestBenignHigh:0.000} | {HighestBenignMedium:0.000} | {Positives[0]} / {Positives[1]} / {Positives[2]} / {Positives[3]} | {Benign[0]} / {Benign[1]} / {Benign[2]} | {FitSuggestion()} | {Evaluator.Format(LowestFitAnySet)} | {FitBenignAtOrAbove()} |");
 
         /// <summary>Records a fit phrase, for the rule's thresholds and the any-set columns.</summary>
-        public void RecordFit(bool positive, Bucket bucket, float highSimilarity, float mediumSimilarity, float lowSimilarity)
+        public void RecordFit(bool positive, float highSimilarity, float mediumSimilarity, float lowSimilarity)
         {
             var any = Math.Max(highSimilarity, Math.Max(mediumSimilarity, lowSimilarity));
             if (positive)
             {
-                _fitPositives.Add((highSimilarity, mediumSimilarity, bucket));
+                _fitPositives.Add((highSimilarity, mediumSimilarity));
                 LowestFitAnySet = Math.Min(LowestFitAnySet, any);
                 return;
             }
@@ -173,15 +173,9 @@ internal sealed class SecuritySpotCheck(
         /// positives fare under them, as <c>0.57 / 0.49: 3 / 4 / 3</c>.</summary>
         public string FitSuggestion()
         {
+            if (_fitBenignAny.Count == 0) return "n/a";
             var (high, medium) = ThresholdRule.Suggest(_fitBenignHigh, _fitBenignMedium);
-            int atHigh = 0, atMedium = 0, missed = 0;
-            foreach (var (h, m, _) in _fitPositives)
-            {
-                if (h >= high) atHigh++;
-                else if (m >= medium) atMedium++;
-                else missed++;
-            }
-
+            var (atHigh, atMedium, missed) = ThresholdRule.Classify(_fitPositives, high, medium);
             return string.Create(CultureInfo.InvariantCulture, $"{high:0.00} / {medium:0.00}: {atHigh} / {atMedium} / {missed}");
         }
 

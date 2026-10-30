@@ -194,14 +194,7 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
         public string Suggestion()
         {
             var (high, medium) = ThresholdRule.Suggest(HighestLegitimateHigh, HighestLegitimateMedium);
-            int atHigh = 0, atMedium = 0, missed = 0;
-            foreach (var (h, m) in _positives)
-            {
-                if (h >= high) atHigh++;
-                else if (m >= medium) atMedium++;
-                else missed++;
-            }
-
+            var (atHigh, atMedium, missed) = ThresholdRule.Classify(_positives, high, medium);
             return string.Create(CultureInfo.InvariantCulture, $"{high:0.00} / {medium:0.00}: {atHigh} / {atMedium} / {missed}");
         }
     }
