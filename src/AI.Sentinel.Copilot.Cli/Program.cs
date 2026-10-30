@@ -140,7 +140,7 @@ public static class Program
 
     /// <summary>Scans the input and takes the decision. The provider and the embedding generator are disposed
     /// before this returns, so a failure while disposing them is still an internal error, before any output is
-    /// written. Returns the startup warning that semantic detection is inert when it applies.</summary>
+    /// written. Returns the startup warning on Allow of a prompt: that semantic detection is inert, or that its detections are capped because nothing reviews them.</summary>
     private static async Task<(CopilotHookResult Result, string? SemanticWarning)> EvaluateAsync(
         CopilotHookEvent evt, CopilotHookInput input, CopilotHookConfig config, Dictionary<string, string?> hookEnv, ApprovalConfig? approvalConfig,
         LocalAuditSession audit, TextWriter stderr, IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,

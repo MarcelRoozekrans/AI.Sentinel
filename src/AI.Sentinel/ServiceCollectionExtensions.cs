@@ -546,7 +546,7 @@ public static class ServiceCollectionExtensions
         var generator = pipelineName is null
             ? opts?.EmbeddingGenerator
             : opts?.EmbeddingGenerator ?? sp.GetService<SentinelOptions>()?.EmbeddingGenerator;
-        if (opts is null || generator is null || EffectiveReviewer(opts) is not null)
+        if (opts is null || generator is null || CanReview(opts))
         {
             return null;
         }
@@ -554,6 +554,10 @@ public static class ServiceCollectionExtensions
         var count = CountUnreviewedSemantic(opts, sp.GetServices<IDetector>());
         return count == 0 ? null : UnreviewedSemanticMessage(count, pipelineName);
     }
+
+    /// <summary>Whether a reviewer is set and allowed to run. <see cref="SentinelOptions.MaxReviewsPerScan"/> of 0 turns
+    /// the review off, so detections stay capped exactly as with no reviewer.</summary>
+    private static bool CanReview(SentinelOptions opts) => EffectiveReviewer(opts) is not null && opts.MaxReviewsPerScan > 0;
 
     /// <summary>Semantic detectors this pipeline would run with the Medium cap on.</summary>
     private static int CountUnreviewedSemantic(SentinelOptions opts, IEnumerable<IDetector> detectors)
@@ -571,7 +575,7 @@ public static class ServiceCollectionExtensions
     private static string UnreviewedSemanticMessage(int count, string? pipelineName)
     {
         var scope = pipelineName is null ? "AI.Sentinel" : $"AI.Sentinel pipeline '{pipelineName}'";
-        return $"{scope}: {count} semantic detector(s) are capped at Medium because no reviewer is configured. Set SentinelOptions.Reviewer or EscalationClient, or SENTINEL_REVIEW_* for the CLI tools, to let a reviewer confirm High and Critical detections.";
+        return $"{scope}: {count} semantic detector(s) are capped at Medium because no reviewer is configured, or MaxReviewsPerScan is 0. Set SentinelOptions.Reviewer or EscalationClient, or SENTINEL_REVIEW_* for the CLI tools, to let a reviewer confirm High and Critical detections.";
     }
 
     private static void WarnIfSemanticDetectionUnreviewed(IServiceProvider sp, SentinelOptions? opts, string? pipelineName)
@@ -599,7 +603,7 @@ public static class ServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(detectors);
-        if (options.EmbeddingGenerator is null || EffectiveReviewer(options) is not null)
+        if (options.EmbeddingGenerator is null || CanReview(options))
         {
             return null;
         }

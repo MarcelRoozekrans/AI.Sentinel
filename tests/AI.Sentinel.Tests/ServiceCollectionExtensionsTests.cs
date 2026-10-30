@@ -261,6 +261,25 @@ public class ServiceCollectionExtensionsTests
         Assert.Contains(logger.Messages, IsUnreviewedWarning);
     }
 
+    /// <summary>MaxReviewsPerScan 0 turns the review off, so a reviewer that is set still leaves detections capped.</summary>
+    [Fact]
+    public void UnreviewedWarning_ReviewerSetButMaxReviewsPerScanZero_Warns()
+    {
+        using var provider = new ServiceCollection()
+            .AddAISentinel(o =>
+            {
+                o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+                o.Reviewer = new RecordingReviewer();
+                o.MaxReviewsPerScan = 0;
+            })
+            .BuildServiceProvider();
+
+        var warning = provider.DescribeUnreviewedSemanticDetection();
+
+        Assert.NotNull(warning);
+        Assert.Contains("MaxReviewsPerScan is 0", warning, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void UnreviewedWarning_NoGenerator_Null()
     {
