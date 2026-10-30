@@ -86,7 +86,8 @@ This list is my reading of the code; the builder confirms each detector against 
 
 ### Options and docs
 
-- `SentinelOptions.MaxScanBytes`, an `int`, default 262 144, validated positive. Named pipelines inherit it like other options.
+- `SentinelOptions.MaxScanBytes`, an `int`, default 262 144, validated positive. A named pipeline configures its own `SentinelOptions` from defaults, like every other option, so it gets 262 144 unless it sets its own.
+- The hooks read `SENTINEL_HOOK_MAX_SCAN_BYTES`, parsed like `SENTINEL_MCP_MAX_SCAN_BYTES`, so a Claude Code or Copilot host can raise the budget too; without it a hook host would have no way past a block on a large tool result.
 - Document in the options reference, the detector list (the new id) and the MCP env var docs.
 - Release: **`feat:` → 4.2.0** (Marcel, 2026-10-30), with `MaxScanBytes` as the feature. The PR body and the commit message call out the behaviour change plainly: under default actions, a new turn over 256 KiB, a regex timeout, and an MCP item over the proxy's budget now block where 4.1 let them through; hosts raise `MaxScanBytes` or adjust `OnCritical`/`SeverityCap`.
 
