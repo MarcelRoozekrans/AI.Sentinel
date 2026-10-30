@@ -7,8 +7,9 @@ namespace AI.Sentinel.Detectors.Compliance;
 /// <summary>CMP-04: requests to predict whether a person will commit a crime from profiling or personality
 /// traits alone, the individual crime risk assessment the EU AI Act prohibits in Art. 5(1)(d).</summary>
 /// <remarks>Opt-in: off unless enabled. Semantic only: it returns <c>Clean</c> until <see cref="SentinelOptions.EmbeddingGenerator"/> is
-/// set. In an <c>AddAISentinel()</c> app a strong match is <see cref="Severity.High"/>, so the default action is
-/// Alert, not a block, and a weaker match is <see cref="Severity.Medium"/>, which is logged. The hook CLIs and the
+/// set. In an <c>AddAISentinel()</c> app a strong match is <see cref="Severity.High"/> only with a reviewer that confirms it, or with
+/// <c>CapSemanticSeverity = false</c>, and is otherwise capped at <see cref="Severity.Medium"/>. High
+/// raises Alert, not a block, and Medium is logged. The hook CLIs and the
 /// MCP proxy give both severities the Alert action: the hooks warn, unless <c>SENTINEL_HOOK_ON_*</c> maps the
 /// severity to Allow, and the proxy forwards the call with an audit entry. A text in neither bucket whose similarity
 /// reaches <c>ReviewThreshold</c> still goes to the second-stage reviewer, when one is configured.</remarks>

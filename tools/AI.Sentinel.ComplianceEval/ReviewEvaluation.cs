@@ -11,7 +11,7 @@ namespace AI.Sentinel.ComplianceEval;
 /// <summary>Scores the held-out phrases through an internal <see cref="DetectionPipeline"/> over one detector, in three
 /// configurations: embeddings alone and uncapped, embeddings capped at Medium, and embeddings plus a reviewer. A
 /// separate full-pipeline pass runs every evaluated detector together to measure the review budget.</summary>
-/// <remarks>Configuration 1 is today's behaviour, and its verdict is the one the tool's exit code guards through the
+/// <remarks>Configuration 1 is the behaviour before 4.0, and its verdict is the one the tool's exit code guards through the
 /// direct <c>AnalyzeAsync</c> path. Nothing here fails the run: judge output is not deterministic.</remarks>
 internal sealed class ReviewEvaluation(
     EmbeddingScope scope, IDetectionReviewer? reviewer, bool toolMessages, CancellationToken ct)

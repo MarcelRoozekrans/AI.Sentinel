@@ -168,7 +168,7 @@ else
 {
     report.AppendLine(CultureInfo.InvariantCulture, $"## Held-out review: {model.Name}");
     report.AppendLine();
-    report.AppendLine("Configurations: 1 is embeddings alone and uncapped, today's behaviour; 2 caps the embedding result at Medium; 3 adds the LLM judge to 2. Only phrases marked `heldout` are scored. Added ms is the wall time of configuration 3 minus that of configuration 2 for the same phrase. Configuration 3 reviews run under a 30 s measurement timeout, so a slow judge answer is still recorded; beneath each table, the reviews over the hook CLIs' 3 s default and over the library's 5 s default `ReviewTimeout` are counted, and each review over 3 s is named.");
+    report.AppendLine("Configurations: 1 is embeddings alone and uncapped, the behaviour before 4.0; 2 caps the embedding result at Medium; 3 adds the LLM judge to 2. Only phrases marked `heldout` are scored. Added ms is the wall time of configuration 3 minus that of configuration 2 for the same phrase. Configuration 3 reviews run under a 30 s measurement timeout, so a slow judge answer is still recorded; beneath each table, the reviews over the hook CLIs' 3 s default and over the library's 5 s default `ReviewTimeout` are counted, and each review over 3 s is named.");
     report.AppendLine();
     if (judgeClient is null) report.AppendLine("Judge columns skipped: ANTHROPIC_API_KEY not set.");
     else report.AppendLine(CultureInfo.InvariantCulture, $"Judge: `{judgeModel}` through the Anthropic OpenAI-compatible endpoint.");

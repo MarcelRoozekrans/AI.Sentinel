@@ -320,7 +320,7 @@ public class DetectorOptInAndThresholdTests
     [Fact]
     public void MediumAboveTheBuiltInHigh_ThrowsWhenThePipelineIsBuilt()
     {
-        // Only Medium is set, so AddAISentinel cannot compare it with the built-in High (0.44 for CMP-01);
+        // Only Medium is set, so AddAISentinel cannot compare it with the built-in High (0.55 for CMP-01);
         // the pipeline can, once it has the instance.
         var provider = new ServiceCollection()
             .AddAISentinel(o => o.Configure<SocialScoringDetector>(c =>
