@@ -10,7 +10,8 @@ namespace AI.Sentinel.Detectors.Compliance;
 /// set. In an <c>AddAISentinel()</c> app a strong match is <see cref="Severity.High"/>, so the default action is
 /// Alert, not a block, and a weaker match is <see cref="Severity.Medium"/>, which is logged. The hook CLIs and the
 /// MCP proxy give both severities the Alert action: the hooks warn, unless <c>SENTINEL_HOOK_ON_*</c> maps the
-/// severity to Allow, and the proxy forwards the call with an audit entry.</remarks>
+/// severity to Allow, and the proxy forwards the call with an audit entry. A text in neither bucket whose similarity
+/// reaches <c>ReviewThreshold</c> still goes to the second-stage reviewer, when one is configured.</remarks>
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed class SocialScoringDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
@@ -29,12 +30,17 @@ public sealed class SocialScoringDetector(SentinelOptions options) : SemanticDet
     protected override Severity MediumSeverity => Severity.Medium;
     protected override Severity LowSeverity => Severity.Low;
 
-    // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent, and DetectorConfiguration.HighThreshold and
-    // MediumThreshold override them per pipeline. See
-    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval. Re-tuned
-    // for 3.1 over a larger set of legitimate requests.
-    protected override float HighThreshold => 0.50f;
+    // Tuned on all-MiniLM-L6-v2 over the fit split of tests/AI.Sentinel.Tests/Detectors/Compliance/compliance-phrases.json;
+    // thresholds are model-dependent, another model needs its own run, and DetectorConfiguration.HighThreshold,
+    // MediumThreshold and ReviewThreshold override them per pipeline. See
+    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
+    // For 4.2, High rose from 0.50 because a legitimate request explaining China's social credit system scores 0.495
+    // against the High set, and ReviewThreshold sends a text in no bucket to the reviewer from 0.41 up. Known miss: the fit
+    // positive that grades parents on volunteering, church attendance and social media tone scores 0.347; covering it
+    // would send a fifth of the fit legitimate texts to review.
+    protected override float HighThreshold => 0.55f;
     protected override float MediumThreshold => 0.42f;
+    protected override float ReviewThreshold => 0.41f;
 
     protected override string[] HighExamples =>
     [

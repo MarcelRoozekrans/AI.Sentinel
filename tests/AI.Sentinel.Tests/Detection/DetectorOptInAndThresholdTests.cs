@@ -16,7 +16,7 @@ namespace AI.Sentinel.Tests.Detection;
 /// (<see cref="DetectorConfiguration.HighThreshold"/>, <see cref="DetectorConfiguration.MediumThreshold"/>).</summary>
 public class DetectorOptInAndThresholdTests
 {
-    private const string CmpPrompt = "determine each person's race from their profile photo";
+    private static readonly string CmpPrompt = DetectorExamples.SensitiveBiometricCategorisationHigh;
 
     private static SentinelContext Ctx(string text) => new(
         new AgentId("a"), new AgentId("b"), SessionId.New(),
@@ -158,6 +158,31 @@ public class DetectorOptInAndThresholdTests
 
     // ── Thresholds ───────────────────────────────────────────────────────────
 
+    /// <summary>The #433 values, tuned on all-MiniLM-L6-v2 fit data, like SecurityDetectors_ThresholdsAreOrdered.
+    /// A text below ReviewThreshold is not reviewed, so ReviewThreshold must stay under Medium, and Medium under High.</summary>
+    [Theory]
+    [InlineData("CMP-01", 0.55f, 0.42f, 0.41f)]
+    [InlineData("CMP-02", 0.58f, 0.56f, 0.51f)]
+    [InlineData("CMP-03", 0.53f, 0.40f, 0.39f)]
+    [InlineData("CMP-04", 0.49f, 0.40f, 0.36f)]
+    public void ComplianceDetectors_ThresholdsAreOrdered(string id, float high, float medium, float review)
+    {
+        var options = new SentinelOptions();
+        SemanticDetectorBase detector = id switch
+        {
+            "CMP-01" => new SocialScoringDetector(options),
+            "CMP-02" => new WorkplaceEmotionRecognitionDetector(options),
+            "CMP-03" => new SensitiveBiometricCategorisationDetector(options),
+            _ => new ProfilingCrimePredictionDetector(options),
+        };
+
+        Assert.True(detector.EvaluationReviewThreshold < detector.EvaluationMediumThreshold);
+        Assert.True(detector.EvaluationMediumThreshold < detector.EvaluationHighThreshold);
+        Assert.Equal(high, detector.EvaluationHighThreshold);
+        Assert.Equal(medium, detector.EvaluationMediumThreshold);
+        Assert.Equal(review, detector.EvaluationReviewThreshold);
+    }
+
     [Fact]
     public async Task HighThresholdOverride_ChangesTheOutcome()
     {
@@ -223,19 +248,20 @@ public class DetectorOptInAndThresholdTests
     [InlineData(true, true)]
     public async Task ThresholdOverride_AppliesToABuiltInSemanticDetector(bool overridden, bool expectFired)
     {
-        // The probe sits at cosine 0.5 from one CMP-03 High example and is orthogonal to the rest: below the
-        // built-in High of 0.66, so CMP-03 stays clean, and above an override of 0.45, so it fires.
+        // The probe sits at cosine 0.35 from one CMP-03 High example and is orthogonal to the rest: below the
+        // built-in High of 0.53, Medium of 0.40 and ReviewThreshold of 0.39, so CMP-03 stays clean, and above an
+        // override of 0.3, so it fires.
         using var provider = new ServiceCollection()
             .AddAISentinel(o =>
             {
-                o.EmbeddingGenerator = new OneProbeEmbeddingGenerator(CmpPrompt, cosine: 0.5f);
+                o.EmbeddingGenerator = new OneProbeEmbeddingGenerator(CmpPrompt, cosine: 0.35f);
                 o.Configure<SensitiveBiometricCategorisationDetector>(c =>
                 {
                     c.Enabled = true;
                     if (overridden)
                     {
-                        c.HighThreshold = 0.45f;
-                        c.MediumThreshold = 0.4f;
+                        c.HighThreshold = 0.3f;
+                        c.MediumThreshold = 0.25f;
                     }
                 });
             })
