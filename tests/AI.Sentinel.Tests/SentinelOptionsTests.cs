@@ -130,6 +130,24 @@ public class SentinelOptionsTests
     }
 
     [Fact]
+    public void MaxScanBytes_DefaultsTo256KiB()
+    {
+        Assert.Equal(262144, new SentinelOptions().MaxScanBytes);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void MaxScanBytes_ZeroOrNegative_FailsValidation(int value)
+    {
+        var opts = new SentinelOptions { MaxScanBytes = value };
+        var failures = new SentinelOptionsValidator().Validate(opts).Failures.ToArray();
+        var failure = Assert.Single(failures);
+        Assert.Equal("MaxScanBytes", failure.PropertyName);
+        Assert.Equal("GreaterThan", failure.ErrorCode);
+    }
+
+    [Fact]
     public void InvalidOptions_ReportOneGreaterThanFailurePerOffendingProperty()
     {
         var opts = new SentinelOptions

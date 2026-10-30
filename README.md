@@ -189,6 +189,7 @@ Detectors run in these modes:
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
+| `SEC‑00` | Scan limit | Pipeline finding | Text Sentinel could not scan. The new content of a call, which is the messages after the last assistant message on a prompt scan, the generated messages on a response scan and the one event on a hook or `ScreenAsync`, was over `SentinelOptions.MaxScanBytes` (default 262 144 bytes, UTF-8). The detectors scanned the first `MaxScanBytes` bytes and the pipeline reports one `Critical` finding. Its action is `OnCritical`; no `SeverityCap`, `SeverityFloor` or per-detector action changes it. A pipeline finding, not a detector: it has no `IDetector`, cannot be disabled and has no `Configure<T>`. Raise `MaxScanBytes` to scan more (OWASP LLM10) |
 | `SEC‑01` | PromptInjection | Rule + Semantic ⚠️ | Override/injection phrase patterns. The unambiguous phrasings (`ignore all previous instructions`, `you are now a different AI`) are matched by rule, in English and Dutch, and need no generator; paraphrases need one |
 | `SEC‑02` | CredentialExposure | Rule-based | API keys, tokens, private keys, secrets in output |
 | `SEC‑03` | ToolPoisoning | Semantic ⚠️ | Suspicious tool-call manipulation patterns |
@@ -288,7 +289,7 @@ Requests to use the model for a practice Art. 5 of the [EU AI Act](#eu-ai-act-co
 | LLM07 | System Prompt Leakage | `SystemPromptEchoDetector`, `SystemPromptLeakageDetector`, `PromptTemplateLeakageDetector`, `GovernanceGapDetector` | ⚠️ partial (1/4) |
 | LLM08 | Vector & Embedding Weaknesses | `VectorRetrievalPoisoningDetector` | ❌ none |
 | LLM09 | Misinformation | `PhantomCitationDetector`, `GroundlessStatisticDetector`, `StaleKnowledgeDetector`, `UncertaintyPropagationDetector`, `SourceGroundingDetector`, `ConfidenceDecayDetector` | ❌ none |
-| LLM10 | Unbounded Consumption | `UnboundedConsumptionDetector`, `RepetitionLoopDetector` | ✅ yes |
+| LLM10 | Unbounded Consumption | `UnboundedConsumptionDetector`, `RepetitionLoopDetector`, SEC-00 scan limit (a pipeline finding) | ✅ yes |
 
 > **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Five of the nine in-scope categories are in that state out of the box. **LLM01 Prompt Injection** is not one of them: `SEC‑01` and `SEC‑05` carry a rule layer that catches the unambiguous phrasings with no generator configured.
 
@@ -517,6 +518,11 @@ builder.Services.AddAISentinel(opts =>
     // Lower this for high-cardinality session keys (many unique users),
     // raise it for long-lived sessions.
     opts.SessionIdleTimeout = TimeSpan.FromHours(1);
+
+    // Optional: the most bytes of new content (UTF-8) the detectors scan per call. Default: 262144 (256 KiB).
+    // Over it, the detectors see the first MaxScanBytes bytes and the pipeline adds a Critical SEC-00 finding,
+    // acted on as OnCritical, so text that was not scanned is never reported as clean.
+    opts.MaxScanBytes = 262144;
 
     // Optional: validate structured LLM responses against a caller-supplied type (SEC-29).
     // The type must be annotated with [ZeroAllocSerializable(SerializationFormat.SystemTextJson)].

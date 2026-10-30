@@ -62,6 +62,10 @@ Some detectors read only the messages' text, because tool traffic would distort 
 
 `SEC-08` EntropyCovertChannel examines each message, newest first, up to 64 KiB of each, so a large file read early cannot push a later message out of the window. `SEC-24` AdversarialUnicode reads tool calls and results too, and ignores the joiners writing systems need: a zero width joiner between emoji, and a zero width non-joiner between Arabic-script or Indic letters. `SEC-32` SystemPromptEcho reads the newest assistant message's text and tool calls, not the hosted tool results in it, which are retrieved content rather than the model's output. For a finding of a rule-based `ILlmEscalatingDetector`, which does not report which text matched, the reviewer is shown the newest message's full text, up to its last 64 KiB; for a semantic candidate it is shown the text that scored. Prompt injection's rule layer still reads only the newest user message's text.
 
+## Scan budget and SEC-00
+
+The detectors scan the new content of a call, not the whole conversation, and at most `SentinelOptions.MaxScanBytes` of it: 262 144 bytes of UTF-8 by default. When the new content is longer, the detectors see its first `MaxScanBytes` bytes and the pipeline adds one `Critical` finding with the id `SEC-00` (scan limit, OWASP LLM10) that gives both byte counts. A text that was not scanned is a finding, not a pass. `SEC-00` is a pipeline finding, not a detector: it has no `IDetector`, is added after severity clamps, the semantic cap, review and action overrides, so none of them change it, and cannot be disabled per detector. Its action is `OnCritical`, `Quarantine` by default. Raise `MaxScanBytes` to scan more, or set `OnCritical` to log such calls instead.
+
 ## How semantic detectors score
 
 A semantic detector embeds the text of each message that is new in the scan, compares it by cosine similarity with its High, Medium and Low reference examples, and reports the most severe bucket any message reaches. A message's text is its text plus the results of the tool calls it carries. Redaction placeholders such as `[EMAIL_1_k3f9x2]` are normalised to `[EMAIL]` first.

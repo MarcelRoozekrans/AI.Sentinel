@@ -103,6 +103,24 @@ public class HookCliTests : HookAuditOffFixtureBase
         Assert.Equal(reason, specific.GetProperty("additionalContext").GetString());
     }
 
+    // #439: a tool result over the default MaxScanBytes is blocked with SEC-00, not passed as clean and not an internal error.
+    [Fact]
+    public async Task Cli_PostToolUse_OversizeResult_BlockedWithSec00()
+    {
+        var content = new string('a', 262144 + 1);
+        var stdin = new StringReader($$$"""{"session_id":"s","tool_name":"Read","tool_input":{"file_path":"/a/notes.txt"},"tool_response":{"content":"{{{content}}}"}}""");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
+
+        Assert.Equal(0, exit);
+        Assert.Empty(stderr.ToString());
+        using var wire = JsonDocument.Parse(stdout.ToString());
+        Assert.Equal("block", wire.RootElement.GetProperty("decision").GetString());
+        Assert.Contains("SEC-00", wire.RootElement.GetProperty("reason").GetString(), StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Cli_PostToolUse_RedactOff_Injection_ExitZero_Withheld()
     {

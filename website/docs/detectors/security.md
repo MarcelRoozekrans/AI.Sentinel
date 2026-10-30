@@ -11,6 +11,7 @@ The security category covers prompt injection, jailbreaks, credential / PII leak
 
 | ID | Detector | Type | Detects |
 |---|---|---|---|
+| **SEC-00** | Scan limit | Pipeline finding | Text Sentinel could not scan. The new content of a call, which is the messages after the last assistant message on a prompt scan, the generated messages on a response scan and the one event on a hook or `ScreenAsync`, was over `SentinelOptions.MaxScanBytes` (default 262 144 bytes, UTF-8). The detectors scanned the first `MaxScanBytes` bytes and the pipeline reports one `Critical` finding. Its action is `OnCritical`; no `SeverityCap`, `SeverityFloor` or per-detector action changes it. A pipeline finding, not a detector: it has no `IDetector`, cannot be disabled and has no `Configure<T>`. Raise `MaxScanBytes` to scan more (OWASP LLM10) |
 | **SEC-01** | `PromptInjectionDetector` | Rule + Semantic ⚠️ | Override / injection phrase patterns. The unambiguous phrasings are matched by rule, in English and Dutch, and need no generator; paraphrases need one |
 | **SEC-02** | `CredentialExposureDetector` | Rule-based | API keys, tokens, private keys, secrets in output |
 | **SEC-03** | `ToolPoisoningDetector` | Semantic ⚠️ | Suspicious tool-call manipulation patterns |
@@ -84,6 +85,6 @@ opts.Configure<JailbreakDetector>(c =>
 | **LLM07** System Prompt Leakage | SEC-32, SEC-20, SEC-26, SEC-16 | ⚠️ partial (1/4) |
 | **LLM08** Vector & Embedding Weaknesses | SEC-31 | ❌ none |
 | **LLM09** Misinformation | HAL-01 (PhantomCitation), HAL-08 (GroundlessStatistic), HAL-06 (StaleKnowledge), HAL-09 (UncertaintyPropagation), HAL-04 (SourceGrounding), HAL-05 (ConfidenceDecay) — see [hallucination detectors](./hallucination) | ❌ none |
-| **LLM10** Unbounded Consumption | OPS-11 (UnboundedConsumption), OPS-02 (RepetitionLoop) — see [operational detectors](./operational) | ✅ yes |
+| **LLM10** Unbounded Consumption | OPS-11 (UnboundedConsumption), OPS-02 (RepetitionLoop), SEC-00 (scan limit, a pipeline finding) — see [operational detectors](./operational) | ✅ yes |
 
 > **Fires by default** counts only detectors active in a stock `AddAISentinel()` install. Semantic detectors need an `EmbeddingGenerator`, and stubs never fire at all — so a row marked ❌ has no active control until you configure one. Five of the nine in-scope categories are in that state out of the box. **LLM01 Prompt Injection** is not one of them: `SEC-01` and `SEC-05` carry a rule layer that fires without a generator.

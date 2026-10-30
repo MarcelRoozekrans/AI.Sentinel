@@ -7,6 +7,9 @@ namespace AI.Sentinel.Detection;
 
 public sealed class DetectionPipeline : IDetectionPipeline
 {
+    /// <summary>The id of the scan-limit finding. Owned by the pipeline, not by an <see cref="IDetector"/>.</summary>
+    internal static readonly DetectorId ScanLimitId = new("SEC-00");
+
     private readonly IDetector[] _detectors;
     private readonly DetectorConfiguration?[] _configurations;
     private readonly IDetectionReviewer? _reviewer;
@@ -102,7 +105,11 @@ public sealed class DetectionPipeline : IDetectionPipeline
     public async ValueTask<PipelineResult> RunAsync(SentinelContext ctx, CancellationToken ct)
     {
         if (_detectors.Length == 0)
-            return new PipelineResult(ThreatRiskScore.Zero, []);
+        {
+            return ctx.ExceedsScanBudget
+                ? BuildResult([], ScanLimitFinding(ctx))
+                : new PipelineResult(ThreatRiskScore.Zero, []);
+        }
 
         var embedded = _embeddingScope is { } scope && _semanticIndices.Length > 0
             ? await EmbedScanAsync(scope, ctx, ct).ConfigureAwait(false)
@@ -111,6 +118,35 @@ public sealed class DetectionPipeline : IDetectionPipeline
         // Each semantic detector's outcome, indexed like _detectors: its result plus its review candidate.
         var outcomes = new SemanticOutcome?[_detectors.Length];
 
+        var results = await AnalyzeAllAsync(ctx, embedded, outcomes, ct).ConfigureAwait(false);
+
+        // Floor/Cap before review, so candidacy uses the configured severity: a Cap below Medium keeps a rule-based
+        // result out of review. The clamp skips clean results, so a Floor never makes a clean result a candidate.
+        ApplySeverityClamp(results);
+
+        // The severity each detector proposes before the semantic cap, None for a clean result. A review
+        // step can lift a capped result back to it, so it is only needed when review is on.
+        var reviewer = _reviewLimits.MaxPerScan > 0 ? _reviewer : null;
+        var proposed = reviewer is not null ? ProposedSeverities(results) : null;
+
+        ApplySemanticCap(results, outcomes);
+
+        if (reviewer is not null && proposed is not null)
+        {
+            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, ct).ConfigureAwait(false);
+        }
+
+        // After review: a verdict rebuilds the result, which would drop an override set earlier.
+        ApplyActionOverrides(results);
+
+        // Last, so no clamp, cap, review or action override touches it: the text was not scanned, which a
+        // setting for one detector cannot undo.
+        return BuildResult(results, ctx.ExceedsScanBudget ? ScanLimitFinding(ctx) : null);
+    }
+
+    private async ValueTask<DetectionResult[]> AnalyzeAllAsync(
+        SentinelContext ctx, EmbeddedScan? embedded, SemanticOutcome?[] outcomes, CancellationToken ct)
+    {
         var vTasks = ArrayPool<ValueTask<DetectionResult>>.Shared.Rent(_detectors.Length);
         DetectionResult[] results;
         try
@@ -140,27 +176,12 @@ public sealed class DetectionPipeline : IDetectionPipeline
             ArrayPool<ValueTask<DetectionResult>>.Shared.Return(vTasks);
         }
 
-        // Floor/Cap before review, so candidacy uses the configured severity: a Cap below Medium keeps a rule-based
-        // result out of review. The clamp skips clean results, so a Floor never makes a clean result a candidate.
-        ApplySeverityClamp(results);
-
-        // The severity each detector proposes before the semantic cap, None for a clean result. A review
-        // step can lift a capped result back to it, so it is only needed when review is on.
-        var reviewer = _reviewLimits.MaxPerScan > 0 ? _reviewer : null;
-        var proposed = reviewer is not null ? ProposedSeverities(results) : null;
-
-        ApplySemanticCap(results, outcomes);
-
-        if (reviewer is not null && proposed is not null)
-        {
-            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, ct).ConfigureAwait(false);
-        }
-
-        // After review: a verdict rebuilds the result, which would drop an override set earlier.
-        ApplyActionOverrides(results);
-
-        return BuildResult(results);
+        return results;
     }
+
+    private static DetectionResult ScanLimitFinding(SentinelContext ctx) =>
+        DetectionResult.WithSeverity(ScanLimitId, Severity.Critical,
+            $"New content is {ctx.NewContentBytes} bytes; only the first {ctx.MaxScanBytes} were scanned. Raise SentinelOptions.MaxScanBytes to scan more.");
 
     /// <summary>Runs one detector, degrading a failure to Clean.</summary>
     /// <remarks>
@@ -666,14 +687,20 @@ public sealed class DetectionPipeline : IDetectionPipeline
         return true;
     }
 
-    private static PipelineResult BuildResult(DetectionResult[] results)
+    private static PipelineResult BuildResult(DetectionResult[] results, DetectionResult? scanLimit = null)
     {
         var nonClean = new List<DetectionResult>();
-        var scores = new ThreatRiskScore[results.Length];
+        var scores = new ThreatRiskScore[results.Length + (scanLimit is null ? 0 : 1)];
         for (int i = 0; i < results.Length; i++)
         {
             if (!results[i].IsClean) nonClean.Add(results[i]);
             scores[i] = new ThreatRiskScore(SeverityScore(results[i].Severity));
+        }
+
+        if (scanLimit is not null)
+        {
+            nonClean.Add(scanLimit);
+            scores[^1] = new ThreatRiskScore(SeverityScore(scanLimit.Severity));
         }
         var score = ThreatRiskScore.Aggregate(scores);
         return new PipelineResult(score, nonClean);

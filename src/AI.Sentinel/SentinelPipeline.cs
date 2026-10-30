@@ -889,7 +889,7 @@ public sealed partial class SentinelPipeline
         return null;
     }
 
-    private static SentinelContext BuildContext(
+    private SentinelContext BuildContext(
         IReadOnlyList<ChatMessage> msgs, SessionId sessionId, AgentId sender, AgentId receiver,
         string? systemPrompt, in Exemptions exemptions, string? llmId, int newMessagesFrom)
         => exemptions.Minted is null
@@ -898,12 +898,14 @@ public sealed partial class SentinelPipeline
                 SystemPrompt = systemPrompt,
                 LlmId = llmId,
                 NewMessagesFrom = newMessagesFrom,
+                MaxScanBytes = options.MaxScanBytes,
             }
             : new SentinelContext(sender, receiver, sessionId, msgs, [])
             {
                 SystemPrompt = systemPrompt,
                 LlmId = llmId,
                 NewMessagesFrom = newMessagesFrom,
+                MaxScanBytes = options.MaxScanBytes,
                 RedactionPlaceholders = exemptions.Minted,
                 RequestPlaceholders = exemptions.Request ?? NoStrings,
                 RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,

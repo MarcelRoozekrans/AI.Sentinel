@@ -148,6 +148,16 @@ public sealed class SentinelOptions
     [PositiveTimeSpan]
     public TimeSpan SessionIdleTimeout { get; set; } = TimeSpan.FromHours(1);
 
+    /// <summary>The most bytes of new content, in UTF-8, that the detectors scan per call. Default: 262 144 (256 KiB).
+    /// New content is the messages after the last assistant message on a prompt scan, the generated messages on a
+    /// response scan, and the one event on a hook or <c>ScreenAsync</c>. Over the budget, the detectors see the first
+    /// <see cref="MaxScanBytes"/> bytes and the pipeline adds one <see cref="Severity.Critical"/> <c>SEC-00</c>
+    /// finding, so text that was not scanned is never reported as clean. Its action is <see cref="OnCritical"/>, and no
+    /// severity clamp, cap or per-detector setting changes it. Raise the value to scan more, at the cost of
+    /// scan time.</summary>
+    [GreaterThan(0, ErrorCode = "GreaterThan")]
+    public int MaxScanBytes { get; set; } = 262144;
+
     /// <summary>Optional expected response type for structured-output LLM calls.
     /// When set, <c>OutputSchemaDetector</c> (SEC-29) attempts to deserialize each assistant
     /// response as this type via the registered <c>ISerializerDispatcher</c>.
