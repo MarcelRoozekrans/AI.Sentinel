@@ -186,7 +186,7 @@ public class ConcurrencyAndAdversarialTests
         DetectorPreset preset = DetectorPreset.Security,
         bool useEmbeddings = true)
     {
-        var embeddingGenerator = useEmbeddings ? DetectorExamples.Embedder() : null;
+        var embeddingGenerator = useEmbeddings ? new ExactMatchEmbeddingGenerator() : null;
         var fake = new FakeMcpServer();
         var targetTransport = fake.Start();
         var hostToProxy = new Pipe();

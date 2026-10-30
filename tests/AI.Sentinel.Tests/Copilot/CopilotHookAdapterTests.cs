@@ -22,7 +22,7 @@ public class CopilotHookAdapterTests
             opts.OnHigh = SentinelAction.Quarantine;
             opts.OnMedium = SentinelAction.Quarantine;
             opts.OnLow = SentinelAction.Quarantine;
-            opts.EmbeddingGenerator = DetectorExamples.Embedder();
+            opts.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
 
@@ -83,7 +83,7 @@ public class CopilotHookAdapterTests
         services.AddAISentinel(opts =>
         {
             opts.AddDetector(_ => capture);
-            opts.EmbeddingGenerator = DetectorExamples.Embedder();
+            opts.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var adapter = new CopilotHookAdapter(services.BuildServiceProvider(), new CopilotHookConfig { RedactToolResults = false });
         var input = new CopilotHookInput
@@ -217,7 +217,7 @@ public class CopilotHookAdapterTests
     public async Task CopilotGuard_RedactOff_NotGuarded()
     {
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         var adapter = new CopilotHookAdapter(services.BuildServiceProvider(), new CopilotHookConfig { RedactToolResults = false });
         var input = new CopilotHookInput
         {
@@ -252,7 +252,7 @@ public class CopilotHookAdapterTests
     public async Task CopilotGuard_AuthzDenyAndPlaceholder_AuthzWins()
     {
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         var provider = services.BuildServiceProvider();
         var adapter = CopilotHookAdapter.CreateForTests(provider, null, new DenyGuard());
         var input = new CopilotHookInput
@@ -315,7 +315,7 @@ public class CopilotHookAdapterTests
         var services = new ServiceCollection();
         services.AddAISentinel(o =>
         {
-            o.EmbeddingGenerator = DetectorExamples.Embedder();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
             o.DefaultToolPolicy = AI.Sentinel.Authorization.ToolPolicyDefault.Deny;
         });
         await using var provider = services.BuildServiceProvider();
@@ -331,7 +331,7 @@ public class CopilotHookAdapterTests
     public async Task PreToolUse_NoToolName_CustomGuard_Blocks()
     {
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         await using var provider = services.BuildServiceProvider();
         var adapter = CopilotHookAdapter.CreateForTests(provider, null, new DenyGuard());
 
@@ -346,7 +346,7 @@ public class CopilotHookAdapterTests
     public async Task PreToolUse_NoToolName_NoAuthorizationConfigured_Allows()
     {
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         await using var provider = services.BuildServiceProvider();
         var adapter = new CopilotHookAdapter(provider, new CopilotHookConfig());
         var audit = provider.GetRequiredService<AI.Sentinel.Audit.IAuditStore>();
@@ -379,7 +379,7 @@ public class CopilotHookAdapterTests
     {
         var guard = new CapturingGuard();
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         var adapter = CopilotHookAdapter.CreateForTests(services.BuildServiceProvider(), null, guard);
         var input = new CopilotHookInput { SessionId = "s", ToolName = "bash", ToolArgs = Json("""{"command":"ls"}""") };
         await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
@@ -406,7 +406,7 @@ public class CopilotHookAdapterTests
     {
         var guard = new CapturingGuard();
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         var adapter = CopilotHookAdapter.CreateForTests(services.BuildServiceProvider(), null, guard);
         var input = JsonSerializer.Deserialize(
             """{"sessionId":"s","toolName":"bash","toolArgs":"{\"command\":\"ls\"}"}""",
@@ -421,7 +421,7 @@ public class CopilotHookAdapterTests
     {
         var guard = new CapturingGuard();
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         var adapter = CopilotHookAdapter.CreateForTests(services.BuildServiceProvider(), null, guard);
         var input = new CopilotHookInput { SessionId = "s", ToolName = "bash", ToolArgs = Json("\"not json {\"") };
         await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
@@ -798,7 +798,7 @@ public class CopilotHookAdapterTests
     {
         var guard = new CapturingGuard();
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         var adapter = CopilotHookAdapter.CreateForTests(services.BuildServiceProvider(), null, guard);
         var input = VsCode("""{"hook_event_name":"PreToolUse","session_id":"v","tool_name":"Bash","tool_input":{"command":"ls"}}""");
 

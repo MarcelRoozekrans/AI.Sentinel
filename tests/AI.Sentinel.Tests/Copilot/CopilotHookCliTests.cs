@@ -30,7 +30,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         var exit = await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr,
-            DetectorExamples.Embedder());
+            new ExactMatchEmbeddingGenerator());
         Assert.Equal(2, exit);
     }
 
@@ -47,7 +47,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
             var stderr = new StringWriter();
 
             var exit = await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr,
-                DetectorExamples.Embedder());
+                new ExactMatchEmbeddingGenerator());
 
             Assert.Equal(0, exit);
             Assert.Contains("CMP-03", stderr.ToString(), StringComparison.Ordinal);
@@ -67,7 +67,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stderr = new StringWriter();
 
         var exit = await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr,
-            DetectorExamples.Embedder());
+            new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("CMP-", stderr.ToString(), StringComparison.Ordinal);
@@ -81,7 +81,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
         var exit = await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr,
-            DetectorExamples.Embedder());
+            new ExactMatchEmbeddingGenerator());
         Assert.Equal(2, exit);
         Assert.Contains("SEC-24 High", stderr.ToString(), StringComparison.Ordinal);
     }
@@ -240,7 +240,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        await Program.RunAsync(["user-prompt-submitted"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.DoesNotContain("EmbeddingGenerator is not configured", stderr.ToString(), StringComparison.Ordinal);
     }
@@ -327,7 +327,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["user-prompt-transformed"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["user-prompt-transformed"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         Assert.Equal("""{"decision":"Allow","reason":null}""", stdout.ToString());
@@ -340,7 +340,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["user-prompt-transformed"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["user-prompt-transformed"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         using var doc = System.Text.Json.JsonDocument.Parse(stdout.ToString());
@@ -360,7 +360,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["user-prompt-transformed"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["user-prompt-transformed"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         using var doc = System.Text.Json.JsonDocument.Parse(stdout.ToString());
@@ -395,7 +395,9 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
     public void CopilotHook_ReviewTimeoutDefaultsTo3s()
     {
         using var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: null);
-        Assert.Equal(TimeSpan.FromSeconds(3), provider.GetRequiredService<SentinelOptions>().ReviewTimeout);
+        var options = provider.GetRequiredService<SentinelOptions>();
+        Assert.Equal(TimeSpan.FromSeconds(3), options.ReviewTimeout);
+        Assert.Equal(4, options.MaxReviewsPerScan);
     }
 
     [Fact]
@@ -404,7 +406,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stderr = new StringWriter();
 
         await Program.RunAsync(["user-prompt-submitted"], new StringReader("""{"sessionId":"s","prompt":"hello"}"""),
-            new StringWriter(), stderr, DetectorExamples.Embedder());
+            new StringWriter(), stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Contains("capped at Medium", stderr.ToString(), StringComparison.Ordinal);
     }
@@ -511,7 +513,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stderr = new StringWriter();
 
         await Program.RunAsync(["user-prompt-submitted"], new StringReader("""{"sessionId":"s","prompt":"hello"}"""),
-            new StringWriter(), stderr, DetectorExamples.Embedder());
+            new StringWriter(), stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, server.Requests);
         Assert.Contains("capped at Medium", stderr.ToString(), StringComparison.Ordinal);
@@ -524,7 +526,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         using var doc = System.Text.Json.JsonDocument.Parse(stdout.ToString());
@@ -542,7 +544,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         using var doc = System.Text.Json.JsonDocument.Parse(stdout.ToString());
@@ -561,7 +563,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["pre-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["pre-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(2, exit);
         Assert.StartsWith("""{"decision":"Block","reason":"SEC-01""", stdout.ToString(), StringComparison.Ordinal);
@@ -586,7 +588,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["pre-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["pre-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(2, exit);
         Assert.StartsWith("SEC-01", stderr.ToString(), StringComparison.Ordinal);
@@ -599,7 +601,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         using var doc = System.Text.Json.JsonDocument.Parse(stdout.ToString());
@@ -618,7 +620,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
             var stdin = new StringReader("""{"hook_event_name":"UserPromptSubmit","session_id":"v-9","prompt":"What's the weather?"}""");
             var stderr = new StringWriter();
 
-            await Program.RunAsync(["user-prompt-submitted"], stdin, new StringWriter(), stderr, DetectorExamples.Embedder());
+            await Program.RunAsync(["user-prompt-submitted"], stdin, new StringWriter(), stderr, new ExactMatchEmbeddingGenerator());
 
             Assert.Contains("session=v-9", stderr.ToString(), StringComparison.Ordinal);
         }
@@ -642,7 +644,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
             var stdout = new StringWriter();
             var stderr = new StringWriter();
 
-            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
             Assert.Equal(0, exit);
             Assert.Equal(flagged, (stdout.ToString() + stderr).Contains("OPS-02", StringComparison.Ordinal));

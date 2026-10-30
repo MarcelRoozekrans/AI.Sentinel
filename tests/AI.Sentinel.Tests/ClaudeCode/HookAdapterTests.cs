@@ -85,7 +85,7 @@ public class HookAdapterTests
         services.AddAISentinel(opts =>
         {
             opts.AddDetector(_ => capture);
-            opts.EmbeddingGenerator = DetectorExamples.Embedder();
+            opts.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         return new HookAdapter(services.BuildServiceProvider(), config);
     }
@@ -438,7 +438,7 @@ public class HookAdapterTests
     public async Task PreToolUse_AuthzDenyAndPlaceholder_AuthzWins()
     {
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         var provider = services.BuildServiceProvider();
         var adapter = HookAdapter.CreateForTests(provider, null, new DenyGuard());
         var input = new HookInput
@@ -497,7 +497,7 @@ public class HookAdapterTests
         var services = new ServiceCollection();
         services.AddAISentinel(o =>
         {
-            o.EmbeddingGenerator = DetectorExamples.Embedder();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
             o.DefaultToolPolicy = AI.Sentinel.Authorization.ToolPolicyDefault.Deny;
         });
         await using var provider = services.BuildServiceProvider();
@@ -513,7 +513,7 @@ public class HookAdapterTests
     public async Task PreToolUse_NoToolName_CustomGuard_Blocks()
     {
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         await using var provider = services.BuildServiceProvider();
         var adapter = HookAdapter.CreateForTests(provider, null, new DenyGuard());
 

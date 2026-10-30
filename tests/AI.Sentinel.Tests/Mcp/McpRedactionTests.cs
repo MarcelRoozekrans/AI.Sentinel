@@ -31,7 +31,7 @@ public class McpRedactionTests
             OnHigh = SentinelAction.Alert,
             OnMedium = SentinelAction.Alert,
             OnLow = SentinelAction.Alert,
-            EmbeddingGenerator = DetectorExamples.Embedder(),
+            EmbeddingGenerator = new ExactMatchEmbeddingGenerator(),
         };
         // These tests are about redaction before a block, not the severity of an embedding hit: SEC-01 keeps its Critical.
         options.Configure<PromptInjectionDetector>(c => c.CapSemanticSeverity = false);

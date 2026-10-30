@@ -48,7 +48,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stderr = new StringWriter();
 
         var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr,
-            DetectorExamples.Embedder());
+            new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(2, exit);
         Assert.Empty(stdout.ToString());
@@ -62,7 +62,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("jan@example.com", stdout.ToString(), StringComparison.Ordinal);
@@ -87,7 +87,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         Assert.Empty(stderr.ToString());
@@ -115,7 +115,7 @@ public class HookCliTests : HookAuditOffFixtureBase
             var stdout = new StringWriter();
             var stderr = new StringWriter();
 
-            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
             Assert.Equal(0, exit);
             Assert.Empty(stderr.ToString());
@@ -140,7 +140,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stderr = new StringWriter();
 
         var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr,
-            DetectorExamples.Embedder());
+            new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(2, exit);
         Assert.Contains("SEC-01", stderr.ToString(), StringComparison.Ordinal);
@@ -159,7 +159,7 @@ public class HookCliTests : HookAuditOffFixtureBase
             var stderr = new StringWriter();
 
             var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr,
-                DetectorExamples.Embedder());
+                new ExactMatchEmbeddingGenerator());
 
             Assert.Equal(0, exit);
             using var wire = JsonDocument.Parse(stdout.ToString());
@@ -181,7 +181,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stderr = new StringWriter();
 
         var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr,
-            DetectorExamples.Embedder());
+            new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("CMP-", stderr.ToString(), StringComparison.Ordinal);
@@ -196,7 +196,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stderr = new StringWriter();
 
         var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr,
-            DetectorExamples.Embedder());
+            new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(2, exit);
         Assert.Contains("SEC-24 High", stderr.ToString(), StringComparison.Ordinal);
@@ -279,7 +279,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stderr = new StringWriter();
 
         var exit = await Program.RunAsync(["user-prompt-submit"], new StringReader("""{"session_id":"s","prompt":"hello"}"""),
-            new StringWriter(), stderr, DetectorExamples.Embedder());
+            new StringWriter(), stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         Assert.Contains("capped at Medium", stderr.ToString(), StringComparison.Ordinal);
@@ -292,7 +292,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stderr = new StringWriter();
 
         await Program.RunAsync(["user-prompt-submit"], new StringReader("""{"session_id":"s","prompt":"hello"}"""),
-            new StringWriter(), stderr, DetectorExamples.Embedder(), new FixedVerdictReviewer(Severity.High));
+            new StringWriter(), stderr, new ExactMatchEmbeddingGenerator(), new FixedVerdictReviewer(Severity.High));
 
         Assert.DoesNotContain("capped at Medium", stderr.ToString(), StringComparison.Ordinal);
     }
@@ -429,7 +429,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         await Program.RunAsync(["post-tool-use"], PostToolUseInjection(), stdout, new StringWriter(), DetectorExamples.Embedder());
         var stderr = new StringWriter();
         await Program.RunAsync(["user-prompt-submit"], new StringReader("""{"session_id":"s","prompt":"hello"}"""),
-            new StringWriter(), stderr, DetectorExamples.Embedder());
+            new StringWriter(), stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, server.Requests);
         Assert.False(IsBlocked(stdout));
@@ -530,7 +530,7 @@ public class HookCliTests : HookAuditOffFixtureBase
             var stderr = new StringWriter();
 
             var exit = await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr,
-                DetectorExamples.Embedder());
+                new ExactMatchEmbeddingGenerator());
 
             Assert.Equal(2, exit);
             var err = stderr.ToString();
@@ -628,7 +628,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        await Program.RunAsync(["user-prompt-submit"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.DoesNotContain("EmbeddingGenerator is not configured", stderr.ToString(), StringComparison.Ordinal);
     }
@@ -713,7 +713,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 
-        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         Assert.Equal("{}", stdout.ToString());
@@ -730,7 +730,7 @@ public class HookCliTests : HookAuditOffFixtureBase
             var stdout = new StringWriter();
             var stderr = new StringWriter();
 
-            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, DetectorExamples.Embedder());
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
 
             Assert.Equal(0, exit);
             using var wire = JsonDocument.Parse(stdout.ToString());

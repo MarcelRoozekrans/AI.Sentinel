@@ -86,7 +86,7 @@ public class McpProxyTests
         var pipeline = McpPipelineFactory.Create(
             DefaultConfig(),
             DetectorPreset.Security,
-            embeddingGenerator: DetectorExamples.Embedder());
+            embeddingGenerator: new ExactMatchEmbeddingGenerator());
 
         var messages = new[] { new Microsoft.Extensions.AI.ChatMessage(
             Microsoft.Extensions.AI.ChatRole.User, phrase) };
@@ -113,7 +113,7 @@ public class McpProxyTests
         var reviewer = new FixedVerdictReviewer(Severity.High);
 
         var pipeline = McpPipelineFactory.Create(
-            config, DetectorPreset.Security, DetectorExamples.Embedder(),
+            config, DetectorPreset.Security, new ExactMatchEmbeddingGenerator(),
             out _, out _, out var unreviewed, reviewer: reviewer);
 
         var error = await pipeline.ScanMessagesAsync(
@@ -130,7 +130,7 @@ public class McpProxyTests
     public void McpProxy_NoReviewer_ReportsUnreviewedSemanticDetections()
     {
         McpPipelineFactory.Create(
-            DefaultConfig(), DetectorPreset.Security, DetectorExamples.Embedder(),
+            DefaultConfig(), DetectorPreset.Security, new ExactMatchEmbeddingGenerator(),
             out _, out _, out var unreviewed);
 
         Assert.Contains("capped at Medium", unreviewed, StringComparison.Ordinal);
@@ -405,7 +405,7 @@ public class McpProxyTests
             maxScanBytes: maxScanBytes,
             stderr: stderr ?? TextWriter.Null,
             ct: cts.Token,
-            embeddingGenerator: DetectorExamples.Embedder(),
+            embeddingGenerator: new ExactMatchEmbeddingGenerator(),
             reviewer: reviewer);
 
         var driverClient = await McpClient.CreateAsync(
