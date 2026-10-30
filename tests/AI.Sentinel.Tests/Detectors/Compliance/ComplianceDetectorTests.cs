@@ -184,9 +184,9 @@ public class ComplianceDetectorTests
     /// example's wording, or the evaluation would measure recall on text the detector already holds:
     /// no positive may share a run of four words with any of its detector's examples. A phrase added after
     /// the 3.0 evaluation carries <c>"added"</c> with the release it was written for, <c>"3.1"</c> or
-    /// <c>"4.2"</c>, so the report can mark it. CMP-03 needs at least seventeen positives, five of them
-    /// <c>heldout</c>, and at least thirty-six near-misses, eight of them <c>heldout</c>; CMP-01, CMP-02
-    /// and CMP-04 each need at least two <c>heldout</c> positives and two <c>heldout</c> near-misses.</summary>
+    /// <c>"4.2"</c>, so the report can mark it. CMP-03 needs at least twenty-two positives, five of them
+    /// <c>heldout</c>, and at least forty-five near-misses, eight of them <c>heldout</c>; CMP-01, CMP-02
+    /// and CMP-04 each need at least nine positives and ten near-misses, two of each <c>heldout</c>.</summary>
     [Fact]
     public void PhraseFile_HasPositivesAndNearMissesForEveryDetector()
     {
@@ -222,8 +222,8 @@ public class ComplianceDetectorTests
         foreach (var id in CmpIds)
         {
             var cmp03 = string.Equals(id, "CMP-03", StringComparison.Ordinal);
-            var minPositives = cmp03 ? 17 : 3;
-            var minNearMisses = cmp03 ? 36 : 2;
+            var minPositives = cmp03 ? 22 : 9;
+            var minNearMisses = cmp03 ? 45 : 10;
             Assert.True(positives.GetValueOrDefault(id) >= minPositives, $"{id} needs at least {minPositives} paraphrased positives");
             Assert.True(nearMisses.GetValueOrDefault(id) >= minNearMisses, $"{id} needs at least {minNearMisses} near-misses");
         }
