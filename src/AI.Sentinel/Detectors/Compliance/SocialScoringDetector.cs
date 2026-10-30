@@ -37,7 +37,7 @@ public sealed class SocialScoringDetector(SentinelOptions options) : SemanticDet
     // For 4.2, High rose from 0.50 because a legitimate request explaining China's social credit system scores 0.495
     // against the High set, and ReviewThreshold sends a text in no bucket to the reviewer from 0.41 up. Known miss: the fit
     // positive that grades parents on volunteering, church attendance and social media tone scores 0.347; covering it
-    // would send a fifth of the fit legitimate texts to review.
+    // would send about a fifth of the fit legitimate texts to review. Re-checked on the folded fit set.
     protected override float HighThreshold => 0.55f;
     protected override float MediumThreshold => 0.42f;
     protected override float ReviewThreshold => 0.41f;

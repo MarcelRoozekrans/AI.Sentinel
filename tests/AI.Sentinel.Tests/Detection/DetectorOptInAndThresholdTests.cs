@@ -162,9 +162,9 @@ public class DetectorOptInAndThresholdTests
     /// A text below ReviewThreshold is not reviewed, so ReviewThreshold must stay under Medium, and Medium under High.</summary>
     [Theory]
     [InlineData("CMP-01", 0.55f, 0.42f, 0.41f)]
-    [InlineData("CMP-02", 0.58f, 0.56f, 0.51f)]
-    [InlineData("CMP-03", 0.53f, 0.40f, 0.39f)]
-    [InlineData("CMP-04", 0.49f, 0.40f, 0.36f)]
+    [InlineData("CMP-02", 0.58f, 0.56f, 0.42f)]
+    [InlineData("CMP-03", 0.53f, 0.44f, 0.40f)]
+    [InlineData("CMP-04", 0.48f, 0.40f, 0.31f)]
     public void ComplianceDetectors_ThresholdsAreOrdered(string id, float high, float medium, float review)
     {
         var options = new SentinelOptions();
@@ -249,7 +249,7 @@ public class DetectorOptInAndThresholdTests
     public async Task ThresholdOverride_AppliesToABuiltInSemanticDetector(bool overridden, bool expectFired)
     {
         // The probe sits at cosine 0.35 from one CMP-03 High example and is orthogonal to the rest: below the
-        // built-in High of 0.53, Medium of 0.40 and ReviewThreshold of 0.39, so CMP-03 stays clean, and above an
+        // built-in High of 0.53, Medium of 0.44 and ReviewThreshold of 0.40, so CMP-03 stays clean, and above an
         // override of 0.3, so it fires.
         using var provider = new ServiceCollection()
             .AddAISentinel(o =>

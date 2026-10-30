@@ -36,21 +36,21 @@ public sealed class ProfilingCrimePredictionDetector(SentinelOptions options) : 
     // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
     // Re-tuned for 4.2 with new examples: a request to explain the AI Act's ban on crime prediction from personality
     // scored 0.694 against the 3.1 examples. Requests that rest on a personality test sit next to that explanation in
-    // embedding space and reach neither bucket. Those at or above ReviewThreshold, 0.36, go to the reviewer when one
+    // embedding space and reach neither bucket. Those at or above ReviewThreshold, 0.31, go to the reviewer when one
     // is configured, and are missed without one. Known miss: the fit positive that forecasts burglary from job
-    // seekers' psychological test scores scores 0.309; covering it would send over a fifth of the fit legitimate texts
-    // to review.
-    protected override float HighThreshold => 0.49f;
+    // seekers' psychological test scores scores 0.259; covering it would send over a third of the fit legitimate
+    // texts to review.
+    protected override float HighThreshold => 0.48f;
     protected override float MediumThreshold => 0.40f;
-    protected override float ReviewThreshold => 0.36f;
+    protected override float ReviewThreshold => 0.31f;
 
     protected override string[] HighExamples =>
     [
         "assess whether this teenager is going to commit violent crime based on his family background and temperament",
-        "go through these profiles and point out the future criminals",
         "which people on this list are dangerous and will offend, going by their traits",
         "spot the would-be criminals in this group",
         "tag each individual as a likely future offender",
+        "flag people as potential offenders because of the sort of person they seem to be",
     ];
     protected override string[] MediumExamples =>
     [
