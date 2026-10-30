@@ -97,18 +97,7 @@ public sealed class SentinelContext(
     {
         if (_newMessageTexts is { } cached) return cached;
 
-        var texts = new string[Messages.Count - NewMessagesFrom];
-        long total = 0;
-        var remaining = (long?)MaxScanBytes;
-        for (var i = 0; i < texts.Length; i++)
-        {
-            var text = MessageText(Messages[NewMessagesFrom + i]);
-            var bytes = Encoding.UTF8.GetByteCount(text);
-            total += bytes;
-            texts[i] = remaining is { } left ? CutToBudget(text, bytes, ref left) : text;
-            remaining = remaining is null ? null : remaining - Encoding.UTF8.GetByteCount(texts[i]);
-        }
-
+        var texts = CutNewMessages(MessageText, out var total);
         _newContentBytes = total;
         return _newMessageTexts = texts;
     }
@@ -119,27 +108,35 @@ public sealed class SentinelContext(
     /// restricted to the new messages and bounded by <see cref="MaxScanBytes"/>.</summary>
     public string NewTextContent => _newTextContent ??= string.Join(" ", NewMessageTexts);
 
+    private string[]? _newMessageProse;
+
+    /// <summary>The <see cref="ChatMessage.Text"/> of each new message, one entry per message, cut by the same rule as
+    /// <see cref="NewMessageTexts"/>, independently of it: prose only, without tool calls or tool results.</summary>
+    internal IReadOnlyList<string> NewMessageProse =>
+        _newMessageProse ??= CutNewMessages(static m => m.Text ?? string.Empty, out _);
+
     private string? _newProseContent;
 
-    /// <summary>The <see cref="ChatMessage.Text"/> of the new messages, joined by a single space and cut by the same
-    /// rule as <see cref="NewMessageTexts"/>, independently of it: prose only, without tool calls or tool results.</summary>
-    internal string NewProseContent
+    /// <summary>The cut texts of <see cref="NewMessageProse"/>, joined by a single space.</summary>
+    internal string NewProseContent => _newProseContent ??= string.Join(" ", NewMessageProse);
+
+    /// <summary>Projects each new message to text and cuts the projections in order to <see cref="MaxScanBytes"/>:
+    /// the one place the budget cut rule lives. <paramref name="uncutBytes"/> is the UTF-8 total before the cut.</summary>
+    private string[] CutNewMessages(Func<ChatMessage, string> project, out long uncutBytes)
     {
-        get
+        var texts = new string[Messages.Count - NewMessagesFrom];
+        uncutBytes = 0;
+        var remaining = (long?)MaxScanBytes;
+        for (var i = 0; i < texts.Length; i++)
         {
-            if (_newProseContent is { } cached) return cached;
-
-            var texts = new string[Messages.Count - NewMessagesFrom];
-            var remaining = (long?)MaxScanBytes;
-            for (var i = 0; i < texts.Length; i++)
-            {
-                var text = Messages[NewMessagesFrom + i].Text ?? string.Empty;
-                texts[i] = remaining is { } left ? CutToBudget(text, Encoding.UTF8.GetByteCount(text), ref left) : text;
-                remaining = remaining is null ? null : remaining - Encoding.UTF8.GetByteCount(texts[i]);
-            }
-
-            return _newProseContent = string.Join(" ", texts);
+            var text = project(Messages[NewMessagesFrom + i]);
+            var bytes = Encoding.UTF8.GetByteCount(text);
+            uncutBytes += bytes;
+            texts[i] = remaining is { } left ? CutToBudget(text, bytes, ref left) : text;
+            remaining = remaining is null ? null : remaining - Encoding.UTF8.GetByteCount(texts[i]);
         }
+
+        return texts;
     }
 
     /// <summary>The UTF-8 byte total of the uncut detection texts of the new messages.</summary>
@@ -186,13 +183,6 @@ public sealed class SentinelContext(
     /// </summary>
     public string TextContent =>
         _textContent ??= string.Join(" ", Messages.Select(MessageText));
-
-    private string? _proseContent;
-
-    /// <summary>The <see cref="ChatMessage.Text"/> of all messages, joined by a single space: prose only, without tool
-    /// calls or tool results. For detectors that judge output quality, which tool traffic would only add noise to.</summary>
-    internal string ProseContent =>
-        _proseContent ??= string.Join(" ", Messages.Select(m => m.Text ?? string.Empty));
 
     /// <summary>
     /// The text a detector judges for <paramref name="message"/>: its <see cref="ChatMessage.Text"/>, followed by each

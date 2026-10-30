@@ -108,9 +108,10 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
 
         // Each message on its own, newest first, so one large message, such as a file read early, cannot push later
         // ones out of the examined window.
-        for (var m = ctx.Messages.Count - 1; m >= 0; m--)
+        var texts = ctx.NewMessageTexts;
+        for (var m = texts.Count - 1; m >= 0; m--)
         {
-            var finding = Examine(SentinelContext.MessageText(ctx.Messages[m]));
+            var finding = Examine(texts[m]);
             if (finding is not null) return ValueTask.FromResult(finding);
         }
 

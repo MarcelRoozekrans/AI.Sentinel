@@ -182,9 +182,8 @@ public sealed class AdversarialUnicodeDetector : IDetector
     {
         var count = 0;
         // Tool calls and results count: hidden characters in retrieved content are a classic smuggling route.
-        foreach (var message in ctx.Messages)
+        foreach (var text in ctx.NewMessageTexts)
         {
-            var text = SentinelContext.MessageText(message);
             for (var i = 0; i < text.Length; i++)
             {
                 if (Rune.DecodeFromUtf16(text.AsSpan(i), out var rune, out var length) != OperationStatus.Done)

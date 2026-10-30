@@ -14,7 +14,7 @@ public sealed class IncompleteCodeBlockDetector : IDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = string.Join("\n", ctx.Messages.Select(m => m.Text ?? ""));
+        var text = string.Join("\n", ctx.NewMessageProse);
         var opens = text.Split("```").Length - 1;
         if (opens % 2 != 0)
             return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Medium,

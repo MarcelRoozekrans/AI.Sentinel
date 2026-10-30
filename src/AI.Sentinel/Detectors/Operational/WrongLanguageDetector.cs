@@ -40,12 +40,15 @@ public sealed partial class WrongLanguageDetector : IDetector
         string? lastUserText = null;
         string? lastAssistantText = null;
 
-        foreach (var message in ctx.Messages)
+        // Only the new messages: a mismatch in earlier turns was judged when it arrived.
+        var prose = ctx.NewMessageProse;
+        for (var i = 0; i < prose.Count; i++)
         {
-            if (message.Role == ChatRole.User)
-                lastUserText = message.Text ?? string.Empty;
-            else if (message.Role == ChatRole.Assistant)
-                lastAssistantText = message.Text ?? string.Empty;
+            var role = ctx.Messages[ctx.NewMessagesFrom + i].Role;
+            if (role == ChatRole.User)
+                lastUserText = prose[i];
+            else if (role == ChatRole.Assistant)
+                lastAssistantText = prose[i];
         }
 
         if (lastUserText is null || lastAssistantText is null)

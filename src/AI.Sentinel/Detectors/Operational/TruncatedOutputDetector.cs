@@ -16,9 +16,14 @@ public sealed class TruncatedOutputDetector : IDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = string.Join(" ", ctx.Messages
-            .Where(m => m.Role == ChatRole.Assistant)
-            .Select(m => m.Text ?? "")).TrimEnd();
+        var prose = ctx.NewMessageProse;
+        var assistantText = new List<string>();
+        for (var i = 0; i < prose.Count; i++)
+        {
+            if (ctx.Messages[ctx.NewMessagesFrom + i].Role == ChatRole.Assistant) assistantText.Add(prose[i]);
+        }
+
+        var text = string.Join(" ", assistantText).TrimEnd();
         if (text.Length == 0) return ValueTask.FromResult(_clean);
 
         var fenceCount = CountOccurrences(text, "```");

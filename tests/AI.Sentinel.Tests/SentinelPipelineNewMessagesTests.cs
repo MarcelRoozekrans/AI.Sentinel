@@ -233,6 +233,46 @@ public class SentinelPipelineNewMessagesTests
         Assert.Equal(2, ctx.NewMessagesFrom);
     }
 
+    // #439. A tool loop sends the whole history on every round trip; only the messages after the last assistant
+    // message are new, so a secret in round 1's tool result is reported once, not again on round 2.
+    [Fact]
+    public async Task ToolLoop_SecretInRound1Result_FlaggedOnceNotInRound2()
+    {
+        var pipeline = Build([new CredentialExposureDetector()], redactByDefault: false);
+        var call1 = new FunctionCallContent("c1", "read", new Dictionary<string, object?>(StringComparer.Ordinal));
+        var call2 = new FunctionCallContent("c2", "read", new Dictionary<string, object?>(StringComparer.Ordinal));
+        var userMessage = new ChatMessage(ChatRole.User, "read the file");
+        var callMessage = new ChatMessage(ChatRole.Assistant, [call1]);
+        var keyResult = new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", "password=hunter2secretvalue")]);
+
+        var round1 = await pipeline.GetResponseResultAsync([userMessage, callMessage, keyResult], null, TestContext.Current.CancellationToken);
+        var round2 = await pipeline.GetResponseResultAsync(
+            [
+                userMessage, callMessage, keyResult,
+                new ChatMessage(ChatRole.Assistant, [call2]),
+                new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c2", "all clean here")]),
+            ], null, TestContext.Current.CancellationToken);
+
+        var detections = Assert.IsType<SentinelError.ThreatDetected>(round1.Error).Detections;
+        Assert.Contains(detections, d => string.Equals(d.DetectorId.Value, "SEC-02", StringComparison.Ordinal));
+        Assert.True(round2.IsSuccess, "the round 1 secret is history in round 2");
+    }
+
+    [Fact]
+    public async Task Oversize_CredentialPastCap_NotReportedButScanCritical()
+    {
+        var opts = new SentinelOptions { RedactByDefault = false, MaxScanBytes = 100 };
+        var detection = new DetectionPipeline([new CredentialExposureDetector()], configurations: null, reviewer: null, redactByDefault: false);
+        var pipeline = new SentinelPipeline(new RecordingClient(), detection, new RingBufferAuditStore(100), new InterventionEngine(opts, null), opts);
+        var text = new string('a', 200) + " password=hunter2secretvalue";
+
+        var result = await pipeline.GetResponseResultAsync([new ChatMessage(ChatRole.User, text)], null, TestContext.Current.CancellationToken);
+
+        var error = Assert.IsType<SentinelError.ThreatDetected>(result.Error);
+        Assert.Contains(error.Detections, d => string.Equals(d.DetectorId.Value, "SEC-00", StringComparison.Ordinal) && d.Severity == Severity.Critical);
+        Assert.DoesNotContain(error.Detections, d => string.Equals(d.DetectorId.Value, "SEC-02", StringComparison.Ordinal));
+    }
+
     private sealed class RecordingClient : IChatClient
     {
         public List<ChatMessage> Messages { get; } = [];

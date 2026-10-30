@@ -19,7 +19,7 @@ public sealed partial class PlaceholderTextDetector : IDetector
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         // Prose only: a file or tool result containing TODO is not unfinished output.
-        var text = ctx.ProseContent;
+        var text = ctx.NewProseContent;
         var match = PlaceholderPattern().Match(text);
         return ValueTask.FromResult(match.Success
             ? DetectionResult.WithSeverity(_id, Severity.Low, $"Placeholder text: '{match.Value}'")
