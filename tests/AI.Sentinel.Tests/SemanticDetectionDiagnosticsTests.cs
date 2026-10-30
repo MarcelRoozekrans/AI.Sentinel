@@ -74,13 +74,15 @@ public class SemanticDetectionDiagnosticsTests
     public async Task DefaultInstallPlusGenerator_DetectsTheSemanticThreat()
     {
         var provider = new ServiceCollection()
-            .AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator())
+            .AddAISentinel(o => o.EmbeddingGenerator = DetectorExamples.Embedder())
             .BuildServiceProvider();
         var pipeline = provider.GetRequiredService<IDetectionPipeline>();
 
-        var injection = await pipeline.RunAsync(Context(InjectionPayload), TestContext.Current.CancellationToken);
+        // A SEC-01 example carries none of the rule layer's phrasings, so only the semantic path can catch it.
+        var injection = await pipeline.RunAsync(Context(DetectorExamples.PromptInjectionHigh), TestContext.Current.CancellationToken);
 
-        Assert.Contains(injection.Detections, d => string.Equals(d.DetectorId.Value, "SEC-01", StringComparison.Ordinal));
+        var hit = Assert.Single(injection.Detections, d => string.Equals(d.DetectorId.Value, "SEC-01", StringComparison.Ordinal));
+        Assert.DoesNotContain("Rule match", hit.Reason, StringComparison.Ordinal);
     }
 
     /// <summary>The MCP proxy folds this into a single key=value / NDJSON record, so it must not

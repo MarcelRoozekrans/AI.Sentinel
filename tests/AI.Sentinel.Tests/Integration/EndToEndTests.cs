@@ -17,7 +17,7 @@ public class EndToEndTests
         AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services, opts =>
         {
             opts.OnCritical = SentinelAction.Quarantine;
-            opts.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            opts.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
 
         services.AddChatClient(_ => (IChatClient)new FakeInnerClient("all good"))
@@ -56,7 +56,7 @@ public class EndToEndTests
         AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services, opts =>
         {
             opts.OnCritical = SentinelAction.Log; // Don't quarantine — let it through to audit
-            opts.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            opts.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
 
         services.AddChatClient(_ => (IChatClient)new FakeInnerClient("ok"))
@@ -76,7 +76,8 @@ public class EndToEndTests
         await foreach (var e in store.QueryAsync(new AuditQuery(), CancellationToken.None))
             entries.Add(e);
 
-        Assert.NotEmpty(entries);
+        // The operational detectors also record the short reply, so the entry has to be SEC-01's own.
+        Assert.Contains(entries, e => string.Equals(e.DetectorId, "SEC-01", StringComparison.Ordinal));
     }
 
     [Fact]

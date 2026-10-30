@@ -103,7 +103,7 @@ public class ScanCommandTests
             stderr,
             TestContext.Current.CancellationToken,
             expectedDetectors: ["SEC-01"],
-            embeddingGenerator: new FakeEmbeddingGenerator());
+            embeddingGenerator: new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
     }
@@ -210,7 +210,7 @@ public class ScanCommandTests
                 stderr,
                 TestContext.Current.CancellationToken,
                 baselinePath: tempBaseline,
-                embeddingGenerator: new FakeEmbeddingGenerator());
+                embeddingGenerator: new ExactMatchEmbeddingGenerator());
 
             Assert.Equal(0, exit);
             Assert.Contains("NEW", stdout.ToString(), StringComparison.Ordinal);
