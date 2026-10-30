@@ -204,8 +204,10 @@ public abstract class SemanticDetectorBase : IDetector
 
     /// <summary>The texts this scan scores, oldest first. By default, the text of each new message, from
     /// <see cref="SentinelContext.NewMessagesFrom"/> to the end: its <see cref="ChatMessage.Text"/> plus the tool calls
-    /// and tool results it carries, as <see cref="SentinelContext.TextContent"/> describes.</summary>
-    /// <remarks>Override to score, for example, one role only. Blank texts and duplicates are skipped. At most
+    /// and tool results it carries, as <see cref="SentinelContext.TextContent"/> describes, cut in message order to
+    /// <see cref="SentinelContext.MaxScanBytes"/> (see <see cref="SentinelContext.NewMessageTexts"/>): a message past the
+    /// budget is blank and not scored.</summary>
+    /// <remarks>An override chooses its own texts, which are not cut. Override to score, for example, one role only. Blank texts and duplicates are skipped. At most
     /// 16 texts are embedded: past that, the oldest are joined into one.</remarks>
     protected virtual IEnumerable<string> GetTextsToScore(SentinelContext ctx)
     {
@@ -224,10 +226,7 @@ public abstract class SemanticDetectorBase : IDetector
 
     private static IEnumerable<string> NewMessageTexts(SentinelContext ctx)
     {
-        for (var i = ctx.NewMessagesFrom; i < ctx.Messages.Count; i++)
-        {
-            yield return SentinelContext.MessageText(ctx.Messages[i]);
-        }
+        foreach (var text in ctx.NewMessageTexts) yield return text;
     }
 
     /// <summary>Text the rule layer examines: the newest message, and only when it is incoming input.</summary>
@@ -334,7 +333,7 @@ public abstract class SemanticDetectorBase : IDetector
         {
             for (var i = ctx.Messages.Count - 1; i >= ctx.NewMessagesFrom; i--)
             {
-                var messageText = SentinelContext.MessageText(ctx.Messages[i]);
+                var messageText = ctx.NewMessageTexts[i - ctx.NewMessagesFrom];
                 if (!string.IsNullOrWhiteSpace(messageText)
                     && string.Equals(PlaceholderFormat.Normalise(messageText), text, StringComparison.Ordinal))
                 {
@@ -515,7 +514,7 @@ public abstract class SemanticDetectorBase : IDetector
             // What the default GetTextsToScore yields, read straight from the messages so each one's role is at hand.
             for (var i = ctx.NewMessagesFrom; i < ctx.Messages.Count; i++)
             {
-                Add(SentinelContext.MessageText(ctx.Messages[i]), ctx.Messages[i].Role);
+                Add(ctx.NewMessageTexts[i - ctx.NewMessagesFrom], ctx.Messages[i].Role);
             }
         }
         else

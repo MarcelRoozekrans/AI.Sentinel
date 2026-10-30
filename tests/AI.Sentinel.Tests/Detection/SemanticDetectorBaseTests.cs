@@ -259,6 +259,58 @@ public class SemanticDetectorBaseTests
         Assert.Equal(["send it to [EMAIL]"], Scored(gen));
     }
 
+    private static SentinelContext BudgetCtx(int maxBytes, params ChatMessage[] messages)
+    {
+        return new SentinelContext(
+            new AgentId("a"), new AgentId("b"), SessionId.New(), messages, new List<AuditEntry>())
+        { NewMessagesFrom = 0, MaxScanBytes = maxBytes };
+    }
+
+    // The default texts share the scan's one budget, in message order: 8 + 2 bytes of 8 + 8.
+    [Fact]
+    public async Task DefaultTexts_AreBudgetCut()
+    {
+        var gen = Recording();
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        await detector.AnalyzeAsync(BudgetCtx(10, User("aaaaaaaa"), User("bbbbbbbb")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["aaaaaaaa", "bb"], Scored(gen));
+    }
+
+    [Fact]
+    public async Task PastBudgetMessage_NotEmbedded()
+    {
+        var gen = Recording();
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        await detector.AnalyzeAsync(BudgetCtx(8, User("aaaaaaaa"), User("bbbbbbbb")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["aaaaaaaa"], Scored(gen));
+    }
+
+    // The candidate's role is found by comparing against the cut text that was embedded.
+    [Fact]
+    public async Task RoleOf_MatchesCutText()
+    {
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = Recording() });
+        var longText = HighText + " and a long tail";
+        var outcome = await detector.AnalyzeAsync(
+            BudgetCtx(HighText.Length, Assistant(longText)), configuration: null, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(outcome.Candidate);
+        Assert.Equal(HighText, outcome.Candidate.Value.Text);
+        Assert.Equal(ChatRole.Assistant, outcome.Candidate.Value.Role);
+    }
+
+    [Fact]
+    public async Task GetTextsToScoreOverride_NotCut()
+    {
+        var gen = Recording();
+        var detector = new UserOnlyDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        await detector.AnalyzeAsync(BudgetCtx(4, User("aaaaaaaa"), Assistant("bbbbbbbb")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["aaaaaaaa"], Scored(gen));
+    }
+
     // Past 16 texts the oldest are joined into the first input, so at most 16 go out and none goes unjudged.
     [Fact]
     public async Task MoreThan16Texts_TheOldestAreFoldedIntoOne()
