@@ -36,7 +36,7 @@ public sealed class SensitiveBiometricCategorisationDetector(SentinelOptions opt
     // thresholds are model-dependent, another model needs its own run, and DetectorConfiguration.HighThreshold,
     // MediumThreshold and ReviewThreshold override them per pipeline. See
     // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
-    // Re-tuned for 4.2 with new examples: fairness audits and demographic statistics sit close to these requests in
+    // Re-tuned for 4.1 with new examples: fairness audits and demographic statistics sit close to these requests in
     // embedding space, so the embeddings alone cannot separate them, and the second-stage reviewer carries recall
     // from ReviewThreshold, 0.40, up. Known misses, below it: the fit positives that read political views from
     // handwriting, 0.319, from a protest livestream, 0.337, and religion from time-clock fingerprints, 0.350; covering
