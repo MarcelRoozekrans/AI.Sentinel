@@ -10,6 +10,7 @@ namespace AI.Sentinel.Tests.Cli;
 [Collection("NonParallel")]
 public class ScanComplianceTests
 {
+    // The fixture's user message is a verbatim CMP-03 High example; it must change with the detector's examples.
     private static readonly string Fixture =
         Path.Combine(AppContext.BaseDirectory, "Fixtures", "conversations", "compliance-openai.json");
 

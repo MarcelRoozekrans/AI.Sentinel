@@ -141,48 +141,40 @@ internal sealed class SecuritySpotCheck(
         public float HighestBenignMedium { get; private set; }
 
         private readonly List<(float High, float Medium)> _fitPositives = [];
-        private readonly List<float> _fitBenignAny = [];
+        private readonly ReviewCandidacy _candidacy = new();
+        private int _fitBenignCount;
         private float _fitBenignHigh;
         private float _fitBenignMedium;
 
-        /// <summary>The lowest, over fit positives, of the highest similarity to any of the three sets: the highest
-        /// <c>ReviewThreshold</c> at which every fit positive is a review candidate.</summary>
-        public float LowestFitAnySet { get; private set; } = float.MaxValue;
-
         /// <summary>The summary row for <paramref name="id"/>.</summary>
         public string SummaryRow(string id, string thresholds) => string.Create(CultureInfo.InvariantCulture,
-            $"| {id} | {thresholds} | {Evaluator.Format(LowestPositive)} | {HighestBenignHigh:0.000} | {HighestBenignMedium:0.000} | {Positives[0]} / {Positives[1]} / {Positives[2]} / {Positives[3]} | {Benign[0]} / {Benign[1]} / {Benign[2]} | {FitSuggestion()} | {Evaluator.Format(LowestFitAnySet)} | {FitBenignAtOrAbove()} |");
+            $"| {id} | {thresholds} | {Evaluator.Format(LowestPositive)} | {HighestBenignHigh:0.000} | {HighestBenignMedium:0.000} | {Positives[0]} / {Positives[1]} / {Positives[2]} / {Positives[3]} | {Benign[0]} / {Benign[1]} / {Benign[2]} | {FitSuggestion()} | {_candidacy.LowestPositiveCell()} | {_candidacy.LegitimateAtOrAboveCell()} |");
 
         /// <summary>Records a fit phrase, for the rule's thresholds and the any-set columns.</summary>
         public void RecordFit(bool positive, float highSimilarity, float mediumSimilarity, float lowSimilarity)
         {
             var any = Math.Max(highSimilarity, Math.Max(mediumSimilarity, lowSimilarity));
+            _candidacy.Record(positive, any);
             if (positive)
             {
                 _fitPositives.Add((highSimilarity, mediumSimilarity));
-                LowestFitAnySet = Math.Min(LowestFitAnySet, any);
                 return;
             }
 
             _fitBenignHigh = Math.Max(_fitBenignHigh, highSimilarity);
             _fitBenignMedium = Math.Max(_fitBenignMedium, mediumSimilarity);
-            _fitBenignAny.Add(any);
+            _fitBenignCount++;
         }
 
         /// <summary>The thresholds <see cref="ThresholdRule.Suggest"/> gives from fit benign texts, and how the fit
         /// positives fare under them, as <c>0.57 / 0.49: 3 / 4 / 3</c>.</summary>
         public string FitSuggestion()
         {
-            if (_fitBenignAny.Count == 0) return "n/a";
+            if (_fitBenignCount == 0) return "n/a";
             var (high, medium) = ThresholdRule.Suggest(_fitBenignHigh, _fitBenignMedium);
             var (atHigh, atMedium, missed) = ThresholdRule.Classify(_fitPositives, high, medium);
             return string.Create(CultureInfo.InvariantCulture, $"{high:0.00} / {medium:0.00}: {atHigh} / {atMedium} / {missed}");
         }
-
-        /// <summary>Fit benign texts whose any-set similarity reaches <see cref="LowestFitAnySet"/>.</summary>
-        public string FitBenignAtOrAbove() => LowestFitAnySet == float.MaxValue
-            ? "n/a"
-            : _fitBenignAny.Count(a => a >= LowestFitAnySet).ToString(CultureInfo.InvariantCulture);
 
         public void Record(bool positive, Bucket bucket, float highSimilarity, float mediumSimilarity)
         {

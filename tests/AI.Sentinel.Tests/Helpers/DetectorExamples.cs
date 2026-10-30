@@ -1,9 +1,10 @@
 using AI.Sentinel.Detection;
+using AI.Sentinel.Detectors.Compliance;
 using AI.Sentinel.Detectors.Security;
 
 namespace AI.Sentinel.Tests.Helpers;
 
-/// <summary>Current example texts of the semantic security detectors, read from the detectors themselves. A test that
+/// <summary>Current example texts of semantic detectors, read from the detectors themselves. A test that
 /// needs a semantic hit under <see cref="ExactMatchEmbeddingGenerator"/> scans one of these, so a change to a
 /// detector's examples does not silently turn it into a miss.</summary>
 internal static class DetectorExamples
@@ -13,6 +14,12 @@ internal static class DetectorExamples
 
     /// <summary>A High example of SEC-09, <see cref="IndirectInjectionDetector"/>.</summary>
     public static string IndirectInjectionHigh => FirstHigh(new IndirectInjectionDetector(new SentinelOptions()));
+
+    /// <summary>A High example of CMP-03, <see cref="SensitiveBiometricCategorisationDetector"/>.</summary>
+    public static string SensitiveBiometricCategorisationHigh => FirstHigh(new SensitiveBiometricCategorisationDetector(new SentinelOptions()));
+
+    /// <summary>A High example of CMP-04, <see cref="ProfilingCrimePredictionDetector"/>.</summary>
+    public static string ProfilingCrimePredictionHigh => FirstHigh(new ProfilingCrimePredictionDetector(new SentinelOptions()));
 
     /// <summary>Exact-match embeddings that also recognise <see cref="PromptInjectionHigh"/> and
     /// <see cref="IndirectInjectionHigh"/> inside a larger text, such as a tool result

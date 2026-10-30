@@ -83,7 +83,7 @@ public class McpPipelineFactoryTests
         var pipeline = McpPipelineFactory.Create(new HookConfig { EnableComplianceDetectors = true }, preset, new ExactMatchEmbeddingGenerator(), out var audit);
 
         var cmp = await pipeline.ScanMessagesAsync(
-            [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "determine each person's race from their profile photo")],
+            [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, DetectorExamples.SensitiveBiometricCategorisationHigh)],
             default, ct: ct);
         var sec = await pipeline.ScanMessagesAsync(
             [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "hidden\u200b\u200b\u200bpayload")],
@@ -118,7 +118,7 @@ public class McpPipelineFactoryTests
             [new AI.Sentinel.Detectors.Compliance.SensitiveBiometricCategorisationDetector(options), new LowProbeDetector()], audit);
 
         var error = await pipeline.ScanMessagesAsync(
-            [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, "determine each person's race from their profile photo")],
+            [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, DetectorExamples.SensitiveBiometricCategorisationHigh)],
             default, ct: ct);
 
         Assert.Null(error);
