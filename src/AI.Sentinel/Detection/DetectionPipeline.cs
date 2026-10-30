@@ -1,5 +1,4 @@
 using System.Buffers;
-using System.Text.Json;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -392,20 +391,6 @@ public sealed class DetectionPipeline : IDetectionPipeline
         return new PipelineResult(score, nonClean);
     }
 
-    /// <summary>The most text the escalation classifier is sent: a tool result can be a whole file.</summary>
-    private const int MaximumEscalationCharacters = 64 * 1024;
-
-    /// <summary>The last <see cref="MaximumEscalationCharacters"/> of <paramref name="text"/>, without splitting a
-    /// surrogate pair.</summary>
-    private static string LastPart(string text)
-    {
-        if (text.Length <= MaximumEscalationCharacters) return text;
-
-        var start = text.Length - MaximumEscalationCharacters;
-        if (char.IsLowSurrogate(text[start])) start++;
-        return text[start..];
-    }
-
     private static async ValueTask<DetectionResult> EscalateAsync(
         IDetector detector,
         SentinelContext ctx,
@@ -425,7 +410,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
             """);
 
         // The newest message's detection text, so a flagged tool call or result is shown, not an empty text.
-        var flagged = ctx.Messages.Count > 0 ? LastPart(SentinelContext.MessageText(ctx.Messages[^1])) : "(empty)";
+        var flagged = ctx.Messages.Count > 0 ? LlmJudgeReviewer.LastPart(SentinelContext.MessageText(ctx.Messages[^1])) : "(empty)";
         var contentMessage = new ChatMessage(ChatRole.User, $"<{boundary}>\n{flagged}\n</{boundary}>");
 
         try
@@ -434,7 +419,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 new List<ChatMessage> { instruction, contentMessage },
                 cancellationToken: ct).ConfigureAwait(false);
 
-            if (!TryParseVerdict(response.Text, out var verdict))
+            if (!LlmJudgeReviewer.TryParseVerdict(response.Text, out var verdict))
             {
                 logger?.LogWarning("AI.Sentinel: the LLM escalation verdict for detector {DetectorId} had no readable severity; the detector's result stands.", detector.Id.Value);
                 return initial;
@@ -452,46 +437,4 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
         return initial;
     }
-
-    /// <summary>Reads the <c>severity</c> field of the judge's JSON verdict. The JSON may sit in a code fence or
-    /// between other text; anything else, including a severity that is not one of the five names, is no verdict.</summary>
-    private static bool TryParseVerdict(string? text, out Severity severity)
-    {
-        severity = Severity.None;
-        if (string.IsNullOrEmpty(text)) return false;
-
-        var start = text.IndexOf('{', StringComparison.Ordinal);
-        var end = text.LastIndexOf('}');
-        if (start < 0 || end < start) return false;
-
-        try
-        {
-            using var doc = JsonDocument.Parse(text.AsMemory(start, end - start + 1));
-            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
-
-            foreach (var property in doc.RootElement.EnumerateObject())
-            {
-                if (!string.Equals(property.Name, "severity", StringComparison.OrdinalIgnoreCase)) continue;
-                if (property.Value.ValueKind != JsonValueKind.String) return false;
-
-                var name = property.Value.GetString();
-                foreach (var candidate in Verdicts)
-                {
-                    if (string.Equals(name, candidate.ToString(), StringComparison.OrdinalIgnoreCase))
-                    {
-                        severity = candidate;
-                        return true;
-                    }
-                }
-                return false;
-            }
-        }
-        catch (JsonException)
-        {
-            // Not JSON: no verdict.
-        }
-        return false;
-    }
-
-    private static readonly Severity[] Verdicts = [Severity.None, Severity.Low, Severity.Medium, Severity.High, Severity.Critical];
 }

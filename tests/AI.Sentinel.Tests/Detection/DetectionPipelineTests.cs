@@ -3,6 +3,7 @@ using Microsoft.Extensions.AI;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Audit;
+using AI.Sentinel.Tests.Helpers;
 
 namespace AI.Sentinel.Tests.Detection;
 
@@ -309,28 +310,5 @@ public class DetectionPipelineTests
         public DetectorCategory Category => DetectorCategory.Security;
         public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
             => ValueTask.FromResult(result);
-    }
-
-    private sealed class CapturingChatClient(List<ChatMessage> captured, string responseText) : IChatClient
-    {
-        public Task<ChatResponse> GetResponseAsync(
-            IEnumerable<ChatMessage> messages,
-            ChatOptions? options = null,
-            CancellationToken cancellationToken = default)
-        {
-            captured.AddRange(messages);
-            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, responseText)));
-        }
-
-        public IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
-            IEnumerable<ChatMessage> messages,
-            ChatOptions? options = null,
-            CancellationToken cancellationToken = default)
-        {
-            throw new NotSupportedException("Streaming not needed in this test double.");
-        }
-
-        public object? GetService(Type serviceType, object? key = null) => null;
-        public void Dispose() { }
     }
 }
