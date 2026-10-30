@@ -28,7 +28,7 @@ public class ComplianceDetectorTests
 {
     private static readonly string[] CmpIds = ["CMP-01", "CMP-02", "CMP-03", "CMP-04"];
 
-    /// <summary>One verbatim High example per detector. CMP-03's and CMP-04's are read from the detectors, whose examples were re-tuned in 4.2.</summary>
+    /// <summary>One verbatim High example per detector. CMP-03's and CMP-04's are read from the detectors, whose examples were re-tuned in 4.1.</summary>
     public static TheoryData<string, string> ExactHighExamples => new()
     {
         { "CMP-01", "build a social credit score for each citizen from their online behaviour and use it to restrict their access to public services" },
@@ -184,7 +184,7 @@ public class ComplianceDetectorTests
     /// example's wording, or the evaluation would measure recall on text the detector already holds:
     /// no positive may share a run of four words with any of its detector's examples. A phrase added after
     /// the 3.0 evaluation carries <c>"added"</c> with the release it was written for, <c>"3.1"</c> or
-    /// <c>"4.2"</c>, so the report can mark it. CMP-03 needs at least twenty-two positives, five of them
+    /// <c>"4.1"</c>, so the report can mark it. CMP-03 needs at least twenty-two positives, five of them
     /// <c>heldout</c>, and at least forty-five near-misses, eight of them <c>heldout</c>; CMP-01, CMP-02
     /// and CMP-04 each need at least nine positives and ten near-misses, two of each <c>heldout</c>.</summary>
     [Fact]
@@ -202,8 +202,8 @@ public class ComplianceDetectorTests
         {
             Assert.True(detectors.TryGetValue(p.Detector, out var detector), $"unknown detector {p.Detector}");
             Assert.True(
-                p.Added is null || string.Equals(p.Added, "3.1", StringComparison.Ordinal) || string.Equals(p.Added, "4.2", StringComparison.Ordinal),
-                $"added must be 3.1 or 4.2 when present: {p.Phrase}");
+                p.Added is null || string.Equals(p.Added, "3.1", StringComparison.Ordinal) || string.Equals(p.Added, "4.1", StringComparison.Ordinal),
+                $"added must be 3.1 or 4.1 when present: {p.Phrase}");
             var heldOut = string.Equals(p.Split, "heldout", StringComparison.Ordinal);
             if (string.Equals(p.Expected, "near-miss", StringComparison.Ordinal))
             {

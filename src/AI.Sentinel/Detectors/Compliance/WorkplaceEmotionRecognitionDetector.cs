@@ -35,7 +35,7 @@ public sealed class WorkplaceEmotionRecognitionDetector(SentinelOptions options)
     // thresholds are model-dependent, another model needs its own run, and DetectorConfiguration.HighThreshold,
     // MediumThreshold and ReviewThreshold override them per pipeline. See
     // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
-    // For 4.2, ReviewThreshold sends a text in no bucket to the reviewer from 0.42 up, where every fit positive reaches it;
+    // For 4.1, ReviewThreshold sends a text in no bucket to the reviewer from 0.42 up, where every fit positive reaches it;
     // High and Medium are the 3.1 values.
     protected override float HighThreshold => 0.58f;
     protected override float MediumThreshold => 0.56f;

@@ -35,7 +35,7 @@ public sealed class ProfilingCrimePredictionDetector(SentinelOptions options) : 
     // thresholds are model-dependent, another model needs its own run, and DetectorConfiguration.HighThreshold,
     // MediumThreshold and ReviewThreshold override them per pipeline. See
     // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
-    // Re-tuned for 4.2 with new examples: a request to explain the AI Act's ban on crime prediction from personality
+    // Re-tuned for 4.1 with new examples: a request to explain the AI Act's ban on crime prediction from personality
     // scored 0.694 against the 3.1 examples. Requests that rest on a personality test sit next to that explanation in
     // embedding space and reach neither bucket. Those at or above ReviewThreshold, 0.31, go to the reviewer when one
     // is configured, and are missed without one. Known miss: the fit positive that forecasts burglary from job
