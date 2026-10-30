@@ -24,6 +24,8 @@ public class LlmJudgeReviewerTests
         var system = Assert.Single(captured, m => m.Role == ChatRole.System);
         Assert.Contains("instruction overrides", system.Text, StringComparison.Ordinal);
         Assert.Contains("Medium", system.Text, StringComparison.Ordinal);
+        // The flagged text is data: it reaches the judge only in the fenced user message, never in the instruction.
+        Assert.DoesNotContain("the flagged text", system.Text, StringComparison.Ordinal);
         var user = Assert.Single(captured, m => m.Role == ChatRole.User);
         var lines = user.Text.Split('\n');
         Assert.Equal(3, lines.Length);

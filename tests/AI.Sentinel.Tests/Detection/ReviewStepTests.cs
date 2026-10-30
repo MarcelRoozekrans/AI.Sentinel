@@ -276,15 +276,40 @@ public class ReviewStepTests
         Assert.Equal(0, metrics.Count(outcome: null, "ZERO-"));
     }
 
-    [Fact]
-    public async Task Review_EachOutcome_IsCounted()
+    [Theory]
+    [InlineData("confirmed", Severity.High)]
+    [InlineData("raised", Severity.Critical)]
+    [InlineData("lowered", Severity.Low)]
+    [InlineData("cleared", Severity.None)]
+    [InlineData("no_verdict", null)]
+    public async Task Review_EachOutcome_IsCounted(string outcome, Severity? verdict)
     {
+        // Proposed High: the Medium bucket of a SEC-01-style detector, whose maximum is Critical.
         using var metrics = new ReviewMetrics();
-        var reviewer = new FakeReviewer((_, _) => new ReviewVerdict(Severity.High, "x"));
+        var id = $"CNT-{outcome}";
+        var reviewer = new FakeReviewer((_, _) => new ReviewVerdict(verdict, "x"));
 
-        await RunAsync([Semantic("CNT-CONFIRM", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer);
+        await RunAsync([Semantic(id, Vector(Axis.Medium, 0.85f), mapped: true)], reviewer);
 
-        Assert.Equal(1, metrics.Count("confirmed", "CNT-CONFIRM"));
+        Assert.Equal(1, metrics.Count(outcome, id));
+        Assert.Equal(1, metrics.Count(outcome: null, id));
+    }
+
+    [Fact]
+    public async Task Review_SeverityFloorAboveMaximumBucket_ConfirmationAtTheFloor()
+    {
+        // Default mapping, so the highest bucket is High; a Critical floor raises the proposed severity and the maximum.
+        using var metrics = new ReviewMetrics();
+        var configurations = Config<TestSemanticDetector>(c => c.SeverityFloor = Severity.Critical);
+        var reviewer = new FakeReviewer((_, _) => new ReviewVerdict(Severity.Critical, "x"));
+
+        var result = await RunAsync([Semantic("FLOORMAX", Vector(Axis.High, 0.95f))], reviewer, configurations: configurations);
+
+        var request = Assert.Single(reviewer.Requests);
+        Assert.Equal(Severity.Critical, request.ProposedSeverity);
+        Assert.Equal(Severity.Critical, request.MaximumSeverity);
+        Assert.Equal(Severity.Critical, Assert.Single(result.Detections).Severity);
+        Assert.Equal(1, metrics.Count("confirmed", "FLOORMAX"));
     }
 
     // ---- execution: concurrency, timeouts, failures, cancellation ----
@@ -373,6 +398,48 @@ public class ReviewStepTests
     }
 
     [Fact]
+    public async Task Review_ReviewerThrowsAfterCallerCancels_CancellationPropagates()
+    {
+        using var metrics = new ReviewMetrics();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        var failures = new ConcurrentQueue<string>();
+        var logger = new CapturingLogger();
+        // Synchronous, so the failure reaches the pipeline before any wait could notice the cancellation.
+        var reviewer = new FakeReviewer((Func<ReviewRequest, CancellationToken, ValueTask<ReviewVerdict>>)((_, _) =>
+        {
+            cts.Cancel();
+            throw new InvalidOperationException("the provider reports the cancellation as its own error");
+        }));
+        var pipeline = new DetectionPipeline(
+            [new FakeEscalatingDetector("CANCEL-THROW", Severity.Medium)], configurations: null, reviewer: reviewer,
+            logger: logger, onDetectorFailure: failures.Enqueue, reviewLimits: new ReviewLimits(4, Generous));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await pipeline.RunAsync(Ctx(new ChatMessage(ChatRole.User, ScanText)), cts.Token));
+
+        Assert.Equal(0, metrics.Count(outcome: null, "CANCEL-THROW"));
+        Assert.Empty(failures);
+        Assert.Empty(logger.Warnings);
+    }
+
+    [Fact]
+    public async Task Review_TimedOut_CancelsTheAbandonedReviewersToken()
+    {
+        var tokenCancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reviewer = new FakeReviewer(async (_, token) =>
+        {
+            token.Register(() => tokenCancelled.TrySetResult());
+            await Task.Delay(Timeout.Infinite, CancellationToken.None);
+            return new ReviewVerdict(Severity.High, "x");
+        });
+
+        await RunAsync([new FakeEscalatingDetector("TIME-TOKEN", Severity.Medium)], reviewer,
+            limits: new ReviewLimits(4, TimeSpan.FromMilliseconds(50)));
+
+        await tokenCancelled.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task Review_ReviewerThrowsSynchronously_KeepsCappedResult()
     {
         using var metrics = new ReviewMetrics();
@@ -450,6 +517,11 @@ public class ReviewStepTests
         Assert.Equal(Severity.Low, d.Severity);
         Assert.StartsWith("Reviewed: raised", d.Reason, StringComparison.Ordinal);
         Assert.Equal(Severity.Low, Assert.Single(reviewer.Requests).MaximumSeverity);
+
+        // A Low bucket hit above the review threshold is still a bucket result: not reviewed under a cap below Medium.
+        var lowBucket = await RunAsync([Semantic("CAPLOW-LOWBUCKET", Vector(Axis.Low, 0.78f))], reviewer, configurations: configurations);
+        Assert.Equal(Severity.Low, Assert.Single(lowBucket.Detections).Severity);
+        Assert.DoesNotContain(reviewer.Requests, r => string.Equals(r.DetectorId.Value, "CAPLOW-LOWBUCKET", StringComparison.Ordinal));
     }
 
     [Fact]

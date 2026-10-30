@@ -140,19 +140,20 @@ public sealed class DetectionPipeline : IDetectionPipeline
             ArrayPool<ValueTask<DetectionResult>>.Shared.Return(vTasks);
         }
 
-        // Apply per-detector severity clamp (Floor/Cap) before review, so that a Cap below Medium keeps a
-        // rule-based result from being reviewed and a Floor does not make it a candidate on its own.
+        // Floor/Cap before review, so candidacy uses the configured severity: a Cap below Medium keeps a rule-based
+        // result out of review. The clamp skips clean results, so a Floor never makes a clean result a candidate.
         ApplySeverityClamp(results);
 
         // The severity each detector proposes before the semantic cap, None for a clean result. A review
-        // step can lift a capped result back to it.
-        var proposed = ProposedSeverities(results);
+        // step can lift a capped result back to it, so it is only needed when review is on.
+        var reviewer = _reviewLimits.MaxPerScan > 0 ? _reviewer : null;
+        var proposed = reviewer is not null ? ProposedSeverities(results) : null;
 
         ApplySemanticCap(results, outcomes);
 
-        if (_reviewer is not null && _reviewLimits.MaxPerScan > 0)
+        if (reviewer is not null && proposed is not null)
         {
-            await ReviewAllAsync(_reviewer, ctx, results, proposed, outcomes, ct).ConfigureAwait(false);
+            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, ct).ConfigureAwait(false);
         }
 
         // After review: a verdict rebuilds the result, which would drop an override set earlier.
@@ -431,13 +432,17 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 if (outcomes[i] is not { FromFastPath: false, Candidate: { } found } outcome) continue;
                 if (proposed[i] < Severity.Medium && found.Score < semantic.EffectiveReviewThreshold(cfg)) continue;
 
-                // A cap below Medium means the pipeline does not want this detector above it: a bucket result at or
-                // above Medium has nothing to gain from a review.
-                if (cap < Severity.Medium && outcome.Result.Severity >= Severity.Medium) continue;
+                // A cap below Medium means the pipeline does not want this detector above it: only a text that
+                // reached no bucket is reviewed, and its verdict is held to the cap.
+                if (cap < Severity.Medium && !outcome.Result.IsClean) continue;
 
+                // The highest bucket severity, raised to a configured floor, then limited by a configured cap.
+                var maximum = cfg?.SeverityFloor is { } floor && floor > semantic.MaximumBucketSeverity
+                    ? floor
+                    : semantic.MaximumBucketSeverity;
                 candidates.Add(new Candidate(i, new ReviewRequest(
                     semantic.Id, semantic.Criterion, found.Text, found.Role, found.Score, proposed[i],
-                    Limit(semantic.MaximumBucketSeverity, cap)), RuleBased: false));
+                    Limit(maximum, cap)), RuleBased: false));
             }
             else if (_detectors[i] is ILlmEscalatingDetector escalating && proposed[i] >= Severity.Medium)
             {
@@ -468,7 +473,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
     }
 
     /// <summary>One review under <paramref name="timeout"/>. A reviewer that ignores its token is abandoned at the
-    /// timeout. Only the caller's cancellation escapes.</summary>
+    /// timeout, with its token cancelled and a later fault observed. Only the caller's cancellation escapes, and it
+    /// wins over any failure or timeout seen at the same time.</summary>
     private static async Task<(ReviewStatus Status, ReviewVerdict? Verdict, Exception? Failure)> ReviewOneAsync(
         IDetectionReviewer reviewer, ReviewRequest request, TimeSpan timeout, CancellationToken ct)
     {
@@ -477,7 +483,16 @@ public sealed class DetectionPipeline : IDetectionPipeline
         try
         {
             // Inside the try: a reviewer may throw before it returns a task.
-            var verdict = await reviewer.ReviewAsync(request, timeoutCts.Token).AsTask().WaitAsync(timeout, ct).ConfigureAwait(false);
+            var review = reviewer.ReviewAsync(request, timeoutCts.Token).AsTask();
+
+            // A review abandoned at the timeout may still fault; observe it so it is not an unobserved task exception.
+            _ = review.ContinueWith(
+                static t => _ = t.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+
+            var verdict = await review.WaitAsync(timeout, ct).ConfigureAwait(false);
             return (ReviewStatus.Answered, verdict, null);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -486,16 +501,38 @@ public sealed class DetectionPipeline : IDetectionPipeline
         }
         catch (TimeoutException ex)
         {
-            return (ReviewStatus.TimedOut, null, ex);
+            ct.ThrowIfCancellationRequested();
+
+            // The timer may not have fired yet, and disposing the source stops it: cancel now, so an abandoned
+            // reviewer that watches its token still learns to stop.
+            return (ReviewStatus.TimedOut, null, (Exception?)CancelAbandoned(timeoutCts) ?? ex);
         }
         catch (OperationCanceledException ex) when (timeoutCts.IsCancellationRequested)
         {
             // A reviewer that honours its token stops at the timeout with a cancellation, not a TimeoutException.
+            ct.ThrowIfCancellationRequested();
             return (ReviewStatus.TimedOut, null, ex);
         }
         catch (Exception ex)
         {
+            // A reviewer often surfaces the caller's cancellation as its own exception type; cancellation wins.
+            ct.ThrowIfCancellationRequested();
             return (ReviewStatus.Failed, null, ex);
+        }
+    }
+
+    /// <summary>Cancels the token of an abandoned review. Returns what the reviewer's own cancellation callbacks threw,
+    /// which must not turn a timeout into a failed scan, or <see langword="null"/>.</summary>
+    private static AggregateException? CancelAbandoned(CancellationTokenSource source)
+    {
+        try
+        {
+            source.Cancel();
+            return null;
+        }
+        catch (AggregateException ex)
+        {
+            return ex.Flatten();
         }
     }
 
