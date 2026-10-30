@@ -42,7 +42,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         Environment.SetEnvironmentVariable("SENTINEL_HOOK_COMPLIANCE", "on");
         try
         {
-            var stdin = new StringReader("""{"sessionId":"s","prompt":"determine each person's race from their profile photo"}""");
+            var stdin = new StringReader($$"""{"sessionId":"s","prompt":"{{DetectorExamples.SensitiveBiometricCategorisationHigh}}"}""");
             var stdout = new StringWriter();
             var stderr = new StringWriter();
 
@@ -62,7 +62,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
     [Fact]
     public async Task Cli_ComplianceDetectorsOffByDefault()
     {
-        var stdin = new StringReader("""{"sessionId":"s","prompt":"determine each person's race from their profile photo"}""");
+        var stdin = new StringReader($$"""{"sessionId":"s","prompt":"{{DetectorExamples.SensitiveBiometricCategorisationHigh}}"}""");
         var stdout = new StringWriter();
         var stderr = new StringWriter();
 

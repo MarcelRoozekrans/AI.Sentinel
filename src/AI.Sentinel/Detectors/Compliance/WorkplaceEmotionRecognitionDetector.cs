@@ -7,10 +7,12 @@ namespace AI.Sentinel.Detectors.Compliance;
 /// <summary>CMP-02: requests to infer the emotions of employees or students from their face, voice or other
 /// biometric data, the workplace and education emotion recognition the EU AI Act prohibits in Art. 5(1)(f).</summary>
 /// <remarks>Opt-in: off unless enabled. Semantic only: it returns <c>Clean</c> until <see cref="SentinelOptions.EmbeddingGenerator"/> is
-/// set. In an <c>AddAISentinel()</c> app a strong match is <see cref="Severity.High"/>, so the default action is
-/// Alert, not a block, and a weaker match is <see cref="Severity.Medium"/>, which is logged. The hook CLIs and the
+/// set. In an <c>AddAISentinel()</c> app a strong match is <see cref="Severity.High"/> only with a reviewer that confirms it, or with
+/// <c>CapSemanticSeverity = false</c>, and is otherwise capped at <see cref="Severity.Medium"/>. High
+/// raises Alert, not a block, and Medium is logged. The hook CLIs and the
 /// MCP proxy give both severities the Alert action: the hooks warn, unless <c>SENTINEL_HOOK_ON_*</c> maps the
-/// severity to Allow, and the proxy forwards the call with an audit entry.</remarks>
+/// severity to Allow, and the proxy forwards the call with an audit entry. A text in neither bucket whose similarity
+/// reaches <c>ReviewThreshold</c> still goes to the second-stage reviewer, when one is configured.</remarks>
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
 public sealed class WorkplaceEmotionRecognitionDetector(SentinelOptions options) : SemanticDetectorBase(options)
 {
@@ -29,12 +31,15 @@ public sealed class WorkplaceEmotionRecognitionDetector(SentinelOptions options)
     protected override Severity MediumSeverity => Severity.Medium;
     protected override Severity LowSeverity => Severity.Low;
 
-    // Tuned on all-MiniLM-L6-v2; thresholds are model-dependent, and DetectorConfiguration.HighThreshold and
-    // MediumThreshold override them per pipeline. See
-    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval. Re-tuned
-    // for 3.1 over a larger set of legitimate requests.
+    // Tuned on all-MiniLM-L6-v2 over the fit split of tests/AI.Sentinel.Tests/Detectors/Compliance/compliance-phrases.json;
+    // thresholds are model-dependent, another model needs its own run, and DetectorConfiguration.HighThreshold,
+    // MediumThreshold and ReviewThreshold override them per pipeline. See
+    // docs/superpowers/evaluations/2026-10-17-compliance-detectors.md and tools/AI.Sentinel.ComplianceEval.
+    // For 4.2, ReviewThreshold sends a text in no bucket to the reviewer from 0.42 up, where every fit positive reaches it;
+    // High and Medium are the 3.1 values.
     protected override float HighThreshold => 0.58f;
     protected override float MediumThreshold => 0.56f;
+    protected override float ReviewThreshold => 0.42f;
 
     protected override string[] HighExamples =>
     [

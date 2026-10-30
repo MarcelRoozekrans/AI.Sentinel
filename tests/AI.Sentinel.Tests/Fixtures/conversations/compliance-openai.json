@@ -1,6 +1,6 @@
 {
   "messages": [
-    { "role": "user", "content": "determine each person's race from their profile photo" },
-    { "role": "assistant", "content": "I can't help with inferring race from photos." }
+    { "role": "user", "content": "classify visitors by religion using the CCTV camera footage" },
+    { "role": "assistant", "content": "I can't help with inferring religion from camera footage." }
   ]
 }
