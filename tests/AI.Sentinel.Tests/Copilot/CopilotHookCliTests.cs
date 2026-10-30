@@ -537,6 +537,20 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         Assert.Equal("", stderr.ToString());
     }
 
+    // A tool input over the budget, such as a write of a large file, is blocked before the tool runs.
+    [Fact]
+    public async Task Cli_PreToolUse_OversizeInput_BlockedWithSec00()
+    {
+        var content = new string('a', new SentinelOptions().MaxScanBytes + 1);
+        var stdin = new StringReader($$$"""{"sessionId":"s","toolName":"create","toolArgs":{"path":"/a/notes.txt","file_text":"{{{content}}}"}}""");
+        var stdout = new StringWriter();
+
+        var exit = await Program.RunAsync(["pre-tool-use"], stdin, stdout, new StringWriter(), new ExactMatchEmbeddingGenerator());
+
+        Assert.Equal(2, exit);
+        Assert.StartsWith("""{"decision":"Block","reason":"SEC-00""", stdout.ToString(), StringComparison.Ordinal);
+    }
+
     // SENTINEL_HOOK_MAX_SCAN_BYTES sets the scan budget, so a host can raise it past a block on a large tool result.
     [Fact]
     public async Task Cli_PostToolUse_MaxScanBytesFromEnvironment_BlocksOverBudgetWithSec00()
