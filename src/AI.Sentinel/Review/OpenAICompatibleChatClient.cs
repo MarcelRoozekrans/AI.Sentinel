@@ -70,7 +70,9 @@ public sealed class OpenAICompatibleChatClient : IChatClient
     }
 
     /// <summary>Sends the messages and returns the first choice's text.</summary>
-    /// <remarks><see cref="ChatOptions.ModelId"/> overrides the configured model for this call.</remarks>
+    /// <remarks><see cref="ChatOptions.ModelId"/> overrides the configured model for this call.
+    /// <c>temperature</c> is sent only when <see cref="ChatOptions.Temperature"/> is set: some providers reject
+    /// the field for some models, so a fixed default would fail every call to them.</remarks>
     public async Task<Microsoft.Extensions.AI.ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages,
         ChatOptions? options = null,
@@ -82,7 +84,7 @@ public sealed class OpenAICompatibleChatClient : IChatClient
         using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint)
         {
             Content = JsonContent.Create(
-                new CompletionRequest(options?.ModelId ?? _model, wire, Temperature: 0),
+                new CompletionRequest(options?.ModelId ?? _model, wire, options?.Temperature),
                 ReviewJsonContext.Default.CompletionRequest),
         };
 
@@ -132,7 +134,7 @@ public sealed class OpenAICompatibleChatClient : IChatClient
     internal sealed record CompletionRequest(
         [property: JsonPropertyName("model")] string Model,
         [property: JsonPropertyName("messages")] IReadOnlyList<WireMessage> Messages,
-        [property: JsonPropertyName("temperature")] double Temperature);
+        [property: JsonPropertyName("temperature")] float? Temperature);
 
     internal sealed record WireMessage(
         [property: JsonPropertyName("role")] string Role,

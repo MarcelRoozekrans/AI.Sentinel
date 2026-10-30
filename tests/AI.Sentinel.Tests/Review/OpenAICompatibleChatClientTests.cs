@@ -35,8 +35,23 @@ public class OpenAICompatibleChatClientTests
     private static List<ChatMessage> Messages() =>
         [new(ChatRole.System, "be strict"), new(ChatRole.User, "judge this")];
 
+    /// <summary>Current Claude models reject <c>temperature</c> on the OpenAI-compatible endpoint, so it is sent only
+    /// when the caller asks for one.</summary>
     [Fact]
-    public async Task GetResponseAsync_SendsModelMessagesAndZeroTemperature()
+    public async Task GetResponseAsync_TemperatureSet_SendsIt()
+    {
+        var handler = new StubHandler(_ => Json(Reply));
+        using var http = new HttpClient(handler);
+        using var client = new OpenAICompatibleChatClient(http, Endpoint, "judge-model", apiKey: null);
+
+        await client.GetResponseAsync(Messages(), new ChatOptions { Temperature = 0.25f }, TestContext.Current.CancellationToken);
+
+        using var sent = JsonDocument.Parse(handler.LastBody!);
+        Assert.Equal(0.25, sent.RootElement.GetProperty("temperature").GetDouble(), 3);
+    }
+
+    [Fact]
+    public async Task GetResponseAsync_SendsModelAndMessages_WithoutTemperature()
     {
         var handler = new StubHandler(_ => Json(Reply));
         using var http = new HttpClient(handler);
@@ -47,7 +62,7 @@ public class OpenAICompatibleChatClientTests
         using var sent = JsonDocument.Parse(handler.LastBody!);
         var root = sent.RootElement;
         Assert.Equal("judge-model", root.GetProperty("model").GetString());
-        Assert.Equal(0, root.GetProperty("temperature").GetDouble());
+        Assert.False(root.TryGetProperty("temperature", out _));
         var messages = root.GetProperty("messages");
         Assert.Equal(2, messages.GetArrayLength());
         Assert.Equal("system", messages[0].GetProperty("role").GetString());
