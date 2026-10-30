@@ -47,7 +47,7 @@ public sealed partial class JailbreakDetector(SentinelOptions options) : Semanti
 
     protected override float HighThreshold => 0.41f;
     protected override float MediumThreshold => 0.40f;
-    protected override float ReviewThreshold => 0.19f;
+    protected override float ReviewThreshold => 0.39f;
 
     protected override string[] HighExamples =>
     [
