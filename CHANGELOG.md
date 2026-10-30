@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [4.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v4.0.0...v4.1.0) (2026-10-30)
+
+
+### Features
+
+* **detectors:** re-tune SEC-01, SEC-05 and SEC-09 for paraphrased attacks ([#535](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/535)) ([474c8bf](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/474c8bf634c51c23c8fcf8fdadce6e9979b7350a))
+* **detectors:** review bands for CMP-01 to CMP-04, re-tuned CMP-03 and CMP-04 examples ([#538](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/538)) ([182de91](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/182de91a50e4a4cefd5078f25fe401cb5dfa6317))
+
 ## [4.0.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.9.0...v4.0.0) (2026-10-30)
 
 
