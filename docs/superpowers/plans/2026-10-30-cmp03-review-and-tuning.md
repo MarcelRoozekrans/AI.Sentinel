@@ -80,7 +80,7 @@
 
 **Files:**
 - Modify: `src/AI.Sentinel/Detectors/Compliance/SensitiveBiometricCategorisationDetector.cs` (examples, thresholds, comment)
-- Modify: `src/AI.Sentinel/Detectors/Compliance/SocialScoringDetector.cs`, `EmotionRecognitionDetector.cs`, `CrimeRiskPredictionDetector.cs` or whatever CMP-01, CMP-02 and CMP-04 are named in that folder (`ReviewThreshold`, and High/Medium only per Global Constraints)
+- Modify: `src/AI.Sentinel/Detectors/Compliance/SocialScoringDetector.cs` for CMP-01, `WorkplaceEmotionRecognitionDetector.cs` for CMP-02 and `ProfilingCrimePredictionDetector.cs` for CMP-04: `ReviewThreshold`, and High/Medium only per Global Constraints
 - Test: `tests/AI.Sentinel.Tests/Detection/DetectorOptInAndThresholdTests.cs`
 - Test: any test the Step 6 sweep finds
 
