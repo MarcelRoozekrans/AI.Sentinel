@@ -102,7 +102,7 @@ public class CapabilityMirroringTests
             maxScanBytes: 262144,
             stderr: TextWriter.Null,
             ct: cts.Token,
-            embeddingGenerator: new FakeEmbeddingGenerator());
+            embeddingGenerator: new ExactMatchEmbeddingGenerator());
 
         var driverClient = await McpClient.CreateAsync(
             clientTransport: new StreamClientTransport(

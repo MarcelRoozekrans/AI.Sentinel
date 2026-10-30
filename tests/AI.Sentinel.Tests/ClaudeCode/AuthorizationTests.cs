@@ -28,7 +28,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
         return HookAdapter.CreateForTests(provider, config, guard);
@@ -44,7 +44,7 @@ public class AuthorizationTests
             opts.DefaultToolPolicy, approvalStore: null, logger: null);
         var forwarder = new RecordingAuditForwarder();
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         services.AddSingleton<IAuditForwarder>(forwarder);
         var provider = services.BuildServiceProvider();
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig { CallerContextProvider = _ => new TestSecurityContext("bob") }, guard);
@@ -92,7 +92,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
         var guard = new ExplicitDenyGuard("TenantActive", "Tenant 'acme' is in evicted state", "tenant_inactive");
@@ -128,9 +128,8 @@ public class AuthorizationTests
 
         var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
-        // Authorization passed; detection may still report Allow/Warn for a benign payload,
-        // but must not Block on the authz path.
-        Assert.NotEqual(HookDecision.Block, output.Decision);
+        // Authorization passed and the payload is clean under exact-match embeddings, so detection allows it too.
+        Assert.Equal(HookDecision.Allow, output.Decision);
     }
 
     [Fact]
@@ -160,7 +159,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
         var guard = new RequireApprovalGuard("approval:Bash", "req-abc", "https://approve.example/req-abc");
@@ -197,7 +196,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         // Last-registration-wins for GetService<IAuditStore>(): override the default ring buffer
         // with a recording store so the test can assert what the adapter wrote.
@@ -274,6 +273,6 @@ public class AuthorizationTests
         var input = new HookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"kubectl get pods"}""").RootElement };
         var output = await adapter.HandleAsync(HookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
-        Assert.NotEqual(HookDecision.Block, output.Decision);
+        Assert.Equal(HookDecision.Allow, output.Decision);
     }
 }

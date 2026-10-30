@@ -158,9 +158,7 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
     }
 
     /// <summary>Per-detector counts and extremes for the summary row, and the thresholds the tuning rule gives.</summary>
-    /// <remarks>The rule: High is the highest legitimate similarity to the High set plus 0.05, Medium the highest
-    /// legitimate similarity to the Medium set plus 0.02, both rounded up to 0.01, with Medium kept below High.
-    /// High gets the wider margin because it raises an Alert; Medium is only logged.</remarks>
+    /// <remarks>The rule is <see cref="ThresholdRule.Suggest"/>.</remarks>
     private sealed class Tally
     {
         private readonly List<(float High, float Medium)> _positives = [];
@@ -195,19 +193,9 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
         /// <summary>The thresholds the rule gives for this model, and how the positives would fare under them.</summary>
         public string Suggestion()
         {
-            var high = RoundUp(HighestLegitimateHigh + 0.05f);
-            var medium = Math.Min(RoundUp(HighestLegitimateMedium + 0.02f), high - 0.01f);
-            int atHigh = 0, atMedium = 0, missed = 0;
-            foreach (var (h, m) in _positives)
-            {
-                if (h >= high) atHigh++;
-                else if (m >= medium) atMedium++;
-                else missed++;
-            }
-
+            var (high, medium) = ThresholdRule.Suggest(HighestLegitimateHigh, HighestLegitimateMedium);
+            var (atHigh, atMedium, missed) = ThresholdRule.Classify(_positives, high, medium);
             return string.Create(CultureInfo.InvariantCulture, $"{high:0.00} / {medium:0.00}: {atHigh} / {atMedium} / {missed}");
         }
-
-        private static float RoundUp(float value) => MathF.Ceiling(MathF.Round(value * 100f, 3)) / 100f;
     }
 }

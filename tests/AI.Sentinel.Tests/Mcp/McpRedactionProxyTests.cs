@@ -160,7 +160,7 @@ public partial class McpRedactionProxyTests
             maxScanBytes: 262144,
             stderr: TextWriter.Null,
             ct: cts.Token,
-            embeddingGenerator: new FakeEmbeddingGenerator(),
+            embeddingGenerator: new ExactMatchEmbeddingGenerator(),
             placeholderIdleExpiry: placeholderIdleExpiry);
 
         var driverClient = await McpClient.CreateAsync(

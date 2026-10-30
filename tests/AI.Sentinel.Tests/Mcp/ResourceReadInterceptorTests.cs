@@ -337,7 +337,7 @@ public class ResourceReadInterceptorTests
     }
 
     private static Task<ProxyHarness> StartHarnessAsync(int maxScanBytes = 262144)
-        => StartHarnessAsync(new FakeEmbeddingGenerator(), maxScanBytes);
+        => StartHarnessAsync(new ExactMatchEmbeddingGenerator(), maxScanBytes);
 
     private static async Task<ProxyHarness> StartHarnessAsync(
         IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator, int maxScanBytes = 262144)

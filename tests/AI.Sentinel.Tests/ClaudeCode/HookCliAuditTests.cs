@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 using AI.Sentinel.Audit;
 using AI.Sentinel.ClaudeCode.Cli;
@@ -28,9 +29,16 @@ public class HookCliAuditTests : IDisposable
 
     private static async Task<(int Exit, string Stderr)> RunAsync(string json)
     {
+        var (exit, _, stderr) = await RunWithStdoutAsync(json);
+        return (exit, stderr);
+    }
+
+    private static async Task<(int Exit, string Stdout, string Stderr)> RunWithStdoutAsync(string json)
+    {
+        var stdout = new StringWriter();
         var stderr = new StringWriter();
-        var exit = await Program.RunAsync([Event], new StringReader(json), new StringWriter(), stderr, new FakeEmbeddingGenerator());
-        return (exit, stderr.ToString());
+        var exit = await Program.RunAsync([Event], new StringReader(json), stdout, stderr, new ExactMatchEmbeddingGenerator());
+        return (exit, stdout.ToString(), stderr.ToString());
     }
 
     [Fact]
@@ -112,9 +120,13 @@ public class HookCliAuditTests : IDisposable
     {
         Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, _dir);
 
-        var (exit, stderr) = await RunAsync(Clean);
+        var (exit, stdout, stderr) = await RunWithStdoutAsync(Clean);
 
         Assert.Equal(0, exit);
+        // Exit 0 is also a Warn; only the wire output tells Allow apart: a Warn carries a systemMessage.
+        using var wire = JsonDocument.Parse(stdout);
+        Assert.False(wire.RootElement.TryGetProperty("systemMessage", out _));
+        Assert.False(wire.RootElement.TryGetProperty("decision", out _));
         Assert.Contains("audit", stderr, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -139,7 +151,7 @@ public class HookCliAuditTests : IDisposable
         const string json = """{"session_id":"cc-7","tool_name":"Read","tool_input":{"file_path":"/a/notes.txt"},"tool_response":{"content":"mail jan@example.com today"}}""";
 
         var stderr = new StringWriter();
-        var exit = await Program.RunAsync(["post-tool-use"], new StringReader(json), new StringWriter(), stderr, new FakeEmbeddingGenerator());
+        var exit = await Program.RunAsync(["post-tool-use"], new StringReader(json), new StringWriter(), stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         var (entries, intact) = await HookAuditTestSupport.ReadAsync(db);

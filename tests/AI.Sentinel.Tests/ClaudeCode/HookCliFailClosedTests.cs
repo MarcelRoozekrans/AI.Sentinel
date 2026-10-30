@@ -66,7 +66,7 @@ public class HookCliFailClosedTests : IDisposable
     {
         var stdout = new StringWriter();
         var stderr = new StringWriter();
-        var exit = await Program.RunAsync([evt], new StringReader(json), stdout, stderr, generator ?? new FakeEmbeddingGenerator());
+        var exit = await Program.RunAsync([evt], new StringReader(json), stdout, stderr, generator ?? new ExactMatchEmbeddingGenerator());
         return (exit, stdout.ToString(), stderr.ToString());
     }
 
@@ -218,9 +218,11 @@ public class HookCliFailClosedTests : IDisposable
     {
         Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
 
-        var (exit, _, stderr) = await RunAsync("pre-tool-use", NoToolName);
+        var (exit, stdout, stderr) = await RunAsync("pre-tool-use", NoToolName);
 
         Assert.Equal(0, exit);
+        // Exit 0 is also a Warn, which writes a systemMessage; an Allow writes an empty object.
+        Assert.Equal("{}", stdout);
         Assert.DoesNotContain("Sentinel internal error", stderr, StringComparison.Ordinal);
     }
 

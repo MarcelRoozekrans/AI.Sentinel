@@ -19,13 +19,24 @@ internal sealed record Phrase(string Detector, string Text, string Expected, str
     /// <summary>Whether the phrase is held out: reported on, but never used to set thresholds.</summary>
     public bool IsHeldOut => string.Equals(Split, "heldout", StringComparison.Ordinal);
 
-    /// <summary>The text as a Markdown table cell shows it, marked <c>(new in 3.1)</c> when the phrase was added later.
-    /// A <c>|</c> in the text is escaped as <c>\|</c>, or it would split the cell.</summary>
+    /// <summary>The text as a Markdown table cell shows it, followed by <c>(new in </c><see cref="Added"/><c>)</c> when
+    /// the phrase was added later. <c>&amp;</c>, <c>&lt;</c> and <c>&gt;</c> become <c>&amp;amp;</c>, <c>&amp;lt;</c>
+    /// and <c>&amp;gt;</c>, ampersand first, or a phrase such as <c>&lt;!-- ... --&gt;</c> would render as a hidden
+    /// comment and a raw tag would pass through. A <c>|</c> is escaped as <c>\|</c>, or it would split the cell, and a
+    /// line break, whether <c>\r\n</c>, <c>\n</c> or a lone <c>\r</c>, becomes <c>&lt;br&gt;</c>, or it would end the
+    /// row. That tag is added after the escaping, so it is the only markup left.</summary>
     public string Display
     {
         get
         {
-            var text = Text.Replace("|", "\\|", StringComparison.Ordinal);
+            var text = Text
+                .Replace("&", "&amp;", StringComparison.Ordinal)
+                .Replace("<", "&lt;", StringComparison.Ordinal)
+                .Replace(">", "&gt;", StringComparison.Ordinal)
+                .Replace("|", "\\|", StringComparison.Ordinal)
+                .Replace("\r\n", "<br>", StringComparison.Ordinal)
+                .Replace("\n", "<br>", StringComparison.Ordinal)
+                .Replace("\r", "<br>", StringComparison.Ordinal);
             return Added is null ? text : $"{text} (new in {Added})";
         }
     }

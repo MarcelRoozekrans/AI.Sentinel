@@ -25,7 +25,7 @@ internal static class ApprovalRuleGuard
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
             using var doc = JsonDocument.Parse(BashWhenConfig);
             ApprovalBackendSelector.Configure(o, ApprovalConfigLoader.Parse(doc.RootElement));
         });
