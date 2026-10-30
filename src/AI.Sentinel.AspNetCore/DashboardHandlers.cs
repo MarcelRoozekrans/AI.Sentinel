@@ -16,6 +16,14 @@ internal static class DashboardHandlers
 {
     public static async Task IndexAsync(HttpContext ctx)
     {
+        // The page loads its panels and stylesheet through relative URLs, which only resolve
+        // under the prefix when the URL ends in a slash.
+        if (!ctx.Request.Path.HasValue || !ctx.Request.Path.Value!.EndsWith('/'))
+        {
+            ctx.Response.Redirect(ctx.Request.PathBase + ctx.Request.Path + "/" + ctx.Request.QueryString);
+            return;
+        }
+
         ctx.Response.ContentType = "text/html; charset=utf-8";
         var html = ReadEmbedded("index.html");
         await ctx.Response.WriteAsync(html).ConfigureAwait(false);
