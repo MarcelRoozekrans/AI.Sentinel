@@ -20,8 +20,9 @@
 // It reports candidates and reviews per scan and the share of candidates over budget, once over the fit benign texts
 // and once over the held-out ones.
 // With --tuning only fit phrases are scored, the held-out sections are skipped, and the output is safe to tune
-// thresholds from. The security spot-check also scores the everyday prompts as benign tool messages, and its fit
-// columns give the rule's thresholds, the lowest fit positive over any set, and the fit benign texts at or above it.
+// thresholds from. Both summaries end in two candidacy columns, from fit phrases only: the lowest fit positive over
+// any set, and the fit legitimate texts at or above it. The security spot-check also scores the everyday prompts as
+// benign tool messages, and its fit columns add the rule's thresholds.
 using System.Globalization;
 using System.Text;
 using AI.Sentinel;
@@ -103,8 +104,8 @@ if (tuning)
 string[] history = [.. everyday.Take(5).Select(p => p.Text)];
 Phrase[] phrases = [.. compliancePhrases, .. everyday];
 var summary = new StringBuilder();
-summary.AppendLine("| Detector | High / Medium threshold | Lowest positive, High set | Highest legitimate, High set | Highest legitimate, Medium set | Positives at High / Medium / missed | Legitimate at High / Medium | Rule's thresholds for this model: positives at High / Medium / missed | Multi-message agrees |");
-summary.AppendLine("|---|---|---|---|---|---|---|---|---|");
+summary.AppendLine("| Detector | High / Medium threshold | Lowest positive, High set | Highest legitimate, High set | Highest legitimate, Medium set | Positives at High / Medium / missed | Legitimate at High / Medium | Rule's thresholds for this model: positives at High / Medium / missed | Lowest fit positive, any set | Fit legitimate at or above it | Multi-message agrees |");
+summary.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|");
 var tables = new StringBuilder();
 foreach (var detector in detectors)
 {

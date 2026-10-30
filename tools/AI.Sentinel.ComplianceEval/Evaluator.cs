@@ -49,6 +49,7 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
         table.AppendLine("|---|---|---|---|---|---|");
 
         var tally = new Tally();
+        var candidacy = new ReviewCandidacy();
         var rows = phrases
             .Where(p => !p.IsPositive || string.Equals(p.Detector, id, StringComparison.Ordinal))
             .OrderBy(p => p.IsPositive ? 0 : 1);
@@ -72,6 +73,7 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
             if (await MultiMessageAgreesAsync(detector, history, row.Text, strongest).ConfigureAwait(false)) multiAgrees++;
 
             tally.Record(row.IsPositive, actual, highSimilarity, mediumSimilarity);
+            if (!row.IsHeldOut) candidacy.Record(row.IsPositive, Math.Max(highSimilarity, mediumSimilarity));
             if (!row.IsPositive && actual == Severity.High)
             {
                 Failures.Add(string.Create(CultureInfo.InvariantCulture,
@@ -84,7 +86,7 @@ internal sealed class Evaluator(IEmbeddingGenerator<string, Embedding<float>> ge
 
         table.AppendLine();
         var summary = string.Create(CultureInfo.InvariantCulture,
-            $"| {id} | {highThreshold:0.00} / {mediumThreshold:0.00} | {Format(tally.LowestPositive)} | {tally.HighestLegitimateHigh:0.000} | {tally.HighestLegitimateMedium:0.000} | {tally.PositiveHigh} / {tally.PositiveMedium} / {tally.PositiveMissed} | {tally.LegitimateHigh} / {tally.LegitimateMedium} | {tally.Suggestion()} | {multiAgrees} / {multiTotal} |");
+            $"| {id} | {highThreshold:0.00} / {mediumThreshold:0.00} | {Format(tally.LowestPositive)} | {tally.HighestLegitimateHigh:0.000} | {tally.HighestLegitimateMedium:0.000} | {tally.PositiveHigh} / {tally.PositiveMedium} / {tally.PositiveMissed} | {tally.LegitimateHigh} / {tally.LegitimateMedium} | {tally.Suggestion()} | {candidacy.LowestPositiveCell()} | {candidacy.LegitimateAtOrAboveCell()} | {multiAgrees} / {multiTotal} |");
         return (summary, table.ToString());
     }
 
