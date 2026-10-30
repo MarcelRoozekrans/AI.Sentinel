@@ -35,6 +35,29 @@ public class SemanticCapTests
         protected override Regex? FastPathPattern => new(FastPathText, RegexOptions.None, TimeSpan.FromSeconds(1));
     }
 
+    /// <summary>Maps each bucket to its own severity, so a Low hit stays Low.</summary>
+    private sealed class LowOnlyDetector(SentinelOptions options) : SemanticDetectorBase(options)
+    {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
+        public override DetectorId Id => new("TST-LOW");
+        public override DetectorCategory Category => DetectorCategory.Security;
+        protected override string[] HighExamples => [HighExample];
+        protected override string[] MediumExamples => [MediumExample];
+        protected override string[] LowExamples => [LowExample];
+    }
+
+    /// <summary>Throws while selecting its texts, so the pipeline records no outcome for it.</summary>
+    private sealed class ThrowingDetector(SentinelOptions options) : SemanticDetectorBase(options)
+    {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
+        public override DetectorId Id => new("TST-THROWS");
+        public override DetectorCategory Category => DetectorCategory.Security;
+        protected override string[] HighExamples => [HighExample];
+        protected override string[] MediumExamples => [MediumExample];
+        protected override string[] LowExamples => [LowExample];
+        protected override IEnumerable<string> GetTextsToScore(SentinelContext ctx) => throw new InvalidOperationException("selection failed");
+    }
+
     private static SentinelContext Ctx(string text) => new(
         new AgentId("a"), new AgentId("b"), SessionId.New(), [new ChatMessage(ChatRole.User, text)], new List<AuditEntry>());
 
@@ -99,11 +122,13 @@ public class SemanticCapTests
     }
 
     [Fact]
-    public async Task SeverityFloorHigh_WinsOverCap()
+    public async Task SeverityFloorHigh_RaisesCapToFloor()
     {
+        // A Critical bucket with a High floor shows High, not Critical and not Medium.
         var result = await RunAsync(HighExample, c => c.SeverityFloor = Severity.High);
 
-        Assert.Equal(Severity.Critical, result.Severity);
+        Assert.Equal(Severity.High, result.Severity);
+        Assert.Equal("Semantic match — capped at High pending review", result.Reason);
         var lowHit = await RunAsync(LowExample, c => c.SeverityFloor = Severity.High);
         Assert.Equal(Severity.High, lowHit.Severity);
     }
@@ -124,6 +149,42 @@ public class SemanticCapTests
 
         Assert.Equal(Severity.Medium, result.Severity);
         Assert.DoesNotContain("capped", result.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CleanResult_StaysClean()
+    {
+        var result = await RunAsync("something unrelated");
+
+        Assert.True(result.IsClean);
+    }
+
+    [Fact]
+    public async Task ResultBelowMedium_StaysLow()
+    {
+        var options = Options();
+        var pipeline = new DetectionPipeline(
+            [new LowOnlyDetector(options)], configurations: null, escalationClient: null,
+            embeddingScope: new EmbeddingScope(options.EmbeddingGenerator!, new InMemoryLruEmbeddingCache(), null));
+
+        var result = await pipeline.RunAsync(Ctx(LowExample), TestContext.Current.CancellationToken);
+
+        var detection = Assert.Single(result.Detections);
+        Assert.Equal(Severity.Low, detection.Severity);
+        Assert.DoesNotContain("capped", detection.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ThrowingDetector_IsCleanAndLeftAlone()
+    {
+        var options = Options();
+        var pipeline = new DetectionPipeline(
+            [new ThrowingDetector(options)], configurations: null, escalationClient: null,
+            embeddingScope: new EmbeddingScope(options.EmbeddingGenerator!, new InMemoryLruEmbeddingCache(), null));
+
+        var result = await pipeline.RunAsync(Ctx(HighExample), TestContext.Current.CancellationToken);
+
+        Assert.Empty(result.Detections);
     }
 
     [Fact]

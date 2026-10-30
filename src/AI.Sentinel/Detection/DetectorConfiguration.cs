@@ -32,7 +32,7 @@ public sealed class DetectorConfiguration
     /// <summary>Whether this detector's embedding result is capped at <see cref="Severity.Medium"/> in a pipeline
     /// until a reviewer verdict confirms a higher severity. <see langword="null"/> (default) and <see langword="true"/>
     /// cap; <see langword="false"/> restores the uncapped bucket severity. A regex fast-path match is never capped,
-    /// and a <see cref="SeverityFloor"/> above Medium wins over the cap. Honoured by every
+    /// and a <see cref="SeverityFloor"/> above Medium raises the cap level to the floor. Honoured by every
     /// <see cref="SemanticDetectorBase"/> detector; setting it on any other detector is rejected at
     /// <c>AddAISentinel</c>.</summary>
     public bool? CapSemanticSeverity { get; set; }

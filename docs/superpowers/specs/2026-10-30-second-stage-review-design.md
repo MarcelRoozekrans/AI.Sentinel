@@ -163,7 +163,7 @@ The hook CLIs (`AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli`), the MCP
   - The **shown severity** is the proposed severity after the semantic cap, so Medium at most.
   - **`MaximumSeverity`** is the detector's highest bucket severity, limited by a configured `SeverityCap`.
   - Candidacy and ranking use the proposed severity. Without a verdict the result is the shown severity.
-  - **A configured `SeverityFloor` above Medium wins over the semantic cap.** It is an explicit choice by whoever configured the pipeline, and it applies to every hit of that detector, not to how sure the embedding is. The anti-goal is about the default behaviour.
+  - **A configured `SeverityFloor` above Medium raises the cap level to the floor; it does not remove the cap.** The shown severity is min(proposed, max(Medium, floor)), so a Critical bucket with a High floor shows High until a verdict confirms it. The floor is an explicit choice by whoever configured the pipeline, but it does not tell how sure the embedding is. The anti-goal is about the default behaviour.
   - A configured `SeverityCap` below Medium makes results at or above Medium non-candidates. Below-bucket candidates are still reviewed, and the verdict is limited to the cap.
 - **C0b. Fast-path matches are not review candidates.** They keep their severity, are never sent to the reviewer and use no budget. A judge must not be able to clear a textbook injection.
 - **C0c. The candidate text** is the text that produced the bucket result: the first text that reached the most severe bucket. Only when no text reached a bucket is it the text with the highest similarity to any example set, measured against `ReviewThreshold`. Ranking across detectors uses that text's score, meaning its similarity to the set of the bucket it reached.
@@ -184,7 +184,7 @@ The hook CLIs (`AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli`), the MCP
 - **C3. Order of operations,** using the terms of C0:
   1. detectors run, giving bucket severities;
   2. Floor/Cap from `DetectorConfiguration`, giving proposed severities;
-  3. the semantic cap, giving shown severities. A configured Floor above Medium is kept;
+  3. the semantic cap, giving shown severities. a configured Floor above Medium raises the cap level to the floor;
   4. review on the candidates, ranked by proposed severity;
   5. Floor/Cap again;
   6. action overrides.

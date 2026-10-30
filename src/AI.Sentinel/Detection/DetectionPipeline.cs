@@ -374,24 +374,28 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// <summary>The severity a semantic detector's embedding result is capped at without a reviewer verdict.</summary>
     private const Severity SemanticCap = Severity.Medium;
 
-    /// <summary>Caps each semantic detector's embedding result at <see cref="SemanticCap"/>.</summary>
-    /// <remarks>A regex fast-path match is never capped. Neither is a detector configured with
-    /// <see cref="DetectorConfiguration.CapSemanticSeverity"/> false, nor one whose <see cref="DetectorConfiguration.SeverityFloor"/>
-    /// is above the cap: the floor is an explicit choice that applies to every hit of that detector.</remarks>
+    /// <summary>Caps each semantic detector's embedding result at <see cref="SemanticCap"/>, or at its configured
+    /// <see cref="DetectorConfiguration.SeverityFloor"/> when that is higher.</summary>
+    /// <remarks>A regex fast-path match is never capped, nor is a detector configured with
+    /// <see cref="DetectorConfiguration.CapSemanticSeverity"/> false. A floor above the cap raises the cap level to the
+    /// floor, it does not remove the cap: the shown severity is the lower of the proposed severity and the higher of
+    /// Medium and the floor.</remarks>
     private void ApplySemanticCap(DetectionResult[] results, SemanticOutcome?[] outcomes)
     {
         for (int i = 0; i < results.Length; i++)
         {
-            if (outcomes[i] is not { FromFastPath: false } || results[i].Severity <= SemanticCap) continue;
+            if (outcomes[i] is not { FromFastPath: false }) continue;
 
             var cfg = _configurations[i];
             if (cfg?.CapSemanticSeverity == false) continue;
-            if (cfg?.SeverityFloor is { } floor && floor > SemanticCap) continue;
+
+            var level = cfg?.SeverityFloor is { } floor && floor > SemanticCap ? floor : SemanticCap;
+            if (results[i].Severity <= level) continue;
 
             results[i] = results[i] with
             {
-                Severity = SemanticCap,
-                Reason = "Semantic match — capped at Medium pending review",
+                Severity = level,
+                Reason = $"Semantic match — capped at {level} pending review",
             };
         }
     }
