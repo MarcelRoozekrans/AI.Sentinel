@@ -176,7 +176,10 @@ public class ComplianceDetectorTests
     /// <c>near-miss</c>, and every detector has both kinds. A paraphrased positive must not reuse an
     /// example's wording, or the evaluation would measure recall on text the detector already holds:
     /// no positive may share a run of four words with any of its detector's examples. A phrase added after
-    /// the 3.0 evaluation carries <c>"added": "3.1"</c>, so the report can mark it.</summary>
+    /// the 3.0 evaluation carries <c>"added"</c> with the release it was written for, <c>"3.1"</c> or
+    /// <c>"4.2"</c>, so the report can mark it. CMP-03 needs at least seventeen positives, five of them
+    /// <c>heldout</c>, and at least thirty-six near-misses, eight of them <c>heldout</c>; CMP-01, CMP-02
+    /// and CMP-04 each need at least two <c>heldout</c> positives and two <c>heldout</c> near-misses.</summary>
     [Fact]
     public void PhraseFile_HasPositivesAndNearMissesForEveryDetector()
     {
@@ -185,27 +188,46 @@ public class ComplianceDetectorTests
             .ToDictionary(d => d.Id.Value, StringComparer.Ordinal);
         var positives = new Dictionary<string, int>(StringComparer.Ordinal);
         var nearMisses = new Dictionary<string, int>(StringComparer.Ordinal);
+        var heldOutPositives = new Dictionary<string, int>(StringComparer.Ordinal);
+        var heldOutNearMisses = new Dictionary<string, int>(StringComparer.Ordinal);
 
         foreach (var p in phrases)
         {
             Assert.True(detectors.TryGetValue(p.Detector, out var detector), $"unknown detector {p.Detector}");
-            Assert.True(p.Added is null || string.Equals(p.Added, "3.1", StringComparison.Ordinal), $"added must be 3.1 when present: {p.Phrase}");
+            Assert.True(
+                p.Added is null || string.Equals(p.Added, "3.1", StringComparison.Ordinal) || string.Equals(p.Added, "4.2", StringComparison.Ordinal),
+                $"added must be 3.1 or 4.2 when present: {p.Phrase}");
+            var heldOut = string.Equals(p.Split, "heldout", StringComparison.Ordinal);
             if (string.Equals(p.Expected, "near-miss", StringComparison.Ordinal))
             {
                 nearMisses[p.Detector] = nearMisses.GetValueOrDefault(p.Detector) + 1;
+                if (heldOut) heldOutNearMisses[p.Detector] = heldOutNearMisses.GetValueOrDefault(p.Detector) + 1;
                 continue;
             }
 
             Assert.Equal("positive", p.Expected);
             positives[p.Detector] = positives.GetValueOrDefault(p.Detector) + 1;
+            if (heldOut) heldOutPositives[p.Detector] = heldOutPositives.GetValueOrDefault(p.Detector) + 1;
             var shared = SharedFourWordRuns(p.Phrase, Examples(detector!));
             Assert.True(shared.Count == 0, $"{p.Detector} positive reuses example wording '{string.Join("', '", shared)}': {p.Phrase}");
         }
 
         foreach (var id in CmpIds)
         {
-            Assert.True(positives.GetValueOrDefault(id) >= 3, $"{id} needs at least 3 paraphrased positives");
-            Assert.True(nearMisses.GetValueOrDefault(id) >= 2, $"{id} needs at least 2 near-misses");
+            var cmp03 = string.Equals(id, "CMP-03", StringComparison.Ordinal);
+            var minPositives = cmp03 ? 17 : 3;
+            var minNearMisses = cmp03 ? 36 : 2;
+            Assert.True(positives.GetValueOrDefault(id) >= minPositives, $"{id} needs at least {minPositives} paraphrased positives");
+            Assert.True(nearMisses.GetValueOrDefault(id) >= minNearMisses, $"{id} needs at least {minNearMisses} near-misses");
+        }
+
+        foreach (var id in CmpIds)
+        {
+            var cmp03 = string.Equals(id, "CMP-03", StringComparison.Ordinal);
+            var minHeldOutPositives = cmp03 ? 5 : 2;
+            var minHeldOutNearMisses = cmp03 ? 8 : 2;
+            Assert.True(heldOutPositives.GetValueOrDefault(id) >= minHeldOutPositives, $"{id} needs at least {minHeldOutPositives} heldout positives");
+            Assert.True(heldOutNearMisses.GetValueOrDefault(id) >= minHeldOutNearMisses, $"{id} needs at least {minHeldOutNearMisses} heldout near-misses");
         }
     }
 
