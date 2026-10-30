@@ -127,9 +127,8 @@ public class AuthorizationTests
 
         var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
-        // Authorization passed; detection may still report Allow/Warn for a benign payload,
-        // but must not Block on the authz path.
-        Assert.NotEqual(HookDecision.Block, output.Decision);
+        // Authorization passed and the payload is clean under exact-match embeddings, so detection allows it too.
+        Assert.Equal(HookDecision.Allow, output.Decision);
     }
 
     [Fact]
@@ -211,7 +210,7 @@ public class AuthorizationTests
         var input = new CopilotHookInput { SessionId = "s1", ToolName = "Bash", ToolInput = JsonDocument.Parse("""{"command":"kubectl get pods"}""").RootElement };
         var output = await adapter.HandleAsync(CopilotHookEvent.PreToolUse, input, TestContext.Current.CancellationToken);
 
-        Assert.NotEqual(HookDecision.Block, output.Decision);
+        Assert.Equal(HookDecision.Allow, output.Decision);
     }
 
     [Fact]

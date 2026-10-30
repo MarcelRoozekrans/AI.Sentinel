@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
@@ -229,9 +230,12 @@ public class CopilotHookCliFailClosedTests : IDisposable
     {
         Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
 
-        var (exit, _, stderr) = await RunAsync("pre-tool-use", NoToolName);
+        var (exit, stdout, stderr) = await RunAsync("pre-tool-use", NoToolName);
 
         Assert.Equal(0, exit);
+        // Exit 0 is also a Warn; only the wire output's decision tells Allow apart.
+        using var wire = JsonDocument.Parse(stdout);
+        Assert.Equal("Allow", wire.RootElement.GetProperty("decision").GetString());
         Assert.DoesNotContain("Sentinel internal error", stderr, StringComparison.Ordinal);
     }
 
