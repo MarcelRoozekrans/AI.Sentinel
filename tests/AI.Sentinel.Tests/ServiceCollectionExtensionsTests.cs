@@ -331,4 +331,45 @@ public class ServiceCollectionExtensionsTests
         Assert.NotNull(warning);
         Assert.StartsWith("AI.Sentinel: 1 semantic detector(s) are capped at Medium", warning, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public void UnreviewedWarning_DetectorCappedBelowMedium_NotCounted()
+    {
+        // A configured cap of Low already holds every result below the semantic cap.
+        var options = new SentinelOptions { EmbeddingGenerator = new FakeEmbeddingGenerator() };
+        var detectors = new IDetector[] { new SupplyChainPoisoningDetector(options) };
+        options.Configure<SupplyChainPoisoningDetector>(c => c.SeverityCap = Severity.Low);
+
+        Assert.Null(ServiceCollectionExtensions.DescribeUnreviewedSemanticDetection(options, detectors));
+    }
+
+    [Fact]
+    public void UnreviewedWarning_DetectorWhoseBucketsReachMediumAtMost_NotCounted()
+    {
+        // SEC-30 maps its High bucket to Medium, so the cap at Medium never changes its result.
+        var options = new SentinelOptions { EmbeddingGenerator = new FakeEmbeddingGenerator() };
+        var detectors = new IDetector[] { new ShorthandEmergenceDetector(options), new SupplyChainPoisoningDetector(options) };
+        Assert.Equal(Severity.Medium, new ShorthandEmergenceDetector(options).MaximumBucketSeverity);
+
+        var warning = ServiceCollectionExtensions.DescribeUnreviewedSemanticDetection(options, detectors);
+
+        Assert.NotNull(warning);
+        Assert.StartsWith("AI.Sentinel: 1 semantic detector(s) are capped at Medium", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnreviewedWarning_FloorAtTheHighestBucket_NotCounted_CapAboveMedium_Counted()
+    {
+        // A Critical floor on a Critical-maximum detector raises the cap level to Critical: nothing is lowered.
+        var floored = new SentinelOptions { EmbeddingGenerator = new FakeEmbeddingGenerator() };
+        floored.Configure<SupplyChainPoisoningDetector>(c => c.SeverityFloor = Severity.Critical);
+        Assert.Null(ServiceCollectionExtensions.DescribeUnreviewedSemanticDetection(
+            floored, [new SupplyChainPoisoningDetector(floored)]));
+
+        // A configured cap of High still leaves High for the semantic cap to lower.
+        var cappedHigh = new SentinelOptions { EmbeddingGenerator = new FakeEmbeddingGenerator() };
+        cappedHigh.Configure<SupplyChainPoisoningDetector>(c => c.SeverityCap = Severity.High);
+        Assert.NotNull(ServiceCollectionExtensions.DescribeUnreviewedSemanticDetection(
+            cappedHigh, [new SupplyChainPoisoningDetector(cappedHigh)]));
+    }
 }

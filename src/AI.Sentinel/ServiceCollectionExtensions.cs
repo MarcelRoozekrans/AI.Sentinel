@@ -559,17 +559,32 @@ public static class ServiceCollectionExtensions
     /// the review off, so detections stay capped exactly as with no reviewer.</summary>
     private static bool CanReview(SentinelOptions opts) => EffectiveReviewer(opts) is not null && opts.MaxReviewsPerScan > 0;
 
-    /// <summary>Semantic detectors this pipeline would run with the Medium cap on.</summary>
+    /// <summary>Semantic detectors this pipeline would run with the Medium cap on, whose severity the cap can lower.</summary>
     private static int CountUnreviewedSemantic(SentinelOptions opts, IEnumerable<IDetector> detectors)
     {
         var configurations = opts.GetDetectorConfigurations();
         return detectors.Count(d =>
         {
             var configuration = configurations.GetValueOrDefault(d.GetType());
-            return d is SemanticDetectorBase
+            return d is SemanticDetectorBase semantic
                 && DetectorConfiguration.IsEnabled(d, configuration)
-                && (configuration?.CapSemanticSeverity ?? true);
+                && (configuration?.CapSemanticSeverity ?? true)
+                && SemanticCapCanLower(semantic, configuration);
         });
+    }
+
+    /// <summary>Whether the semantic cap can lower a result of <paramref name="detector"/> under
+    /// <paramref name="configuration"/>. It cannot when the highest severity the detector can show, its highest bucket
+    /// raised to a configured floor and limited by a configured cap, is at or below the cap level: Medium, or the
+    /// floor when that is higher. A detector whose buckets reach Medium at most, or one capped below Medium, is
+    /// therefore not counted.</summary>
+    private static bool SemanticCapCanLower(SemanticDetectorBase detector, DetectorConfiguration? configuration)
+    {
+        var floor = configuration?.SeverityFloor ?? Severity.None;
+        var level = floor > Severity.Medium ? floor : Severity.Medium;
+        var highest = detector.MaximumBucketSeverity > floor ? detector.MaximumBucketSeverity : floor;
+        if (configuration?.SeverityCap is { } cap && highest > cap) highest = cap;
+        return highest > level;
     }
 
     private static string UnreviewedSemanticMessage(int count, string? pipelineName)
