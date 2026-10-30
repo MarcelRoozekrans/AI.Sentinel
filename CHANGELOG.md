@@ -9,6 +9,20 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [3.9.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.8.0...v3.9.0) (2026-10-30)
+
+
+### Features
+
+* **detectors:** SEC-24 detects tag-character and variation-selector smuggling ([#517](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/517)) ([e6609d2](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/e6609d272b98f0cb89ff3d2fe8de073746df75bd)), closes [#441](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/441)
+
+
+### Bug Fixes
+
+* **detection:** embed each text once per scan, on each pipeline's own generator ([#520](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/520)) ([3da797c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/3da797c97b405516f95429f04e10861bbf6907f2))
+* keep the generated authorization registration internal in every package ([#513](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/513)) ([a10fa24](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/a10fa2493047bb200c63b00c4dcfe15713b2c6a9)), closes [#512](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/512)
+* read the LLM escalation verdict from its severity field and fence the flagged content ([#515](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/515)) ([5d6ea26](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/5d6ea26bfca916f1a660fb21cf5fb18fde0d1aa3))
+
 ## [3.8.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.7.2...v3.8.0) (2026-10-29)
 
 
