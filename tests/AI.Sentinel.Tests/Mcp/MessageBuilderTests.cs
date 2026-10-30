@@ -173,6 +173,24 @@ public class MessageBuilderTests
         Assert.Equal([2], unscanned);
     }
 
+    // An escape in the JSON can hide what only the decoded text shows, so an escaped mirror is still scanned.
+    [Theory]
+    [InlineData("""{"a":"\u0062","n":1}""")]
+    [InlineData("""{"a":"x\ny","n":1}""")]
+    [InlineData("""{"a":"q\"q","n":1}""")]
+    public void CollectRedactable_EscapedMirror_IsScanned(string json)
+    {
+        var result = new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = ParseJson(json),
+        };
+
+        var (_, _, unscanned) = MessageBuilder.CollectRedactable(result, ResourceReadInterceptor.ParseMimeAllowlist());
+
+        Assert.Empty(unscanned);
+    }
+
     [Theory]
     [InlineData("""{"a": "b", "n": 1}""")]
     [InlineData("""{"a":"c","n":1}""")]

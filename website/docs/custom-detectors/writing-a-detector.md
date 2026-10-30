@@ -67,7 +67,7 @@ The pipeline hands a detector the whole conversation in `ctx.Messages`, but only
 
 Read these rather than `ctx.TextContent`, which joins every message, history included, and is not cut. When the new content is over the budget the pipeline itself reports a `Critical` [`SEC-00`](../detectors/overview#scan-budget-and-sec-00) finding, so a detector need not flag the size. A detector whose check depends on where the text ends, such as an unclosed code fence, should return Clean when `ExceedsScanBudget` is true: the view ends at the cut, not where the message did.
 
-A detector that judges a property of the whole conversation, such as how a reply relates to the question before it, can still read `ctx.Messages`. Cut what it reads to `ctx.MaxScanBytes` too, so a huge message cannot make the scan slow. `ChatMessage.Text` there holds a message's text content only, without its tool calls and results.
+A detector that judges a property of the whole conversation, such as how a reply relates to the question before it, can still read `ctx.Messages`. For a new message, read its entry in `NewMessageTexts` instead, entry `i` being `ctx.Messages[ctx.NewMessagesFrom + i]`: it is already cut to the budget, so a huge message cannot make the scan slow. A history message is not cut; bound what you read of it yourself. `ChatMessage.Text` in `ctx.Messages` holds a message's text content only, without its tool calls and results.
 
 ## Detector ID convention
 

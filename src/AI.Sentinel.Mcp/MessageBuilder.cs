@@ -76,8 +76,8 @@ internal static class MessageBuilder
     /// </summary>
     /// <remarks>
     /// The MCP specification has a tool that returns structured content also return it serialized in a text block.
-    /// When the structured content's JSON is exactly the text of a collected text block, it is redacted like any
-    /// item but its index is in <c>Unscanned</c>: the text block already carries it to the scan, so it is judged and
+    /// When the structured content's JSON holds no escape and is exactly the text of a collected text block, it is
+    /// redacted like any item but its index is in <c>Unscanned</c>: the text block already carries it to the scan, so it is judged and
     /// counted against <see cref="SentinelOptions.MaxScanBytes"/> once, as with <c>SENTINEL_MCP_REDACT=off</c>, which
     /// scans the text blocks only. Structured content that differs from every text block is scanned (#439).
     /// </remarks>
@@ -100,7 +100,12 @@ internal static class MessageBuilder
     }
 
     /// <summary>Whether <paramref name="json"/>, as it arrived, is the exact text of one of the text blocks, which
-    /// the scan judges.</summary>
+    /// the scan judges, and holds no escape.</summary>
+    /// <remarks>The scan reads a text block as it is, but structured content through
+    /// <c>HostContent.ScanText</c>, which decodes every JSON escape. JSON with a backslash can spell a payload as
+    /// <c>\u0069gnore</c> or join words with <c>\n</c>, which only the decoded text shows, so such structured
+    /// content is scanned even when a text block repeats it, and counts against the budget twice. Without a
+    /// backslash the raw JSON is its own decoded text, and the text block shows all of it.</remarks>
     private static bool MirrorsATextBlock(JsonElement json, IList<ContentBlock>? blocks)
     {
         if (blocks is null) return false;
@@ -111,6 +116,7 @@ internal static class MessageBuilder
             if (block is not TextContentBlock { Text: { Length: > 0 } text }) continue;
 
             raw ??= json.GetRawText();
+            if (raw.Contains('\\', StringComparison.Ordinal)) return false;
             if (string.Equals(text, raw, StringComparison.Ordinal)) return true;
         }
         return false;

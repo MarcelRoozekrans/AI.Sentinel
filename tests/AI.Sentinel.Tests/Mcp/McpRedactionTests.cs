@@ -23,7 +23,8 @@ public class McpRedactionTests
     private const string Email = "jan@example.com";
     private const int MaxScanBytes = 64 * 1024;
 
-    private static (SentinelPipeline Pipeline, IAuditStore Store) Build(bool blockCritical = false, int maxScanBytes = MaxScanBytes)
+    private static (SentinelPipeline Pipeline, IAuditStore Store) Build(
+        bool blockCritical = false, int maxScanBytes = MaxScanBytes, params string[] recognised)
     {
         var options = new SentinelOptions
         {
@@ -32,7 +33,7 @@ public class McpRedactionTests
             OnHigh = SentinelAction.Alert,
             OnMedium = SentinelAction.Alert,
             OnLow = SentinelAction.Alert,
-            EmbeddingGenerator = new ExactMatchEmbeddingGenerator(),
+            EmbeddingGenerator = new ExactMatchEmbeddingGenerator(recognised),
         };
         // These tests are about redaction before a block, not the severity of an embedding hit: SEC-01 keeps its Critical.
         options.Configure<PromptInjectionDetector>(c => c.CapSemanticSeverity = false);
@@ -214,6 +215,40 @@ public class McpRedactionTests
         Assert.Equal(
             """{"note":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mail":"[EMAIL_1]"}""",
             Placeholders.Untag(Assert.NotNull(result.StructuredContent).GetRawText()));
+    }
+
+    // A malicious server can mirror an escape-encoded payload: the raw text block hides it, and the structured
+    // content a host hands the model holds it decoded. Such a mirror is still scanned decoded, and blocks.
+    [Fact]
+    public async Task ToolResult_EscapedMirror_IsScannedDecoded_AndBlocks()
+    {
+        var injection = DetectorExamples.PromptInjectionHigh;
+        var escaped = $"\\u{(int)injection[0]:x4}{injection[1..]}";
+        var json = $$"""{"note":"{{escaped}}"}""";
+        Assert.DoesNotContain(injection, json, StringComparison.Ordinal);
+        var (pipeline, _) = Build(blockCritical: true, recognised: injection);
+
+        await Assert.ThrowsAsync<McpProtocolException>(async () => await CallAsync(pipeline, new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = Json(json),
+        }, NewStore()));
+    }
+
+    // The same payload unescaped is a plain mirror: the text block shows it, and blocks on its own.
+    [Fact]
+    public async Task ToolResult_UnescapedMirroredInjection_StillBlocks()
+    {
+        var injection = DetectorExamples.PromptInjectionHigh;
+        var json = $$"""{"note":{{JsonSerializer.Serialize(injection)}}}""";
+        Assert.DoesNotContain("\\", json, StringComparison.Ordinal);
+        var (pipeline, _) = Build(blockCritical: true, recognised: injection);
+
+        await Assert.ThrowsAsync<McpProtocolException>(async () => await CallAsync(pipeline, new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = Json(json),
+        }, NewStore()));
     }
 
     // Structured content that no text block mirrors is scanned on its own, so it counts against the budget.

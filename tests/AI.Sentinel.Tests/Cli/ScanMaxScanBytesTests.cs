@@ -26,7 +26,7 @@ public class ScanMaxScanBytesTests
         var stderr = new StringWriter();
 
         Assert.Equal(1, await ScanAsync(stderr, maxScanBytes: null));
-        Assert.Contains("SEC-00", stderr.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Assertion failed: Expected detector SEC-00 did not fire.", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
