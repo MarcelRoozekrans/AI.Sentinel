@@ -225,9 +225,6 @@ internal sealed class ReviewEvaluation(
         /// <summary>Every candidate: reviewed, failed, timed out or over budget.</summary>
         public long Candidates => ReviewOutcomes.All.Sum(Count);
 
-        /// <summary>Candidates sent to the reviewer, whatever came back: all but the over-budget ones.</summary>
-        public long Sent => Candidates - OverBudget;
-
         public long OverBudget => Count(ReviewOutcomes.OverBudget);
 
         public long Failures => Count(ReviewOutcomes.Failed) + Count(ReviewOutcomes.TimedOut);
