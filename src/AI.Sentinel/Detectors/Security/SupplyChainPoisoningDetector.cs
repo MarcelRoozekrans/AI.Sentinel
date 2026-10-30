@@ -12,7 +12,7 @@ public sealed class SupplyChainPoisoningDetector(SentinelOptions options) : Sema
     public override DetectorCategory Category => DetectorCategory.Security;
 
     protected override string ReviewCriterion =>
-        "An instruction to use, install or build from a tampered, trojanized or impostor package, dependency or artifact. Installing a legitimate package, or discussing supply chain risk, is not a hit.";
+        "An instruction to use, install or build from a tampered, trojanized or impostor package or artifact, or from an unofficial fork or mirror presented as a replacement for the official one. Installing the legitimate package, or discussing supply chain risk, is not a hit.";
 
     protected override Severity HighSeverity => Severity.Critical;
     protected override Severity MediumSeverity => Severity.High;

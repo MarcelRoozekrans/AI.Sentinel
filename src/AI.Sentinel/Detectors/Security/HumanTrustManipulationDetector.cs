@@ -12,7 +12,7 @@ public sealed class HumanTrustManipulationDetector(SentinelOptions options) : Se
     public override DetectorCategory Category => DetectorCategory.Security;
 
     protected override string ReviewCriterion =>
-        "A message that builds false trust to obtain credentials or access, such as claiming to be the user's guardian or only helper. Ordinary friendly or supportive wording with no request for secrets is not a hit.";
+        "A message that builds exclusive dependence or false trust or authority to gain influence, credentials or access, such as claiming that only the speaker can help or that the user must hand over secrets. A neutral, helpful or empathetic reply that claims no exclusivity or authority is not a hit.";
 
     protected override string[] HighExamples =>
     [
