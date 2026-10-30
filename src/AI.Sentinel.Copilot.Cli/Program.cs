@@ -174,7 +174,8 @@ public static class Program
 
         var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), audit,
             reviewer: reviewer ?? review?.Reviewer, reviewLimits: ReviewLimitsFor(review),
-            enableComplianceDetectors: config.EnableComplianceDetectors, detectors: DetectorPresets.Parse(hookEnv.GetValueOrDefault("SENTINEL_HOOK_DETECTORS")));
+            enableComplianceDetectors: config.EnableComplianceDetectors, detectors: DetectorPresets.Parse(hookEnv.GetValueOrDefault("SENTINEL_HOOK_DETECTORS")),
+            maxScanBytes: HookConfig.ParseMaxScanBytes(hookEnv, "SENTINEL_HOOK_MAX_SCAN_BYTES"));
         await using var _ = provider.ConfigureAwait(false);
 
         var adapter = new CopilotHookAdapter(provider, config);
@@ -362,7 +363,8 @@ public static class Program
         bool enableComplianceDetectors = false,
         DetectorPreset detectors = DetectorPreset.Security,
         IDetectionReviewer? reviewer = null,
-        ReviewLimits? reviewLimits = null)
+        ReviewLimits? reviewLimits = null,
+        int maxScanBytes = SentinelOptions.DefaultMaxScanBytes)
     {
         var services = new ServiceCollection();
         var backendKind = approvalConfig is null
@@ -401,6 +403,8 @@ public static class Program
             opts.Reviewer = reviewer;
             opts.MaxReviewsPerScan = limits.MaxPerScan;
             opts.ReviewTimeout = limits.Timeout;
+            // SENTINEL_HOOK_MAX_SCAN_BYTES: an event over it is blocked as SEC-00, so a host can raise it.
+            opts.MaxScanBytes = maxScanBytes;
             if (approvalConfig is not null)
                 ApprovalBackendSelector.Configure(opts, approvalConfig);
         });

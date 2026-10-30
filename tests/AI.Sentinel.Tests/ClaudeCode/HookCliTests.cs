@@ -121,6 +121,56 @@ public class HookCliTests : HookAuditOffFixtureBase
         Assert.Contains("SEC-00", wire.RootElement.GetProperty("reason").GetString(), StringComparison.Ordinal);
     }
 
+    // SENTINEL_HOOK_MAX_SCAN_BYTES sets the scan budget, so a host can raise it past a block on a large tool result.
+    [Fact]
+    public async Task Cli_PostToolUse_MaxScanBytesFromEnvironment_BlocksOverBudgetWithSec00()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", "100");
+        try
+        {
+            var content = new string('a', 200);
+            var stdin = new StringReader($$$"""{"session_id":"s","tool_name":"Read","tool_input":{"file_path":"/a/notes.txt"},"tool_response":{"content":"{{{content}}}"}}""");
+            var stdout = new StringWriter();
+
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, new StringWriter(), new ExactMatchEmbeddingGenerator());
+
+            Assert.Equal(0, exit);
+            using var wire = JsonDocument.Parse(stdout.ToString());
+            Assert.Equal("block", wire.RootElement.GetProperty("decision").GetString());
+            Assert.Contains("SEC-00", wire.RootElement.GetProperty("reason").GetString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", null);
+        }
+    }
+
+    // Anything but a positive integer keeps the 262144 default, as SENTINEL_MCP_MAX_SCAN_BYTES does.
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("lots")]
+    public async Task Cli_PostToolUse_InvalidMaxScanBytes_KeepsTheDefault(string value)
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", value);
+        try
+        {
+            var content = new string('a', 200);
+            var stdin = new StringReader($$$"""{"session_id":"s","tool_name":"Read","tool_input":{"file_path":"/a/notes.txt"},"tool_response":{"content":"{{{content}}}"}}""");
+            var stdout = new StringWriter();
+
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, new StringWriter(), new ExactMatchEmbeddingGenerator());
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("SEC-00", stdout.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("\"decision\"", stdout.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", null);
+        }
+    }
+
     [Fact]
     public async Task Cli_PostToolUse_RedactOff_Injection_ExitZero_Withheld()
     {

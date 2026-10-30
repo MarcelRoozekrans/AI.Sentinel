@@ -936,6 +936,7 @@ Both adapters share the same env-var contract — configure once, applies to bot
 | `SENTINEL_HOOK_REDACT` | `on` | `off` / `0` / `false` / `no` → stop redacting tool results and turn off the placeholder guard |
 | `SENTINEL_HOOK_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](#compliance-4), which are off by default. Their findings warn instead of following `SENTINEL_HOOK_ON_HIGH` |
 | `SENTINEL_HOOK_DETECTORS` | `security` | `security` → the MCP proxy's security preset; `all` → every detector, including the operational and hallucination detectors that judge a model's reply and fire on tool output |
+| `SENTINEL_HOOK_MAX_SCAN_BYTES` | `262144` | A positive integer → the scan budget, `SentinelOptions.MaxScanBytes`, in UTF-8 bytes. An event over it is blocked as `SEC-00` under the default `SENTINEL_HOOK_ON_CRITICAL=Block` |
 | `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
 | `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
 | `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |

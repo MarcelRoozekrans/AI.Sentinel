@@ -156,7 +156,10 @@ public sealed class SentinelOptions
     /// severity clamp, cap or per-detector setting changes it. Raise the value to scan more, at the cost of
     /// scan time.</summary>
     [GreaterThan(0, ErrorCode = "GreaterThan")]
-    public int MaxScanBytes { get; set; } = 262144;
+    public int MaxScanBytes { get; set; } = DefaultMaxScanBytes;
+
+    /// <summary>The default of <see cref="MaxScanBytes"/>, which the hosts' <c>*_MAX_SCAN_BYTES</c> settings fall back to.</summary>
+    internal const int DefaultMaxScanBytes = 262144;
 
     /// <summary>Optional expected response type for structured-output LLM calls.
     /// When set, <c>OutputSchemaDetector</c> (SEC-29) attempts to deserialize each assistant
