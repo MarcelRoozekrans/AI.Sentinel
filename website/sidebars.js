@@ -54,6 +54,7 @@ const sidebars = {
         'configuration/named-pipelines',
         'configuration/fluent-config',
         'configuration/embedding-cache',
+        'configuration/migrating-to-4',
       ],
     },
     {

@@ -57,6 +57,8 @@ dotnet add package AI.Sentinel.AspNetCore   # optional, for the dashboard
 
 ## Quick start
 
+> **Upgrading from 3.x?** 4.0 caps semantic detections at `Medium` until a reviewer confirms them, makes `ReviewCriterion` a required member for detector authors, and turns `EscalationClient` into shorthand for a reviewer that also judges semantic findings. See [Migrating to 4.0](https://marcelroozekrans.github.io/AI.Sentinel/docs/configuration/migrating-to-4).
+
 ```csharp
 // Program.cs
 builder.Services.AddAISentinel(opts =>
