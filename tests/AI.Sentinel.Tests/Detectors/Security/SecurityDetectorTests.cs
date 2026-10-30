@@ -39,8 +39,8 @@ public class SecurityDetectorTests
     /// so ReviewThreshold must stay under Medium, and Medium under High.</summary>
     [Theory]
     [InlineData("SEC-01", 0.41f, 0.37f, 0.33f)]
-    [InlineData("SEC-05", 0.41f, 0.40f, 0.39f)]
-    [InlineData("SEC-09", 0.45f, 0.44f, 0.35f)]
+    [InlineData("SEC-05", 0.45f, 0.37f, 0.33f)]
+    [InlineData("SEC-09", 0.47f, 0.45f, 0.35f)]
     public void SecurityDetectors_ThresholdsAreOrdered(string id, float high, float medium, float review)
     {
         var options = new SentinelOptions();
