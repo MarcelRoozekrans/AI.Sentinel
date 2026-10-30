@@ -81,7 +81,19 @@ A semantic detector embeds the text of each message that is new in the scan, com
 
 **A rejected input loses only itself.** If the provider rejects one text, the other texts of the scan are still scored. After two single-input failures with no success the endpoint is treated as down and the rest of the scan's texts are skipped. A failure is reported once per scan, not once per detector, and a detector left with nothing to score returns `Clean`. A detector whose example phrases failed to embed still runs its rule layer. The [embedding cache](../configuration/embedding-cache) page has the details.
 
-The semantic layers of SEC-01, SEC-05 and SEC-09 miss paraphrased injections on local embedding models; that is tracked in [#432](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/432).
+**Changed in 4.1: SEC-01, SEC-05 and SEC-09 catch paraphrased attacks ([#432](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/432)).** Their examples now describe what an attack asks for instead of one wording of it, and their thresholds come from the same rule as the compliance detectors, set on all-MiniLM-L6-v2. SEC-01 no longer has Low examples.
+
+| Detector | High | Medium | `ReviewThreshold` | 4.0 High / Medium / `ReviewThreshold` |
+|---|---|---|---|---|
+| SEC-01 `PromptInjectionDetector` | 0.41 | 0.37 | 0.33 | 0.90 / 0.82 / 0.75, and Low 0.75 |
+| SEC-05 `JailbreakDetector` | 0.41 | 0.40 | 0.39 | 0.90 / 0.82 / 0.75 |
+| SEC-09 `IndirectInjectionDetector` | 0.45 | 0.44 | 0.35 | 0.90 / 0.82 / 0.75 |
+
+- **Recall.** On held-out paraphrases that no tuning step saw, embeddings alone catch 5, 3 and 1 of 5 at High or above, against 0 of 5 for each detector with the 4.0 values. With an LLM judge the counts are the same, and the judge cleared every held-out benign candidate.
+- **False positives.** Without a judge, 1, 1 and 3 of 12 held-out benign texts that discuss attacks on AI reach High or above, such as a prompt-scanner report that quotes an injection. With the default cap they are reported at `Medium`; a reviewer clears or confirms them.
+- **SEC-09 still misses long documents.** An injected line inside a long page, review or changelog is diluted in the embedding of the whole text, so 4 of the 5 held-out SEC-09 positives are missed; [#533](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/533) tracks windowed scoring.
+- **Another embedding model needs its own values.** On bge-base-en-v1.5 these thresholds fire on almost every text. Run the [evaluation tool](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/docs/superpowers/evaluations/2026-10-17-compliance-detectors.md#security-detectors) on your model and set `HighThreshold`, `MediumThreshold` and `ReviewThreshold` from its run with `opts.Configure<T>(c => ...)`.
+- **With `CapSemanticSeverity = false`** and no reviewer, a text above the lower thresholds raises an uncapped finding: `Critical` from the High bucket and `High` from the Medium bucket. The held-out benign texts above are such findings. An opted-out detector with a reviewer is still reviewed, and a verdict can lower or clear the finding.
 
 ## Second-stage review
 
@@ -89,7 +101,7 @@ An embedding says a text is close to a topic, not that it is an attack. A pipeli
 
 - **The cap.** Without a reviewer, an embedding hit is reported at most at `Medium`. If the detector has a `SeverityFloor` above `Medium`, the cap rises to the floor. A fast-path regex match is never capped. Opt a detector out with `opts.Configure<T>(c => c.CapSemanticSeverity = false)`; `null` and `true` cap. An opted-out detector is still reviewed, and a verdict can lower or clear its finding.
 - **The reviewer.** Set `opts.Reviewer` to an `IDetectionReviewer`, or `opts.EscalationClient` to a chat client, which is shorthand for `opts.Reviewer = new LlmJudgeReviewer(client)`. Setting both is rejected at `AddAISentinel`. A named pipeline uses its own reviewer and does not inherit the default pipeline's. The reviewer can confirm the proposed severity, raise or lower it, or clear the finding.
-- **`ReviewThreshold`.** A text that reaches no bucket is still reviewed when its similarity is at or above the detector's `ReviewThreshold`. The default is its Low threshold; set another with `opts.Configure<T>(c => c.ReviewThreshold = 0.6f)`. It must be in (0, 1] and not above the Medium threshold.
+- **`ReviewThreshold`.** A text that reaches no bucket is still reviewed when its similarity is at or above the detector's `ReviewThreshold`. The default is its Low threshold; SEC-01, SEC-05 and SEC-09 set their own, see above. Set another with `opts.Configure<T>(c => c.ReviewThreshold = 0.6f)`. It must be in (0, 1] and not above the Medium threshold.
 - **The budget.** `opts.MaxReviewsPerScan` (default 4) is the most reviews one scan starts, highest proposed severity first; 0 disables review and a negative value is rejected. `opts.ReviewTimeout` (default 5 seconds) is how long one review may take. A finding that is not reviewed, or whose review fails or times out, keeps its capped result.
 - **The warning.** When a generator is configured, no reviewer is set and a semantic detector is capped, AI.Sentinel logs a warning at startup. `DescribeUnreviewedSemanticDetection()` returns the same text for hosts without a logger.
 
