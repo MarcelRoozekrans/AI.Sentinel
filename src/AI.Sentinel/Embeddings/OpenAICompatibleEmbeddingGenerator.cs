@@ -1,7 +1,7 @@
 using System.Net.Http.Headers;
-using AI.Sentinel.Http;
-using System.Text.Json.Serialization;
 using System.Net.Http.Json;
+using System.Text.Json.Serialization;
+using AI.Sentinel.Http;
 using Microsoft.Extensions.AI;
 
 namespace AI.Sentinel.Embeddings;

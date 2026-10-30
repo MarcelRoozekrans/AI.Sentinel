@@ -23,7 +23,7 @@ public class LlmJudgeReviewerTests
 
         var system = Assert.Single(captured, m => m.Role == ChatRole.System);
         Assert.Contains("instruction overrides", system.Text, StringComparison.Ordinal);
-        Assert.Contains("Medium", system.Text, StringComparison.Ordinal);
+        Assert.Contains("It proposed severity Medium; the highest severity you may give is High.", system.Text, StringComparison.Ordinal);
         // The flagged text is data: it reaches the judge only in the fenced user message, never in the instruction.
         Assert.DoesNotContain("the flagged text", system.Text, StringComparison.Ordinal);
         var user = Assert.Single(captured, m => m.Role == ChatRole.User);
@@ -95,6 +95,18 @@ public class LlmJudgeReviewerTests
     {
         Assert.True(LlmJudgeReviewer.TryParseVerdict(text, out var severity, out _));
         Assert.Equal(expected, severity);
+    }
+
+    [Theory]
+    [InlineData("""{"reason":"stated first","severity":"High"}""", Severity.High, "stated first")]
+    [InlineData("""{"severity":"Low","reason":42}""", Severity.Low, "")]
+    [InlineData("""{"severity":"Low","reason":null}""", Severity.Low, "")]
+    [InlineData("""{"severity":"Medium","reason":{"text":"nested"}}""", Severity.Medium, "")]
+    public void TryParseVerdict_ReasonInAnyOrder_AndANonStringReasonIsEmpty(string text, Severity expected, string expectedReason)
+    {
+        Assert.True(LlmJudgeReviewer.TryParseVerdict(text, out var severity, out var reason));
+        Assert.Equal(expected, severity);
+        Assert.Equal(expectedReason, reason);
     }
 
     [Theory]

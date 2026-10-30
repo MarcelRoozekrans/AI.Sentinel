@@ -1,6 +1,6 @@
 using System.Globalization;
-using AI.Sentinel.Http;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Http;
 using Microsoft.Extensions.AI;
 
 namespace AI.Sentinel.Review;
