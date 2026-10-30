@@ -142,3 +142,44 @@
 - [ ] **Step 3:** Docs. Remove the "tracked in #432" line, and replace the 0.90/0.82 defaults statement for these three detectors. Write the behaviour-change entry: the old and new values per detector, held-out recall before and after, that the values are MiniLM-tuned and another model needs `HighThreshold`/`MediumThreshold`/`ReviewThreshold` from its own run, and that with `CapSemanticSeverity = false` the lower thresholds raise uncapped Critical findings.
 - [ ] **Step 4:** Run the full test suite and `dotnet build -c Release`. Expected: all pass, 0 warnings.
 - [ ] **Step 5:** Commit: `docs(eval): held-out results for the SEC-01, SEC-05 and SEC-09 tuning`
+
+---
+
+## Second round, added 2026-10-30 after the first held-out run
+
+In the first held-out run, three held-out benign security texts reached High in configuration 1: a promptscan report, an awareness-training summary and an incident ticket, at 0.44 to 0.53 against High thresholds of 0.41 to 0.45. The C0f gate failed. Marcel chose the CMP-03 3.1 procedure:
+- fold the spent held-out phrases into fit;
+- re-tune by the rule over all fit data;
+- measure on a fresh blind held-out batch.
+
+The first round's numbers stay in the evaluation doc as history.
+
+### Task 5: Fold the held-out phrases into fit and write a fresh blind batch
+
+**Files:** `tools/AI.Sentinel.ComplianceEval/security-phrases.json`, `tools/AI.Sentinel.ComplianceEval/Phrase.cs` (`Display`), `tests/AI.Sentinel.Tests/Detectors/Compliance/ComplianceDetectorTests.cs`
+
+Do not run the eval tool in this task.
+
+- [ ] **Step 1:** Set every current `heldout` phrase to `fit`, and change `"added": "4.0"` to `"added": "4.1"` everywhere, because 4.0.0 shipped without these phrases.
+- [ ] **Step 2:** Change the guard test to require at least 20 positives per detector, at least 5 `heldout` positives per detector, at least 48 benign texts and at least 12 `heldout` benign texts. Run it and see it fail.
+- [ ] **Step 3:** Write the fresh batch, all `heldout` with `added` 4.1:
+  - 5 new positives per detector. At least 2 SEC-09 positives are short or medium-length injections in tool output, not long diluted documents, which are #533's scope.
+  - 12 new benign texts, at least 7 of them hard negatives in the style that failed: scanner reports, training summaries and incident tickets that quote or describe attacks.
+  - None may echo an existing phrase, fit or not.
+  - Update the description to explain the two rounds.
+- [ ] **Step 4:** Make `Phrase.Display` render a newline as `<br>`, alongside the existing `|` escape, so multi-line phrases do not break the tables. Check it by building the tool; the tool has no test project.
+- [ ] **Step 5:** Run the guard and split tests and see them pass, then commit: `test(eval): fold the spent held-out phrases into fit and add a fresh blind held-out batch`
+
+### Task 6: Re-tune on all fit data
+
+Same procedure and constraints as Task 3, run with `--tuning`. On top of those:
+- The `ReviewThreshold` rulings stand: review cost stays bounded, and an outlier positive whose candidacy would send a large share of fit benign texts to review is named as a known miss.
+- The SEC-09 long-document misses stay with #533.
+- Append the rows to the same tuning log, and commit with the shipped values in the body: `fix(detectors): re-tune SEC-01, SEC-05 and SEC-09 over the folded fit set`.
+
+### Task 7: Second held-out report and docs
+
+Same as Task 4 Steps 1 to 4, on the fresh batch.
+- The evaluation doc keeps a short "First held-out round" subsection. It lists the three benign texts that reached High, their scores, the thresholds of the time, and why the phrases were folded into fit. Then it reports the second round in full.
+- Update the overview "Changed in 4.1" entry to the final values.
+- Commit: `docs(eval): second held-out round for SEC-01, SEC-05 and SEC-09`.
