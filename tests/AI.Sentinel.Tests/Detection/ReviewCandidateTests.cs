@@ -152,6 +152,62 @@ public class ReviewCandidateTests
     }
 
     [Fact]
+    public async Task Candidate_ManyMessages_KeptTextUsesNewestContributorRole()
+    {
+        // 19 messages and 18 distinct texts, so the oldest three are folded; the candidate is a kept text that the
+        // message before it repeats.
+        var messages = new List<ChatMessage>();
+        for (var i = 1; i <= 17; i++) messages.Add(new ChatMessage(ChatRole.User, $"filler {i}"));
+        messages.Add(new ChatMessage(ChatRole.User, "SCORE kept"));
+        messages.Add(new ChatMessage(ChatRole.Tool, "SCORE kept"));
+
+        var detector = new CandidateDetector(Options(text =>
+            string.Equals(text, "SCORE kept", StringComparison.Ordinal) ? Vector(Axis.High, 0.91f) : Examples(text)));
+
+        var outcome = await detector.AnalyzeAsync(Ctx([.. messages]), configuration: null, TestContext.Current.CancellationToken);
+
+        var candidate = Assert.NotNull(outcome.Candidate);
+        Assert.Equal("SCORE kept", candidate.Text);
+        Assert.Equal(ChatRole.Tool, candidate.Role);
+    }
+
+    [Fact]
+    public async Task Candidate_BucketMappedToNone_IsANearMissJudgedAgainstTheReviewThreshold()
+    {
+        // "low" reaches the Low bucket, which maps to None, at 0.77: below the review threshold of 0.8, so it is no
+        // candidate and does not hide "near", which reaches no bucket but scores 0.81 against Medium.
+        var options = Options(text => text switch
+        {
+            "low" => Vector(Axis.Low, 0.77f),
+            "near" => Vector(Axis.Medium, 0.81f),
+            _ => Examples(text),
+        });
+        var detector = new NoneLowDetector(options, reviewThreshold: 0.8f);
+
+        var alone = await detector.AnalyzeAsync(Ctx(new ChatMessage(ChatRole.User, "low")), configuration: null, TestContext.Current.CancellationToken);
+        var both = await detector.AnalyzeAsync(
+            Ctx(new ChatMessage(ChatRole.User, "low"), new ChatMessage(ChatRole.User, "near")), configuration: null, TestContext.Current.CancellationToken);
+
+        Assert.True(alone.Result.IsClean);
+        Assert.Null(alone.Candidate);
+        Assert.True(both.Result.IsClean);
+        var candidate = Assert.NotNull(both.Candidate);
+        Assert.Equal("near", candidate.Text);
+        Assert.Equal(0.81f, candidate.Score, 0.001f);
+        Assert.Equal(Severity.High, detector.MaximumBucketSeverity);
+    }
+
+    [Fact]
+    public async Task NullContext_Throws()
+    {
+        var detector = new CandidateDetector(Options(Examples));
+
+        Assert.Throws<ArgumentNullException>(() => detector.TextsToEmbed(null!));
+        await Assert.ThrowsAsync<ArgumentNullException>(async () =>
+            await detector.AnalyzeAsync(null!, configuration: null, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task Candidate_CustomGetTextsToScore_RoleIsNull()
     {
         var detector = new CustomTextsDetector(Options(text => string.Equals(text, "custom", StringComparison.Ordinal) ? Vector(Axis.High, 0.91f) : Examples(text)));
@@ -256,6 +312,12 @@ public class ReviewCandidateTests
         protected override string[] MediumExamples => [MediumExample];
         protected override string[] LowExamples => [LowExample];
         protected override float ReviewThreshold => reviewThreshold ?? base.ReviewThreshold;
+    }
+
+    /// <summary>Maps its Low bucket to None.</summary>
+    private sealed class NoneLowDetector(SentinelOptions options, float reviewThreshold) : CandidateDetector(options, reviewThreshold)
+    {
+        protected override Severity LowSeverity => Severity.None;
     }
 
     private sealed class CustomTextsDetector(SentinelOptions options) : CandidateDetector(options)

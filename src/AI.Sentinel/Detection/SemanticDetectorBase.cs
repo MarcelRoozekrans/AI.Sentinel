@@ -83,7 +83,8 @@ public abstract class SemanticDetectorBase : IDetector
 
     /// <summary>What this detector looks for, in one or two plain sentences, for the pipeline's
     /// <see cref="IDetectionReviewer"/>. State the intent that counts as a hit and name the closest legitimate
-    /// look-alike that does not. Do not use braces: the text is placed in a prompt.</summary>
+    /// look-alike that does not. Do not use braces: leaving them out keeps the prompt and its JSON answer format
+    /// unambiguous.</summary>
     protected abstract string ReviewCriterion { get; }
 
     /// <summary>The review criterion, for the reviewer.</summary>
@@ -269,19 +270,16 @@ public abstract class SemanticDetectorBase : IDetector
         if (_generator is null)
             return CleanOutcome();
 
-        var selected = SelectTextsToScore(ctx);
-        if (selected.Count == 0)
+        var texts = SelectTexts(ctx, roles: null);
+        if (texts.Count == 0)
             return CleanOutcome();
 
         var examples = await GetExampleVectorsAsync(_generator, _exampleCache, ct).ConfigureAwait(false);
-
-        var texts = new string[selected.Count];
-        for (var i = 0; i < texts.Length; i++) texts[i] = selected[i].Text;
         var vectors = await GetEmbeddingsAsync(texts, ct).ConfigureAwait(false);
 
         var (result, index, score) = Score(vectors, examples, configuration);
         return new SemanticOutcome(
-            result, index < 0 ? null : new ReviewCandidate(selected[index].Text, score, selected[index].Role), FromFastPath: false);
+            result, index < 0 ? null : new ReviewCandidate(texts[index], score, RoleOf(ctx, texts[index])), FromFastPath: false);
     }
 
     /// <summary>Analyzes with the scope and the scan vectors of the pipeline that runs this detector, and reports the
@@ -324,15 +322,34 @@ public abstract class SemanticDetectorBase : IDetector
 
     /// <summary>The role of the newest message that contributed <paramref name="text"/> to this scan's texts, or
     /// <see langword="null"/> when this detector chooses its own texts.</summary>
-    /// <remarks>Selecting again is safe here: without an override it calls no subclass code, and it gives the texts
-    /// <see cref="TextsToEmbed"/> gave. It runs only for a scan that has a candidate.</remarks>
+    /// <remarks>It runs only for a scan that has a candidate. With at most 16 new messages nothing is folded, so the
+    /// role is that of the newest message whose text, normalised, is <paramref name="text"/>: found from the newest
+    /// message back, usually at once. With more, the texts are selected again with their roles, which is safe: without
+    /// an override it calls no subclass code, and it gives the texts <see cref="TextsToEmbed"/> gave.</remarks>
     private ChatRole? RoleOf(SentinelContext ctx, string text)
     {
         if (!_tracksRoles) return null;
 
-        foreach (var selected in SelectTextsToScore(ctx))
+        if (ctx.Messages.Count - ctx.NewMessagesFrom <= MaxMessagesToScore)
         {
-            if (string.Equals(selected.Text, text, StringComparison.Ordinal)) return selected.Role;
+            for (var i = ctx.Messages.Count - 1; i >= ctx.NewMessagesFrom; i--)
+            {
+                var messageText = SentinelContext.MessageText(ctx.Messages[i]);
+                if (!string.IsNullOrWhiteSpace(messageText)
+                    && string.Equals(PlaceholderFormat.Normalise(messageText), text, StringComparison.Ordinal))
+                {
+                    return ctx.Messages[i].Role;
+                }
+            }
+
+            return null;
+        }
+
+        var roles = new List<Contribution>();
+        var texts = SelectTexts(ctx, roles);
+        for (var i = 0; i < texts.Count; i++)
+        {
+            if (string.Equals(texts[i], text, StringComparison.Ordinal)) return roles[i].Role;
         }
 
         return null;
@@ -349,10 +366,7 @@ public abstract class SemanticDetectorBase : IDetector
             return [];
 #pragma warning restore SENTINEL001
 
-        var selected = SelectTextsToScore(ctx);
-        var texts = new string[selected.Count];
-        for (var i = 0; i < texts.Length; i++) texts[i] = selected[i].Text;
-        return texts;
+        return SelectTexts(ctx, roles: null);
     }
 
     /// <summary>The result of the rule layer alone, or <see cref="DetectionResult.Clean"/>. For a scan whose example
@@ -405,7 +419,9 @@ public abstract class SemanticDetectorBase : IDetector
         for (var i = 0; i < vectors.Count; i++)
         {
             var (result, score) = Classify(vectors[i].Span, examples, highThreshold, mediumThreshold);
-            if (result is null)
+
+            // A bucket mapped to None reports nothing, so its text is a near miss like one that reached no bucket.
+            if (result is null || result.IsClean)
             {
                 if (bucketIndex < 0 && score > nearestScore)
                 {
@@ -472,32 +488,31 @@ public abstract class SemanticDetectorBase : IDetector
         return (null, nearest);
     }
 
-    /// <summary>A text to score and the role of the newest message that contributed it, or <see langword="null"/>
-    /// when the detector chooses its own texts.</summary>
-    private readonly record struct ScoredText(string Text, ChatRole? Role);
+    /// <summary>The role of the newest message that contributed a selected text, and the order of that contribution.</summary>
+    private readonly record struct Contribution(ChatRole? Role, int Order);
 
     /// <summary>The non-blank texts of <see cref="GetTextsToScore"/>, placeholders normalised, without duplicates,
     /// in order, at most 16. Past 16, the oldest are joined with a newline into the first text, so every text is
     /// still judged.</summary>
+    /// <param name="ctx">The scan.</param>
+    /// <param name="roles">Filled, when given, with each returned text's newest contributor: a duplicate takes the
+    /// later message's role, and the folded first text that of its newest contributor. Only meaningful without an
+    /// override of <see cref="GetTextsToScore"/> or <c>GetText</c>; with one, every role is <see langword="null"/>.
+    /// The scan path passes <see langword="null"/>, so it pays for no role tracking.</param>
     /// <remarks>Dropping the oldest instead would let a tool result hide an injection in its first block by
-    /// following it with 16 benign ones.
-    /// <para>
-    /// Without an override of <see cref="GetTextsToScore"/> or <c>GetText</c>, each text carries the role of the
-    /// newest message that contributed it: a duplicate takes the later message's role, and the folded first text
-    /// that of its newest contributor. With an override, the role is <see langword="null"/>.
-    /// </para></remarks>
-    private List<ScoredText> SelectTextsToScore(SentinelContext ctx)
+    /// following it with 16 benign ones.</remarks>
+    private List<string> SelectTexts(SentinelContext ctx, List<Contribution>? roles)
     {
+        ArgumentNullException.ThrowIfNull(ctx);
+
         // Blank texts and duplicates are dropped before the cap, so they do not cost a text its own slot.
         var positions = new Dictionary<string, int>(StringComparer.Ordinal);
-        var texts = new List<ScoredText>();
-        // Per text, the order of its newest contribution, to find the newest contributor of the folded text.
-        var newest = new List<int>();
+        var texts = new List<string>();
         var order = 0;
 
         if (_tracksRoles)
         {
-            // What the default GetTextsToScore yields, with each message's role.
+            // What the default GetTextsToScore yields, read straight from the messages so each one's role is at hand.
             for (var i = ctx.NewMessagesFrom; i < ctx.Messages.Count; i++)
             {
                 Add(SentinelContext.MessageText(ctx.Messages[i]), ctx.Messages[i].Role);
@@ -508,22 +523,8 @@ public abstract class SemanticDetectorBase : IDetector
             foreach (var text in GetTextsToScore(ctx)) Add(text, role: null);
         }
 
-        if (texts.Count <= MaxMessagesToScore)
-            return texts;
-
-        // The oldest overflow plus the first kept text become one input, followed by the newest 15.
-        var folded = texts.Count - MaxMessagesToScore + 1;
-        var newestFolded = 0;
-        var joined = new string[folded];
-        for (var i = 0; i < folded; i++)
-        {
-            joined[i] = texts[i].Text;
-            if (newest[i] > newest[newestFolded]) newestFolded = i;
-        }
-
-        var result = new List<ScoredText>(MaxMessagesToScore) { new(string.Join('\n', joined), texts[newestFolded].Role) };
-        result.AddRange(texts.GetRange(folded, texts.Count - folded));
-        return result;
+        if (texts.Count > MaxMessagesToScore) Fold(texts, roles);
+        return texts;
 
         void Add(string text, ChatRole? role)
         {
@@ -533,15 +534,36 @@ public abstract class SemanticDetectorBase : IDetector
             var normalised = PlaceholderFormat.Normalise(text);
             if (positions.TryGetValue(normalised, out var position))
             {
-                texts[position] = texts[position] with { Role = role };
-                newest[position] = order;
+                if (roles is not null) roles[position] = new Contribution(role, order);
                 return;
             }
 
             positions.Add(normalised, texts.Count);
-            texts.Add(new ScoredText(normalised, role));
-            newest.Add(order);
+            texts.Add(normalised);
+            roles?.Add(new Contribution(role, order));
         }
+    }
+
+    /// <summary>Joins the oldest overflow plus the first kept text of <paramref name="texts"/> into one input, followed
+    /// by the newest 15, and gives the joined text the role of its newest contributor in <paramref name="roles"/>.</summary>
+    private static void Fold(List<string> texts, List<Contribution>? roles)
+    {
+        var folded = texts.Count - MaxMessagesToScore + 1;
+        var joined = string.Join('\n', texts.GetRange(0, folded));
+        texts.RemoveRange(1, folded - 1);
+        texts[0] = joined;
+
+        if (roles is null) return;
+
+        var newestFolded = 0;
+        for (var i = 1; i < folded; i++)
+        {
+            if (roles[i].Order > roles[newestFolded].Order) newestFolded = i;
+        }
+
+        var contributor = roles[newestFolded];
+        roles.RemoveRange(1, folded - 1);
+        roles[0] = contributor;
     }
 
     /// <summary>Collapses whitespace and control characters and truncates text before it reaches a reason string.
