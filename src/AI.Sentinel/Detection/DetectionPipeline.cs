@@ -44,7 +44,11 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
             // AddAISentinel checks a pair that is set in full; only here, with the instance, is the
             // built-in value known that fills in a threshold left unset.
-            (d as SemanticDetectorBase)?.ThrowIfMediumAboveHigh(cfg);
+            if (d is SemanticDetectorBase semanticDetector)
+            {
+                semanticDetector.ThrowIfMediumAboveHigh(cfg);
+                semanticDetector.ThrowIfReviewAboveMedium(cfg);
+            }
 
             if (cfg?.Action == SentinelAction.Redact && d is not IRedactingDetector)
             {
@@ -101,13 +105,16 @@ public sealed class DetectionPipeline : IDetectionPipeline
             ? await EmbedScanAsync(scope, ctx, ct).ConfigureAwait(false)
             : null;
 
+        // Each semantic detector's outcome, indexed like _detectors: its result plus its review candidate.
+        var outcomes = new SemanticOutcome?[_detectors.Length];
+
         var vTasks = ArrayPool<ValueTask<DetectionResult>>.Shared.Rent(_detectors.Length);
         DetectionResult[] results;
         try
         {
             // Start all detectors
             for (int i = 0; i < _detectors.Length; i++)
-                vTasks[i] = SafeAnalyzeAsync(_detectors[i], _configurations[i], ctx, embedded, i, ct);
+                vTasks[i] = SafeAnalyzeAsync(_detectors[i], _configurations[i], ctx, embedded, outcomes, i, ct);
 
             // Fast path: all completed synchronously (typical for rule-based detectors with cached clean results)
             if (AllCompletedSuccessfully(vTasks, _detectors.Length))
@@ -156,12 +163,13 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// disable the rest, nor stop all work.
     /// <para>
     /// A semantic detector gets this pipeline's configuration with the call, so its threshold overrides
-    /// apply here and not in another named pipeline that shares the same detector instance.
+    /// apply here and not in another named pipeline that shares the same detector instance. Its outcome, the result
+    /// plus its review candidate, is recorded in <paramref name="outcomes"/> at <paramref name="index"/>.
     /// </para>
     /// </remarks>
     private async ValueTask<DetectionResult> SafeAnalyzeAsync(
         IDetector detector, DetectorConfiguration? configuration, SentinelContext ctx,
-        EmbeddedScan? embedded, int index, CancellationToken ct)
+        EmbeddedScan? embedded, SemanticOutcome?[] outcomes, int index, CancellationToken ct)
     {
         try
         {
@@ -169,21 +177,22 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 return await detector.AnalyzeAsync(ctx, ct).ConfigureAwait(false);
 
             if (embedded is null)
-                return await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false);
+                return Record(outcomes, index, await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false));
 
             if (embedded.TextsFailures[index] is { } textsFailure)
             {
                 // As without a scope: the rule layer still decides, and otherwise the failure is this detector's own.
                 var rule = semantic.AnalyzeRuleLayer(ctx);
-                if (!rule.IsClean) return rule;
+                if (!rule.IsClean) return RecordRuleLayer(outcomes, index, rule);
                 System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(textsFailure);
             }
 
             // Its example phrases failed and were reported once for the scan; calling it would retry and report again.
             if (embedded.ExamplesFailed[index])
-                return semantic.AnalyzeRuleLayer(ctx);
+                return RecordRuleLayer(outcomes, index, semantic.AnalyzeRuleLayer(ctx));
 
-            return await semantic.AnalyzeAsync(ctx, configuration, embedded.Scope, embedded.Scan, embedded.Texts[index], ct).ConfigureAwait(false);
+            return Record(outcomes, index, await semantic.AnalyzeAsync(
+                ctx, configuration, embedded.Scope, embedded.Scan, embedded.Texts[index], ct).ConfigureAwait(false));
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -199,6 +208,16 @@ public sealed class DetectionPipeline : IDetectionPipeline
             return DetectionResult.Clean(detector.Id);
         }
     }
+
+    private static DetectionResult Record(SemanticOutcome?[] outcomes, int index, in SemanticOutcome outcome)
+    {
+        outcomes[index] = outcome;
+        return outcome.Result;
+    }
+
+    /// <summary>Records a rule-layer result: a match came from the fast path, and neither has a review candidate.</summary>
+    private static DetectionResult RecordRuleLayer(SemanticOutcome?[] outcomes, int index, DetectionResult result) =>
+        Record(outcomes, index, new SemanticOutcome(result, Candidate: null, FromFastPath: !result.IsClean));
 
     /// <summary>The scan vectors every semantic detector shares, each detector's texts, and which detectors' text
     /// selection or example phrases failed.</summary>

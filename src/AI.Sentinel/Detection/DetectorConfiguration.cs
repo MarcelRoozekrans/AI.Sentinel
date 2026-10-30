@@ -22,6 +22,13 @@ public sealed class DetectorConfiguration
     /// <see cref="HighThreshold"/>.</summary>
     public float? MediumThreshold { get; set; }
 
+    /// <summary>Similarity to any example set at or above which a semantic detector's text is a candidate for a
+    /// second-stage review, even when it reached no severity bucket. <see langword="null"/> (default) uses the
+    /// detector's built-in value, which is its Low threshold unless the detector sets another. Honoured by every
+    /// <see cref="SemanticDetectorBase"/> detector; setting it on any other detector is rejected at
+    /// <c>AddAISentinel</c>. Must be in (0, 1] and not above the effective <see cref="MediumThreshold"/>.</summary>
+    public float? ReviewThreshold { get; set; }
+
     /// <summary>Whether <paramref name="detector"/> runs under <paramref name="configuration"/>.</summary>
     internal static bool IsEnabled(IDetector detector, DetectorConfiguration? configuration) =>
         configuration?.Enabled ?? detector.EnabledByDefault;

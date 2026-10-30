@@ -147,7 +147,8 @@ public sealed class DetectorTestBuilder
         // As DetectionPipeline does: thresholds set with Configure<T> arrive with the call, not on the detector.
         _options.GetDetectorConfigurations().TryGetValue(detector.GetType(), out var configuration);
         semantic.ThrowIfMediumAboveHigh(configuration);
-        return await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false);
+        semantic.ThrowIfReviewAboveMedium(configuration);
+        return (await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false)).Result;
     }
 
     private static string DescribeObserved(DetectionResult r)

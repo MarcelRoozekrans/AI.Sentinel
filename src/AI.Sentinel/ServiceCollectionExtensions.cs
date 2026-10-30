@@ -204,17 +204,17 @@ public static class ServiceCollectionExtensions
     {
         foreach (var (type, cfg) in opts.GetDetectorConfigurations())
         {
-            if (cfg.HighThreshold is null && cfg.MediumThreshold is null) continue;
+            if (cfg.HighThreshold is null && cfg.MediumThreshold is null && cfg.ReviewThreshold is null) continue;
 
             if (!typeof(SemanticDetectorBase).IsAssignableFrom(type))
             {
                 throw new ArgumentException(
-                    $"AI.Sentinel: detector {type.Name} is configured with a HighThreshold or MediumThreshold but is not a semantic detector. " +
+                    $"AI.Sentinel: detector {type.Name} is configured with a HighThreshold, MediumThreshold or ReviewThreshold but is not a semantic detector. " +
                     "Only SemanticDetectorBase detectors use similarity thresholds.",
                     paramName);
             }
 
-            foreach (var (name, value) in new[] { ("HighThreshold", cfg.HighThreshold), ("MediumThreshold", cfg.MediumThreshold) })
+            foreach (var (name, value) in new[] { ("HighThreshold", cfg.HighThreshold), ("MediumThreshold", cfg.MediumThreshold), ("ReviewThreshold", cfg.ReviewThreshold) })
             {
                 if (value is { } v && !(v > 0f && v <= 1f))
                 {
@@ -228,6 +228,13 @@ public static class ServiceCollectionExtensions
             {
                 throw new ArgumentException(
                     $"AI.Sentinel: detector {type.Name} has MediumThreshold {medium} above HighThreshold {high}. Medium must not exceed High.",
+                    paramName);
+            }
+
+            if (cfg.MediumThreshold is { } mediumSet && cfg.ReviewThreshold is { } review && review > mediumSet)
+            {
+                throw new ArgumentException(
+                    $"AI.Sentinel: detector {type.Name} has ReviewThreshold {review} above MediumThreshold {mediumSet}. ReviewThreshold must not exceed Medium.",
                     paramName);
             }
         }
