@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 using AI.Sentinel.Copilot.Cli;
 using AI.Sentinel.Tests.Helpers;
@@ -27,9 +28,16 @@ public class CopilotHookCliAuditTests : IDisposable
 
     private static async Task<(int Exit, string Stderr)> RunAsync(string json)
     {
+        var (exit, _, stderr) = await RunWithStdoutAsync(json);
+        return (exit, stderr);
+    }
+
+    private static async Task<(int Exit, string Stdout, string Stderr)> RunWithStdoutAsync(string json)
+    {
+        var stdout = new StringWriter();
         var stderr = new StringWriter();
-        var exit = await Program.RunAsync([Event], new StringReader(json), new StringWriter(), stderr, new ExactMatchEmbeddingGenerator());
-        return (exit, stderr.ToString());
+        var exit = await Program.RunAsync([Event], new StringReader(json), stdout, stderr, new ExactMatchEmbeddingGenerator());
+        return (exit, stdout.ToString(), stderr.ToString());
     }
 
     [Fact]
@@ -111,9 +119,12 @@ public class CopilotHookCliAuditTests : IDisposable
     {
         Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, _dir);
 
-        var (exit, stderr) = await RunAsync(Clean);
+        var (exit, stdout, stderr) = await RunWithStdoutAsync(Clean);
 
         Assert.Equal(0, exit);
+        // Exit 0 is also a Warn; only the wire output's decision tells Allow apart.
+        using var wire = JsonDocument.Parse(stdout);
+        Assert.Equal("Allow", wire.RootElement.GetProperty("decision").GetString());
         Assert.Contains("audit", stderr, StringComparison.OrdinalIgnoreCase);
     }
 
