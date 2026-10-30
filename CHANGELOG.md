@@ -9,6 +9,22 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [4.0.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.9.0...v4.0.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **detection:** a semantic detector's embedding result is capped at Medium unless a reviewer verdict confirms a higher severity; regex fast-path matches keep their severity, a configured SeverityFloor raises the cap to the floor, and DetectorConfiguration.CapSemanticSeverity = false restores the uncapped severity per detector. SemanticDetectorBase.ReviewCriterion is abstract and ILlmEscalatingDetector has a ReviewCriterion member, so custom detectors must state what they look for. EscalationClient is now shorthand for an LlmJudgeReviewer that also judges semantic hits and near misses, so a verdict can turn a near miss into a finding; reviews run concurrently within MaxReviewsPerScan, default 4, and ReviewTimeout, default 5 s, a failure logs a warning, and a reviewed reason reads "detector reason — Reviewed: outcome — reviewer reason". The CLI hosts read SENTINEL_REVIEW_* to configure a reviewer, with a 3 s timeout in the hooks. See the Migrating to 4.0 page.
+
+### Features
+
+* **detection:** embedding hits become triage, confirmed by a pluggable second-stage reviewer ([6435b34](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/6435b3455f07308f8a83e700fcf6c70afc6730ed))
+
+
+### Bug Fixes
+
+* **review:** send temperature only when the caller sets one ([#532](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/532)) ([271d8ad](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/271d8ade5ee9137a0f36706c16f2946a8b3a3bbd))
+
 ## [3.9.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v3.8.0...v3.9.0) (2026-10-30)
 
 
