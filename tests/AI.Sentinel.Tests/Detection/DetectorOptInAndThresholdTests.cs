@@ -189,7 +189,7 @@ public class DetectorOptInAndThresholdTests
         var configurations = cfg is null
             ? null
             : new Dictionary<Type, DetectorConfiguration> { [typeof(ProbeDetector)] = cfg };
-        return new DetectionPipeline([detector], configurations, escalationClient: null);
+        return new DetectionPipeline([detector], configurations, reviewer: null);
     }
 
     [Fact]

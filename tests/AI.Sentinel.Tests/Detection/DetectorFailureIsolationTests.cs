@@ -50,7 +50,7 @@ public class DetectorFailureIsolationTests
     public async Task ASynchronouslyThrowingDetector_DoesNotFailTheScan()
     {
         var pipeline = new DetectionPipeline(
-            [new ThrowingDetector(), new FiringDetector()], configurations: null, escalationClient: null);
+            [new ThrowingDetector(), new FiringDetector()], configurations: null, reviewer: null);
 
         var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
 
@@ -61,7 +61,7 @@ public class DetectorFailureIsolationTests
     public async Task AnAsynchronouslyThrowingDetector_DoesNotFailTheScan()
     {
         var pipeline = new DetectionPipeline(
-            [new AsyncThrowingDetector(), new FiringDetector()], configurations: null, escalationClient: null);
+            [new AsyncThrowingDetector(), new FiringDetector()], configurations: null, reviewer: null);
 
         var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
 
@@ -76,7 +76,7 @@ public class DetectorFailureIsolationTests
         var pipeline = new DetectionPipeline(
             [new ThrowingDetector(), new FiringDetector()],
             configurations: null,
-            escalationClient: null,
+            reviewer: null,
             logger: null,
             onDetectorFailure: reported.Add);
 
@@ -94,7 +94,7 @@ public class DetectorFailureIsolationTests
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         var reported = new List<string>();
         var pipeline = new DetectionPipeline(
-            [new CancellingDetector(cts), new FiringDetector()], configurations: null, escalationClient: null,
+            [new CancellingDetector(cts), new FiringDetector()], configurations: null, reviewer: null,
             logger: null, onDetectorFailure: reported.Add);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
@@ -109,7 +109,7 @@ public class DetectorFailureIsolationTests
     {
         var reported = new List<string>();
         var pipeline = new DetectionPipeline(
-            [new TimingOutDetector(), new FiringDetector()], configurations: null, escalationClient: null,
+            [new TimingOutDetector(), new FiringDetector()], configurations: null, reviewer: null,
             logger: null, onDetectorFailure: reported.Add);
 
         var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);

@@ -49,12 +49,10 @@ public sealed class LlmJudgeReviewer(IChatClient client) : IDetectionReviewer
         return text[start..];
     }
 
-    /// <summary>Reads the <c>severity</c> field of the judge's JSON verdict. The JSON may sit in a code fence or
-    /// between other text; anything else, including a severity that is not one of the five names, is no verdict.</summary>
-    internal static bool TryParseVerdict(string? text, out Severity severity) =>
-        TryParseVerdict(text, out severity, out _);
-
-    private static bool TryParseVerdict(string? text, out Severity severity, out string reason)
+    /// <summary>Reads the <c>severity</c> and <c>reason</c> fields of the judge's JSON verdict. The JSON may sit in a
+    /// code fence or between other text; anything else, including a severity that is not one of the five names, is no
+    /// verdict. A missing reason is empty.</summary>
+    internal static bool TryParseVerdict(string? text, out Severity severity, out string reason)
     {
         severity = Severity.None;
         reason = string.Empty;

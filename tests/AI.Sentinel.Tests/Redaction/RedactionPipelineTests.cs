@@ -695,7 +695,7 @@ public class RedactionPipelineTests
         var model = RecordingModel.Echo();
         var audit = new RingBufferAuditStore();
         var options = new SentinelOptions();
-        var pipeline = new DetectionPipeline([new LeakyThrowingRedactor()], configurations: null, escalationClient: null);
+        var pipeline = new DetectionPipeline([new LeakyThrowingRedactor()], configurations: null, reviewer: null);
         var sentinel = new SentinelPipeline(model, pipeline, audit, new InterventionEngine(options, mediator: null), options);
 
         var result = await sentinel.GetResponseResultAsync([new ChatMessage(ChatRole.User, $"Mail {Email}")], null, TestContext.Current.CancellationToken);
@@ -762,7 +762,7 @@ public class RedactionPipelineTests
         });
         var audit = new RingBufferAuditStore();
         var options = new SentinelOptions();
-        var pipeline = new DetectionPipeline([new PiiLeakageDetector()], configurations: null, escalationClient: null);
+        var pipeline = new DetectionPipeline([new PiiLeakageDetector()], configurations: null, reviewer: null);
         var sentinel = new SentinelPipeline(model, pipeline, audit, new InterventionEngine(options, mediator: null), options);
 
         // A cancelled call propagates the cancellation, and the redactions it made are still audited.

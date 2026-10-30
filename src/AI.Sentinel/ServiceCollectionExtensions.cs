@@ -279,7 +279,7 @@ public static class ServiceCollectionExtensions
             new DetectionPipeline(
                 sp.GetServices<IDetector>(),
                 opts.GetDetectorConfigurations(),
-                opts.EscalationClient,
+                opts.EscalationClient is { } escalationClient ? new LlmJudgeReviewer(escalationClient) : null,
                 sp.GetService<ILogger<DetectionPipeline>>(),
                 opts.OnDetectorFailure,
                 opts.RedactByDefault,

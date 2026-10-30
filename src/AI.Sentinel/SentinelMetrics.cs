@@ -17,4 +17,9 @@ internal static class SentinelMetrics
 
     internal static readonly Counter<long> AlertsSuppressed =
         Meter.CreateCounter<long>("sentinel.alerts.suppressed");
+
+    /// <summary>One per review candidate, tagged <c>outcome</c> (confirmed, raised, lowered, cleared, no_verdict,
+    /// failed, timed_out or over_budget) and <c>detector</c>.</summary>
+    internal static readonly Counter<long> Reviews =
+        Meter.CreateCounter<long>("sentinel.reviews");
 }

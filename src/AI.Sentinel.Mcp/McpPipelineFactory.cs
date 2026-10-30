@@ -83,7 +83,7 @@ internal static class McpPipelineFactory
         IReadOnlyList<IAuditForwarder>? forwarders = null)
         => new(
             innerClient: UnusedChatClient.Instance,
-            pipeline: new DetectionPipeline(detectors, options.GetDetectorConfigurations(), escalationClient: null,
+            pipeline: new DetectionPipeline(detectors, options.GetDetectorConfigurations(), reviewer: null,
                                     logger: null, onDetectorFailure: detectorFailureSink,
                                     redactByDefault: options.RedactByDefault,
                                     embeddingScope: EmbeddingScope.Resolve(options, inherited: null)),

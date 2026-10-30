@@ -45,7 +45,7 @@ public class PipelineDetectorConfigTests
         var pipeline = new DetectionPipeline(
             new IDetector[] { detector },
             opts.GetDetectorConfigurations(),
-            escalationClient: null,
+            reviewer: null,
             logger: null);
 
         var result = await pipeline.RunAsync(NewContext(), CancellationToken.None);
@@ -64,7 +64,7 @@ public class PipelineDetectorConfigTests
         var pipeline = new DetectionPipeline(
             new IDetector[] { detector },
             opts.GetDetectorConfigurations(),
-            escalationClient: null,
+            reviewer: null,
             logger: null);
 
         var result = await pipeline.RunAsync(NewContext(), CancellationToken.None);
@@ -84,7 +84,7 @@ public class PipelineDetectorConfigTests
         var pipeline = new DetectionPipeline(
             new IDetector[] { detector },
             opts.GetDetectorConfigurations(),
-            escalationClient: null,
+            reviewer: null,
             logger: null);
 
         var result = await pipeline.RunAsync(NewContext(), CancellationToken.None);
@@ -105,7 +105,7 @@ public class PipelineDetectorConfigTests
         var pipeline = new DetectionPipeline(
             new IDetector[] { detector },
             opts.GetDetectorConfigurations(),
-            escalationClient: null,
+            reviewer: null,
             logger: null);
 
         var result = await pipeline.RunAsync(NewContext(), CancellationToken.None);
@@ -123,7 +123,7 @@ public class PipelineDetectorConfigTests
         var pipeline = new DetectionPipeline(
             new IDetector[] { detector },
             opts.GetDetectorConfigurations(),
-            escalationClient: null,
+            reviewer: null,
             logger: null);
 
         var result = await pipeline.RunAsync(NewContext(), CancellationToken.None);
@@ -142,7 +142,7 @@ public class PipelineDetectorConfigTests
         var pipeline = new DetectionPipeline(
             new IDetector[] { detector },
             opts.GetDetectorConfigurations(),
-            escalationClient: null,
+            reviewer: null,
             logger: null);
 
         var result = await pipeline.RunAsync(NewContext(), CancellationToken.None);
@@ -168,7 +168,7 @@ public class PipelineDetectorConfigTests
         var pipeline = new DetectionPipeline(
             new IDetector[] { lowDetector, critDetector },
             opts.GetDetectorConfigurations(),
-            escalationClient: null,
+            reviewer: null,
             logger: null);
 
         var result = await pipeline.RunAsync(NewContext(), CancellationToken.None);
@@ -191,7 +191,7 @@ public class PipelineDetectorConfigTests
         var pipeline = new DetectionPipeline(
             new IDetector[] { detector },
             opts.GetDetectorConfigurations(),
-            escalationClient: null,
+            reviewer: null,
             logger: null);
 
         var result = await pipeline.RunAsync(NewContext(), CancellationToken.None);
@@ -280,7 +280,7 @@ public class PipelineDetectorConfigTests
         configure?.Invoke(opts);
         var pipeline = new DetectionPipeline(
             [new AI.Sentinel.Detectors.Security.PiiLeakageDetector(), new AI.Sentinel.Detectors.Security.CredentialExposureDetector(), new CountingDetector(Severity.High)],
-            opts.GetDetectorConfigurations(), escalationClient: null, redactByDefault: redactByDefault);
+            opts.GetDetectorConfigurations(), reviewer: null, redactByDefault: redactByDefault);
         var ids = new List<string>();
         foreach (var r in pipeline.Redactors)
         {

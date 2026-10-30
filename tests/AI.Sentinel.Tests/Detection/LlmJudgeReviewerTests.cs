@@ -91,7 +91,7 @@ public class LlmJudgeReviewerTests
     [InlineData("""Sure: {"severity":"High"} done""", Severity.High)]
     public void TryParseVerdict_ReadableSeverity_IsParsed(string text, Severity expected)
     {
-        Assert.True(LlmJudgeReviewer.TryParseVerdict(text, out var severity));
+        Assert.True(LlmJudgeReviewer.TryParseVerdict(text, out var severity, out _));
         Assert.Equal(expected, severity);
     }
 
@@ -107,7 +107,23 @@ public class LlmJudgeReviewerTests
     [InlineData(null)]
     public void TryParseVerdict_NoReadableSeverity_IsNoVerdict(string? text)
     {
-        Assert.False(LlmJudgeReviewer.TryParseVerdict(text, out _));
+        Assert.False(LlmJudgeReviewer.TryParseVerdict(text, out _, out _));
+    }
+
+    [Fact]
+    public async Task ReviewAsync_EachCall_UsesANewBoundary()
+    {
+        var captured = new List<ChatMessage>();
+        var reviewer = new LlmJudgeReviewer(new CapturingChatClient(captured, Reply));
+
+        await reviewer.ReviewAsync(Request(), CancellationToken.None);
+        await reviewer.ReviewAsync(Request(), CancellationToken.None);
+
+        var boundaries = captured.Where(m => m.Role == ChatRole.User)
+            .Select(m => m.Text[..m.Text.IndexOf('\n', StringComparison.Ordinal)])
+            .ToList();
+        Assert.Equal(2, boundaries.Count);
+        Assert.NotEqual(boundaries[0], boundaries[1], StringComparer.Ordinal);
     }
 
     [Fact]

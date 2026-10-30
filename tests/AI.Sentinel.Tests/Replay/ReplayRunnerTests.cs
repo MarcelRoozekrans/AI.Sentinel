@@ -25,7 +25,7 @@ public class ReplayRunnerTests
             OnMedium = SentinelAction.Quarantine,
             OnLow = SentinelAction.Quarantine,
         };
-        var detectionPipeline = new DetectionPipeline(detectors, configurations: null, escalationClient: null);
+        var detectionPipeline = new DetectionPipeline(detectors, configurations: null, reviewer: null);
         var audit = new RingBufferAuditStore(100);
         var engine = new InterventionEngine(opts, null);
         return new SentinelPipeline(inner, detectionPipeline, audit, engine, opts);

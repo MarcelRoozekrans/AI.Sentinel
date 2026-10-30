@@ -69,7 +69,7 @@ public class EmbedOncePerScanTests
     {
         var failures = new ConcurrentQueue<string>();
         var pipeline = new DetectionPipeline(
-            detectors, Uncapped, escalationClient: null,
+            detectors, Uncapped, reviewer: null,
             onDetectorFailure: failures.Enqueue,
             embeddingScope: new EmbeddingScope(gen, scanCache ?? new InMemoryLruEmbeddingCache(), null));
         return (pipeline, failures);
@@ -253,7 +253,7 @@ public class EmbedOncePerScanTests
         var timingOut = new TestSemantic("TST-OPT", [FirstText], options: new SentinelOptions { EmbeddingGenerator = gen });
         var rule = new TestSemantic("TST-RULE", ["rule detector example phrase"], fastPath: new Regex("calm", RegexOptions.None, TimeSpan.FromSeconds(1)));
         var failures = new ConcurrentQueue<string>();
-        var pipeline = new DetectionPipeline([timingOut, rule], configurations: null, escalationClient: null, onDetectorFailure: failures.Enqueue);
+        var pipeline = new DetectionPipeline([timingOut, rule], configurations: null, reviewer: null, onDetectorFailure: failures.Enqueue);
 
         var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
 
@@ -346,7 +346,7 @@ public class EmbedOncePerScanTests
     {
         var gen = new YieldingEmbeddingGenerator();
         var detector = new TestSemantic("TST-OPT", [FirstText], options: new SentinelOptions { EmbeddingGenerator = gen });
-        var pipeline = new DetectionPipeline([detector], Uncapped, escalationClient: null);
+        var pipeline = new DetectionPipeline([detector], Uncapped, reviewer: null);
 
         var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
 

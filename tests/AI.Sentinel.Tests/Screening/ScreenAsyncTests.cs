@@ -281,7 +281,7 @@ public class ScreenAsyncTests
         // No detectors, as in SentinelPipelineRateLimitTests: a cold scan must not outlast the 1 s refill.
         var opts = new SentinelOptions { MaxCallsPerSecond = 1, BurstSize = 1 };
         var pipeline = new SentinelPipeline(new NeverCalledClient(),
-            new DetectionPipeline([], configurations: null, escalationClient: null),
+            new DetectionPipeline([], configurations: null, reviewer: null),
             new RingBufferAuditStore(100), new InterventionEngine(opts, null), opts);
         var withSession = new ScreeningOptions { Session = new SessionId("s1") };
 

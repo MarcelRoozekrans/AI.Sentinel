@@ -44,7 +44,7 @@ public class ToolCallNewMessagesTests
     private static SentinelPipeline Build(CapturingDetector capture)
     {
         var opts = new SentinelOptions();
-        var pipeline = new DetectionPipeline([capture], configurations: null, escalationClient: null, redactByDefault: true);
+        var pipeline = new DetectionPipeline([capture], configurations: null, reviewer: null, redactByDefault: true);
         return new SentinelPipeline(new NullClient(), pipeline, new RingBufferAuditStore(100), new InterventionEngine(opts, null), opts);
     }
 

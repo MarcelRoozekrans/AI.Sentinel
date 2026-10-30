@@ -544,18 +544,18 @@ public abstract class SemanticDetectorBase : IDetector
         }
     }
 
-    /// <summary>Collapses whitespace and truncates matched text before it reaches a reason string.
-    /// The match is attacker-controlled and every whitespace class in these patterns spans newlines,
-    /// so an unsanitised value could forge extra lines in report output that prints one finding per
-    /// line.</summary>
-    private static string Sanitise(string value)
+    /// <summary>Collapses whitespace and control characters and truncates text before it reaches a reason string.
+    /// A regex match or a reviewer's reason is attacker-influenced and can span newlines, so an unsanitised value
+    /// could forge extra lines in report output that prints one finding per line.</summary>
+    /// <param name="value">The text to sanitise.</param>
+    /// <param name="maxLength">The most characters kept.</param>
+    internal static string Sanitise(string value, int maxLength = 120)
     {
-        const int MaxLength = 120;
-        var collapsed = new System.Text.StringBuilder(Math.Min(value.Length, MaxLength));
+        var collapsed = new System.Text.StringBuilder(Math.Min(value.Length, maxLength));
         var lastWasSpace = false;
         foreach (var c in value)
         {
-            if (collapsed.Length >= MaxLength) break;
+            if (collapsed.Length >= maxLength) break;
 
             if (char.IsWhiteSpace(c) || char.IsControl(c))
             {

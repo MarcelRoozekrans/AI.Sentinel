@@ -16,7 +16,7 @@ public class SentinelPipelineRateLimitTests
     private static SentinelPipeline Build(int? maxCallsPerSecond, int? burstSize = null)
     {
         var opts = new SentinelOptions { MaxCallsPerSecond = maxCallsPerSecond, BurstSize = burstSize };
-        var pipeline = new DetectionPipeline([], configurations: null, escalationClient: null);
+        var pipeline = new DetectionPipeline([], configurations: null, reviewer: null);
         var audit = new RingBufferAuditStore(100);
         var engine = new InterventionEngine(opts, null);
         return new SentinelPipeline(new NoOpChatClient(), pipeline, audit, engine, opts);
@@ -123,7 +123,7 @@ public class SentinelPipelineRateLimitTests
         var opts = new SentinelOptions { MaxCallsPerSecond = 1, BurstSize = 1 };
         IDetector[] detectors = withRedactor ? [new PiiLeakageDetector()] : [];
         var sentinel = new SentinelPipeline(new NoOpChatClient(),
-            new DetectionPipeline(detectors, configurations: null, escalationClient: null),
+            new DetectionPipeline(detectors, configurations: null, reviewer: null),
             new RingBufferAuditStore(100), new InterventionEngine(opts, null), opts);
         var request = new HostRedactionRequest { Content = [HostContent.FromText("hi")] };
 
@@ -200,7 +200,7 @@ public class SentinelPipelineRateLimitTests
             BurstSize = 1,
             SessionIdleTimeout = TimeSpan.FromMilliseconds(50)
         };
-        var pipeline = new DetectionPipeline([], configurations: null, escalationClient: null);
+        var pipeline = new DetectionPipeline([], configurations: null, reviewer: null);
         var audit = new RingBufferAuditStore(100);
         var engine = new InterventionEngine(opts, null);
         var sentinel = new SentinelPipeline(new NoOpChatClient(), pipeline, audit, engine, opts);

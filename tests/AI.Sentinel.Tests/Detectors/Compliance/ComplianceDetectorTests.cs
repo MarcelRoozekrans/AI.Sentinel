@@ -117,7 +117,7 @@ public class ComplianceDetectorTests
         var inner = new SnapshotChatClient(audit, "I can't determine each person's race from their profile photo.");
         var pipeline = new SentinelPipeline(
             inner,
-            new DetectionPipeline(Detectors(options), options.GetDetectorConfigurations(), escalationClient: null),
+            new DetectionPipeline(Detectors(options), options.GetDetectorConfigurations(), reviewer: null),
             audit,
             new InterventionEngine(options, mediator: null),
             options);
