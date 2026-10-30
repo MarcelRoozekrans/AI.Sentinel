@@ -293,7 +293,27 @@ public class ComplianceDetectorTests
         }
     }
 
-    private sealed record PhraseRow(string Detector, string Phrase, string Expected, string? Added);
+    private sealed record PhraseRow(string Detector, string Phrase, string Expected, string? Added, string? Split);
+
+    /// <summary>Guards the <c>split</c> field every phrase file carries: <c>fit</c> phrases may be read when tuning,
+    /// <c>heldout</c> phrases are only reported on.</summary>
+    [Fact]
+    public void EveryPhrase_HasAValidSplit()
+    {
+        string[][] files =
+        [
+            ["tests", "AI.Sentinel.Tests", "Detectors", "Compliance", "compliance-phrases.json"],
+            ["tools", "AI.Sentinel.ComplianceEval", "security-phrases.json"],
+            ["tools", "AI.Sentinel.ComplianceEval", "everyday-prompts.json"],
+        ];
+        foreach (var file in files)
+        {
+            foreach (var p in ReadPhrases(file))
+            {
+                Assert.True(p.Split is "fit" or "heldout", $"split must be fit or heldout, found '{p.Split}': {p.Phrase}");
+            }
+        }
+    }
 
     /// <summary>Reads a phrase file at <paramref name="relativePath"/> under the repository root.</summary>
     private static List<PhraseRow> ReadPhrases(params string[] relativePath)
@@ -312,7 +332,8 @@ public class ComplianceDetectorTests
                 e.GetProperty("detector").GetString()!,
                 e.GetProperty("phrase").GetString()!,
                 e.GetProperty("expected").GetString()!,
-                e.TryGetProperty("added", out var added) ? added.GetString() : null))
+                e.TryGetProperty("added", out var added) ? added.GetString() : null,
+                e.TryGetProperty("split", out var split) ? split.GetString() : null))
             .ToList();
     }
 
