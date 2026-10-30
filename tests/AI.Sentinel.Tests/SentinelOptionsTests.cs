@@ -24,6 +24,36 @@ public class SentinelOptionsTests
     }
 
     [Fact]
+    public void MaxReviewsPerScanNegative_Throws()
+    {
+        Assert.False(new SentinelOptionsValidator().Validate(new SentinelOptions { MaxReviewsPerScan = -1 }).IsValid);
+        Assert.True(new SentinelOptionsValidator().Validate(new SentinelOptions { MaxReviewsPerScan = 0 }).IsValid);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddAISentinel(o => o.MaxReviewsPerScan = -1));
+        Assert.Contains("MaxReviewsPerScan", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReviewTimeoutZero_Throws()
+    {
+        Assert.False(new SentinelOptionsValidator().Validate(new SentinelOptions { ReviewTimeout = TimeSpan.Zero }).IsValid);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new Microsoft.Extensions.DependencyInjection.ServiceCollection().AddAISentinel(o => o.ReviewTimeout = TimeSpan.Zero));
+        Assert.Contains("ReviewTimeout", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ReviewOptions_Defaults()
+    {
+        var opts = new SentinelOptions();
+        Assert.Null(opts.Reviewer);
+        Assert.Equal(4, opts.MaxReviewsPerScan);
+        Assert.Equal(TimeSpan.FromSeconds(5), opts.ReviewTimeout);
+    }
+
+    [Fact]
     public void RedactionOptions_DefaultToTrue()
     {
         var opts = new SentinelOptions();

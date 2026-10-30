@@ -22,9 +22,9 @@ Every detector falls into one of these execution modes:
 
 - **Rule-based** — fast regex or heuristic. Always active. Sub-microsecond per call.
 - **Semantic ⚠️** — uses embedding cosine similarity via `IEmbeddingGenerator`. Language-agnostic. **Returns `Clean` on every scan until `opts.EmbeddingGenerator` is configured.** The ⚠️ marks a detector inactive in a default install. The CLIs and MCP proxy enable it with `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL`.
-- **LLM escalation** — not a detector type but a second pass: when `opts.EscalationClient` is set, a finding already at `Medium` or above is re-classified by an LLM. It upgrades or downgrades an existing finding; it cannot create one.
+- **Second-stage review** — not a detector type but a second pass over a detector's finding. Set `opts.Reviewer` (an `IDetectionReviewer`), or `opts.EscalationClient` as shorthand for `opts.Reviewer = new LlmJudgeReviewer(client)`; setting both is rejected at `AddAISentinel`. A reviewer can confirm, raise, lower or clear a finding. A rule-based detector's finding at `Medium` or above is reviewed. A semantic detector's embedding hit is reviewed too, and so is a text that reaches no bucket but scores at or above its `ReviewThreshold` (default: its Low threshold), so a reviewer can create a `Medium` finding the embeddings alone missed. Until a reviewer confirms it, an embedding hit on a semantic detector is capped at `Medium`, raised to the detector's `SeverityFloor` when one is set. Fast-path regex matches are never capped. `opts.Configure<T>(c => c.CapSemanticSeverity = false)` opts a detector out of the cap. Per scan, `opts.MaxReviewsPerScan` (default 4; 0 disables review) limits how many reviews start, and `opts.ReviewTimeout` (default 5 seconds) limits each one; a finding that is not reviewed keeps its capped result. AI.Sentinel warns at startup when a generator is configured, semantic detectors are capped and no reviewer is set.
 - **Rule + Semantic ⚠️** — a high-precision rule layer runs first and always, so the unambiguous phrasings are caught with no generator; anything needing context falls through to the semantic path.
-- **Stub** — a placeholder with no implementation; always returns `Clean`. Setting `opts.EscalationClient` does **not** activate it, because escalation only re-classifies findings a detector has already produced.
+- **Stub** — a placeholder with no implementation; always returns `Clean`. Setting `opts.Reviewer` or `opts.EscalationClient` does **not** activate it, because a reviewer only judges findings a detector has already produced.
 
 ## What detectors read
 
@@ -60,7 +60,7 @@ Redaction works in either order, as [Redaction](../redaction#tool-calls) describ
 
 Some detectors read only the messages' text, because tool traffic would distort what they measure: `OPS-01` BlankResponse, `OPS-02` RepetitionLoop, `OPS-03` IncompleteCodeBlock, `OPS-04` PlaceholderText, `OPS-09` TruncatedOutput, `OPS-11` UnboundedConsumption, `OPS-15` WrongLanguage and `SEC-29` OutputSchema. A tool polled until it is done repeats its result, and a file read by a tool can hold a `TODO`; neither is a fault in the model's output.
 
-`SEC-08` EntropyCovertChannel examines each message, newest first, up to 64 KiB of each, so a large file read early cannot push a later message out of the window. `SEC-24` AdversarialUnicode reads tool calls and results too, and ignores the joiners writing systems need: a zero width joiner between emoji, and a zero width non-joiner between Arabic-script or Indic letters. `SEC-32` SystemPromptEcho reads the newest assistant message's text and tool calls, not the hosted tool results in it, which are retrieved content rather than the model's output. LLM escalation shows the classifier the newest message's full text, up to its last 64 KiB. Prompt injection's rule layer still reads only the newest user message's text.
+`SEC-08` EntropyCovertChannel examines each message, newest first, up to 64 KiB of each, so a large file read early cannot push a later message out of the window. `SEC-24` AdversarialUnicode reads tool calls and results too, and ignores the joiners writing systems need: a zero width joiner between emoji, and a zero width non-joiner between Arabic-script or Indic letters. `SEC-32` SystemPromptEcho reads the newest assistant message's text and tool calls, not the hosted tool results in it, which are retrieved content rather than the model's output. The reviewer is shown the newest message's full text, up to its last 64 KiB. Prompt injection's rule layer still reads only the newest user message's text.
 
 ## How semantic detectors score
 
@@ -82,6 +82,16 @@ A semantic detector embeds the text of each message that is new in the scan, com
 **A rejected input loses only itself.** If the provider rejects one text, the other texts of the scan are still scored. After two single-input failures with no success the endpoint is treated as down and the rest of the scan's texts are skipped. A failure is reported once per scan, not once per detector, and a detector left with nothing to score returns `Clean`. A detector whose example phrases failed to embed still runs its rule layer. The [embedding cache](../configuration/embedding-cache) page has the details.
 
 The semantic layers of SEC-01, SEC-05 and SEC-09 miss paraphrased injections on local embedding models; that is tracked in [#432](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/432).
+
+## Second-stage review
+
+An embedding says a text is close to a topic, not that it is an attack. A pipeline therefore treats a semantic detector's hit as a candidate until something confirms it:
+
+- **The cap.** Without a reviewer, an embedding hit is reported at most at `Medium`. If the detector has a `SeverityFloor` above `Medium`, the cap rises to the floor. A fast-path regex match is never capped. Opt a detector out with `opts.Configure<T>(c => c.CapSemanticSeverity = false)`; `null` and `true` cap.
+- **The reviewer.** Set `opts.Reviewer` to an `IDetectionReviewer`, or `opts.EscalationClient` to a chat client, which is shorthand for `opts.Reviewer = new LlmJudgeReviewer(client)`. Setting both is rejected at `AddAISentinel`. A named pipeline uses its own reviewer and does not inherit the default pipeline's. The reviewer can confirm the bucket severity, raise or lower it, or clear the finding.
+- **`ReviewThreshold`.** A text that reaches no bucket is still reviewed when its similarity is at or above the detector's `ReviewThreshold`. The default is its Low threshold; set another with `opts.Configure<T>(c => c.ReviewThreshold = 0.6f)`. It must be in (0, 1] and not above the Medium threshold.
+- **The budget.** `opts.MaxReviewsPerScan` (default 4) is the most reviews one scan starts, highest proposed severity first; 0 disables review and a negative value is rejected. `opts.ReviewTimeout` (default 5 seconds) is how long one review may take. A finding that is not reviewed, or whose review fails or times out, keeps its capped result.
+- **The warning.** When a generator is configured, no reviewer is set and a semantic detector is capped, AI.Sentinel logs a warning at startup. `DescribeUnreviewedSemanticDetection()` returns the same text for hosts without a logger.
 
 ## Severity model
 
