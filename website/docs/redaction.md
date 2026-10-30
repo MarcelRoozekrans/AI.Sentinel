@@ -128,7 +128,7 @@ Three cases fall back:
 ### MCP proxy
 
 - **What is scanned.** With redaction on, the proxy redacts the text blocks of a tool result, embedded text resources whose MIME type is in `SENTINEL_MCP_SCAN_MIMES`, and the tool result's `structuredContent`. 3.0 did not scan embedded resources or `structuredContent` at all, so these can produce findings that 3.0 did not. A value that appears in both `structuredContent` and a text block is counted once per occurrence in the `REDACTED` summary.
-- **The byte budget.** `SENTINEL_MCP_MAX_SCAN_BYTES` limits each block and is also the total budget for one scan of a tool result or prompt. The first item that does not fit in what is left is scanned truncated and is not redacted. The items after it pass unredacted and unscanned, as 3.0's truncation passed them unscanned. Resource items are budgeted one by one, and an oversize item is skipped, as in 3.0.
+- **The byte budget.** Every allowlisted item is redacted whole, however large. `SENTINEL_MCP_MAX_SCAN_BYTES` is the scan budget of one tool result or prompt, and of each resource item: content over it is reported as [`SEC-00`](./detectors/overview#scan-budget-and-sec-00), which blocks it under the default `OnCritical`. Until #439 an item that did not fit was forwarded unredacted and partly unscanned, and an oversize resource item was skipped.
 - **Restoring into tool calls.** When the agent calls a tool with a PII placeholder the proxy minted earlier in the same run, the tool gets the real value. A placeholder stays restorable until `SENTINEL_MCP_REDACT_TTL_MIN` minutes after its last use, 30 by default. The proxy holds up to 10,000 placeholders and evicts the least recently used. An expired or evicted placeholder reaches the tool as literal text. Secrets are never restored: the tool gets the placeholder.
 - **Restored values are not scanned.** The request scan judges the arguments as the agent sent them, with placeholders. A restored email address sent to an outbound tool is therefore not flagged by the PII detector on the way out. An [authorization policy](./authorization/overview) sees the restored arguments and is the control for outbound tools.
 - **Approvals store real values.** With `RequireApproval`, the approval store, SQLite included, keeps the restored real arguments, so an approver judges the actual call.
@@ -227,7 +227,7 @@ When redaction is not possible, the detection uses the action of its severity, a
 - in the **response scan**, because redaction only applies to what goes to the model;
 - for **tool-call arguments** in the hook CLIs and the MCP proxy, which judge a call before it runs and cannot rewrite it;
 - for the **prompt** on Claude Code `UserPromptSubmit` and Copilot `userPromptSubmitted`, where a command hook cannot rewrite it. Copilot's `userPromptTransformed` can, and is experimental;
-- for **MCP content the proxy does not redact**: blob resources, resources whose MIME type is not allowlisted, and content past `SENTINEL_MCP_MAX_SCAN_BYTES`;
+- for **MCP content the proxy does not redact**: blob resources and resources whose MIME type is not allowlisted;
 - for a **non-string value under a key that names a secret or personal data**, such as `{"password": 12345678}`, on every surface, the in-process client included;
 - for **personal data in a JSON key** and a **match that spans two JSON members** on the hook CLIs and the MCP proxy;
 - when a detector **flags text without spans**.

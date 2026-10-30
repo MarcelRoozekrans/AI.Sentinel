@@ -130,8 +130,9 @@ public class ResourceReadInterceptorTests
         Assert.Contains("mime=application/octet-stream", stderr, StringComparison.Ordinal);
     }
 
+    // #439: an item over the budget is scanned and blocked as SEC-00. 4.1 skipped it, so it reached the agent unscanned.
     [Fact]
-    public async Task OversizeText_Skipped_WithStderrLog()
+    public async Task ResourceReadOverBudget_Blocked()
     {
         // The cap is the one the proxy was started with, not a second read of the environment.
         await using var h = await StartHarnessAsync(maxScanBytes: 100);
@@ -150,13 +151,19 @@ public class ResourceReadInterceptorTests
             ],
         });
 
-        var (_, stderr) = await CaptureStderrAsync(() =>
-            h.DriverClient.ReadResourceAsync("file:///big.txt", cancellationToken: h.Cts.Token));
+        McpException? blocked = null;
+        var (_, stderr) = await CaptureStderrAsync(async ValueTask<int> () =>
+        {
+            blocked = await Assert.ThrowsAnyAsync<McpException>(async () =>
+                await h.DriverClient.ReadResourceAsync("file:///big.txt", cancellationToken: h.Cts.Token));
+            return 0;
+        });
 
-        Assert.Contains("action=skipped", stderr, StringComparison.Ordinal);
-        Assert.Contains("reason=oversize", stderr, StringComparison.Ordinal);
-        Assert.Contains("bytes=320", stderr, StringComparison.Ordinal);
-        Assert.Contains("max=100", stderr, StringComparison.Ordinal);
+        Assert.Contains("SEC-00", blocked!.Message, StringComparison.Ordinal);
+        Assert.Contains("New content is 320 bytes; only the first 100 were scanned.", blocked.Message, StringComparison.Ordinal);
+        Assert.Contains("action=block", stderr, StringComparison.Ordinal);
+        Assert.Contains("detector=SEC-00", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("reason=oversize", stderr, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -176,7 +183,7 @@ public class ResourceReadInterceptorTests
                 h.DriverClient.ReadResourceAsync("file:///a.txt", cancellationToken: h.Cts.Token));
 
             Assert.Contains("action=allow", stderr, StringComparison.Ordinal);
-            Assert.DoesNotContain("reason=oversize", stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("action=block", stderr, StringComparison.Ordinal);
         }
         finally
         {
@@ -199,7 +206,7 @@ public class ResourceReadInterceptorTests
             h.DriverClient.ReadResourceAsync("file:///big.txt", cancellationToken: h.Cts.Token));
 
         Assert.Contains("action=allow", stderr, StringComparison.Ordinal);
-        Assert.DoesNotContain("reason=oversize", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("action=block", stderr, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -9,20 +9,18 @@ using ModelContextProtocol.Protocol;
 namespace AI.Sentinel.Mcp;
 
 /// <summary>Maps MCP protocol models to <see cref="ChatMessage"/> arrays for Sentinel scanning.</summary>
+/// <remarks>The text is passed whole. The pipeline is the one place that cuts it to
+/// <see cref="SentinelOptions.MaxScanBytes"/>, which the proxy sets from <c>SENTINEL_MCP_MAX_SCAN_BYTES</c>, and it
+/// reports content over the budget as <c>SEC-00</c> (#439).</remarks>
 internal static class MessageBuilder
 {
     private const string Separator = "\n---\n";
-    private const string TruncationMarkerPrefix = " [truncated ";
 
     /// <summary>Builds the request-side scan payload for a <c>tools/call</c> invocation.</summary>
     /// <param name="req">The incoming tool-call request.</param>
-    /// <param name="maxScanBytes">
-    /// Upper bound (UTF-8 bytes) on the serialized-argument length that is forwarded to the
-    /// detector pipeline. See <see cref="TruncateIfNeeded"/>.
-    /// </param>
-    public static ChatMessage[] BuildToolCallRequest(CallToolRequestParams req, int maxScanBytes)
+    public static ChatMessage[] BuildToolCallRequest(CallToolRequestParams req)
     {
-        var argsJson = SerializeArguments(req.Arguments, maxScanBytes);
+        var argsJson = SerializeArguments(req.Arguments);
         var text = SentinelContext.ToolCallText(req.Name, argsJson);
         return [new ChatMessage(ChatRole.User, text)];
     }
@@ -30,16 +28,11 @@ internal static class MessageBuilder
     /// <summary>Builds the response-side scan payload (request context + result text).</summary>
     /// <param name="req">The original tool-call request (for argument context).</param>
     /// <param name="result">The tool-call result to scan.</param>
-    /// <param name="maxScanBytes">
-    /// Upper bound (UTF-8 bytes) applied to both the serialized arguments and the flattened
-    /// result text. See <see cref="TruncateIfNeeded"/>.
-    /// </param>
-    public static ChatMessage[] BuildToolCallResponse(
-        CallToolRequestParams req, CallToolResult result, int maxScanBytes)
+    public static ChatMessage[] BuildToolCallResponse(CallToolRequestParams req, CallToolResult result)
     {
-        var argsJson = SerializeArguments(req.Arguments, maxScanBytes);
+        var argsJson = SerializeArguments(req.Arguments);
         var requestText = SentinelContext.ToolCallText(req.Name, argsJson);
-        var responseText = ExtractScannableText(result.Content, maxScanBytes);
+        var responseText = ExtractScannableText(result.Content);
 
         if (string.IsNullOrEmpty(responseText))
         {
@@ -57,23 +50,17 @@ internal static class MessageBuilder
     /// retrieved resource content item, for scanning via <see cref="SentinelPipeline"/>.</summary>
     /// <remarks>
     /// Resource bodies arrive already-typed as text (<see cref="ModelContextProtocol.Protocol.TextResourceContents"/>);
-    /// the caller is responsible for filtering out non-text (blob) variants and applying any
-    /// MIME allowlist / oversize gates before invoking this helper. Truncation has already
-    /// been applied by the interceptor against the UTF-8 byte budget.
+    /// the caller is responsible for filtering out non-text (blob) variants and applying the MIME allowlist before
+    /// invoking this helper.
     /// </remarks>
     public static ChatMessage BuildResourceRead(string text)
         => new(ChatRole.Tool, text);
 
     /// <summary>Builds the scan payload for a <c>prompts/get</c> response.</summary>
     /// <param name="result">The prompt result to scan.</param>
-    /// <param name="maxScanBytes">
-    /// Upper bound (UTF-8 bytes) on the flattened prompt-message text.
-    /// See <see cref="TruncateIfNeeded"/>.
-    /// </param>
-    public static ChatMessage[] BuildPromptGetResponse(
-        GetPromptResult result, int maxScanBytes)
+    public static ChatMessage[] BuildPromptGetResponse(GetPromptResult result)
     {
-        var flattened = FlattenPromptMessages(result.Messages, maxScanBytes);
+        var flattened = FlattenPromptMessages(result.Messages);
         if (string.IsNullOrEmpty(flattened))
         {
             return [];
@@ -83,22 +70,21 @@ internal static class MessageBuilder
 
     /// <summary>
     /// Collects the content of a tool result that the proxy can redact: what
-    /// <see cref="CollectRedactable(IList{ContentBlock}, int, HashSet{string})"/> collects from its blocks, then
+    /// <see cref="CollectRedactable(IList{ContentBlock}, HashSet{string})"/> collects from its blocks, then
     /// <see cref="CallToolResult.StructuredContent"/> as JSON, whose <c>Apply</c> writes the redacted JSON back into
-    /// <paramref name="result"/>. The structured content draws on the same <paramref name="maxScanBytes"/> budget,
-    /// after the blocks.
+    /// <paramref name="result"/>.
     /// </summary>
-    public static (List<HostContent> Content, List<Action<HostContent>> Apply, List<ChatMessage> Oversize) CollectRedactable(
-        CallToolResult result, int maxScanBytes, HashSet<string> allowedMimes)
+    public static (List<HostContent> Content, List<Action<HostContent>> Apply) CollectRedactable(
+        CallToolResult result, HashSet<string> allowedMimes)
     {
         ArgumentNullException.ThrowIfNull(result);
         ArgumentNullException.ThrowIfNull(allowedMimes);
 
-        var collector = new RedactableCollector(maxScanBytes);
+        var collector = new RedactableCollector();
         collector.AddBlocks(result.Content, allowedMimes);
         if (result.StructuredContent is { ValueKind: not (JsonValueKind.Undefined or JsonValueKind.Null) } json)
         {
-            collector.Add(json.GetRawText(), HostContent.FromJson(json), redacted => result.StructuredContent = redacted.Json!.Value);
+            collector.Add(HostContent.FromJson(json), redacted => result.StructuredContent = redacted.Json!.Value);
         }
         return collector.ToTuple();
     }
@@ -109,29 +95,26 @@ internal static class MessageBuilder
     /// is in <paramref name="allowedMimes"/>.
     /// </summary>
     /// <param name="blocks">The content blocks, changed in place by <c>Apply</c>.</param>
-    /// <param name="maxScanBytes">The total UTF-8 budget of the scan, as in 3.0. Items are taken in order while they
-    /// fit in what is left. The first item that does not fit goes to <c>Oversize</c>, truncated to what is left, and
-    /// is not redacted; items after it are neither redacted nor scanned, as the 3.0 truncation dropped them.</param>
     /// <param name="allowedMimes">The MIME allowlist of <see cref="ResourceReadInterceptor.ParseMimeAllowlist"/>.</param>
-    /// <returns><c>Apply[i]</c> writes the redacted <c>Content[i]</c> back. Images, audio, blobs, resource links,
-    /// non-allowlisted and empty items are left out and stay as they are.</returns>
-    public static (List<HostContent> Content, List<Action<HostContent>> Apply, List<ChatMessage> Oversize) CollectRedactable(
-        IList<ContentBlock>? blocks, int maxScanBytes, HashSet<string> allowedMimes)
+    /// <returns><c>Apply[i]</c> writes the redacted <c>Content[i]</c> back. Every item is collected whatever its size:
+    /// redaction runs on the whole item, and the scan reports content over <see cref="SentinelOptions.MaxScanBytes"/>
+    /// as <c>SEC-00</c>. Images, audio, blobs, resource links, non-allowlisted and empty items are left out and stay as
+    /// they are.</returns>
+    public static (List<HostContent> Content, List<Action<HostContent>> Apply) CollectRedactable(
+        IList<ContentBlock>? blocks, HashSet<string> allowedMimes)
     {
         ArgumentNullException.ThrowIfNull(allowedMimes);
 
-        var collector = new RedactableCollector(maxScanBytes);
+        var collector = new RedactableCollector();
         collector.AddBlocks(blocks, allowedMimes);
         return collector.ToTuple();
     }
 
-    /// <summary>Collects redactable items against one running byte budget.</summary>
-    private sealed class RedactableCollector(int maxScanBytes)
+    /// <summary>Collects redactable items with the write-back of each.</summary>
+    private sealed class RedactableCollector
     {
         private readonly List<HostContent> _content = [];
         private readonly List<Action<HostContent>> _apply = [];
-        private readonly List<ChatMessage> _oversize = [];
-        private int _remaining = Math.Max(maxScanBytes, 0);
 
         public void AddBlocks(IList<ContentBlock>? blocks, HashSet<string> allowedMimes)
         {
@@ -142,49 +125,32 @@ internal static class MessageBuilder
                 switch (block)
                 {
                     case TextContentBlock text when !string.IsNullOrEmpty(text.Text):
-                        Add(text.Text, HostContent.FromText(text.Text), redacted => text.Text = redacted.Text!);
+                        Add(HostContent.FromText(text.Text), redacted => text.Text = redacted.Text!);
                         break;
                     case EmbeddedResourceBlock { Resource: TextResourceContents resource }
                         when !string.IsNullOrEmpty(resource.Text) && ResourceReadInterceptor.IsAllowedMime(resource.MimeType, allowedMimes):
-                        Add(resource.Text, HostContent.FromText(resource.Text), redacted => resource.Text = redacted.Text!);
+                        Add(HostContent.FromText(resource.Text), redacted => resource.Text = redacted.Text!);
                         break;
                 }
             }
         }
 
-        /// <summary>Takes <paramref name="item"/> when <paramref name="text"/> fits in what is left of the budget.
-        /// Otherwise the text is truncated to what is left and scanned unredacted, or dropped when nothing is left,
-        /// and the budget is spent.</summary>
-        public void Add(string text, HostContent item, Action<HostContent> write)
+        public void Add(HostContent item, Action<HostContent> write)
         {
-            var bytes = Encoding.UTF8.GetByteCount(text);
-            if (bytes <= _remaining)
-            {
-                _content.Add(item);
-                _apply.Add(write);
-                _remaining -= bytes;
-                return;
-            }
-
-            if (_remaining > 0)
-            {
-                _oversize.Add(new ChatMessage(ChatRole.Assistant, TruncateIfNeeded(text, _remaining)));
-            }
-            _remaining = 0;
+            _content.Add(item);
+            _apply.Add(write);
         }
 
-        public (List<HostContent> Content, List<Action<HostContent>> Apply, List<ChatMessage> Oversize) ToTuple()
-            => (_content, _apply, _oversize);
+        public (List<HostContent> Content, List<Action<HostContent>> Apply) ToTuple() => (_content, _apply);
     }
 
-    private static string SerializeArguments(IDictionary<string, JsonElement>? args, int maxScanBytes)
+    private static string SerializeArguments(IDictionary<string, JsonElement>? args)
     {
         if (args is null || args.Count == 0) return "{}";
-        var json = JsonSerializer.Serialize(args, McpJsonContext.Default.IDictionaryStringJsonElement);
-        return TruncateIfNeeded(json, maxScanBytes);
+        return JsonSerializer.Serialize(args, McpJsonContext.Default.IDictionaryStringJsonElement);
     }
 
-    private static string ExtractScannableText(IList<ContentBlock>? blocks, int maxScanBytes)
+    private static string ExtractScannableText(IList<ContentBlock>? blocks)
     {
         if (blocks is null || blocks.Count == 0) return string.Empty;
 
@@ -200,10 +166,10 @@ internal static class MessageBuilder
             }
         }
 
-        return TruncateIfNeeded(sb.ToString(), maxScanBytes);
+        return sb.ToString();
     }
 
-    private static string FlattenPromptMessages(IList<PromptMessage>? messages, int maxScanBytes)
+    private static string FlattenPromptMessages(IList<PromptMessage>? messages)
     {
         if (messages is null || messages.Count == 0) return string.Empty;
 
@@ -219,50 +185,6 @@ internal static class MessageBuilder
             }
         }
 
-        return TruncateIfNeeded(sb.ToString(), maxScanBytes);
-    }
-
-    /// <summary>Truncates <paramref name="text"/> so its UTF-8 byte length is at most
-    /// <paramref name="maxScanBytes"/>.</summary>
-    /// <remarks>
-    /// The cap is enforced against <see cref="Encoding.UTF8.GetByteCount(string)"/> as the
-    /// <c>SENTINEL_MCP_MAX_SCAN_BYTES</c> environment variable name implies. For ASCII input
-    /// this is identical to char-count; for multi-byte content (emoji, CJK, etc.) the cap
-    /// fires sooner. The trailing marker reports removed UTF-8 bytes.
-    /// </remarks>
-    internal static string TruncateIfNeeded(string text, int maxScanBytes)
-    {
-        var totalBytes = Encoding.UTF8.GetByteCount(text);
-        if (totalBytes <= maxScanBytes) return text;
-
-        // Slice on a UTF-16 code-unit boundary that keeps the resulting prefix at or below
-        // the byte budget. We walk text spans whose byte counts we can compute cheaply, and
-        // step back one char at a time if the chosen split lands in the middle of a
-        // surrogate pair.
-        var charCount = ApproximateCharLimit(text, maxScanBytes);
-        while (charCount > 0 && Encoding.UTF8.GetByteCount(text.AsSpan(0, charCount)) > maxScanBytes)
-        {
-            charCount--;
-        }
-        // Avoid splitting a surrogate pair (would corrupt the unicorn 🦄 etc.).
-        if (charCount > 0 && charCount < text.Length
-            && char.IsHighSurrogate(text[charCount - 1])
-            && char.IsLowSurrogate(text[charCount]))
-        {
-            charCount--;
-        }
-
-        var truncated = text[..charCount];
-        var removed = totalBytes - Encoding.UTF8.GetByteCount(truncated);
-        return $"{truncated}{TruncationMarkerPrefix}{removed} bytes]";
-    }
-
-    /// <summary>Initial guess for the char-count whose UTF-8 encoding fits in
-    /// <paramref name="maxScanBytes"/>. Always &lt;= <c>text.Length</c>.</summary>
-    private static int ApproximateCharLimit(string text, int maxScanBytes)
-    {
-        // Every UTF-16 code unit is ≥ 1 UTF-8 byte, so maxScanBytes is a safe upper bound
-        // on the char count. Min with text.Length to skip pointless walk-back iterations.
-        return maxScanBytes < text.Length ? maxScanBytes : text.Length;
+        return sb.ToString();
     }
 }

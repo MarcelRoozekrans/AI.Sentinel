@@ -71,6 +71,35 @@ public class McpPipelineFactoryTests
         Assert.Null(error);
     }
 
+    // #439: the proxy's SENTINEL_MCP_MAX_SCAN_BYTES reaches SentinelOptions.MaxScanBytes, so the pipeline cuts and
+    // reports SEC-00 against the proxy's budget, not the library default.
+    [Fact]
+    public async Task FactorySetsMaxScanBytes()
+    {
+        var pipeline = McpPipelineFactory.Create(BuildConfig(), DetectorPreset.Security, embeddingGenerator: null,
+            out _, out _, out _, maxScanBytes: 100);
+        var text = string.Concat(Enumerable.Repeat("hello world ", 17)); // 204 bytes
+        var messages = new[] { new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.Tool, text) };
+
+        var error = await pipeline.ScanMessagesAsync(messages, default, ct: TestContext.Current.CancellationToken);
+
+        var threat = Assert.IsType<SentinelError.ThreatDetected>(error);
+        Assert.Equal("SEC-00", threat.Result.DetectorId.Value);
+        Assert.Contains("only the first 100 were scanned", threat.Result.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Factory_WithoutMaxScanBytes_KeepsTheLibraryDefault()
+    {
+        var pipeline = McpPipelineFactory.Create(BuildConfig(), DetectorPreset.Security);
+        var text = string.Concat(Enumerable.Repeat("hello world ", 17));
+        var messages = new[] { new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.Tool, text) };
+
+        var error = await pipeline.ScanMessagesAsync(messages, default, ct: TestContext.Current.CancellationToken);
+
+        Assert.Null(error);
+    }
+
     // OnHigh = Block, yet a CMP finding forwards: the CMP detectors carry Action = Alert, which is what
     // the proxy does for Warn. It is still audited. A non-CMP High finding still blocks.
     [Theory]

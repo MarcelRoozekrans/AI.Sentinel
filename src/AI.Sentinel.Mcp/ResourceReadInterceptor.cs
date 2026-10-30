@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Text;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Mcp.Logging;
@@ -19,9 +18,10 @@ namespace AI.Sentinel.Mcp;
 /// Only <see cref="TextResourceContents"/> entries whose <see cref="ResourceContents.MimeType"/>
 /// matches the configured allowlist (<c>SENTINEL_MCP_SCAN_MIMES</c>, comma-separated; suffix
 /// wildcards via trailing <c>/</c> are supported) are scanned. <see cref="BlobResourceContents"/>
-/// and other MIME types are forwarded verbatim. Per-content-item UTF-8 byte budgets are gated
-/// by <c>SENTINEL_MCP_MAX_SCAN_BYTES</c> (default 262 144, read once by the proxy and shared with tool results and prompts); oversize text items are skipped with
-/// a structured stderr log line.
+/// and other MIME types are forwarded verbatim. Each item is scanned on its own against
+/// <see cref="SentinelOptions.MaxScanBytes"/>, which the proxy sets from <c>SENTINEL_MCP_MAX_SCAN_BYTES</c> (default
+/// 262 144, shared with tool calls and prompts). An item over it is scanned up to the budget and the pipeline reports
+/// <c>SEC-00</c>, which blocks the read under the default <c>OnCritical</c> (#439); 4.1 skipped such an item unscanned.
 /// </para>
 /// <para>
 /// Authorization is intentionally not consulted here — resources are data, not actions.
@@ -30,9 +30,8 @@ namespace AI.Sentinel.Mcp;
 /// matching <see cref="ToolCallInterceptor"/> and <see cref="PromptGetInterceptor"/>.
 /// </para>
 /// <para>
-/// When a <see cref="PlaceholderStore"/> is supplied, the allowlisted text items within the byte budget are redacted
-/// in place before they reach the agent and scanned together as redacted. Blob, non-allowlisted and oversize items
-/// are forwarded as in 3.0.
+/// When a <see cref="PlaceholderStore"/> is supplied, the allowlisted text items are redacted whole, in place, before
+/// they reach the agent, and each is scanned as redacted. Blob and non-allowlisted items are forwarded as in 3.0.
 /// </para>
 /// </remarks>
 internal static class ResourceReadInterceptor
@@ -45,7 +44,6 @@ internal static class ResourceReadInterceptor
 
     public static McpRequestFilter<ReadResourceRequestParams, ReadResourceResult> Create(
         SentinelPipeline pipeline,
-        int maxScanBytes,
         SessionId? sessionId = null,
         PlaceholderStore? placeholders = null)
     {
@@ -53,13 +51,12 @@ internal static class ResourceReadInterceptor
 
         var allowedMimes = ParseMimeAllowlist();
 
-        return next => (ctx, ct) => InvokeAsync(pipeline, allowedMimes, maxScanBytes, sessionId, placeholders, next, ctx, ct);
+        return next => (ctx, ct) => InvokeAsync(pipeline, allowedMimes, sessionId, placeholders, next, ctx, ct);
     }
 
     private static async ValueTask<ReadResourceResult> InvokeAsync(
         SentinelPipeline pipeline,
         HashSet<string> allowedMimes,
-        int maxBytes,
         SessionId? sessionId,
         PlaceholderStore? placeholders,
         McpRequestHandler<ReadResourceRequestParams, ReadResourceResult> next,
@@ -95,13 +92,6 @@ internal static class ResourceReadInterceptor
             if (!IsAllowedMime(textContent.MimeType, allowedMimes))
             {
                 LogSkipped(req.Uri, reason: "mime", textContent.MimeType ?? "(none)");
-                continue;
-            }
-
-            var byteCount = Encoding.UTF8.GetByteCount(textContent.Text);
-            if (byteCount > maxBytes)
-            {
-                LogOversize(req.Uri, byteCount, maxBytes);
                 continue;
             }
 
@@ -147,7 +137,7 @@ internal static class ResourceReadInterceptor
             try
             {
                 scanned = await McpRedaction.RedactAndScanAsync(
-                    pipeline, placeholders, context: [], [HostContent.FromText(item.Text)], unredactable: [],
+                    pipeline, placeholders, context: [], [HostContent.FromText(item.Text)],
                     Microsoft.Extensions.AI.ChatRole.Tool, sessionId, ct).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -248,17 +238,6 @@ internal static class ResourceReadInterceptor
             ["reason"] = reason,
             ["uri"] = uri,
             ["mime"] = mime,
-        });
-
-    private static void LogOversize(string uri, int bytes, int maxBytes) =>
-        StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["event"] = "resources_read",
-            ["action"] = "skipped",
-            ["reason"] = "oversize",
-            ["uri"] = uri,
-            ["bytes"] = bytes.ToString(CultureInfo.InvariantCulture),
-            ["max"] = maxBytes.ToString(CultureInfo.InvariantCulture),
         });
 
     private static void LogBlock(string uri, SentinelError.ThreatDetected threat) =>

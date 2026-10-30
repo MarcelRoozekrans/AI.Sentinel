@@ -119,7 +119,6 @@ public class AuthorizationTests
 
         var filter = ToolCallInterceptor.Create(
             pipeline,
-            maxScanBytes: 64 * 1024,
             stderr: stderr,
             guard: guard);
 
@@ -155,7 +154,6 @@ public class AuthorizationTests
 
         var filter = ToolCallInterceptor.Create(
             pipeline,
-            maxScanBytes: 64 * 1024,
             stderr: stderr,
             guard: guard);
 
@@ -195,7 +193,6 @@ public class AuthorizationTests
 
         var filter = ToolCallInterceptor.Create(
             pipeline,
-            maxScanBytes: 64 * 1024,
             stderr: stderr,
             guard: guard);
 
@@ -257,7 +254,7 @@ public class AuthorizationTests
         var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), DetectorPreset.Security);
         using var stderr = new StringWriter();
 
-        var filter = ToolCallInterceptor.Create(pipeline, maxScanBytes: 64 * 1024, stderr: stderr,
+        var filter = ToolCallInterceptor.Create(pipeline, stderr: stderr,
             guard: guard, approvalStore: null, approvalWait: null);
 
         ValueTask<CallToolResult> Next(RequestContext<CallToolRequestParams> _, CancellationToken __) =>
@@ -305,7 +302,7 @@ public class AuthorizationTests
         using var stderr = new StringWriter();
         var nextInvoked = false;
 
-        var filter = ToolCallInterceptor.Create(pipeline, maxScanBytes: 64 * 1024, stderr: stderr,
+        var filter = ToolCallInterceptor.Create(pipeline, stderr: stderr,
             guard: guard, approvalStore: store, approvalWait: TimeSpan.FromSeconds(2));
 
         ValueTask<CallToolResult> Next(RequestContext<CallToolRequestParams> _, CancellationToken __)
@@ -342,7 +339,7 @@ public class AuthorizationTests
         var pipeline = McpPipelineFactory.Create(DefaultHookConfig(), DetectorPreset.Security);
         using var stderr = new StringWriter();
 
-        var filter = ToolCallInterceptor.Create(pipeline, maxScanBytes: 64 * 1024, stderr: stderr,
+        var filter = ToolCallInterceptor.Create(pipeline, stderr: stderr,
             guard: guard, approvalStore: store, approvalWait: TimeSpan.FromMilliseconds(100));
 
         ValueTask<CallToolResult> Next(RequestContext<CallToolRequestParams> _, CancellationToken __) =>
@@ -393,7 +390,7 @@ public class AuthorizationTests
         using var stderr = new StringWriter();
         var nextInvoked = false;
 
-        var filter = ToolCallInterceptor.Create(pipeline, maxScanBytes: 64 * 1024, stderr: stderr,
+        var filter = ToolCallInterceptor.Create(pipeline, stderr: stderr,
             guard: guard, approvalStore: null, approvalWait: null);
 
         ValueTask<CallToolResult> Next(RequestContext<CallToolRequestParams> _, CancellationToken __)

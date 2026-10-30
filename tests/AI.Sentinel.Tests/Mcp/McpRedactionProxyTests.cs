@@ -1,9 +1,11 @@
 using System.IO.Pipelines;
 using System.Text.RegularExpressions;
+using AI.Sentinel.Audit;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Mcp;
 using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.Logging.Abstractions;
+using ModelContextProtocol;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
@@ -123,6 +125,76 @@ public partial class McpRedactionProxyTests
         Assert.Equal("[EMAIL_1_k3f9x2]", StringArg(h.Fake.ReceivedToolCalls[1], "to"));
     }
 
+    private const int SmallBudget = 1024;
+
+    /// <summary>Prose, so no detector but the scan budget has anything to say about it.</summary>
+    private static string Filler(int bytes)
+    {
+        var text = string.Concat(Enumerable.Repeat("the quick brown fox jumps over the lazy dog ", bytes / 44 + 1));
+        return text[..bytes];
+    }
+
+    private static bool IsScanLimit(AuditEntry e) => string.Equals(e.DetectorId, "SEC-00", StringComparison.Ordinal);
+
+    // #439: a tool result over SENTINEL_MCP_MAX_SCAN_BYTES is blocked as SEC-00, redacting or not. 4.1 truncated the
+    // scan text, or forwarded the item unredacted as oversize, and let the rest through unscanned.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ToolResultOverBudget_BlockedWithSec00(bool redact)
+    {
+        var audit = new RingBufferAuditStore(capacity: 64);
+        await using var h = await StartHarnessAsync(new HookConfig { RedactToolResults = redact }, maxScanBytes: SmallBudget, auditStore: audit);
+        h.Fake.EnqueueToolResult(new CallToolResult { Content = [new TextContentBlock { Text = Filler(SmallBudget + 1) }] });
+
+        var ex = await Assert.ThrowsAnyAsync<McpException>(async () => await h.DriverClient.CallToolAsync(
+            toolName: "read_file",
+            arguments: new Dictionary<string, object?>(StringComparer.Ordinal) { ["path"] = "/tmp/big.txt" },
+            cancellationToken: h.Cts.Token));
+
+        Assert.Contains("SEC-00", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(await RecordingAuditForwarder.ReadAllAsync(audit), IsScanLimit);
+    }
+
+    // The original bypass: an injection placed after the budget's worth of filler was never scanned.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ToolResultInjectionPastCap_Blocked(bool redact)
+    {
+        await using var h = await StartHarnessAsync(new HookConfig { RedactToolResults = redact }, maxScanBytes: SmallBudget);
+        h.Fake.EnqueueToolResult(new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = Filler(SmallBudget) + " " + DetectorExamples.PromptInjectionHigh }],
+        });
+
+        var ex = await Assert.ThrowsAnyAsync<McpException>(async () => await h.DriverClient.CallToolAsync(
+            toolName: "read_file",
+            arguments: new Dictionary<string, object?>(StringComparer.Ordinal) { ["path"] = "/tmp/big.txt" },
+            cancellationToken: h.Cts.Token));
+
+        Assert.Contains("Blocked by AI.Sentinel", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PromptGetOverBudget_Blocked(bool redact)
+    {
+        var audit = new RingBufferAuditStore(capacity: 64);
+        await using var h = await StartHarnessAsync(new HookConfig { RedactToolResults = redact }, maxScanBytes: SmallBudget, auditStore: audit);
+        h.Fake.EnqueuePromptResult(new GetPromptResult
+        {
+            Messages = [new PromptMessage { Role = Role.User, Content = new TextContentBlock { Text = Filler(SmallBudget + 1) } }],
+        });
+
+        var ex = await Assert.ThrowsAnyAsync<McpException>(async () =>
+            await h.DriverClient.GetPromptAsync("big", cancellationToken: h.Cts.Token));
+
+        Assert.Contains("SEC-00", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(await RecordingAuditForwarder.ReadAllAsync(audit), IsScanLimit);
+    }
+
     private sealed record ProxyHarness(
         FakeMcpServer Fake,
         McpClient DriverClient,
@@ -139,7 +211,8 @@ public partial class McpRedactionProxyTests
         }
     }
 
-    private static async Task<ProxyHarness> StartHarnessAsync(HookConfig config, TimeSpan? placeholderIdleExpiry = null)
+    private static async Task<ProxyHarness> StartHarnessAsync(
+        HookConfig config, TimeSpan? placeholderIdleExpiry = null, int maxScanBytes = 262144, IAuditStore? auditStore = null)
     {
         var fake = new FakeMcpServer();
         var targetTransport = fake.Start();
@@ -157,10 +230,11 @@ public partial class McpRedactionProxyTests
             targetTransport: targetTransport,
             config: config,
             preset: DetectorPreset.Security, // the default, so PII redaction is tested as users get it
-            maxScanBytes: 262144,
+            maxScanBytes: maxScanBytes,
             stderr: TextWriter.Null,
             ct: cts.Token,
             embeddingGenerator: new ExactMatchEmbeddingGenerator(),
+            auditStore: auditStore,
             placeholderIdleExpiry: placeholderIdleExpiry);
 
         var driverClient = await McpClient.CreateAsync(

@@ -877,7 +877,7 @@ The proxy spawns the target command as a subprocess, intercepts `tools/call` and
 | `SENTINEL_MCP_COMPLIANCE` | `off` | `on` → run the four Art. 5 compliance detectors, which are off by default; unset falls back to `SENTINEL_HOOK_COMPLIANCE` |
 | `SENTINEL_MCP_REDACT` | `on` | `off` → stop redacting tool results, prompts and resources; unset falls back to `SENTINEL_HOOK_REDACT`, then to on |
 | `SENTINEL_MCP_REDACT_TTL_MIN` | `30` | Minutes a PII placeholder stays restorable into tool calls after its last use |
-| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | Byte cap on the content passed to the detector pipeline, per block and in total per scan; `resources/read` applies it per item. One default for tool results, prompts and resources. Counts UTF-8 bytes (see v1.1 note below). Content past the cap is not redacted. Full content still forwarded to the host. |
+| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | The proxy's `SentinelOptions.MaxScanBytes`: the scan budget, in UTF-8 bytes, of each tool call, tool result and prompt, and of each `resources/read` item. Content over it is blocked as `SEC-00` under the default `OnCritical`, where 4.1 truncated the scan and forwarded the rest unscanned |
 
 #### MCP proxy v1.1
 

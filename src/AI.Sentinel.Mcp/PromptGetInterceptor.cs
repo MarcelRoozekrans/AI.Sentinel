@@ -26,7 +26,6 @@ internal static class PromptGetInterceptor
 {
     public static McpRequestFilter<GetPromptRequestParams, GetPromptResult> Create(
         SentinelPipeline pipeline,
-        int maxScanBytes,
         TextWriter stderr,
         SessionId? sessionId = null,
         PlaceholderStore? placeholders = null)
@@ -37,10 +36,10 @@ internal static class PromptGetInterceptor
         if (placeholders is not null)
         {
             var allowedMimes = ResourceReadInterceptor.ParseMimeAllowlist();
-            return next => (ctx, ct) => InvokeRedactingAsync(pipeline, maxScanBytes, stderr, sessionId, placeholders, allowedMimes, next, ctx, ct);
+            return next => (ctx, ct) => InvokeRedactingAsync(pipeline, stderr, sessionId, placeholders, allowedMimes, next, ctx, ct);
         }
 
-        return next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, sessionId, next, ctx, ct);
+        return next => (ctx, ct) => InvokeAsync(pipeline, stderr, sessionId, next, ctx, ct);
     }
 
     /// <summary>
@@ -50,7 +49,6 @@ internal static class PromptGetInterceptor
     /// </summary>
     private static async ValueTask<GetPromptResult> InvokeRedactingAsync(
         SentinelPipeline pipeline,
-        int maxScanBytes,
         TextWriter stderr,
         SessionId? sessionId,
         PlaceholderStore placeholders,
@@ -66,9 +64,8 @@ internal static class PromptGetInterceptor
         var result = await next(ctx, ct).ConfigureAwait(false);
 
         // The blocks are the result's own, deserialized fresh for this request, so they are rewritten in place.
-        var (content, apply, oversize) = MessageBuilder.CollectRedactable(
-            BlocksOf(result), maxScanBytes, allowedMimes);
-        if (content.Count == 0 && oversize.Count == 0)
+        var (content, apply) = MessageBuilder.CollectRedactable(BlocksOf(result), allowedMimes);
+        if (content.Count == 0)
         {
             await stderr.WriteLineAsync(
                 $"[sentinel-mcp] event=prompts/get decision=Allow prompt={req.Name} reason=empty"
@@ -80,7 +77,7 @@ internal static class PromptGetInterceptor
         try
         {
             scanned = await McpRedaction.RedactAndScanAsync(
-                pipeline, placeholders, context: [], content, oversize,
+                pipeline, placeholders, context: [], content,
                 Microsoft.Extensions.AI.ChatRole.Assistant, sessionId, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -114,7 +111,6 @@ internal static class PromptGetInterceptor
 
     private static async ValueTask<GetPromptResult> InvokeAsync(
         SentinelPipeline pipeline,
-        int maxScanBytes,
         TextWriter stderr,
         SessionId? sessionId,
         McpRequestHandler<GetPromptRequestParams, GetPromptResult> next,
@@ -127,7 +123,7 @@ internal static class PromptGetInterceptor
         // No pre-scan — prompts/get request is metadata (name + args), not user content.
         var result = await next(ctx, ct).ConfigureAwait(false);
 
-        var responseMessages = MessageBuilder.BuildPromptGetResponse(result, maxScanBytes);
+        var responseMessages = MessageBuilder.BuildPromptGetResponse(result);
         if (responseMessages.Length == 0)
         {
             await stderr.WriteLineAsync(
