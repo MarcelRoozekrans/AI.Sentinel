@@ -11,6 +11,9 @@ public sealed class LanguageSwitchAttackDetector(SentinelOptions options) : Sema
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "An instruction to answer in another language or script in order to evade safety filters or monitoring. A user who simply wants a reply or translation in a language is not a hit.";
+
     // Original regex-based detector could only return Medium or Low.
     // Cap severity so migration to SemanticDetectorBase preserves the original contract.
     protected override Severity HighSeverity => Severity.Medium;

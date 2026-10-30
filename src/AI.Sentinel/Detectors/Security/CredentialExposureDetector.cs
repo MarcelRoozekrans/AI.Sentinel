@@ -13,6 +13,10 @@ public sealed partial class CredentialExposureDetector : ILlmEscalatingDetector,
     public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
+    /// <inheritdoc />
+    public string ReviewCriterion =>
+        "A real secret in the text, such as an API key, token, password or private key, given as a value. A placeholder, an environment variable reference, an example from documentation or a bare variable name is not a hit.";
+
     /// <summary>False: a secret is restored into the reply but never into a tool call's arguments.</summary>
     public bool RestoreIntoToolArguments => false;
 

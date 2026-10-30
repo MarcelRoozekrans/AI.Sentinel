@@ -11,6 +11,9 @@ public sealed class AgentProbingDetector(SentinelOptions options) : SemanticDete
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Operational;
 
+    protected override string ReviewCriterion =>
+        "A user probing what the agent can do, which tools and permissions it holds, or how far its access reaches, beyond a normal task. A user asking what the assistant can help with for their task is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

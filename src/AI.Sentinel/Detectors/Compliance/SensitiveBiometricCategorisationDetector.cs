@@ -19,6 +19,9 @@ public sealed class SensitiveBiometricCategorisationDetector(SentinelOptions opt
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Compliance;
 
+    protected override string ReviewCriterion =>
+        "A request to infer or classify people by race, ethnicity, religion, sexual orientation, political opinion or union membership from biometric data such as faces, photos or voice. Research, auditing such systems or explaining the law is not a hit.";
+
     /// <summary>Off by default: runs only after <c>opts.EnableComplianceDetectors()</c> or
     /// <c>opts.Configure&lt;T&gt;(c =&gt; c.Enabled = true)</c>.</summary>
     public override bool EnabledByDefault => false;

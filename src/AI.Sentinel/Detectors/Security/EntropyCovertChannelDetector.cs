@@ -98,6 +98,10 @@ public sealed class EntropyCovertChannelDetector : IDetector, ILlmEscalatingDete
     public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
+    /// <inheritdoc />
+    public string ReviewCriterion =>
+        "A long run of random-looking encoded text that could carry hidden data, such as a base64 payload. A hash, identifier, URL, lock file digest, inline image or other long string that has a legitimate purpose is not a hit.";
+
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(ctx);

@@ -18,6 +18,9 @@ public sealed class WorkplaceEmotionRecognitionDetector(SentinelOptions options)
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Compliance;
 
+    protected override string ReviewCriterion =>
+        "A request to infer the emotions of employees, pupils or candidates from camera, voice or biometric signals in a workplace or school. Emotion recognition for medical or safety reasons, research, or explaining the law on it is not a hit.";
+
     /// <summary>Off by default: runs only after <c>opts.EnableComplianceDetectors()</c> or
     /// <c>opts.Configure&lt;T&gt;(c =&gt; c.Enabled = true)</c>.</summary>
     public override bool EnabledByDefault => false;

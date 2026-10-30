@@ -306,6 +306,7 @@ public class DetectionPipelineTests
     private sealed class FakeEscalatingDetector(DetectorId id, DetectionResult result)
         : IDetector, ILlmEscalatingDetector
     {
+        public string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public DetectorId Id => id;
         public DetectorCategory Category => DetectorCategory.Security;
         public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)

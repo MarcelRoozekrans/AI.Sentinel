@@ -11,6 +11,9 @@ public sealed class ShadowServerDetector(SentinelOptions options) : SemanticDete
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "An instruction to connect to, register or redirect traffic to a rogue, fake or unofficial server in place of the legitimate one, such as an MCP server. Configuring an approved server, or discussing shadow servers, is not a hit.";
+
     protected override Severity HighSeverity => Severity.Critical;
     protected override Severity MediumSeverity => Severity.High;
     protected override Severity LowSeverity => Severity.Medium;

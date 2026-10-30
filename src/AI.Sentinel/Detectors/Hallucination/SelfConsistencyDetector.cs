@@ -11,6 +11,9 @@ public sealed class SelfConsistencyDetector(SentinelOptions options) : SemanticD
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "A response that states numbers or quantities which cannot all be true together, such as a population or size that differs by orders of magnitude within the same answer. Different quantities about different things, or an explicit correction, are not hits.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples => [];
     protected override string[] LowExamples =>

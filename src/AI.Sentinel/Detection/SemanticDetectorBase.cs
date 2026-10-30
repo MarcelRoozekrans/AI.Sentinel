@@ -81,6 +81,14 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>Representative phrases that indicate a low-severity threat.</summary>
     protected abstract string[] LowExamples { get; }
 
+    /// <summary>What this detector looks for, in one or two plain sentences, for the pipeline's
+    /// <see cref="IDetectionReviewer"/>. State the intent that counts as a hit and name the closest legitimate
+    /// look-alike that does not. Do not use braces: the text is placed in a prompt.</summary>
+    protected abstract string ReviewCriterion { get; }
+
+    /// <summary>The review criterion, for the reviewer.</summary>
+    internal string Criterion => ReviewCriterion;
+
     /// <summary>Severity returned when the High bucket threshold is exceeded. Defaults to <see cref="Severity.High"/>.</summary>
     protected virtual Severity HighSeverity => Severity.High;
     /// <summary>Severity returned when the Medium bucket threshold is exceeded. Defaults to <see cref="Severity.Medium"/>.</summary>

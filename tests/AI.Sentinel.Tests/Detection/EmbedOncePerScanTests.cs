@@ -24,6 +24,7 @@ public class EmbedOncePerScanTests
         Regex? fastPath = null,
         SentinelOptions? options = null) : SemanticDetectorBase(options ?? new SentinelOptions())
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public override DetectorId Id => new(id);
         public override DetectorCategory Category => DetectorCategory.Security;
         protected override string[] HighExamples => high;
@@ -37,6 +38,7 @@ public class EmbedOncePerScanTests
 
     private sealed class LegacyBlankDetector(string[] high) : SemanticDetectorBase(new SentinelOptions())
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public override DetectorId Id => new("TST-LEGACY");
         public override DetectorCategory Category => DetectorCategory.Security;
         protected override string[] HighExamples => high;

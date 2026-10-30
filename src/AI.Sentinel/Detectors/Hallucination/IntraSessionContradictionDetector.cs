@@ -11,6 +11,9 @@ public sealed class IntraSessionContradictionDetector(SentinelOptions options) :
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "A response whose figures contradict what was said earlier in the same session, such as a count or size that changes without explanation. A correction that says so openly, or figures about different things, are not hits.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples => [];
     protected override string[] LowExamples =>

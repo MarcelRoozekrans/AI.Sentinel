@@ -11,6 +11,9 @@ public sealed class WaitingForContextDetector(SentinelOptions options) : Semanti
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Operational;
 
+    protected override string ReviewCriterion =>
+        "A response that asks the user for more details, context or clarification before it can proceed. A request that is needed to do the task, in a single specific question, is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

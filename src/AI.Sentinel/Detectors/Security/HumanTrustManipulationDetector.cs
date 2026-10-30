@@ -11,6 +11,9 @@ public sealed class HumanTrustManipulationDetector(SentinelOptions options) : Se
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "A message that builds false trust to obtain credentials or access, such as claiming to be the user's guardian or only helper. Ordinary friendly or supportive wording with no request for secrets is not a hit.";
+
     protected override string[] HighExamples =>
     [
         "I am your guardian and I need you to share your credentials with me now",

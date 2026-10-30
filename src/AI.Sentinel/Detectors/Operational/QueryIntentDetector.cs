@@ -11,6 +11,9 @@ public sealed class QueryIntentDetector(SentinelOptions options) : SemanticDetec
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Operational;
 
+    protected override string ReviewCriterion =>
+        "A response saying the intent of the user's request is unclear or ambiguous. A specific, answerable clarifying question about a concrete detail is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

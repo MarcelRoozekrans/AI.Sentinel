@@ -17,6 +17,7 @@ public class ExampleVectorStoreTests
 
     private sealed class StoreDetector(SentinelOptions options) : SemanticDetectorBase(options)
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public override DetectorId Id => new("TST-02");
         public override DetectorCategory Category => DetectorCategory.Security;
         protected override string[] HighExamples => High;

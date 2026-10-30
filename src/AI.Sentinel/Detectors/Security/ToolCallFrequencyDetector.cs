@@ -14,6 +14,10 @@ public sealed class ToolCallFrequencyDetector : ILlmEscalatingDetector
     public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
+    /// <inheritdoc />
+    public string ReviewCriterion =>
+        "An unusually large number of tool results in one batch, which may signal an automated sweep or data exfiltration. A burst of calls a task needs, such as a bulk lookup the user asked for, is not a hit.";
+
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         var count = ctx.Messages.Count(m => m.Role == ChatRole.Tool);

@@ -11,6 +11,9 @@ public sealed class MemoryCorruptionDetector(SentinelOptions options) : Semantic
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "An instruction to alter, corrupt, overwrite or poison an AI agent's memory, history or stored context. A user managing their own saved preferences, or discussing memory attacks, is not a hit.";
+
     protected override Severity HighSeverity => Severity.Critical;
     protected override Severity MediumSeverity => Severity.High;
     protected override Severity LowSeverity => Severity.Medium;

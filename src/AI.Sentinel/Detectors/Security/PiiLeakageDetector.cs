@@ -16,6 +16,10 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
     public DetectorId Id => _id;
     public DetectorCategory Category => DetectorCategory.Security;
 
+    /// <inheritdoc />
+    public string ReviewCriterion =>
+        "A real person's personal data, such as an identity number, bank account, card number or date of birth, present in the text. Example or test values, a number that only has the same shape, and discussion of data protection are not hits.";
+
     // --- Critical ---
 
     [GeneratedRegex(

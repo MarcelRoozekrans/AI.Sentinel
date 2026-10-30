@@ -11,6 +11,9 @@ public sealed class ResponseCoherenceDetector(SentinelOptions options) : Semanti
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Operational;
 
+    protected override string ReviewCriterion =>
+        "A response that contradicts earlier statements, does not follow from them, or drifts off the topic without reason. A response that corrects itself openly, or that changes topic because the user asked, is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

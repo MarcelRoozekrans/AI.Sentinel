@@ -34,6 +34,10 @@ The SDK isolates **test-only types** from the runtime. Production code never ref
 - `opts.AddDetector<T>()` — also in `AI.Sentinel` core (you don't need this package to register, only to test)
 - `IEmbeddingGenerator` — comes from `Microsoft.Extensions.AI`. We expose a fake; the interface is theirs
 
+## Review criterion
+
+A custom `SemanticDetectorBase` subclass, or any `ILlmEscalatingDetector`, must state a `ReviewCriterion`: one or two plain sentences on what it looks for, naming the closest legitimate look-alike that is not a hit. The pipeline's `IDetectionReviewer` judges findings with it. See [Writing a detector](./writing-a-detector#semantic-example).
+
 ## Quick example
 
 ```csharp

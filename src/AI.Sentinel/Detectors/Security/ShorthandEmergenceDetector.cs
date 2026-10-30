@@ -11,6 +11,9 @@ public sealed class ShorthandEmergenceDetector(SentinelOptions options) : Semant
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "Strings of invented abbreviations or consonant clusters that look like a private protocol between agents rather than human-readable text. Established acronyms, code identifiers and ordinary abbreviations are not hits.";
+
     // Original regex-based detector could only return Medium or Low.
     // Cap severity so migration to SemanticDetectorBase preserves the original contract.
     protected override Severity HighSeverity => Severity.Medium;

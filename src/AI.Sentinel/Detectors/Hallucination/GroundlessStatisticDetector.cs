@@ -11,6 +11,9 @@ public sealed class GroundlessStatisticDetector(SentinelOptions options) : Seman
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "A statistic or percentage stated as fact with no source, study or attribution. A statistic that cites its source, or an estimate openly labelled as such, is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples => [];
     protected override string[] LowExamples =>

@@ -264,6 +264,7 @@ public class DetectorTestBuilderTests
 
     private sealed class TestSemanticDetector(SentinelOptions opts) : SemanticDetectorBase(opts)
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         private static readonly DetectorId _id = new("MYORG-JB-01");
         public override DetectorId Id => _id;
         public override DetectorCategory Category => DetectorCategory.Security;

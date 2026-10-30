@@ -11,6 +11,9 @@ public sealed class StaleKnowledgeDetector(SentinelOptions options) : SemanticDe
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "A statement presented as current fact, such as who holds a role, a price or the newest version, that a model with a training cutoff cannot know to be up to date. Timeless facts, dated facts and statements that cite a live source are not hits.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples => [];
     protected override string[] LowExamples =>

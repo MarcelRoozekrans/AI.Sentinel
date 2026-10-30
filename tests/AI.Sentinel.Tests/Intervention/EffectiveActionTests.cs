@@ -119,6 +119,7 @@ public class EffectiveActionTests
 
     private sealed class EscalatingRedactingDetector : IRedactingDetector, ILlmEscalatingDetector
     {
+        public string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         private readonly DetectorId _id = new("ESC-01");
         public DetectorId Id => _id;
         public DetectorCategory Category => DetectorCategory.Operational;

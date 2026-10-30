@@ -380,6 +380,7 @@ public class DetectorOptInAndThresholdTests
     /// <summary>A semantic detector with one High and one Medium example, for controlled similarities.</summary>
     public sealed class ProbeDetector(SentinelOptions options) : SemanticDetectorBase(options)
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public const string HighExample = "high-example";
         public const string MediumExample = "medium-example";
         public const string Probe60 = "probe-0.6-high";

@@ -11,6 +11,9 @@ public sealed class UnauthorizedAccessDetector(SentinelOptions options) : Semant
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "A request to access a resource without authorisation, such as bypassing login, reading outside the permitted directory or reaching restricted data. Access the user is entitled to, or discussing access control, is not a hit.";
+
     protected override Severity HighSeverity => Severity.Critical;
     protected override Severity MediumSeverity => Severity.High;
     protected override Severity LowSeverity => Severity.Medium;

@@ -248,6 +248,7 @@ public class ReviewCandidateTests
 
     private class CandidateDetector(SentinelOptions options, float? reviewThreshold = null) : SemanticDetectorBase(options)
     {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         private static readonly DetectorId _id = new("TEST-CANDIDATE");
         public override DetectorId Id => _id;
         public override DetectorCategory Category => DetectorCategory.Security;

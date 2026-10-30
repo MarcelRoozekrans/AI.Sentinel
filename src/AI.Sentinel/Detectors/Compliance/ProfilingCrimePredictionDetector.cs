@@ -18,6 +18,9 @@ public sealed class ProfilingCrimePredictionDetector(SentinelOptions options) : 
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Compliance;
 
+    protected override string ReviewCriterion =>
+        "A request to predict or assess whether a person will commit a crime based on profiling or personality traits alone, without objective facts tied to criminal activity. Crime statistics, criminology research, auditing such systems or explaining the law are not hits.";
+
     /// <summary>Off by default: runs only after <c>opts.EnableComplianceDetectors()</c> or
     /// <c>opts.Configure&lt;T&gt;(c =&gt; c.Enabled = true)</c>.</summary>
     public override bool EnabledByDefault => false;

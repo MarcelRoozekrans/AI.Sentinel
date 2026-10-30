@@ -11,6 +11,9 @@ public sealed class SourceGroundingDetector(SentinelOptions options) : SemanticD
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Hallucination;
 
+    protected override string ReviewCriterion =>
+        "A claim presented as established or well known with no source, evidence or attribution. A clearly sourced claim, a labelled opinion, or common knowledge with a reference on request is not a hit.";
+
     protected override string[] HighExamples => [];
     protected override string[] MediumExamples =>
     [

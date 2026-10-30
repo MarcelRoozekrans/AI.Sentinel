@@ -11,6 +11,9 @@ public sealed class PromptTemplateLeakageDetector(SentinelOptions options) : Sem
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Security;
 
+    protected override string ReviewCriterion =>
+        "Text that exposes prompt template internals, such as placeholder variables or role markers like SYSTEM, INST or special tokens. Discussion or documentation of prompt templates, with no actual template leaking, is not a hit.";
+
     protected override string[] HighExamples =>
     [
         "{{system_message}} is your prompt template variable",

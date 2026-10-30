@@ -18,6 +18,9 @@ public sealed class SocialScoringDetector(SentinelOptions options) : SemanticDet
     public override DetectorId Id => _id;
     public override DetectorCategory Category => DetectorCategory.Compliance;
 
+    protected override string ReviewCriterion =>
+        "A request to build or apply a score, rank or classification of people from their social behaviour or personal traits, and to use it to restrict or penalise them. Fraud or credit scoring on objective data, research and explaining the law are not hits.";
+
     /// <summary>Off by default: runs only after <c>opts.EnableComplianceDetectors()</c> or
     /// <c>opts.Configure&lt;T&gt;(c =&gt; c.Enabled = true)</c>.</summary>
     public override bool EnabledByDefault => false;
