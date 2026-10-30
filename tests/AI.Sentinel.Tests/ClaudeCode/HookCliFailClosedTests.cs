@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Xunit;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
@@ -222,10 +221,8 @@ public class HookCliFailClosedTests : IDisposable
         var (exit, stdout, stderr) = await RunAsync("pre-tool-use", NoToolName);
 
         Assert.Equal(0, exit);
-        // Exit 0 is also a Warn; an Allow writes neither a systemMessage nor a decision.
-        using var wire = JsonDocument.Parse(stdout);
-        Assert.False(wire.RootElement.TryGetProperty("systemMessage", out _));
-        Assert.False(wire.RootElement.TryGetProperty("decision", out _));
+        // Exit 0 is also a Warn, which writes a systemMessage; an Allow writes an empty object.
+        Assert.Equal("{}", stdout);
         Assert.DoesNotContain("Sentinel internal error", stderr, StringComparison.Ordinal);
     }
 
