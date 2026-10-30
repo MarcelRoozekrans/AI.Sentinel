@@ -755,9 +755,12 @@ sentinel scan conversation.json
   [--min-severity <Low|Medium|High|Critical>]
   [--baseline <prior-result.json>]                # diff against a prior run
   [--compliance]                                  # also run the opt-in Art. 5 compliance detectors
+  [--max-scan-bytes <bytes>]                      # scan budget per turn, default: 262144
 ```
 
 The Art. 5 compliance detectors `CMP-01` to `CMP-04` are off by default, so `--expect CMP-03` fails unless the scan runs them: pass `--compliance`, or set `SENTINEL_HOOK_COMPLIANCE=on`, the switch the hook CLIs use. Like the hooks, they need `SENTINEL_EMBEDDING_ENDPOINT` and `SENTINEL_EMBEDDING_MODEL`.
+
+`--max-scan-bytes` sets `SentinelOptions.MaxScanBytes` for the replay. A turn whose new content is larger is reported as `SEC-00`, as the hooks and the MCP proxy report it, so raise it to reproduce a run that used a larger `SENTINEL_HOOK_MAX_SCAN_BYTES` or `SENTINEL_MCP_MAX_SCAN_BYTES`.
 
 Exit codes: `0` scan completed (no failing assertions), `1` assertion failed or baseline regression, `2` I/O or parse error.
 
@@ -877,7 +880,7 @@ The proxy spawns the target command as a subprocess, intercepts `tools/call` and
 | `SENTINEL_MCP_COMPLIANCE` | `off` | `on` → run the four Art. 5 compliance detectors, which are off by default; unset falls back to `SENTINEL_HOOK_COMPLIANCE` |
 | `SENTINEL_MCP_REDACT` | `on` | `off` → stop redacting tool results, prompts and resources; unset falls back to `SENTINEL_HOOK_REDACT`, then to on |
 | `SENTINEL_MCP_REDACT_TTL_MIN` | `30` | Minutes a PII placeholder stays restorable into tool calls after its last use |
-| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | The proxy's `SentinelOptions.MaxScanBytes`: the scan budget, in UTF-8 bytes, of each tool call, tool result and prompt, and of each `resources/read` item. Content over it is blocked as `SEC-00` under the default `OnCritical`, where 4.1 truncated the scan and forwarded the rest unscanned |
+| `SENTINEL_MCP_MAX_SCAN_BYTES` | `262144` | The proxy's `SentinelOptions.MaxScanBytes`: the scan budget, in UTF-8 bytes, of each tool call, tool result and prompt, and of each `resources/read` item. Content over it is blocked as `SEC-00` under the default `OnCritical`, where 4.1 truncated the scan and forwarded the rest unscanned. A positive integer; anything else, or unset, falls back to `SENTINEL_HOOK_MAX_SCAN_BYTES`, then to the default |
 
 #### MCP proxy v1.1
 
@@ -936,7 +939,7 @@ Both adapters share the same env-var contract — configure once, applies to bot
 | `SENTINEL_HOOK_REDACT` | `on` | `off` / `0` / `false` / `no` → stop redacting tool results and turn off the placeholder guard |
 | `SENTINEL_HOOK_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](#compliance-4), which are off by default. Their findings warn instead of following `SENTINEL_HOOK_ON_HIGH` |
 | `SENTINEL_HOOK_DETECTORS` | `security` | `security` → the MCP proxy's security preset; `all` → every detector, including the operational and hallucination detectors that judge a model's reply and fire on tool output |
-| `SENTINEL_HOOK_MAX_SCAN_BYTES` | `262144` | A positive integer → the scan budget, `SentinelOptions.MaxScanBytes`, in UTF-8 bytes. An event over it is blocked as `SEC-00` under the default `SENTINEL_HOOK_ON_CRITICAL=Block` |
+| `SENTINEL_HOOK_MAX_SCAN_BYTES` | `262144` | A positive integer → the scan budget, `SentinelOptions.MaxScanBytes`, in UTF-8 bytes. An event over it is blocked as `SEC-00` under the default `SENTINEL_HOOK_ON_CRITICAL=Block`: a large tool result, and a large tool input too, so a `PreToolUse` for a `Write` of a file over the budget is blocked before the tool runs |
 | `SENTINEL_EMBEDDING_ENDPOINT` | — | Full embeddings URL, e.g. `https://api.openai.com/v1/embeddings` or `http://localhost:11434/v1/embeddings`. Enables semantic detection |
 | `SENTINEL_EMBEDDING_MODEL` | — | Model identifier, e.g. `text-embedding-3-small` or `nomic-embed-text` |
 | `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |

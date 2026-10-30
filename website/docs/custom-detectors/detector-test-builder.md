@@ -40,6 +40,8 @@ public sealed class DetectorTestBuilder
     // Context shaping
     public DetectorTestBuilder WithPrompt(string prompt);
     public DetectorTestBuilder WithContext(Action<SentinelContextBuilder> configure);
+    // SentinelContextBuilder: WithUserMessage, WithAssistantMessage, WithToolMessage, WithMessage, WithSession,
+    // WithSender, WithReceiver, WithHistoryEntry, WithLlmId, WithNewMessagesFrom, WithMaxScanBytes
 
     // Options hook
     public DetectorTestBuilder WithOptions(Action<SentinelOptions> configure);
@@ -125,6 +127,19 @@ new DetectorTestBuilder()
         .WithNewMessagesFrom(2))
     .ExpectClean();
 ```
+
+To test how a detector handles the scan budget, set it with `WithMaxScanBytes`. The context then cuts `NewMessageTexts` and `NewTextContent` to it and reports `ExceedsScanBudget`, as the pipeline's context does with `SentinelOptions.MaxScanBytes`. Here the phrase sits past the cut, so a detector that reads `NewTextContent` does not see it:
+
+```csharp
+new DetectorTestBuilder()
+    .WithDetector<HelloWorldDetector>()
+    .WithContext(b => b
+        .WithUserMessage(new string('x', 100) + " hello")
+        .WithMaxScanBytes(50))
+    .ExpectClean();
+```
+
+The builder runs the detector alone, so it does not add the pipeline's `SEC-00` finding for content over the budget.
 
 ## Configuring options
 

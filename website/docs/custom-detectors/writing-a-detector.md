@@ -42,14 +42,32 @@ public sealed class HelloWorldDetector : IDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        return ctx.TextContent.Contains("hello", StringComparison.OrdinalIgnoreCase)
+        return ctx.NewTextContent.Contains("hello", StringComparison.OrdinalIgnoreCase)
             ? ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Low, "Greeting detected"))
             : ValueTask.FromResult(DetectionResult.Clean(_id));
     }
 }
 ```
 
-`SentinelContext.TextContent` is the detection text of all messages, joined by spaces. A message's detection text is its `ChatMessage.Text` followed by the tool calls and tool results it carries, so a tool call or result in an agent loop is matched too; see [What detectors read](../detectors/overview#what-detectors-read). Use it for full-conversation pattern matching. For per-message access, iterate `ctx.Messages` directly: `ChatMessage.Text` there holds the message's text content only.
+`SentinelContext.NewTextContent` is the detection text of the messages that are new in this scan, joined by spaces and cut to the scan budget; see [New messages and the scan budget](#new-messages-and-the-scan-budget). A message's detection text is its `ChatMessage.Text` followed by the tool calls and tool results it carries, so a tool call or result in an agent loop is matched too; see [What detectors read](../detectors/overview#what-detectors-read).
+
+## New messages and the scan budget
+
+The pipeline hands a detector the whole conversation in `ctx.Messages`, but only part of it is new in the scan: from `ctx.NewMessagesFrom` to the end. On a prompt scan that is the messages after the last assistant message; on a response scan, the generated messages. The messages before it are history, already judged when they were new. A detector that matches content should read the new messages only, or a finding on an early message is reported again on every later turn.
+
+`SentinelContext` gives the new messages already cut to `ctx.MaxScanBytes`, the scan budget, `SentinelOptions.MaxScanBytes` in the pipeline:
+
+| Member | What it holds |
+|---|---|
+| `NewMessageTexts` | The detection text of each new message, one entry per message, cut in message order so all entries together are at most `MaxScanBytes` UTF-8 bytes. A message past the budget is an empty string. |
+| `NewTextContent` | `NewMessageTexts` joined by a single space. The text a rule-based content detector matches. |
+| `NewContentBytes` | The UTF-8 byte total of the new messages' detection text before the cut. |
+| `ExceedsScanBudget` | Whether that total is over `MaxScanBytes`, so part of the new content was not handed to the detectors. |
+| `MaxScanBytes` | The budget, or `null` for no limit. |
+
+Read these rather than `ctx.TextContent`, which joins every message, history included, and is not cut. When the new content is over the budget the pipeline itself reports a `Critical` [`SEC-00`](../detectors/overview#scan-budget-and-sec-00) finding, so a detector need not flag the size. A detector whose check depends on where the text ends, such as an unclosed code fence, should return Clean when `ExceedsScanBudget` is true: the view ends at the cut, not where the message did.
+
+A detector that judges a property of the whole conversation, such as how a reply relates to the question before it, can still read `ctx.Messages`. Cut what it reads to `ctx.MaxScanBytes` too, so a huge message cannot make the scan slow. `ChatMessage.Text` there holds a message's text content only, without its tool calls and results.
 
 ## Detector ID convention
 
@@ -92,7 +110,7 @@ public sealed class MyJailbreakDetector(SentinelOptions options) : SemanticDetec
 
 The base class:
 1. On first scan, embeds every example via `options.EmbeddingGenerator` and caches the vectors.
-2. On every scan, embeds each new message on its own, with placeholders normalised. At most 16 texts are embedded: past that, the oldest are joined into one, so none goes unjudged. The new messages run from `SentinelContext.NewMessagesFrom` to the end; a redaction placeholder such as `[EMAIL_1_k3f9x2]` becomes `[EMAIL]`.
+2. On every scan, embeds each new message on its own, with placeholders normalised. At most 16 texts are embedded: past that, the oldest are joined into one, so none goes unjudged. The new messages run from `SentinelContext.NewMessagesFrom` to the end, and their texts are `SentinelContext.NewMessageTexts`, cut to the scan budget; a redaction placeholder such as `[EMAIL_1_k3f9x2]` becomes `[EMAIL]`.
 3. Computes cosine similarity against each bucket's reference vectors.
 4. For each message, gives `Severity.High` if any High vector is &ge; `HighThreshold` (default `0.90`), `Medium` &ge; `0.82`, `Low` &ge; `0.75`. The most severe message decides; when none reaches a threshold, Clean.
 
@@ -123,7 +141,7 @@ public sealed class TicketNumberDetector : IRedactingDetector
             .ToList();
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
-        ValueTask.FromResult(Pattern.IsMatch(ctx.TextContent)
+        ValueTask.FromResult(Pattern.IsMatch(ctx.NewTextContent)
             ? DetectionResult.WithSeverity(_id, Severity.Low, "Ticket number detected")
             : DetectionResult.Clean(_id));
 }
