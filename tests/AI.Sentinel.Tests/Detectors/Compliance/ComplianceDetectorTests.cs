@@ -210,9 +210,9 @@ public class ComplianceDetectorTests
     }
 
     /// <summary>Guards the labelled set the security spot-check in <c>tools/AI.Sentinel.ComplianceEval</c> reads.
-    /// It has the shape of the compliance file, with <c>expected</c> <c>positive</c> or <c>benign</c>: at least fifteen
+    /// It has the shape of the compliance file, with <c>expected</c> <c>positive</c> or <c>benign</c>: at least twenty
     /// paraphrased positives for each of SEC-01, SEC-05 and SEC-09, five of them <c>heldout</c>, and at least
-    /// thirty-six benign texts with detector <c>-</c>, twelve of them <c>heldout</c>. A positive shares no run of four
+    /// forty-eight benign texts with detector <c>-</c>, twelve of them <c>heldout</c>. A positive shares no run of four
     /// words with its detector's High, Medium or Low examples.</summary>
     [Fact]
     public void SecurityPhraseFile_HasPositivesPerDetectorAndBenigns()
@@ -251,11 +251,11 @@ public class ComplianceDetectorTests
 
         foreach (var id in detectors.Keys)
         {
-            Assert.True(positives.GetValueOrDefault(id) >= 15, $"{id} needs at least 15 paraphrased positives");
+            Assert.True(positives.GetValueOrDefault(id) >= 20, $"{id} needs at least 20 paraphrased positives");
             Assert.True(heldOutPositives.GetValueOrDefault(id) >= 5, $"{id} needs at least 5 heldout positives");
         }
 
-        Assert.True(benign >= 36, $"needs at least 36 benign phrases, found {benign}");
+        Assert.True(benign >= 48, $"needs at least 48 benign phrases, found {benign}");
         Assert.True(heldOutBenign >= 12, $"needs at least 12 heldout benign phrases, found {heldOutBenign}");
     }
 

@@ -20,12 +20,16 @@ internal sealed record Phrase(string Detector, string Text, string Expected, str
     public bool IsHeldOut => string.Equals(Split, "heldout", StringComparison.Ordinal);
 
     /// <summary>The text as a Markdown table cell shows it, marked <c>(new in 3.1)</c> when the phrase was added later.
-    /// A <c>|</c> in the text is escaped as <c>\|</c>, or it would split the cell.</summary>
+    /// A <c>|</c> in the text is escaped as <c>\|</c>, or it would split the cell, and a newline becomes <c>&lt;br&gt;</c>,
+    /// or it would end the row.</summary>
     public string Display
     {
         get
         {
-            var text = Text.Replace("|", "\\|", StringComparison.Ordinal);
+            var text = Text
+                .Replace("|", "\\|", StringComparison.Ordinal)
+                .Replace("\r\n", "<br>", StringComparison.Ordinal)
+                .Replace("\n", "<br>", StringComparison.Ordinal);
             return Added is null ? text : $"{text} (new in {Added})";
         }
     }
