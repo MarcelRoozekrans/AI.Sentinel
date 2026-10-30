@@ -10,13 +10,17 @@ namespace AI.Sentinel.ComplianceEval;
 /// attacks and benign texts. Each phrase is scored against the detector's High, Medium and Low examples with
 /// <see cref="SemanticDetectorBase.MaxSimilarity"/>; the first bucket that reaches its threshold, in that order, gives
 /// the verdict, which the detector's <see cref="IDetector.AnalyzeAsync"/> must confirm. The check reports the numbers
-/// and does not tune: these thresholds are not derived from this set.</summary>
+/// and does not tune: these thresholds are not derived from this set. The rule's thresholds and the review-threshold
+/// columns read fit phrases only, so held-out phrases never inform tuning.</summary>
 /// <param name="failures">Where problems that fail the run go: a detector that disagrees with the tool, or a benign
 /// text in the High bucket.</param>
 internal sealed class SecuritySpotCheck(
     IEmbeddingGenerator<string, Embedding<float>> generator, List<string> failures, CancellationToken ct)
 {
     /// <summary>Evaluates <paramref name="detector"/>: the positives written for it, and every benign text.</summary>
+    /// <param name="detector">The detector to evaluate.</param>
+    /// <param name="phrases">The security phrases plus the everyday prompts, which count as benign texts. Pass fit
+    /// phrases only to keep held-out phrases out of the run.</param>
     /// <returns>The summary row, and the per-phrase table.</returns>
     public async Task<(string SummaryRow, string Table)> EvaluateAsync(SemanticDetectorBase detector, Phrase[] phrases)
     {
@@ -70,15 +74,14 @@ internal sealed class SecuritySpotCheck(
             }
 
             tally.Record(row.IsPositive, bucket, highSimilarity, mediumSimilarity);
+            if (!row.IsHeldOut) tally.RecordFit(row.IsPositive, bucket, highSimilarity, mediumSimilarity, lowSimilarity);
             var lowCell = low.Length == 0 ? "-" : lowSimilarity.ToString("0.000", CultureInfo.InvariantCulture);
             table.AppendLine(CultureInfo.InvariantCulture,
                 $"| {row.Display} | {row.Detector} | {row.Expected} | {highSimilarity:0.000} | {mediumSimilarity:0.000} | {lowCell} | {Label(bucket, actual, row.IsPositive)} |");
         }
 
         table.AppendLine();
-        var summary = string.Create(CultureInfo.InvariantCulture,
-            $"| {id} | {thresholds} | {Evaluator.Format(tally.LowestPositive)} | {tally.HighestBenignHigh:0.000} | {tally.HighestBenignMedium:0.000} | {tally.Positives[0]} / {tally.Positives[1]} / {tally.Positives[2]} / {tally.Positives[3]} | {tally.Benign[0]} / {tally.Benign[1]} / {tally.Benign[2]} |");
-        return (summary, table.ToString());
+        return (tally.SummaryRow(id, thresholds), table.ToString());
     }
 
     /// <summary>The bucket a phrase reaches, in the order the detector checks them. The values index the tallies.</summary>
@@ -136,6 +139,56 @@ internal sealed class SecuritySpotCheck(
         public float LowestPositive { get; private set; } = float.MaxValue;
         public float HighestBenignHigh { get; private set; }
         public float HighestBenignMedium { get; private set; }
+
+        private readonly List<(float High, float Medium, Bucket Bucket)> _fitPositives = [];
+        private readonly List<float> _fitBenignAny = [];
+        private float _fitBenignHigh;
+        private float _fitBenignMedium;
+
+        /// <summary>The lowest, over fit positives, of the highest similarity to any of the three sets: the highest
+        /// <c>ReviewThreshold</c> at which every fit positive is a review candidate.</summary>
+        public float LowestFitAnySet { get; private set; } = float.MaxValue;
+
+        /// <summary>The summary row for <paramref name="id"/>.</summary>
+        public string SummaryRow(string id, string thresholds) => string.Create(CultureInfo.InvariantCulture,
+            $"| {id} | {thresholds} | {Evaluator.Format(LowestPositive)} | {HighestBenignHigh:0.000} | {HighestBenignMedium:0.000} | {Positives[0]} / {Positives[1]} / {Positives[2]} / {Positives[3]} | {Benign[0]} / {Benign[1]} / {Benign[2]} | {FitSuggestion()} | {Evaluator.Format(LowestFitAnySet)} | {FitBenignAtOrAbove()} |");
+
+        /// <summary>Records a fit phrase, for the rule's thresholds and the any-set columns.</summary>
+        public void RecordFit(bool positive, Bucket bucket, float highSimilarity, float mediumSimilarity, float lowSimilarity)
+        {
+            var any = Math.Max(highSimilarity, Math.Max(mediumSimilarity, lowSimilarity));
+            if (positive)
+            {
+                _fitPositives.Add((highSimilarity, mediumSimilarity, bucket));
+                LowestFitAnySet = Math.Min(LowestFitAnySet, any);
+                return;
+            }
+
+            _fitBenignHigh = Math.Max(_fitBenignHigh, highSimilarity);
+            _fitBenignMedium = Math.Max(_fitBenignMedium, mediumSimilarity);
+            _fitBenignAny.Add(any);
+        }
+
+        /// <summary>The thresholds <see cref="ThresholdRule.Suggest"/> gives from fit benign texts, and how the fit
+        /// positives fare under them, as <c>0.57 / 0.49: 3 / 4 / 3</c>.</summary>
+        public string FitSuggestion()
+        {
+            var (high, medium) = ThresholdRule.Suggest(_fitBenignHigh, _fitBenignMedium);
+            int atHigh = 0, atMedium = 0, missed = 0;
+            foreach (var (h, m, _) in _fitPositives)
+            {
+                if (h >= high) atHigh++;
+                else if (m >= medium) atMedium++;
+                else missed++;
+            }
+
+            return string.Create(CultureInfo.InvariantCulture, $"{high:0.00} / {medium:0.00}: {atHigh} / {atMedium} / {missed}");
+        }
+
+        /// <summary>Fit benign texts whose any-set similarity reaches <see cref="LowestFitAnySet"/>.</summary>
+        public string FitBenignAtOrAbove() => LowestFitAnySet == float.MaxValue
+            ? "n/a"
+            : _fitBenignAny.Count(a => a >= LowestFitAnySet).ToString(CultureInfo.InvariantCulture);
 
         public void Record(bool positive, Bucket bucket, float highSimilarity, float mediumSimilarity)
         {

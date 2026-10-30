@@ -256,16 +256,18 @@ internal sealed class ReviewEvaluation(
     /// <param name="scope">The embedding scope the detectors share.</param>
     /// <param name="detectors">The evaluated detectors, all enabled at once.</param>
     /// <param name="texts">Benign texts, each as a user message or, for a tool output, as a tool message.</param>
+    /// <param name="title">The section title, such as <c>Full-pipeline review budget: fit</c>.</param>
     /// <param name="ct">Cancels the pass.</param>
-    /// <returns>The "Full-pipeline review budget" Markdown section.</returns>
+    /// <returns>The <paramref name="title"/> Markdown section.</returns>
     /// <remarks>The reviewer answers no verdict, so no judge is needed and no result changes: this measures candidacy
     /// and the budget only. A benign text that becomes a candidate costs a review in production.</remarks>
     public static async Task<string> FullPipelineAsync(
         EmbeddingScope scope, IReadOnlyList<SemanticDetectorBase> detectors, IReadOnlyList<(string Text, bool Tool)> texts,
-        CancellationToken ct)
+        string title, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(detectors);
         ArgumentNullException.ThrowIfNull(texts);
+        ArgumentNullException.ThrowIfNull(title);
         var configurations = new Dictionary<Type, DetectorConfiguration>();
         foreach (var detector in detectors) configurations[detector.GetType()] = new DetectorConfiguration { Enabled = true };
         var reviewer = new CountingReviewer();
@@ -289,10 +291,10 @@ internal sealed class ReviewEvaluation(
             ? "0%"
             : ((double)reviews.OverBudget / reviews.Candidates).ToString("P0", CultureInfo.InvariantCulture);
         var section = new StringBuilder();
-        section.AppendLine("### Full-pipeline review budget");
+        section.AppendLine(CultureInfo.InvariantCulture, $"### {title}");
         section.AppendLine();
         section.AppendLine(CultureInfo.InvariantCulture,
-            $"All {detectors.Count} detectors above enabled together, capped, with the default budget of {ReviewLimits.Default.MaxPerScan} reviews per scan, over {texts.Count} benign texts: every everyday prompt plus the held-out benign texts. The reviewer answers no verdict, so no key is needed; this measures candidacy and the budget, not detection.");
+            $"All {detectors.Count} detectors above enabled together, capped, with the default budget of {ReviewLimits.Default.MaxPerScan} reviews per scan, over {texts.Count} benign texts. The reviewer answers no verdict, so no key is needed; this measures candidacy and the budget, not detection.");
         section.AppendLine();
         section.AppendLine("| Scans | Scans with a candidate | Candidates per scan | Reviews per scan | Most candidates in one scan | Scans over budget | Share of candidates over budget |");
         section.AppendLine("|---|---|---|---|---|---|---|");

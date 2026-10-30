@@ -3,7 +3,7 @@
 //
 //   dotnet run --project tools/AI.Sentinel.ComplianceEval -- [--model all-MiniLM-L6-v2|bge-base-en-v1.5]
 //       [--model-dir <dir>] [--phrases <compliance-phrases.json>] [--everyday <everyday-prompts.json>]
-//       [--security-phrases <security-phrases.json>] [--judge-model <id>] [--out <results.md>]
+//       [--security-phrases <security-phrases.json>] [--judge-model <id>] [--tuning] [--out <results.md>]
 //
 // Positives are scored against the detector they were written for; near-misses and everyday prompts against all
 // four, because a legitimate request must not trip any of them. Each compliance phrase is scored a second time as
@@ -17,7 +17,11 @@
 // Embeddings are cached by configurations 1 and 2, so the judge's added ms is review latency only, not cold-scan latency.
 // The full-pipeline pass then runs all seven detectors together with the default budget of 4 reviews per scan over
 // the everyday prompts and the held-out benign texts, with a reviewer that answers no verdict, so it needs no key.
-// It reports candidates and reviews per scan and the share of candidates over budget.
+// It reports candidates and reviews per scan and the share of candidates over budget, once over the fit benign texts
+// and once over the held-out ones.
+// With --tuning only fit phrases are scored, the held-out sections are skipped, and the output is safe to tune
+// thresholds from. The security spot-check also scores the everyday prompts as benign tool messages, and its fit
+// columns give the rule's thresholds, the lowest fit positive over any set, and the fit benign texts at or above it.
 using System.Globalization;
 using System.Text;
 using AI.Sentinel;
@@ -45,6 +49,7 @@ var everydayPath = Option(args, "--everyday") ?? Path.Combine(
 var securityPath = Option(args, "--security-phrases") ?? Path.Combine(
     RepositoryRoot(), "tools", "AI.Sentinel.ComplianceEval", "security-phrases.json");
 var outPath = Option(args, "--out");
+var tuning = args.Contains("--tuning", StringComparer.Ordinal);
 var judgeModel = Option(args, "--judge-model") ?? "claude-sonnet-5-5";
 
 var directory = await model.EnsureAsync(Option(args, "--model-dir"), ct).ConfigureAwait(false);
@@ -88,6 +93,12 @@ SemanticDetectorBase[] detectors =
 var everyday = Phrase.Load(everydayPath);
 string[] history = [.. everyday.Take(5).Select(p => p.Text)];
 var compliancePhrases = Phrase.Load(phrasesPath);
+if (tuning)
+{
+    everyday = [.. everyday.Where(p => !p.IsHeldOut)];
+    compliancePhrases = [.. compliancePhrases.Where(p => !p.IsHeldOut)];
+}
+
 Phrase[] phrases = [.. compliancePhrases, .. everyday];
 var summary = new StringBuilder();
 summary.AppendLine("| Detector | High / Medium threshold | Lowest positive, High set | Highest legitimate, High set | Highest legitimate, Medium set | Positives at High / Medium / missed | Legitimate at High / Medium | Rule's thresholds for this model: positives at High / Medium / missed | Multi-message agrees |");
@@ -114,13 +125,15 @@ SemanticDetectorBase[] securityDetectors =
 ];
 var spotCheck = new SecuritySpotCheck(generator, evaluator.Failures, ct);
 var securityPhrases = Phrase.Load(securityPath);
+if (tuning) securityPhrases = [.. securityPhrases.Where(p => !p.IsHeldOut)];
+Phrase[] securityRows = [.. securityPhrases, .. everyday];
 var securitySummary = new StringBuilder();
-securitySummary.AppendLine("| Detector | High / Medium / Low threshold | Lowest positive, High set | Highest benign, High set | Highest benign, Medium set | Positives at High / Medium / Low / missed | Benign at High / Medium / Low |");
-securitySummary.AppendLine("|---|---|---|---|---|---|---|");
+securitySummary.AppendLine("| Detector | High / Medium / Low threshold | Lowest positive, High set | Highest benign, High set | Highest benign, Medium set | Positives at High / Medium / Low / missed | Benign at High / Medium / Low | Rule's thresholds on fit: positives at High / Medium / missed | Lowest fit positive, any set | Fit benign at or above it |");
+securitySummary.AppendLine("|---|---|---|---|---|---|---|---|---|---|");
 var securityTables = new StringBuilder();
 foreach (var detector in securityDetectors)
 {
-    var (row, table) = await spotCheck.EvaluateAsync(detector, securityPhrases).ConfigureAwait(false);
+    var (row, table) = await spotCheck.EvaluateAsync(detector, securityRows).ConfigureAwait(false);
     securitySummary.AppendLine(row);
     securityTables.Append(table);
 }
@@ -137,34 +150,48 @@ using var judgeClient = string.IsNullOrWhiteSpace(apiKey)
     : new OpenAICompatibleChatClient(new Uri("https://api.anthropic.com/v1/chat/completions"), judgeModel, apiKey);
 var scope = EmbeddingScope.Resolve(options, inherited: null)!;
 ReviewEvaluation.SelfCheck();
+ThresholdRule.SelfCheck();
 var judge = judgeClient is null ? null : new LlmJudgeReviewer(judgeClient);
 var reviewEvaluation = new ReviewEvaluation(scope, judge, toolMessages: false, ct);
 var securityReviewEvaluation = new ReviewEvaluation(scope, judge, toolMessages: true, ct);
 
-report.AppendLine(CultureInfo.InvariantCulture, $"## Held-out review: {model.Name}");
-report.AppendLine();
-report.AppendLine("Configurations: 1 is embeddings alone and uncapped, today's behaviour; 2 caps the embedding result at Medium; 3 adds the LLM judge to 2. Only phrases marked `heldout` are scored. Added ms is the wall time of configuration 3 minus that of configuration 2 for the same phrase.");
-report.AppendLine();
-if (judgeClient is null) report.AppendLine("Judge columns skipped: ANTHROPIC_API_KEY not set.");
-else report.AppendLine(CultureInfo.InvariantCulture, $"Judge: `{judgeModel}` through the Anthropic OpenAI-compatible endpoint.");
-report.AppendLine();
-if (phrases.Concat(securityPhrases).All(p => !p.IsHeldOut))
+if (tuning)
 {
-    report.AppendLine("No held-out phrases yet: every phrase is `fit`, so the tables below are empty.");
+    report.AppendLine("Tuning mode: held-out phrases are not scored.");
     report.AppendLine();
 }
+else
+{
+    report.AppendLine(CultureInfo.InvariantCulture, $"## Held-out review: {model.Name}");
+    report.AppendLine();
+    report.AppendLine("Configurations: 1 is embeddings alone and uncapped, today's behaviour; 2 caps the embedding result at Medium; 3 adds the LLM judge to 2. Only phrases marked `heldout` are scored. Added ms is the wall time of configuration 3 minus that of configuration 2 for the same phrase.");
+    report.AppendLine();
+    if (judgeClient is null) report.AppendLine("Judge columns skipped: ANTHROPIC_API_KEY not set.");
+    else report.AppendLine(CultureInfo.InvariantCulture, $"Judge: `{judgeModel}` through the Anthropic OpenAI-compatible endpoint.");
+    report.AppendLine();
+    if (phrases.Concat(securityPhrases).All(p => !p.IsHeldOut))
+    {
+        report.AppendLine("No held-out phrases yet: every phrase is `fit`, so the tables below are empty.");
+        report.AppendLine();
+    }
 
-foreach (var detector in detectors) report.Append(await reviewEvaluation.EvaluateAsync(detector, phrases).ConfigureAwait(false));
-foreach (var detector in securityDetectors) report.Append(await securityReviewEvaluation.EvaluateAsync(detector, securityPhrases).ConfigureAwait(false));
+    foreach (var detector in detectors) report.Append(await reviewEvaluation.EvaluateAsync(detector, phrases).ConfigureAwait(false));
+    foreach (var detector in securityDetectors) report.Append(await securityReviewEvaluation.EvaluateAsync(detector, securityPhrases).ConfigureAwait(false));
+}
 
 // Benign texts keep the role they are scored with above: compliance texts as user messages, security texts as tool output.
-(string Text, bool Tool)[] budgetTexts =
+SemanticDetectorBase[] allDetectors = [.. detectors, .. securityDetectors];
+(string Text, bool Tool)[] BudgetTexts(bool heldOut) =>
 [
-    .. everyday.Select(p => (p.Text, false)),
-    .. compliancePhrases.Where(p => !p.IsPositive && p.IsHeldOut).Select(p => (p.Text, false)),
-    .. securityPhrases.Where(p => !p.IsPositive && p.IsHeldOut).Select(p => (p.Text, true)),
+    .. everyday.Where(p => p.IsHeldOut == heldOut).Select(p => (p.Text, false)),
+    .. compliancePhrases.Where(p => !p.IsPositive && p.IsHeldOut == heldOut).Select(p => (p.Text, false)),
+    .. securityPhrases.Where(p => !p.IsPositive && p.IsHeldOut == heldOut).Select(p => (p.Text, true)),
 ];
-report.Append(await ReviewEvaluation.FullPipelineAsync(scope, [.. detectors, .. securityDetectors], budgetTexts, ct).ConfigureAwait(false));
+report.Append(await ReviewEvaluation.FullPipelineAsync(scope, allDetectors, BudgetTexts(heldOut: false), "Full-pipeline review budget: fit", ct).ConfigureAwait(false));
+if (!tuning)
+{
+    report.Append(await ReviewEvaluation.FullPipelineAsync(scope, allDetectors, BudgetTexts(heldOut: true), "Full-pipeline review budget: held-out", ct).ConfigureAwait(false));
+}
 
 var judgeFailures = reviewEvaluation.JudgeFailures + securityReviewEvaluation.JudgeFailures;
 if (judgeFailures > 0)
