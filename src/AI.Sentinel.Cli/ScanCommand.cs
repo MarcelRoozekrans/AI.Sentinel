@@ -2,6 +2,7 @@ using System.CommandLine;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Embeddings;
+using AI.Sentinel.Review;
 
 namespace AI.Sentinel.Cli;
 
@@ -85,7 +86,8 @@ public static class ScanCommand
         Severity? minSeverity = null,
         string? baselinePath = null,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
-        bool enableComplianceDetectors = false)
+        bool enableComplianceDetectors = false,
+        IDetectionReviewer? reviewer = null)
     {
         ArgumentNullException.ThrowIfNull(stdout);
         ArgumentNullException.ThrowIfNull(stderr);
@@ -96,20 +98,23 @@ public static class ScanCommand
             var replayResponses = conversation.Turns.Select(t => t.Response).ToArray();
             var replayClient = new SentinelReplayClient(replayResponses);
 
-            using var embeddings = await ResolveEmbeddingsAsync(embeddingGenerator, stderr).ConfigureAwait(false);
+            var environment = ReadEnvironment();
+            using var embeddings = await ResolveEmbeddingsAsync(embeddingGenerator, environment, stderr).ConfigureAwait(false);
+            using var review = await ResolveReviewAsync(reviewer, environment, stderr).ConfigureAwait(false);
 
             var (provider, pipeline) = ForensicsPipelineFactory.Build(
                 replayClient, embeddingGenerator ?? embeddings?.Generator, embeddings?.ExampleCache,
                 message => stderr.WriteLine(message),
-                enableComplianceDetectors || ComplianceFromEnvironment());
+                enableComplianceDetectors || ComplianceFromEnvironment(),
+                reviewer ?? review?.Reviewer, review?.MaxReviewsPerScan, review?.ReviewTimeout);
             await using var _ = provider.ConfigureAwait(false);
 
             // No logging provider is registered here, so the library's ILogger warning reaches nobody.
             // Without this, a scan of a conversation containing a textbook injection reports Clean and
             // gives no hint that the detectors for it never ran (#170).
-            if (!SuppressSemanticWarning() && provider.DescribeInertSemanticDetection() is { } semanticWarning)
+            if (!SuppressSemanticWarning())
             {
-                await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
+                await WriteSemanticWarningsAsync(provider, stderr).ConfigureAwait(false);
             }
 
             var result = await ReplayRunner.RunAsync(file, conversation, pipeline, ct).ConfigureAwait(false);
@@ -147,11 +152,11 @@ public static class ScanCommand
     /// <summary>A caller-supplied generator wins; otherwise read SENTINEL_EMBEDDING_* so a scan can
     /// use semantic detection instead of silently reporting Clean for what it cannot see.</summary>
     private static async Task<SentinelEmbeddingSetup?> ResolveEmbeddingsAsync(
-        IEmbeddingGenerator<string, Embedding<float>>? supplied, TextWriter stderr)
+        IEmbeddingGenerator<string, Embedding<float>>? supplied, IReadOnlyDictionary<string, string?> environment, TextWriter stderr)
     {
         if (supplied is not null) return null;
 
-        var setup = SentinelEmbeddingSetup.TryCreateFromEnvironment(ReadEmbeddingEnvironment(), out var error);
+        var setup = SentinelEmbeddingSetup.TryCreateFromEnvironment(environment, out var error);
         if (error is not null)
         {
             await stderr.WriteLineAsync(error).ConfigureAwait(false);
@@ -160,13 +165,45 @@ public static class ScanCommand
         return setup;
     }
 
-    /// <summary>Embedding settings, read directly because they carry no host-specific prefix.</summary>
-    private static Dictionary<string, string?> ReadEmbeddingEnvironment()
+    /// <summary>The inert warning when no generator is configured, and the unreviewed one when semantic detections
+    /// are capped at Medium with no reviewer to lift the cap.</summary>
+    private static async Task WriteSemanticWarningsAsync(IServiceProvider provider, TextWriter stderr)
+    {
+        if (provider.DescribeInertSemanticDetection() is { } inertWarning)
+        {
+            await stderr.WriteLineAsync(inertWarning).ConfigureAwait(false);
+        }
+
+        if (provider.DescribeUnreviewedSemanticDetection() is { } unreviewedWarning)
+        {
+            await stderr.WriteLineAsync(unreviewedWarning).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>A caller-supplied reviewer wins; otherwise read SENTINEL_REVIEW_*. Without a reviewer a semantic
+    /// detection is capped at Medium, so a scan cannot report it as High. A bad setting is reported by name.</summary>
+    private static async Task<SentinelReviewSetup?> ResolveReviewAsync(
+        IDetectionReviewer? supplied, IReadOnlyDictionary<string, string?> environment, TextWriter stderr)
+    {
+        if (supplied is not null) return null;
+
+        var setup = SentinelReviewSetup.TryCreateFromEnvironment(environment, out var error);
+        if (error is not null)
+        {
+            await stderr.WriteLineAsync(error).ConfigureAwait(false);
+        }
+
+        return setup;
+    }
+
+    /// <summary>Embedding and review settings, read directly because they carry no host-specific prefix.</summary>
+    private static Dictionary<string, string?> ReadEnvironment()
     {
         var env = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            if (entry.Key is string key && key.StartsWith("SENTINEL_EMBEDDING_", StringComparison.Ordinal))
+            if (entry.Key is string key && (key.StartsWith("SENTINEL_EMBEDDING_", StringComparison.Ordinal)
+                || key.StartsWith("SENTINEL_REVIEW_", StringComparison.Ordinal)))
             {
                 env[key] = entry.Value as string;
             }

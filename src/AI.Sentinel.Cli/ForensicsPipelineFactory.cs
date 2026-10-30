@@ -17,13 +17,19 @@ public static class ForensicsPipelineFactory
 {
     /// <summary>Builds a service provider + pipeline wired for forensics replay using the supplied inner chat client.</summary>
     /// <param name="enableComplianceDetectors">Runs the opt-in Art. 5 compliance detectors, CMP-01 to CMP-04.</param>
+    /// <param name="reviewer">Second-stage reviewer. Without one a semantic detection is capped at Medium.</param>
+    /// <param name="maxReviewsPerScan">Reviews per scan; the library default when <see langword="null"/>.</param>
+    /// <param name="reviewTimeout">Per-review timeout; the library default of 5 s when <see langword="null"/>.</param>
     /// <returns>The provider (for disposal) and the pipeline.</returns>
     public static (ServiceProvider Provider, SentinelPipeline Pipeline) Build(
         IChatClient innerClient,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
         IEmbeddingCache? exampleEmbeddingCache = null,
         Action<string>? detectorFailureSink = null,
-        bool enableComplianceDetectors = false)
+        bool enableComplianceDetectors = false,
+        IDetectionReviewer? reviewer = null,
+        int? maxReviewsPerScan = null,
+        TimeSpan? reviewTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(innerClient);
 
@@ -37,6 +43,9 @@ public static class ForensicsPipelineFactory
             opts.EmbeddingGenerator = embeddingGenerator;
             opts.ExampleEmbeddingCache = exampleEmbeddingCache;
             opts.OnDetectorFailure = detectorFailureSink;
+            opts.Reviewer = reviewer;
+            if (maxReviewsPerScan is { } max) opts.MaxReviewsPerScan = max;
+            if (reviewTimeout is { } timeout) opts.ReviewTimeout = timeout;
             // The Art. 5 compliance detectors are opt-in, so a scan runs them only when asked to.
             if (enableComplianceDetectors)
                 opts.EnableComplianceDetectors();

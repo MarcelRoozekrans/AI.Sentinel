@@ -65,6 +65,11 @@ Both Claude Code and Copilot share the same env-var contract:
 | `SENTINEL_EMBEDDING_API_KEY` | — | Bearer token. Omit for local servers that need none |
 | `SENTINEL_EMBEDDING_DIMENSIONS` | — | Vector length, when the model allows a choice |
 | `SENTINEL_EMBEDDING_CACHE_DIR` | per-user cache dir | Where reference vectors are cached. Must not be world-writable — see below |
+| `SENTINEL_REVIEW_ENDPOINT` | — | Full chat completions URL of the second-stage reviewer, e.g. `https://api.openai.com/v1/chat/completions` or `http://localhost:11434/v1/chat/completions`. Without a reviewer, semantic detections are capped at Medium and only warn |
+| `SENTINEL_REVIEW_MODEL` | — | Model identifier of the reviewer. Required with the endpoint |
+| `SENTINEL_REVIEW_API_KEY` | — | Bearer token. Omit for local servers that need none |
+| `SENTINEL_REVIEW_MAX_PER_SCAN` | `4` | Reviews per scan. `0` turns the review off |
+| `SENTINEL_REVIEW_TIMEOUT_MS` | `3000` | Per-review timeout in milliseconds. The hooks default to 3 s because they run on your critical path |
 
 ### Detectors
 

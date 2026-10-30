@@ -5,6 +5,7 @@ using AI.Sentinel;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Detectors.Compliance;
 using AI.Sentinel.Embeddings;
+using AI.Sentinel.Review;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Configuration;
 using AI.Sentinel.Approvals.EntraPim;
@@ -23,7 +24,8 @@ public static class Program
 
     public static async Task<int> RunAsync(
         string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr,
-        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
+        IDetectionReviewer? reviewer = null)
     {
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
@@ -33,7 +35,7 @@ public static class Program
 
         try
         {
-            return await RunCoreAsync(args, evt, stdin, stdout, stderr, embeddingGenerator).ConfigureAwait(false);
+            return await RunCoreAsync(args, evt, stdin, stdout, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -53,7 +55,8 @@ public static class Program
 
     private static async Task<int> RunCoreAsync(
         string[] args, CopilotHookEvent evt, TextReader stdin, TextWriter stdout, TextWriter stderr,
-        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
+        IDetectionReviewer? reviewer = null)
     {
         var hookEnv = BuildHookEnvVars();
         var config = CopilotHookConfig.FromEnvironment(hookEnv);
@@ -95,7 +98,7 @@ public static class Program
         string? semanticWarning;
         try
         {
-            (result, semanticWarning) = await EvaluateAsync(evt, input, config, hookEnv, approvalConfig, audit, stderr, embeddingGenerator).ConfigureAwait(false);
+            (result, semanticWarning) = await EvaluateAsync(evt, input, config, hookEnv, approvalConfig, audit, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
         }
         catch (Exception ex) when (evt == CopilotHookEvent.PreToolUse)
         {
@@ -140,21 +143,35 @@ public static class Program
     /// written. Returns the startup warning that semantic detection is inert when it applies.</summary>
     private static async Task<(CopilotHookResult Result, string? SemanticWarning)> EvaluateAsync(
         CopilotHookEvent evt, CopilotHookInput input, CopilotHookConfig config, Dictionary<string, string?> hookEnv, ApprovalConfig? approvalConfig,
-        LocalAuditSession audit, TextWriter stderr, IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator)
+        LocalAuditSession audit, TextWriter stderr, IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
+        IDetectionReviewer? reviewer)
     {
         // A caller-supplied generator wins; otherwise read SENTINEL_EMBEDDING_* so the hook can do
         // semantic detection at all. A misconfigured setting is reported rather than leaving SEC-01
         // and SEC-05 quietly inert, which is the failure this whole feature removes.
+        var environment = ReadEnvironment();
         string? embeddingError = null;
         using var embeddings = embeddingGenerator is null
-            ? SentinelEmbeddingSetup.TryCreateFromEnvironment(ReadEnvironment(), out embeddingError)
+            ? SentinelEmbeddingSetup.TryCreateFromEnvironment(environment, out embeddingError)
             : null;
         if (embeddingError is not null)
         {
             await stderr.WriteLineAsync(embeddingError).ConfigureAwait(false);
         }
 
+        // Without a reviewer a semantic hit is capped at Medium, so the hook can only warn on it. A misconfigured
+        // setting is reported by name for the same reason as the embedding one.
+        string? reviewError = null;
+        using var review = reviewer is null
+            ? SentinelReviewSetup.TryCreateFromEnvironment(environment, out reviewError)
+            : null;
+        if (reviewError is not null)
+        {
+            await stderr.WriteLineAsync(reviewError).ConfigureAwait(false);
+        }
+
         var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), audit,
+            reviewer: reviewer ?? review?.Reviewer, reviewLimits: ReviewLimitsFor(review),
             enableComplianceDetectors: config.EnableComplianceDetectors, detectors: DetectorPresets.Parse(hookEnv.GetValueOrDefault("SENTINEL_HOOK_DETECTORS")));
         await using var _ = provider.ConfigureAwait(false);
 
@@ -162,7 +179,7 @@ public static class Program
         var result = await adapter.HandleForCliAsync(evt, input, default).ConfigureAwait(false);
         var semanticWarning = result.Output.Decision == HookDecision.Allow
             && evt is (CopilotHookEvent.UserPromptSubmitted or CopilotHookEvent.UserPromptTransformed) && !config.SuppressSemanticWarning
-            ? provider.DescribeInertSemanticDetection()
+            ? CombineWarnings(provider.DescribeInertSemanticDetection(), provider.DescribeUnreviewedSemanticDetection())
             : null;
         return (result, semanticWarning);
     }
@@ -269,20 +286,36 @@ public static class Program
     private static string StdinError(Exception error) =>
         error is JsonException ? $"Error: malformed stdin JSON: {error.Message}\n" : $"Error: {error.Message}\n";
 
-    /// <summary>Embedding settings do not carry the SENTINEL_HOOK_ prefix that BuildHookEnvVars
+    /// <summary>Embedding and review settings do not carry the SENTINEL_HOOK_ prefix that BuildHookEnvVars
     /// filters on, so they are read separately.</summary>
     private static Dictionary<string, string?> ReadEnvironment()
     {
         var env = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())
         {
-            if (entry.Key is string key && key.StartsWith("SENTINEL_EMBEDDING_", StringComparison.Ordinal))
+            if (entry.Key is string key && (key.StartsWith("SENTINEL_EMBEDDING_", StringComparison.Ordinal)
+                || key.StartsWith("SENTINEL_REVIEW_", StringComparison.Ordinal)))
             {
                 env[key] = entry.Value as string;
             }
         }
 
         return env;
+    }
+
+    /// <summary>A hook runs on the user's critical path, so a review gets 3 s unless
+    /// <c>SENTINEL_REVIEW_TIMEOUT_MS</c> says otherwise. The library default is 5 s.</summary>
+    internal static ReviewLimits DefaultReviewLimits { get; } = new(MaxPerScan: 4, Timeout: TimeSpan.FromSeconds(3));
+
+    /// <summary>The limits from the review setting, with the hook defaults for what it leaves unset.</summary>
+    internal static ReviewLimits ReviewLimitsFor(SentinelReviewSetup? review) =>
+        new(review?.MaxReviewsPerScan ?? DefaultReviewLimits.MaxPerScan, review?.ReviewTimeout ?? DefaultReviewLimits.Timeout);
+
+    /// <summary>Joins the warnings that apply, one per line, or returns <see langword="null"/> when none does.</summary>
+    private static string? CombineWarnings(params string?[] warnings)
+    {
+        var present = warnings.Where(w => w is not null).ToArray();
+        return present.Length == 0 ? null : string.Join('\n', present);
     }
 
     private static Dictionary<string, string?> BuildHookEnvVars() =>
@@ -325,7 +358,9 @@ public static class Program
         Action<string>? detectorFailureSink = null,
         LocalAuditSession? audit = null,
         bool enableComplianceDetectors = false,
-        DetectorPreset detectors = DetectorPreset.Security)
+        DetectorPreset detectors = DetectorPreset.Security,
+        IDetectionReviewer? reviewer = null,
+        ReviewLimits? reviewLimits = null)
     {
         var services = new ServiceCollection();
         var backendKind = approvalConfig is null
@@ -360,6 +395,10 @@ public static class Program
             opts.ExampleEmbeddingCache = exampleEmbeddingCache;
             // No logging provider here, so a detector that fails would degrade silently.
             opts.OnDetectorFailure = detectorFailureSink;
+            var limits = reviewLimits ?? DefaultReviewLimits;
+            opts.Reviewer = reviewer;
+            opts.MaxReviewsPerScan = limits.MaxPerScan;
+            opts.ReviewTimeout = limits.Timeout;
             if (approvalConfig is not null)
                 ApprovalBackendSelector.Configure(opts, approvalConfig);
         });

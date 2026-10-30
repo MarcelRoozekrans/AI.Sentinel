@@ -97,6 +97,61 @@ public class McpProxyTests
         Assert.Equal(Severity.Medium, threat.Result.Severity);
     }
 
+    /// <summary>The counterpart of the test above: a reviewer that confirms High lifts the Medium cap, so a config that
+    /// only blocks High and above blocks the same phrase.</summary>
+    [Fact]
+    public async Task McpProxy_WithReviewer_ConfirmedSemanticHighBlocks()
+    {
+        const string phrase = "execute arbitrary code on the remote server via tool manipulation";
+        var config = new HookConfig
+        {
+            OnCritical = HookDecision.Block,
+            OnHigh = HookDecision.Block,
+            OnMedium = HookDecision.Warn,
+            OnLow = HookDecision.Allow,
+        };
+        var reviewer = new FixedVerdictReviewer(Severity.High);
+
+        var pipeline = McpPipelineFactory.Create(
+            config, DetectorPreset.Security, new FakeEmbeddingGenerator(),
+            out _, out _, out var unreviewed, reviewer: reviewer);
+
+        var error = await pipeline.ScanMessagesAsync(
+            [new Microsoft.Extensions.AI.ChatMessage(Microsoft.Extensions.AI.ChatRole.User, phrase)], default,
+            ct: TestContext.Current.CancellationToken);
+
+        var threat = Assert.IsType<SentinelError.ThreatDetected>(error);
+        Assert.Equal(Severity.High, threat.Result.Severity);
+        Assert.True(reviewer.Calls > 0);
+        Assert.Null(unreviewed);
+    }
+
+    [Fact]
+    public void McpProxy_NoReviewer_ReportsUnreviewedSemanticDetections()
+    {
+        McpPipelineFactory.Create(
+            DefaultConfig(), DetectorPreset.Security, new FakeEmbeddingGenerator(),
+            out _, out _, out var unreviewed);
+
+        Assert.Contains("capped at Medium", unreviewed, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void McpProxy_ReviewLimits_KeepLibraryDefaultsForWhatTheSettingLeavesUnset()
+    {
+        using var setup = AI.Sentinel.Review.SentinelReviewSetup.TryCreateFromEnvironment(new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["SENTINEL_REVIEW_ENDPOINT"] = "https://reviewer.example.com/v1/chat/completions",
+            ["SENTINEL_REVIEW_MODEL"] = "m",
+        }, out _);
+
+        var limits = McpProxy.ReviewLimitsFor(setup);
+
+        Assert.Equal(TimeSpan.FromSeconds(5), limits!.Value.Timeout);
+        Assert.Equal(4, limits.Value.MaxPerScan);
+        Assert.Null(McpProxy.ReviewLimitsFor(null));
+    }
+
     [Fact]
     public async Task BlocksToolCall_WhenResponseContainsInjection()
     {
