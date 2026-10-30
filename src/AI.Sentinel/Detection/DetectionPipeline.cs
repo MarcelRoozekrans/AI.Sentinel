@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Text.RegularExpressions;
 using AI.Sentinel.Domain;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -183,7 +184,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         DetectionResult.WithSeverity(ScanLimitId, Severity.Critical,
             $"New content is {ctx.NewContentBytes} bytes; only the first {ctx.MaxScanBytes} were scanned. Raise SentinelOptions.MaxScanBytes to scan more.");
 
-    /// <summary>Runs one detector, degrading a failure to Clean.</summary>
+    /// <summary>Runs one detector, degrading a failure to Clean, except a regex timeout, which is Critical.</summary>
     /// <remarks>
     /// A detector that reaches the network — any SemanticDetectorBase once an embedding endpoint is
     /// configured — can throw for reasons that have nothing to do with the content: the endpoint is
@@ -192,6 +193,11 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// prompt would proceed unscanned by <em>every</em> detector, including the rule-based ones that never
     /// needed the network; on PreToolUse it blocks every tool call. One control being unavailable must not
     /// disable the rest, nor stop all work.
+    /// <para>
+    /// A <see cref="RegexMatchTimeoutException"/> is the exception to degrading: the content can provoke it, so
+    /// passing it would let text through that no detector could judge. It becomes a Critical finding, which
+    /// <c>SeverityCap</c> and <c>SeverityFloor</c> still apply to, but the semantic cap and review do not.
+    /// </para>
     /// <para>
     /// A semantic detector gets this pipeline's configuration with the call, so its threshold overrides
     /// apply here and not in another named pipeline that shares the same detector instance. Its outcome, the result
@@ -230,6 +236,16 @@ public sealed class DetectionPipeline : IDetectionPipeline
             // The caller asked to stop; that is not a detector fault. On a live token it is one, such as an
             // HttpClient timeout, and is reported below.
             throw;
+        }
+        catch (RegexMatchTimeoutException ex)
+        {
+            // Content can provoke this, unlike the faults below, so a pass would let text through that no one
+            // could judge. outcomes[index] stays null: the semantic cap and review leave this result alone.
+            var message = $"AI.Sentinel: detector {detector.Id.Value} timed out and was flagged Critical for this scan.";
+            _logger?.LogWarning(ex, "AI.Sentinel: detector {DetectorId} timed out and was flagged Critical for this scan.", detector.Id.Value);
+            _onDetectorFailure?.Invoke(message);
+            return DetectionResult.WithSeverity(detector.Id, Severity.Critical,
+                $"Regex timed out after {ex.MatchTimeout.TotalMilliseconds:0} ms; content could not be judged.");
         }
         catch (Exception ex)
         {
