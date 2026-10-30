@@ -445,10 +445,15 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         Assert.Contains("modifiedResult", stdout.ToString(), StringComparison.Ordinal);
     }
 
+    /// <summary>A reply this slow is past every review timeout under test by at least three times.</summary>
+    private static readonly TimeSpan SlowReply = TimeSpan.FromSeconds(10);
+
+    /// <summary>With no SENTINEL_REVIEW_TIMEOUT_MS a reply after 10 s never counts. The exact value is pinned by
+    /// <see cref="CopilotHook_ReviewTimeoutDefaultsTo3s"/>.</summary>
     [Fact]
     public async Task CopilotEnvironmentReviewer_WithoutATimeoutSetting_GetsTheHookDefaultOf3s()
     {
-        using var server = new ReviewStubServer("High", TimeSpan.FromSeconds(4));
+        using var server = new ReviewStubServer("High", SlowReply);
         using var _ = EnvironmentScope.Review(server);
         var stdout = new StringWriter();
 
@@ -460,7 +465,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
     [Fact]
     public async Task CopilotEnvironmentReviewer_TimeoutFromTheEnvironment_IsApplied()
     {
-        using var server = new ReviewStubServer("High", TimeSpan.FromSeconds(2));
+        using var server = new ReviewStubServer("High", SlowReply);
         using var _ = EnvironmentScope.Review(server, timeoutMs: "200");
         var stdout = new StringWriter();
 
@@ -478,6 +483,37 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         await Program.RunAsync(["post-tool-use"], PostToolUseInjection(), new StringWriter(), new StringWriter(), new FakeEmbeddingGenerator());
 
         Assert.Equal(0, server.Requests);
+    }
+
+    [Fact]
+    public async Task CopilotSuppliedReviewer_WithoutAnEnvironmentSetting_GetsTheHookDefaultOf3s()
+    {
+        var reviewer = new TimeoutRecordingReviewer();
+        var stdout = new StringWriter();
+
+        await Program.RunAsync(["post-tool-use"], PostToolUseInjection(), stdout, new StringWriter(), new FakeEmbeddingGenerator(), reviewer);
+
+        // Four semantic detectors flag the text; the hook cap of 4 reviews lets all of them ask, and none answers.
+        Assert.Equal(4, reviewer.Calls);
+        Assert.DoesNotContain("modifiedResult", stdout.ToString(), StringComparison.Ordinal);
+        // A timer never fires early, so 2.5 s or more means the timeout is not shorter than about 3 s.
+        Assert.True(await reviewer.ElapsedUntilCancelledAsync() >= TimeSpan.FromSeconds(2.5));
+    }
+
+    /// <summary>SENTINEL_REVIEW_MAX_PER_SCAN=0 turns the review off, so the hook warns that detections are unreviewed,
+    /// as it does with no reviewer.</summary>
+    [Fact]
+    public async Task CopilotEnvironmentReviewer_WithMaxPerScanZero_TheUnreviewedWarningFires()
+    {
+        using var server = new ReviewStubServer("High");
+        using var _ = EnvironmentScope.Review(server, maxPerScan: "0");
+        var stderr = new StringWriter();
+
+        await Program.RunAsync(["user-prompt-submitted"], new StringReader("""{"sessionId":"s","prompt":"hello"}"""),
+            new StringWriter(), stderr, new FakeEmbeddingGenerator());
+
+        Assert.Equal(0, server.Requests);
+        Assert.Contains("capped at Medium", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

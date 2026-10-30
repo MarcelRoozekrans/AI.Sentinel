@@ -223,7 +223,8 @@ public class McpProxyTests
     [Fact]
     public async Task RunWithSessionAsync_EnvironmentTimeout_IsApplied()
     {
-        using var server = new ReviewStubServer("High", TimeSpan.FromSeconds(2));
+        // A reply after 10 s is fifty times the 200 ms timeout, so only a timeout that was not applied can wait for it.
+        using var server = new ReviewStubServer("High", TimeSpan.FromSeconds(10));
         using var _ = EnvironmentScope.Review(server, timeoutMs: "200");
         await using var h = await StartHarnessAsync(config: BlockHighOnly());
 
@@ -235,10 +236,27 @@ public class McpProxyTests
     [Fact]
     public async Task RunWithSessionAsync_SuppliedReviewer_GetsTheLibraryDefaultOf5s()
     {
-        var reviewer = new FixedVerdictReviewer(Severity.High, delay: TimeSpan.FromSeconds(4));
+        var reviewer = new TimeoutRecordingReviewer();
         await using var h = await StartHarnessAsync(config: BlockHighOnly(), reviewer: reviewer);
 
-        Assert.True(await ToolResultIsBlockedAsync(h));
+        Assert.False(await ToolResultIsBlockedAsync(h));
+        // A timer never fires early, so 4 s or more rules out the hooks' 3 s; a late timer only makes it longer.
+        Assert.True(await reviewer.ElapsedUntilCancelledAsync() >= TimeSpan.FromSeconds(4));
+    }
+
+    /// <summary>SENTINEL_REVIEW_MAX_PER_SCAN=0 turns the review off, so the proxy reports the detections as unreviewed,
+    /// as it does with no reviewer, and never asks the endpoint.</summary>
+    [Fact]
+    public async Task RunWithSessionAsync_EnvironmentMaxPerScanZero_WritesTheUnreviewedEvent()
+    {
+        using var server = new ReviewStubServer("High");
+        using var _ = EnvironmentScope.Review(server, maxPerScan: "0");
+        var stderr = new StringWriter();
+        await using var h = await StartHarnessAsync(config: BlockHighOnly(), stderr: stderr);
+
+        Assert.False(await ToolResultIsBlockedAsync(h));
+        Assert.Equal(0, server.Requests);
+        Assert.Contains("semantic_detection_unreviewed", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

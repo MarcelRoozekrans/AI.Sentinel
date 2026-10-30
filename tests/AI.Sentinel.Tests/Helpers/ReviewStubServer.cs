@@ -8,7 +8,7 @@ namespace AI.Sentinel.Tests.Helpers;
 /// optionally after a delay, and counts the requests. It lets a host test take the SENTINEL_REVIEW_* route end to end.</summary>
 public sealed class ReviewStubServer : IDisposable
 {
-    private readonly HttpListener _listener = new();
+    private readonly HttpListener _listener;
     private readonly CancellationTokenSource _stop = new();
     private readonly TimeSpan _delay;
     private readonly string _body;
@@ -20,15 +20,37 @@ public sealed class ReviewStubServer : IDisposable
         var content = $"{{\"severity\":\"{severity}\",\"reason\":\"stub\"}}".Replace("\"", "\\\"", StringComparison.Ordinal);
         _body = $"{{\"choices\":[{{\"index\":0,\"message\":{{\"role\":\"assistant\",\"content\":\"{content}\"}}}}]}}";
 
-        var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-
+        (_listener, var port) = StartListener();
         Endpoint = $"http://127.0.0.1:{port}/v1/chat/completions";
-        _listener.Prefixes.Add($"http://127.0.0.1:{port}/");
-        _listener.Start();
         _ = Task.Run(ServeAsync);
+    }
+
+    /// <summary>How often a bind is tried, each time on a fresh port.</summary>
+    private const int BindAttempts = 5;
+
+    /// <summary>Starts a listener on a free loopback port. The port is found by binding port 0 and releasing it, so
+    /// another process can take it before the listener binds; a failed bind is retried on a fresh port.</summary>
+    private static (HttpListener Listener, int Port) StartListener()
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var probe = new TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+
+            var listener = new HttpListener();
+            listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+            try
+            {
+                listener.Start();
+                return (listener, port);
+            }
+            catch (HttpListenerException) when (attempt < BindAttempts)
+            {
+                listener.Close();
+            }
+        }
     }
 
     /// <summary>The value for SENTINEL_REVIEW_ENDPOINT.</summary>

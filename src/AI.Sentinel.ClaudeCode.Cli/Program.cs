@@ -97,7 +97,8 @@ public static class Program
         string? semanticWarning;
         try
         {
-            (output, semanticWarning) = await EvaluateAsync(evt, input, config, hookEnv, approvalConfig, audit, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
+            (output, semanticWarning) = await EvaluateAsync(
+                evt, input, config, hookEnv, approvalConfig, audit, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
         }
         catch (Exception ex) when (evt == HookEvent.PreToolUse)
         {
@@ -139,7 +140,8 @@ public static class Program
 
     /// <summary>Scans the input and takes the decision. The provider and the embedding generator are disposed
     /// before this returns, so a failure while disposing them is still an internal error, before any output is
-    /// written. Returns the startup warning on Allow of a prompt: that semantic detection is inert, or that its detections are capped because nothing reviews them.</summary>
+    /// written. Returns the startup warning on Allow of a prompt: that semantic detection is inert, or that its
+    /// detections are capped because nothing reviews them.</summary>
     private static async Task<(HookOutput Output, string? SemanticWarning)> EvaluateAsync(
         HookEvent evt, HookInput input, HookConfig config, Dictionary<string, string?> hookEnv, ApprovalConfig? approvalConfig,
         LocalAuditSession audit, TextWriter stderr, IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
