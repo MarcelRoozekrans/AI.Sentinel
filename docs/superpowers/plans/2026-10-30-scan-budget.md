@@ -91,7 +91,7 @@
 - [ ] **Step 1: Write the failing tests** in `ScanBudgetPipelineTests`, using the pipeline the way `SentinelPipelineNewMessagesTests` does:
   - `Oversize_AddsCriticalSec00`: `MaxScanBytes = 100` and a 200-byte user message give a detection with id `SEC-00` and `Severity.Critical`, and the result is `ThreatDetected` with Quarantine.
   - `AtBudget_NoSec00`: exactly 100 bytes, so the scan is clean.
-  - `Oversize_HeadStillScanned`: a credential in the first 100 bytes of a 200-byte message reports both `SEC-02`, or whatever `CredentialExposureDetector`'s id is, and `SEC-00`. This test depends on Task 4. Write it now with `Skip = "Task 4"` and un-skip it in Task 4.
+  - `Oversize_HeadStillScanned`: a credential in the first 100 bytes of a 200-byte message reports both `SEC-02`, or whatever `CredentialExposureDetector`'s id is, and `SEC-00`.
   - `Oversize_NotAffectedByActionOverridesOrCap`: setting `SeverityCap = Low` on every detector leaves `SEC-00` Critical.
   - `OnCriticalLog_Sec00IsLoggedNotBlocked`: `OnCritical = Log` lets the call through, and the audit has `SEC-00`. (Review Focus 4)
   - `Streaming_OversizeResponse_Blocked`: the inner client streams a 200-byte response with `MaxScanBytes = 100`, and the streaming result is `ThreatDetected` with `SEC-00`. (Review Focus 2)
