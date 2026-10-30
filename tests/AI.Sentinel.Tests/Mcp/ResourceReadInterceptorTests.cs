@@ -131,11 +131,16 @@ public class ResourceReadInterceptorTests
     }
 
     // #439: an item over the budget is scanned and blocked as SEC-00. 4.1 skipped it, so it reached the agent unscanned.
-    [Fact]
-    public async Task ResourceReadOverBudget_Blocked()
+    // Both the redacting path and the plain scan block it under OnCritical = Block.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResourceReadOverBudget_Blocked(bool redact)
     {
         // The cap is the one the proxy was started with, not a second read of the environment.
-        await using var h = await StartHarnessAsync(maxScanBytes: 100);
+        await using var h = await StartHarnessAsync(
+            new ExactMatchEmbeddingGenerator(), maxScanBytes: 100,
+            config: DefaultConfig() with { OnCritical = HookDecision.Block, RedactToolResults = redact });
         // 80 unicorns (4 UTF-8 bytes each) = 320 bytes > 100.
         var oversized = string.Concat(Enumerable.Repeat("🦄", 80));
         h.Fake.EnqueueResourceResult(new ReadResourceResult
@@ -347,7 +352,7 @@ public class ResourceReadInterceptorTests
         => StartHarnessAsync(new ExactMatchEmbeddingGenerator(), maxScanBytes);
 
     private static async Task<ProxyHarness> StartHarnessAsync(
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator, int maxScanBytes = 262144)
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator, int maxScanBytes = 262144, HookConfig? config = null)
     {
         var fake = new FakeMcpServer
         {
@@ -371,7 +376,7 @@ public class ResourceReadInterceptorTests
                 serverName: "proxy-server",
                 loggerFactory: NullLoggerFactory.Instance),
             targetTransport: targetTransport,
-            config: DefaultConfig(),
+            config: config ?? DefaultConfig(),
             preset: DetectorPreset.Security,
             maxScanBytes: maxScanBytes,
             stderr: TextWriter.Null,

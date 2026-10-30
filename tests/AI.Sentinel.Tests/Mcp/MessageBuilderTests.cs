@@ -148,6 +148,49 @@ public class MessageBuilderTests
         Assert.Equal(300_000, content[1].Text!.Length);
     }
 
+    private static JsonElement ParseJson(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
+    // #439: structured content that a text block mirrors exactly is redacted but not scanned a second time.
+    [Fact]
+    public void CollectRedactable_MirroredStructuredContent_IsCollectedButUnscanned()
+    {
+        const string json = """{"a":"b","n":1}""";
+        var result = new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = "first" }, new TextContentBlock { Text = json }],
+            StructuredContent = ParseJson(json),
+        };
+
+        var (content, apply, unscanned) = MessageBuilder.CollectRedactable(result, ResourceReadInterceptor.ParseMimeAllowlist());
+
+        Assert.Equal(3, content.Count);
+        Assert.Equal(3, apply.Count);
+        Assert.NotNull(content[2].Json);
+        Assert.Equal([2], unscanned);
+    }
+
+    [Theory]
+    [InlineData("""{"a": "b", "n": 1}""")]
+    [InlineData("""{"a":"c","n":1}""")]
+    [InlineData("")]
+    public void CollectRedactable_StructuredContentNotMirrored_IsScanned(string text)
+    {
+        var result = new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = text }],
+            StructuredContent = ParseJson("""{"a":"b","n":1}"""),
+        };
+
+        var (content, _, unscanned) = MessageBuilder.CollectRedactable(result, ResourceReadInterceptor.ParseMimeAllowlist());
+
+        Assert.NotNull(content[^1].Json);
+        Assert.Empty(unscanned);
+    }
+
     [Fact]
     public void BuildPromptGetResponse_ConcatenatesAllMessagesAsAssistantRole()
     {

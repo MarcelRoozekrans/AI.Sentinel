@@ -74,7 +74,14 @@ internal static class MessageBuilder
     /// <see cref="CallToolResult.StructuredContent"/> as JSON, whose <c>Apply</c> writes the redacted JSON back into
     /// <paramref name="result"/>.
     /// </summary>
-    public static (List<HostContent> Content, List<Action<HostContent>> Apply) CollectRedactable(
+    /// <remarks>
+    /// The MCP specification has a tool that returns structured content also return it serialized in a text block.
+    /// When the structured content's JSON is exactly the text of a collected text block, it is redacted like any
+    /// item but its index is in <c>Unscanned</c>: the text block already carries it to the scan, so it is judged and
+    /// counted against <see cref="SentinelOptions.MaxScanBytes"/> once, as with <c>SENTINEL_MCP_REDACT=off</c>, which
+    /// scans the text blocks only. Structured content that differs from every text block is scanned (#439).
+    /// </remarks>
+    public static (List<HostContent> Content, List<Action<HostContent>> Apply, IReadOnlySet<int> Unscanned) CollectRedactable(
         CallToolResult result, HashSet<string> allowedMimes)
     {
         ArgumentNullException.ThrowIfNull(result);
@@ -82,11 +89,31 @@ internal static class MessageBuilder
 
         var collector = new RedactableCollector();
         collector.AddBlocks(result.Content, allowedMimes);
+        var unscanned = new HashSet<int>();
         if (result.StructuredContent is { ValueKind: not (JsonValueKind.Undefined or JsonValueKind.Null) } json)
         {
+            if (MirrorsATextBlock(json, result.Content)) unscanned.Add(collector.Count);
             collector.Add(HostContent.FromJson(json), redacted => result.StructuredContent = redacted.Json!.Value);
         }
-        return collector.ToTuple();
+        var (content, apply) = collector.ToTuple();
+        return (content, apply, unscanned);
+    }
+
+    /// <summary>Whether <paramref name="json"/>, as it arrived, is the exact text of one of the text blocks, which
+    /// the scan judges.</summary>
+    private static bool MirrorsATextBlock(JsonElement json, IList<ContentBlock>? blocks)
+    {
+        if (blocks is null) return false;
+
+        string? raw = null;
+        foreach (var block in blocks)
+        {
+            if (block is not TextContentBlock { Text: { Length: > 0 } text }) continue;
+
+            raw ??= json.GetRawText();
+            if (string.Equals(text, raw, StringComparison.Ordinal)) return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -140,6 +167,8 @@ internal static class MessageBuilder
             _content.Add(item);
             _apply.Add(write);
         }
+
+        public int Count => _content.Count;
 
         public (List<HostContent> Content, List<Action<HostContent>> Apply) ToTuple() => (_content, _apply);
     }

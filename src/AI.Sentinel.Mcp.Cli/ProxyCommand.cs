@@ -204,10 +204,13 @@ internal static class ProxyCommand
     }
 
     /// <summary>Reads <c>SENTINEL_MCP_MAX_SCAN_BYTES</c>, the proxy's <see cref="SentinelOptions.MaxScanBytes"/>: the scan
-    /// budget of each tool call, tool result, prompt and resource item. A positive integer is taken; anything else keeps
-    /// the 262144 byte default. Content over it is blocked as <c>SEC-00</c> under the default <c>OnCritical</c>.</summary>
+    /// budget of each tool call, tool result, prompt and resource item. A positive integer is taken; otherwise
+    /// <c>SENTINEL_HOOK_MAX_SCAN_BYTES</c> is, as <c>SENTINEL_MCP_REDACT</c> falls back to <c>SENTINEL_HOOK_REDACT</c>;
+    /// when neither holds one, the 262144 byte default. Content over it is blocked as <c>SEC-00</c> under the default
+    /// <c>OnCritical</c>.</summary>
     internal static int ParseMaxScanBytes(IReadOnlyDictionary<string, string?> env)
-        => HookConfig.ParseMaxScanBytes(env, "SENTINEL_MCP_MAX_SCAN_BYTES");
+        => HookConfig.TryParseMaxScanBytes(env, "SENTINEL_MCP_MAX_SCAN_BYTES")
+            ?? HookConfig.ParseMaxScanBytes(env, "SENTINEL_HOOK_MAX_SCAN_BYTES");
 
     /// <summary>Reads <c>SENTINEL_MCP_REDACT_TTL_MIN</c>, how many minutes a placeholder the proxy minted stays
     /// restorable after its last use. A positive integer is taken; anything else keeps

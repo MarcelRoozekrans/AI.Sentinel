@@ -156,13 +156,34 @@ public partial class McpRedactionProxyTests
         Assert.Contains(await RecordingAuditForwarder.ReadAllAsync(audit), IsScanLimit);
     }
 
-    // The original bypass: an injection placed after the budget's worth of filler was never scanned.
+    // Tool-call arguments over the budget are refused before the call reaches the server.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ToolCallArgumentsOverBudget_BlockedBeforeTheServer(bool redact)
+    {
+        await using var h = await StartHarnessAsync(new HookConfig { RedactToolResults = redact }, maxScanBytes: SmallBudget);
+        h.Fake.EnqueueToolResult(new CallToolResult { Content = [new TextContentBlock { Text = "ok" }] });
+
+        var ex = await Assert.ThrowsAnyAsync<McpException>(async () => await h.DriverClient.CallToolAsync(
+            toolName: "write_file",
+            arguments: new Dictionary<string, object?>(StringComparer.Ordinal) { ["content"] = Filler(SmallBudget + 1) },
+            cancellationToken: h.Cts.Token));
+
+        Assert.Contains("SEC-00", ex.Message, StringComparison.Ordinal);
+        Assert.Empty(h.Fake.ReceivedToolCalls);
+    }
+
+    // The original bypass: an injection placed after the budget's worth of filler was never scanned. The injection
+    // sits past the cut, so no detector sees it: the scan budget closes the bypass, by reporting the unscanned rest
+    // as SEC-00, not the injection detector.
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ToolResultInjectionPastCap_Blocked(bool redact)
     {
-        await using var h = await StartHarnessAsync(new HookConfig { RedactToolResults = redact }, maxScanBytes: SmallBudget);
+        var audit = new RingBufferAuditStore(capacity: 64);
+        await using var h = await StartHarnessAsync(new HookConfig { RedactToolResults = redact }, maxScanBytes: SmallBudget, auditStore: audit);
         h.Fake.EnqueueToolResult(new CallToolResult
         {
             Content = [new TextContentBlock { Text = Filler(SmallBudget) + " " + DetectorExamples.PromptInjectionHigh }],
@@ -174,6 +195,8 @@ public partial class McpRedactionProxyTests
             cancellationToken: h.Cts.Token));
 
         Assert.Contains("Blocked by AI.Sentinel", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("SEC-00", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(await RecordingAuditForwarder.ReadAllAsync(audit), IsScanLimit);
     }
 
     [Theory]

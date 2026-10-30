@@ -152,14 +152,14 @@ internal static class ToolCallInterceptor
         CancellationToken ct)
     {
         // The result is deserialized fresh for this request, so it is rewritten in place.
-        var (content, apply) = MessageBuilder.CollectRedactable(result, redaction.AllowedMimes);
+        var (content, apply, unscanned) = MessageBuilder.CollectRedactable(result, redaction.AllowedMimes);
 
         HostRedactionResult scanned;
         try
         {
             scanned = await McpRedaction.RedactAndScanAsync(
                 pipeline, redaction.Placeholders, MessageBuilder.BuildToolCallRequest(req),
-                content, Microsoft.Extensions.AI.ChatRole.Assistant, sessionId, ct).ConfigureAwait(false);
+                content, Microsoft.Extensions.AI.ChatRole.Assistant, sessionId, ct, unscanned).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

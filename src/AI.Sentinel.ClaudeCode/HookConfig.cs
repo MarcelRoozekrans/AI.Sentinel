@@ -91,13 +91,18 @@ public sealed record HookConfig
     /// taken, anything else, or nothing, keeps the <see cref="SentinelOptions.MaxScanBytes"/> default of 262144. Shared by
     /// the Claude Code and Copilot hook CLIs and the MCP proxy.</summary>
     internal static int ParseMaxScanBytes(IReadOnlyDictionary<string, string?> env, string key)
+        => TryParseMaxScanBytes(env, key) ?? SentinelOptions.DefaultMaxScanBytes;
+
+    /// <summary>As <see cref="ParseMaxScanBytes"/>, but null when <paramref name="key"/> holds no positive integer, so
+    /// a caller can fall back to another variable before the default.</summary>
+    internal static int? TryParseMaxScanBytes(IReadOnlyDictionary<string, string?> env, string key)
     {
         ArgumentNullException.ThrowIfNull(env);
         return env.TryGetValue(key, out var value)
             && int.TryParse(value, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed)
             && parsed > 0
                 ? parsed
-                : SentinelOptions.DefaultMaxScanBytes;
+                : null;
     }
 
     private static bool ParseVerbose(IReadOnlyDictionary<string, string?> env, string key)

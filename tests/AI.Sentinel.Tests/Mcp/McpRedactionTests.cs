@@ -191,6 +191,47 @@ public class McpRedactionTests
         Assert.Single(entries, IsRedactedEntry);
     }
 
+    // #439: per the MCP specification a tool mirrors its structured content in a text block. The text block carries
+    // it to the scan, so the content counts against the budget once, as with SENTINEL_MCP_REDACT=off.
+    [Fact]
+    public async Task ToolResult_StructuredContentMirroredInATextBlock_CountedOnce()
+    {
+        const string json = """{"note":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mail":"jan@example.com"}""";
+        var (pipeline, store) = Build(maxScanBytes: json.Length + 10);
+
+        var result = await CallAsync(pipeline, new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = Json(json),
+        }, NewStore());
+
+        var entries = await RecordingAuditForwarder.ReadAllAsync(store);
+        Assert.DoesNotContain(entries, IsScanLimit);
+        // Both copies are still redacted.
+        Assert.Equal(
+            """{"note":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mail":"[EMAIL_1]"}""",
+            Placeholders.Untag(((TextContentBlock)result.Content[0]).Text));
+        Assert.Equal(
+            """{"note":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mail":"[EMAIL_1]"}""",
+            Placeholders.Untag(Assert.NotNull(result.StructuredContent).GetRawText()));
+    }
+
+    // Structured content that no text block mirrors is scanned on its own, so it counts against the budget.
+    [Fact]
+    public async Task ToolResult_StructuredContentNotMirrored_CountsAgainstTheBudget()
+    {
+        const string json = """{"note":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mail":"jan@example.com"}""";
+        var (pipeline, store) = Build(maxScanBytes: json.Length + 10);
+
+        _ = await CallAsync(pipeline, new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json + " " }],
+            StructuredContent = Json(json),
+        }, NewStore());
+
+        Assert.Contains(await RecordingAuditForwarder.ReadAllAsync(store), IsScanLimit);
+    }
+
     [Fact]
     public async Task ToolResult_Redaction_WritesRedactedEntryWithSessionId()
     {

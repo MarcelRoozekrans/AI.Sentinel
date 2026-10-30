@@ -286,6 +286,25 @@ public class McpCliTests : McpAuditOffFixtureBase
         Assert.Equal(expected, ProxyCommand.ParseMaxScanBytes(env));
     }
 
+    // As SENTINEL_MCP_REDACT does, SENTINEL_MCP_MAX_SCAN_BYTES falls back to SENTINEL_HOOK_MAX_SCAN_BYTES.
+    [Theory]
+    [InlineData(null, "500", 500)]
+    [InlineData("100", "500", 100)]
+    [InlineData("x", "500", 500)]
+    [InlineData("0", "500", 500)]
+    [InlineData("x", "y", 262144)]
+    [InlineData(null, "-1", 262144)]
+    public void ParseMaxScanBytes_FallsBackToTheHookVariable(string? mcp, string? hook, int expected)
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["SENTINEL_MCP_MAX_SCAN_BYTES"] = mcp,
+            ["SENTINEL_HOOK_MAX_SCAN_BYTES"] = hook,
+        };
+
+        Assert.Equal(expected, ProxyCommand.ParseMaxScanBytes(env));
+    }
+
     [Fact]
     public async Task BuildAuthorizationStack_ArrayWithWhenRules_Loads()
     {
