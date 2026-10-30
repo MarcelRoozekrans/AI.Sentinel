@@ -60,12 +60,16 @@ public class EmbedOncePerScanTests
     private static ChatMessage User(string text) => new(ChatRole.User, text);
     private static ChatMessage Assistant(string text) => new(ChatRole.Assistant, text);
 
+    /// <summary>These tests are about embedding once per scan, not about the severity: the semantic cap is off.</summary>
+    private static readonly Dictionary<Type, DetectorConfiguration> Uncapped =
+        new() { [typeof(TestSemantic)] = new DetectorConfiguration { CapSemanticSeverity = false } };
+
     private static (DetectionPipeline Pipeline, ConcurrentQueue<string> Failures) Pipeline(
         IEnumerable<IDetector> detectors, YieldingEmbeddingGenerator gen, IEmbeddingCache? scanCache = null)
     {
         var failures = new ConcurrentQueue<string>();
         var pipeline = new DetectionPipeline(
-            detectors, configurations: null, escalationClient: null,
+            detectors, Uncapped, escalationClient: null,
             onDetectorFailure: failures.Enqueue,
             embeddingScope: new EmbeddingScope(gen, scanCache ?? new InMemoryLruEmbeddingCache(), null));
         return (pipeline, failures);
@@ -342,7 +346,7 @@ public class EmbedOncePerScanTests
     {
         var gen = new YieldingEmbeddingGenerator();
         var detector = new TestSemantic("TST-OPT", [FirstText], options: new SentinelOptions { EmbeddingGenerator = gen });
-        var pipeline = new DetectionPipeline([detector], configurations: null, escalationClient: null);
+        var pipeline = new DetectionPipeline([detector], Uncapped, escalationClient: null);
 
         var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
 

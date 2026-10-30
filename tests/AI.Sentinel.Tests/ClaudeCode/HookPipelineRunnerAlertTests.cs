@@ -5,6 +5,7 @@ using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Detectors.Compliance;
+using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Tests.Helpers;
 
 namespace AI.Sentinel.Tests.ClaudeCode;
@@ -25,6 +26,8 @@ public class HookPipelineRunnerAlertTests
             opts.EnableComplianceDetectors();
             opts.AlertOnComplianceFindings();
             opts.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
+            // These tests are about how an Alert maps to a hook decision, not the severity of an embedding hit: CMP-03 keeps its High.
+            opts.Configure<SensitiveBiometricCategorisationDetector>(c => c.CapSemanticSeverity = false);
             extra?.Invoke(opts);
         }).BuildServiceProvider();
 
@@ -51,7 +54,13 @@ public class HookPipelineRunnerAlertTests
     public async Task StockOptions_AlertIsWarn_LogIsAllow(string prompt, HookDecision expected)
     {
         using var provider = new ServiceCollection()
-            .AddAISentinel(opts => opts.EmbeddingGenerator = new ExactMatchEmbeddingGenerator())
+            .AddAISentinel(opts =>
+            {
+                opts.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
+                // This test is about how the stock severity mapping reaches a hook decision, not the severity of an
+                // embedding hit: SEC-06 keeps its High.
+                opts.Configure<PrivilegeEscalationDetector>(c => c.CapSemanticSeverity = false);
+            })
             .BuildServiceProvider();
 
         var output = await HookPipelineRunner.RunAsync(

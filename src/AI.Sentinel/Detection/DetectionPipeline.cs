@@ -141,6 +141,12 @@ public sealed class DetectionPipeline : IDetectionPipeline
         // so that Cap correctly suppresses escalation and Floor doesn't trigger it.
         ApplySeverityClamp(results);
 
+        // The severity each detector proposes before the semantic cap, None for a clean result. A review
+        // step can lift a capped result back to it.
+        var proposed = ProposedSeverities(results);
+
+        ApplySemanticCap(results, outcomes);
+
         if (_escalationClient is not null)
         {
             await EscalateAllAsync(_escalationClient, ctx, results, ct).ConfigureAwait(false);
@@ -355,6 +361,39 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
         // The judge may move a severity in either direction: hold it to the configured floor and cap again.
         ApplySeverityClamp(results);
+    }
+
+    private static Severity[] ProposedSeverities(DetectionResult[] results)
+    {
+        var proposed = new Severity[results.Length];
+        for (int i = 0; i < results.Length; i++)
+            proposed[i] = results[i].IsClean ? Severity.None : results[i].Severity;
+        return proposed;
+    }
+
+    /// <summary>The severity a semantic detector's embedding result is capped at without a reviewer verdict.</summary>
+    private const Severity SemanticCap = Severity.Medium;
+
+    /// <summary>Caps each semantic detector's embedding result at <see cref="SemanticCap"/>.</summary>
+    /// <remarks>A regex fast-path match is never capped. Neither is a detector configured with
+    /// <see cref="DetectorConfiguration.CapSemanticSeverity"/> false, nor one whose <see cref="DetectorConfiguration.SeverityFloor"/>
+    /// is above the cap: the floor is an explicit choice that applies to every hit of that detector.</remarks>
+    private void ApplySemanticCap(DetectionResult[] results, SemanticOutcome?[] outcomes)
+    {
+        for (int i = 0; i < results.Length; i++)
+        {
+            if (outcomes[i] is not { FromFastPath: false } || results[i].Severity <= SemanticCap) continue;
+
+            var cfg = _configurations[i];
+            if (cfg?.CapSemanticSeverity == false) continue;
+            if (cfg?.SeverityFloor is { } floor && floor > SemanticCap) continue;
+
+            results[i] = results[i] with
+            {
+                Severity = SemanticCap,
+                Reason = "Semantic match — capped at Medium pending review",
+            };
+        }
     }
 
     private void ApplySeverityClamp(DetectionResult[] results)

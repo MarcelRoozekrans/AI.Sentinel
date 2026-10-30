@@ -165,7 +165,7 @@ public class DetectorOptInAndThresholdTests
         // Medium comes down with it, since Medium may not exceed High.
         Assert.Empty(await FiredIds(Pipeline(ProbeDetector.Probe60, cfg: null), ProbeDetector.Probe60));
 
-        var fired = await Pipeline(ProbeDetector.Probe60, new DetectorConfiguration { HighThreshold = 0.5f, MediumThreshold = 0.5f })
+        var fired = await Pipeline(ProbeDetector.Probe60, new DetectorConfiguration { HighThreshold = 0.5f, MediumThreshold = 0.5f, CapSemanticSeverity = false })
             .RunAsync(Ctx(ProbeDetector.Probe60), TestContext.Current.CancellationToken);
 
         Assert.Equal(Severity.High, Assert.Single(fired.Detections).Severity);

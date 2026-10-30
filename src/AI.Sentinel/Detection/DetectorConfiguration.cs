@@ -29,6 +29,14 @@ public sealed class DetectorConfiguration
     /// <c>AddAISentinel</c>. Must be in (0, 1] and not above the effective <see cref="MediumThreshold"/>.</summary>
     public float? ReviewThreshold { get; set; }
 
+    /// <summary>Whether this detector's embedding result is capped at <see cref="Severity.Medium"/> in a pipeline
+    /// until a reviewer verdict confirms a higher severity. <see langword="null"/> (default) and <see langword="true"/>
+    /// cap; <see langword="false"/> restores the uncapped bucket severity. A regex fast-path match is never capped,
+    /// and a <see cref="SeverityFloor"/> above Medium wins over the cap. Honoured by every
+    /// <see cref="SemanticDetectorBase"/> detector; setting it on any other detector is rejected at
+    /// <c>AddAISentinel</c>.</summary>
+    public bool? CapSemanticSeverity { get; set; }
+
     /// <summary>Whether <paramref name="detector"/> runs under <paramref name="configuration"/>.</summary>
     internal static bool IsEnabled(IDetector detector, DetectorConfiguration? configuration) =>
         configuration?.Enabled ?? detector.EnabledByDefault;

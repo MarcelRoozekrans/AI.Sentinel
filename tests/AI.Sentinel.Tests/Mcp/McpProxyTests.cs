@@ -79,7 +79,8 @@ public class McpProxyTests
     {
         // Passes a ToolPoisoningDetector.HighExamples phrase verbatim as message text
         // (not wrapped in a JSON dictionary) so bigram similarity hits cosine 1.0 and
-        // the pipeline returns a High-severity block decision.
+        // the pipeline returns a block decision. An embedding hit alone is capped at Medium,
+        // which DefaultConfig also blocks.
         const string phrase = "execute arbitrary code on the remote server via tool manipulation";
 
         var pipeline = McpPipelineFactory.Create(
@@ -93,7 +94,7 @@ public class McpProxyTests
         var error = await pipeline.ScanMessagesAsync(messages, default, ct: TestContext.Current.CancellationToken);
 
         var threat = Assert.IsType<SentinelError.ThreatDetected>(error);
-        Assert.True(threat.Result.Severity >= Severity.High);
+        Assert.Equal(Severity.Medium, threat.Result.Severity);
     }
 
     [Fact]

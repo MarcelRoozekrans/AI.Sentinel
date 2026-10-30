@@ -77,6 +77,7 @@ public static class ServiceCollectionExtensions
         RejectRedactOnNonRedactingDetectors(opts, nameof(configure));
         RejectInvalidTransparencyOptions(opts, nameof(configure));
         RejectInvalidThresholds(opts, nameof(configure));
+        RejectCapOnNonSemanticDetectors(opts, nameof(configure));
 
         // Auto-register InMemoryApprovalStore if any binding has an ApprovalSpec and the user
         // hasn't registered an IApprovalStore yet. Keeps the happy path zero-config.
@@ -192,6 +193,21 @@ public static class ServiceCollectionExtensions
                 throw new ArgumentException(
                     $"AI.Sentinel: detector {type.Name} is configured with Action = Redact but does not implement IRedactingDetector. " +
                     "Only detectors that can locate their match can redact.",
+                    paramName);
+            }
+        }
+    }
+
+    // The semantic cap acts on a semantic detector's embedding result; on any other detector it would silently do nothing.
+    private static void RejectCapOnNonSemanticDetectors(SentinelOptions opts, string paramName)
+    {
+        foreach (var (type, cfg) in opts.GetDetectorConfigurations())
+        {
+            if (cfg.CapSemanticSeverity is not null && !typeof(SemanticDetectorBase).IsAssignableFrom(type))
+            {
+                throw new ArgumentException(
+                    $"AI.Sentinel: detector {type.Name} is configured with CapSemanticSeverity but is not a semantic detector. " +
+                    "Only SemanticDetectorBase detectors have an embedding result to cap.",
                     paramName);
             }
         }

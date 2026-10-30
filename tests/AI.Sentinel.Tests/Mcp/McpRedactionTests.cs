@@ -33,6 +33,8 @@ public class McpRedactionTests
             OnLow = SentinelAction.Alert,
             EmbeddingGenerator = new FakeEmbeddingGenerator(),
         };
+        // These tests are about redaction before a block, not the severity of an embedding hit: SEC-01 keeps its Critical.
+        options.Configure<PromptInjectionDetector>(c => c.CapSemanticSeverity = false);
         var store = new RingBufferAuditStore(capacity: 64);
         IDetector[] detectors = blockCritical
             ? [new PiiLeakageDetector(), new CredentialExposureDetector(), new PromptInjectionDetector(options)]
