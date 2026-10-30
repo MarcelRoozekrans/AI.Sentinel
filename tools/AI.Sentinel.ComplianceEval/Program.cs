@@ -14,6 +14,7 @@
 // disagreed with the tool's own scoring, on one message or several, in either part.
 // The held-out review section scores the held-out phrases in three configurations: embeddings uncapped, embeddings
 // capped at Medium, and embeddings plus an LLM judge, which needs ANTHROPIC_API_KEY. It is reported and never fails the run.
+// Embeddings are cached by configurations 1 and 2, so the judge's added ms is review latency only, not cold-scan latency.
 using System.Globalization;
 using System.Text;
 using AI.Sentinel;
@@ -131,8 +132,10 @@ using var judgeClient = string.IsNullOrWhiteSpace(apiKey)
     ? null
     : new OpenAICompatibleChatClient(new Uri("https://api.anthropic.com/v1/chat/completions"), judgeModel, apiKey);
 var scope = EmbeddingScope.Resolve(options, inherited: null)!;
-var reviewEvaluation = new ReviewEvaluation(scope, judgeClient is null ? null : new LlmJudgeReviewer(judgeClient), toolMessages: false, ct);
-var securityReviewEvaluation = new ReviewEvaluation(scope, judgeClient is null ? null : new LlmJudgeReviewer(judgeClient), toolMessages: true, ct);
+ReviewEvaluation.SelfCheck();
+var judge = judgeClient is null ? null : new LlmJudgeReviewer(judgeClient);
+var reviewEvaluation = new ReviewEvaluation(scope, judge, toolMessages: false, ct);
+var securityReviewEvaluation = new ReviewEvaluation(scope, judge, toolMessages: true, ct);
 
 report.AppendLine(CultureInfo.InvariantCulture, $"## Held-out review: {model.Name}");
 report.AppendLine();
@@ -149,6 +152,14 @@ if (phrases.Concat(securityPhrases).All(p => !p.IsHeldOut))
 
 foreach (var detector in detectors) report.Append(await reviewEvaluation.EvaluateAsync(detector, phrases).ConfigureAwait(false));
 foreach (var detector in securityDetectors) report.Append(await securityReviewEvaluation.EvaluateAsync(detector, securityPhrases).ConfigureAwait(false));
+
+var judgeFailures = reviewEvaluation.JudgeFailures + securityReviewEvaluation.JudgeFailures;
+if (judgeFailures > 0)
+{
+    report.AppendLine(CultureInfo.InvariantCulture,
+        $"**WARNING: {judgeFailures} reviews failed or timed out; the judge columns are not valid.**");
+    report.AppendLine();
+}
 
 // Reported only: judge output is not deterministic, so configuration 3 never fails the run.
 var judgedHighs = reviewEvaluation.JudgedHighs.Concat(securityReviewEvaluation.JudgedHighs).ToArray();

@@ -39,6 +39,16 @@ internal sealed class ReviewEvaluation(
         return sorted[lower] + ((sorted[upper] - sorted[lower]) * (position - lower));
     }
 
+    /// <summary>Checks <see cref="Percentile"/> on three cases, since the tool has no test project.</summary>
+    /// <exception cref="InvalidOperationException">A case gave the wrong value.</exception>
+    internal static void SelfCheck()
+    {
+        if (Percentile([], 0.95) != 0 || Percentile([7], 0.95) != 7 || Math.Abs(Percentile([1, 2, 3, 4], 0.5) - 2.5) > 1e-9)
+        {
+            throw new InvalidOperationException("ReviewEvaluation.Percentile self-check failed.");
+        }
+    }
+
     /// <summary>Evaluates <paramref name="detector"/> on the held-out subset of <paramref name="phrases"/>.</summary>
     /// <returns>The "Held-out review" Markdown section for the detector.</returns>
     public async Task<string> EvaluateAsync(SemanticDetectorBase detector, Phrase[] phrases)
@@ -87,6 +97,8 @@ internal sealed class ReviewEvaluation(
         }
 
         section.AppendLine();
+        foreach (var note in _notes) section.AppendLine(note).AppendLine();
+        _notes = [];
         return section.ToString();
     }
 
@@ -129,12 +141,30 @@ internal sealed class ReviewEvaluation(
         var benign = heldOut.Length - positives;
         var judged = configuration == JudgedIndex;
         var latency = judged
-            ? $"{Percentile(added, 0.5):0} | {Percentile(added, 0.95):0}"
+            ? $"{Percentile(added, 0.5):0.0} | {Percentile(added, 0.95):0.0}"
             : "n/a | n/a";
         var perScan = judged ? reviews.PerScan(heldOut.Length) : "n/a";
         var share = judged ? reviews.OverBudgetShare() : "n/a";
+        if (judged) NoteJudgeOutcomes(id, reviews);
         return string.Create(CultureInfo.InvariantCulture,
             $"| {ConfigurationNames[configuration]} | {positiveHigh} / {positives} | {positiveMedium} / {positives} | {benignHigh} / {benign} | {benignMedium} / {benign} | {latency} | {perScan} | {share} |");
+    }
+
+    /// <summary>Lines shown beneath the detector's table: the review outcomes and any failure warning.</summary>
+    private List<string> _notes = [];
+
+    /// <summary>Reviews that failed or timed out across every detector; above 0 the judge columns are not valid.</summary>
+    public long JudgeFailures { get; private set; }
+
+    private void NoteJudgeOutcomes(string id, ReviewCounter reviews)
+    {
+        _notes.Add(string.Create(CultureInfo.InvariantCulture,
+            $"Configuration 3 review outcomes for {id}: {reviews.Outcomes()}."));
+        var failures = reviews.Failures;
+        if (failures == 0) return;
+        JudgeFailures += failures;
+        _notes.Add(string.Create(CultureInfo.InvariantCulture,
+            $"**WARNING: {failures} reviews failed or timed out for {id}; the judge columns are not valid.**"));
     }
 
     private const int CappedIndex = 1;
@@ -177,7 +207,21 @@ internal sealed class ReviewEvaluation(
             lock (_outcomes) _outcomes[outcome] = _outcomes.GetValueOrDefault(outcome) + value;
         }
 
-        private long Reviewed => _outcomes.Where(o => !string.Equals(o.Key, "over_budget", StringComparison.Ordinal)).Sum(o => o.Value);
+        private static readonly string[] OutcomeNames =
+            ["confirmed", "raised", "lowered", "cleared", "no_verdict", "failed", "timed_out", "over_budget"];
+
+        /// <summary>Reviews that ran to a verdict or none: failed, timed out and over-budget candidates are not counted.</summary>
+        private long Reviewed => _outcomes
+            .Where(o => !string.Equals(o.Key, "over_budget", StringComparison.Ordinal) && !IsFailure(o.Key))
+            .Sum(o => o.Value);
+
+        public long Failures => _outcomes.Where(o => IsFailure(o.Key)).Sum(o => o.Value);
+
+        private static bool IsFailure(string outcome) =>
+            string.Equals(outcome, "failed", StringComparison.Ordinal) || string.Equals(outcome, "timed_out", StringComparison.Ordinal);
+
+        public string Outcomes() => string.Join(", ", OutcomeNames.Select(n =>
+            string.Create(CultureInfo.InvariantCulture, $"{n} {_outcomes.GetValueOrDefault(n)}")));
 
         public string PerScan(int scans) =>
             ((double)Reviewed / Math.Max(scans, 1)).ToString("0.00", CultureInfo.InvariantCulture);
@@ -185,7 +229,7 @@ internal sealed class ReviewEvaluation(
         public string OverBudgetShare()
         {
             var over = _outcomes.GetValueOrDefault("over_budget");
-            var candidates = Reviewed + over;
+            var candidates = Reviewed + Failures + over;
             return candidates == 0 ? "0%" : ((double)over / candidates).ToString("P0", CultureInfo.InvariantCulture);
         }
 
@@ -196,7 +240,7 @@ internal sealed class ReviewEvaluation(
         [detector],
         new Dictionary<Type, DetectorConfiguration>
         {
-            [detector.GetType()] = new() { CapSemanticSeverity = capped },
+            [detector.GetType()] = new() { Enabled = true, CapSemanticSeverity = capped },
         },
         withReviewer ? reviewer : null,
         embeddingScope: scope);

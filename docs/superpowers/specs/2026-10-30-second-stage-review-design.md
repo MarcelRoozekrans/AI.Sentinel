@@ -128,7 +128,7 @@ public sealed record ReviewVerdict(Severity? Severity, string Reason)
   3. embeddings plus the judge.
 
   The numbers are recall at High or above and at Medium or above, false positives at each level, and p50/p95 latency added by review. The report also gives reviews per scan and the share of candidates over budget.
-- The exit code rule "a legitimate request reached High" is evaluated on configuration 2. On configuration 3 it is reported but does not fail, because judge output is not deterministic.
+- The exit code rule "a legitimate request reached High" is evaluated on configuration 1, uncapped embeddings, matching C0f. On configuration 3 it is reported but does not fail, because judge output is not deterministic.
 
 ### D6. #432 and #433: reviewer plus tuning
 
