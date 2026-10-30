@@ -23,6 +23,28 @@ internal sealed class ReviewEvaluation(
         "3. Embeddings plus judge",
     ];
 
+    /// <summary>The per-review timeout configuration 3 runs under. A review timeout is a deployment's latency policy;
+    /// under one, an occasional slow answer from a hosted judge times out, keeps the capped result and makes the judge
+    /// columns invalid. Measuring under the judge client's own 30 s outer bound records every verdict, and each review's
+    /// duration is counted against the deployment defaults in <see cref="DeploymentTimeouts"/> instead, so a reader still
+    /// sees how many reviews each default would have abandoned.</summary>
+    private static readonly ReviewLimits MeasurementLimits = new(ReviewLimits.Default.MaxPerScan, TimeSpan.FromSeconds(30));
+
+    /// <summary>The default review timeouts a deployment runs under, shortest first: the hook CLIs' 3 s, which mirrors
+    /// <c>DefaultReviewLimits</c> in <c>AI.Sentinel.ClaudeCode.Cli</c> and <c>AI.Sentinel.Copilot.Cli</c>, executables
+    /// this tool does not reference, and the library's <see cref="ReviewLimits.Default"/>, which the MCP proxy and an
+    /// <c>AddAISentinel</c> host keep unless they set <c>ReviewTimeout</c>.</summary>
+    private static readonly (string Name, TimeSpan Timeout)[] DeploymentTimeouts =
+    [
+        ("the hook CLIs' default", TimeSpan.FromSeconds(3)),
+        ("the library default", ReviewLimits.Default.Timeout),
+    ];
+
+    /// <summary>Each configuration 3 review's duration, with the phrase it reviewed, for <see cref="NoteReviewDurations"/>.</summary>
+    private readonly List<(double Milliseconds, Phrase Phrase)> _reviewDurations = [];
+
+    private readonly TimedReviewer? _timedReviewer = reviewer is null ? null : new TimedReviewer(reviewer);
+
     /// <summary>Legitimate requests that reached High in configuration 3, reported but never failing the run.</summary>
     public List<string> JudgedHighs { get; } = [];
 
@@ -114,6 +136,7 @@ internal sealed class ReviewEvaluation(
         int positiveHigh = 0, positiveMedium = 0, benignHigh = 0, benignMedium = 0;
         var added = new List<double>();
         using var reviews = new ReviewCounter([id]);
+        _reviewDurations.Clear();
 
         foreach (var phrase in heldOut)
         {
@@ -121,6 +144,11 @@ internal sealed class ReviewEvaluation(
             var result = await pipeline.RunAsync(Context(phrase.Text), ct).ConfigureAwait(false);
             var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
             var severity = result.MaxSeverity;
+            if (configuration == JudgedIndex && _timedReviewer is not null)
+            {
+                // One detector, one scan at a time: every review timed since the last take belongs to this phrase.
+                foreach (var duration in _timedReviewer.TakeDurations()) _reviewDurations.Add((duration, phrase));
+            }
 
             if (phrase.IsPositive)
             {
@@ -151,7 +179,11 @@ internal sealed class ReviewEvaluation(
         // One detector proposes at most one candidate per scan, so its own budget is never exceeded: the full-pipeline
         // pass measures the budget across detectors.
         var perScan = judged ? PerScan(reviews.Candidates, heldOut.Length) : "n/a";
-        if (judged) NoteJudgeOutcomes(id, reviews);
+        if (judged)
+        {
+            NoteJudgeOutcomes(id, reviews);
+            NoteReviewDurations(id);
+        }
         return string.Create(CultureInfo.InvariantCulture,
             $"| {ConfigurationNames[configuration]} | {positiveHigh} / {positives} | {positiveMedium} / {positives} | {benignHigh} / {benign} | {benignMedium} / {benign} | {latency} | {perScan} |");
     }
@@ -172,6 +204,26 @@ internal sealed class ReviewEvaluation(
         _notes.Add(string.Create(CultureInfo.InvariantCulture,
             $"**WARNING: {failures} reviews failed or timed out for {id}; the judge columns are not valid.**"));
     }
+
+    private void NoteReviewDurations(string id)
+    {
+        if (_reviewDurations.Count == 0) return;
+        var slowest = _reviewDurations.Max(r => r.Milliseconds);
+        var counts = string.Join("; ", DeploymentTimeouts.Select(t => string.Create(CultureInfo.InvariantCulture,
+            $"{Over(t.Timeout).Count()} over {t.Name} of {t.Timeout.TotalMilliseconds:0} ms")));
+        _notes.Add(string.Create(CultureInfo.InvariantCulture,
+            $"Review duration for {id}: {_reviewDurations.Count} reviews, slowest {slowest:0} ms; {counts}. A deployment with that timeout abandons such a review and keeps the capped result."));
+
+        // The shortest default abandons the most reviews; name each one, so a reader sees whether a positive was lost.
+        foreach (var (milliseconds, phrase) in Over(DeploymentTimeouts[0].Timeout))
+        {
+            _notes.Add(string.Create(CultureInfo.InvariantCulture,
+                $"- Over {DeploymentTimeouts[0].Timeout.TotalMilliseconds:0} ms: {id}, {phrase.Expected}, {milliseconds:0} ms: \"{phrase.Text}\""));
+        }
+    }
+
+    private IEnumerable<(double Milliseconds, Phrase Phrase)> Over(TimeSpan timeout) =>
+        _reviewDurations.Where(r => r.Milliseconds > timeout.TotalMilliseconds);
 
     private const int CappedIndex = 1;
     private const int JudgedIndex = 2;
@@ -233,6 +285,38 @@ internal sealed class ReviewEvaluation(
             string.Create(CultureInfo.InvariantCulture, $"{n} {Count(n)}")));
 
         public void Dispose() => _listener.Dispose();
+    }
+
+    /// <summary>Times each review of the wrapped reviewer, so configuration 3 can report how many would exceed each
+    /// deployment default in <see cref="DeploymentTimeouts"/>.</summary>
+    private sealed class TimedReviewer(IDetectionReviewer inner) : IDetectionReviewer
+    {
+        private readonly List<double> _durations = [];
+
+        /// <summary>The durations recorded since the last call, in milliseconds, and clears them.</summary>
+        public List<double> TakeDurations()
+        {
+            lock (_durations)
+            {
+                List<double> taken = [.. _durations];
+                _durations.Clear();
+                return taken;
+            }
+        }
+
+        public async ValueTask<ReviewVerdict> ReviewAsync(ReviewRequest request, CancellationToken cancellationToken)
+        {
+            var started = Stopwatch.GetTimestamp();
+            try
+            {
+                return await inner.ReviewAsync(request, cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                lock (_durations) _durations.Add(elapsed);
+            }
+        }
     }
 
     /// <summary>Answers every review with no verdict and counts the calls, so the full-pipeline pass measures
@@ -312,8 +396,9 @@ internal sealed class ReviewEvaluation(
         {
             [detector.GetType()] = new() { Enabled = true, CapSemanticSeverity = capped },
         },
-        withReviewer ? reviewer : null,
-        embeddingScope: scope);
+        withReviewer ? _timedReviewer : null,
+        embeddingScope: scope,
+        reviewLimits: withReviewer ? MeasurementLimits : null);
 
     /// <summary>A single message, so the detector scores exactly the phrase. Security phrases are tool messages, which
     /// keeps the rule layer silent; compliance phrases are user messages.</summary>

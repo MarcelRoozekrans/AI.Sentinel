@@ -15,6 +15,9 @@
 // The held-out review section scores the held-out phrases in three configurations: embeddings uncapped, embeddings
 // capped at Medium, and embeddings plus an LLM judge, which needs ANTHROPIC_API_KEY. It is reported and never fails the run.
 // Embeddings are cached by configurations 1 and 2, so the judge's added ms is review latency only, not cold-scan latency.
+// Configuration 3 reviews run under a 30 s measurement timeout, not a deployment's ReviewTimeout. The report counts the
+// reviews over the hook CLIs' 3 s default and over the library's 5 s default, which a deployment with that timeout
+// would abandon, and names each review over 3 s with its detector and the phrase's label.
 // The full-pipeline pass then runs all seven detectors together with the default budget of 4 reviews per scan over
 // the everyday prompts and the held-out benign texts, with a reviewer that answers no verdict, so it needs no key.
 // It reports candidates and reviews per scan and the share of candidates over budget, once over the fit benign texts
@@ -165,7 +168,7 @@ else
 {
     report.AppendLine(CultureInfo.InvariantCulture, $"## Held-out review: {model.Name}");
     report.AppendLine();
-    report.AppendLine("Configurations: 1 is embeddings alone and uncapped, today's behaviour; 2 caps the embedding result at Medium; 3 adds the LLM judge to 2. Only phrases marked `heldout` are scored. Added ms is the wall time of configuration 3 minus that of configuration 2 for the same phrase.");
+    report.AppendLine("Configurations: 1 is embeddings alone and uncapped, today's behaviour; 2 caps the embedding result at Medium; 3 adds the LLM judge to 2. Only phrases marked `heldout` are scored. Added ms is the wall time of configuration 3 minus that of configuration 2 for the same phrase. Configuration 3 reviews run under a 30 s measurement timeout, so a slow judge answer is still recorded; beneath each table, the reviews over the hook CLIs' 3 s default and over the library's 5 s default `ReviewTimeout` are counted, and each review over 3 s is named.");
     report.AppendLine();
     if (judgeClient is null) report.AppendLine("Judge columns skipped: ANTHROPIC_API_KEY not set.");
     else report.AppendLine(CultureInfo.InvariantCulture, $"Judge: `{judgeModel}` through the Anthropic OpenAI-compatible endpoint.");
