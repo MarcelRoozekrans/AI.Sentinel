@@ -354,6 +354,49 @@ public class DetectorOptInAndThresholdTests
     }
 
     [Fact]
+    public void PromptInjection_ReviewThresholdAlone_IsCheckedAgainstTheLowerBuiltInMedium()
+    {
+        // 0.6 was valid against the 4.0 Medium of 0.82; SEC-01's built-in Medium is now 0.37.
+        using var provider = new ServiceCollection()
+            .AddAISentinel(o => o.Configure<PromptInjectionDetector>(c => c.ReviewThreshold = 0.6f))
+            .BuildServiceProvider();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => provider.GetRequiredService<IDetectionPipeline>());
+        Assert.Contains(nameof(PromptInjectionDetector), ex.Message, StringComparison.Ordinal);
+        Assert.Contains("ReviewThreshold", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("above MediumThreshold", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PromptInjection_MediumThresholdAlone_IsCheckedAgainstTheLowerBuiltInHigh()
+    {
+        // 0.85 was valid against the 4.0 High of 0.90; SEC-01's built-in High is now 0.41.
+        using var provider = new ServiceCollection()
+            .AddAISentinel(o => o.Configure<PromptInjectionDetector>(c => c.MediumThreshold = 0.85f))
+            .BuildServiceProvider();
+
+        var ex = Assert.Throws<InvalidOperationException>(() => provider.GetRequiredService<IDetectionPipeline>());
+        Assert.Contains(nameof(PromptInjectionDetector), ex.Message, StringComparison.Ordinal);
+        Assert.Contains("MediumThreshold", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("above HighThreshold", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PromptInjection_HighMediumAndReviewThresholdTogether_AreAccepted()
+    {
+        using var provider = new ServiceCollection()
+            .AddAISentinel(o => o.Configure<PromptInjectionDetector>(c =>
+            {
+                c.HighThreshold = 0.95f;
+                c.MediumThreshold = 0.85f;
+                c.ReviewThreshold = 0.6f;
+            }))
+            .BuildServiceProvider();
+
+        Assert.NotNull(provider.GetRequiredService<IDetectionPipeline>());
+    }
+
+    [Fact]
     public void ReviewThreshold_AtOrBelowMedium_IsAccepted()
     {
         using var provider = new ServiceCollection()

@@ -16,7 +16,7 @@ internal static class DetectorExamples
 
     /// <summary>Exact-match embeddings that also recognise <see cref="PromptInjectionHigh"/> and
     /// <see cref="IndirectInjectionHigh"/> inside a larger text, such as a tool result
-    /// that carries an e-mail address too. Every other text is clean for every semantic detector.</summary>
+    /// that carries an e-mail address too. Every other text that is not itself an example is clean for every semantic detector.</summary>
     /// <remarks>For host-level tests. <see cref="FakeEmbeddingGenerator"/> cannot stand in for SEC-01, SEC-05 and SEC-09:
     /// their thresholds are tuned on all-MiniLM-L6-v2 and sit below the 0.5 to 0.75 that its bigram vectors give two
     /// unrelated sentences, so under it every text would fire them.</remarks>

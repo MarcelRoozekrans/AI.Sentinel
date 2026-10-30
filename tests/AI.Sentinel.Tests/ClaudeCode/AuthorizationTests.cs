@@ -28,7 +28,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
         return HookAdapter.CreateForTests(provider, config, guard);
@@ -44,7 +44,7 @@ public class AuthorizationTests
             opts.DefaultToolPolicy, approvalStore: null, logger: null);
         var forwarder = new RecordingAuditForwarder();
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         services.AddSingleton<IAuditForwarder>(forwarder);
         var provider = services.BuildServiceProvider();
         var adapter = HookAdapter.CreateForTests(provider, new HookConfig { CallerContextProvider = _ => new TestSecurityContext("bob") }, guard);
@@ -92,7 +92,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
         var guard = new ExplicitDenyGuard("TenantActive", "Tenant 'acme' is in evicted state", "tenant_inactive");
@@ -160,7 +160,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
         var guard = new RequireApprovalGuard("approval:Bash", "req-abc", "https://approve.example/req-abc");
@@ -197,7 +197,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         // Last-registration-wins for GetService<IAuditStore>(): override the default ring buffer
         // with a recording store so the test can assert what the adapter wrote.

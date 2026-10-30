@@ -383,7 +383,7 @@ public class AuthorizationTests
         var services = new ServiceCollection();
         services.AddAISentinel(o =>
         {
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
             using var doc = JsonDocument.Parse(HttpRequestConfig);
             ApprovalBackendSelector.Configure(o, ApprovalConfigLoader.Parse(doc.RootElement));
         });

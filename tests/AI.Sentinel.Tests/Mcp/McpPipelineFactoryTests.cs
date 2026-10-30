@@ -164,7 +164,7 @@ public class McpPipelineFactoryTests
     public void Create_WithEmbeddingGenerator_ReportsNothing()
     {
         McpPipelineFactory.Create(new HookConfig(), DetectorPreset.All,
-            new FakeEmbeddingGenerator(), out _, out var warning);
+            new ExactMatchEmbeddingGenerator(), out _, out var warning);
 
         Assert.Null(warning);
     }

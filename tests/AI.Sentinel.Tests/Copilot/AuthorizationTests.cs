@@ -28,7 +28,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
         return CopilotHookAdapter.CreateForTests(provider, config, guard);
@@ -44,7 +44,7 @@ public class AuthorizationTests
             opts.DefaultToolPolicy, approvalStore: null, logger: null);
         var forwarder = new RecordingAuditForwarder();
         var services = new ServiceCollection();
-        services.AddAISentinel(o => o.EmbeddingGenerator = new FakeEmbeddingGenerator());
+        services.AddAISentinel(o => o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator());
         services.AddSingleton<IAuditForwarder>(forwarder);
         var provider = services.BuildServiceProvider();
         var adapter = CopilotHookAdapter.CreateForTests(provider, new CopilotHookConfig { CallerContextProvider = _ => new TestSecurityContext("bob") }, guard);
@@ -91,7 +91,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
         var guard = new ExplicitDenyGuard("TenantActive", "Tenant 'acme' is in evicted state", "tenant_inactive");
@@ -158,7 +158,7 @@ public class AuthorizationTests
             o.OnHigh = SentinelAction.Quarantine;
             o.OnMedium = SentinelAction.Quarantine;
             o.OnLow = SentinelAction.Quarantine;
-            o.EmbeddingGenerator = new FakeEmbeddingGenerator();
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
         });
         var provider = services.BuildServiceProvider();
         var guard = new RequireApprovalGuard("approval:Bash", "req-xyz", "https://approve.example/req-xyz");

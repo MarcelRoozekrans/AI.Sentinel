@@ -66,7 +66,7 @@ public class HookCliFailClosedTests : IDisposable
     {
         var stdout = new StringWriter();
         var stderr = new StringWriter();
-        var exit = await Program.RunAsync([evt], new StringReader(json), stdout, stderr, generator ?? new FakeEmbeddingGenerator());
+        var exit = await Program.RunAsync([evt], new StringReader(json), stdout, stderr, generator ?? new ExactMatchEmbeddingGenerator());
         return (exit, stdout.ToString(), stderr.ToString());
     }
 

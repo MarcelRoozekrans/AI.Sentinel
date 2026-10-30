@@ -29,7 +29,7 @@ public class HookCliAuditTests : IDisposable
     private static async Task<(int Exit, string Stderr)> RunAsync(string json)
     {
         var stderr = new StringWriter();
-        var exit = await Program.RunAsync([Event], new StringReader(json), new StringWriter(), stderr, new FakeEmbeddingGenerator());
+        var exit = await Program.RunAsync([Event], new StringReader(json), new StringWriter(), stderr, new ExactMatchEmbeddingGenerator());
         return (exit, stderr.ToString());
     }
 
@@ -139,7 +139,7 @@ public class HookCliAuditTests : IDisposable
         const string json = """{"session_id":"cc-7","tool_name":"Read","tool_input":{"file_path":"/a/notes.txt"},"tool_response":{"content":"mail jan@example.com today"}}""";
 
         var stderr = new StringWriter();
-        var exit = await Program.RunAsync(["post-tool-use"], new StringReader(json), new StringWriter(), stderr, new FakeEmbeddingGenerator());
+        var exit = await Program.RunAsync(["post-tool-use"], new StringReader(json), new StringWriter(), stderr, new ExactMatchEmbeddingGenerator());
 
         Assert.Equal(0, exit);
         var (entries, intact) = await HookAuditTestSupport.ReadAsync(db);
