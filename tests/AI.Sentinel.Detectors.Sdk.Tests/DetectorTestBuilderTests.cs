@@ -308,6 +308,16 @@ public class DetectorTestBuilderTests
             .ExpectClean(TestContext.Current.CancellationToken);
     }
 
+    /// <summary><see cref="SentinelContextBuilder.WithMaxScanBytes"/> flows into <see cref="SentinelContext.MaxScanBytes"/>.</summary>
+    [Fact]
+    public void WithMaxScanBytes_FlowsIntoTheContext()
+    {
+        var ctx = new SentinelContextBuilder().WithUserMessage("hi").WithMaxScanBytes(10).Build();
+
+        Assert.Equal(10, ctx.MaxScanBytes);
+        Assert.Null(new SentinelContextBuilder().Build().MaxScanBytes);
+    }
+
     /// <summary>Thresholds set through <see cref="SentinelOptionsConfigureExtensions.Configure{T}"/> in
     /// <see cref="DetectorTestBuilder.WithOptions"/> apply to the detector under test, as they do in the pipeline.</summary>
     [Fact]

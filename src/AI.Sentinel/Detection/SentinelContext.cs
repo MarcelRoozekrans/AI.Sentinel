@@ -66,6 +66,99 @@ public sealed class SentinelContext(
         init => _newMessagesFrom = Math.Clamp(value, 0, Messages.Count);
     }
 
+    private int? _maxScanBytes;
+
+    /// <summary>
+    /// The most UTF-8 bytes of the new messages' detection text a scan judges, or null, the default, for no limit. The
+    /// budget counts each message's <see cref="MessageText(ChatMessage)"/>; the single spaces that join them are not
+    /// counted. A value of 0 or less throws <see cref="ArgumentOutOfRangeException"/>.
+    /// </summary>
+    public int? MaxScanBytes
+    {
+        get => _maxScanBytes;
+        init
+        {
+            if (value is <= 0) throw new ArgumentOutOfRangeException(nameof(value), value, "MaxScanBytes must be positive.");
+            _maxScanBytes = value;
+        }
+    }
+
+    private string[]? _newMessageTexts;
+    private long _newContentBytes;
+
+    /// <summary>
+    /// The detection text of each message from <see cref="NewMessagesFrom"/> on, one entry per message, cut in order so
+    /// that the UTF-8 bytes of all entries total at most <see cref="MaxScanBytes"/>. A cut never splits a surrogate
+    /// pair, and a message past the budget is an empty string. Computed once and cached.
+    /// </summary>
+    public IReadOnlyList<string> NewMessageTexts => NewTexts();
+
+    private string[] NewTexts()
+    {
+        if (_newMessageTexts is { } cached) return cached;
+
+        var texts = new string[Messages.Count - NewMessagesFrom];
+        long total = 0;
+        var remaining = (long?)MaxScanBytes;
+        for (var i = 0; i < texts.Length; i++)
+        {
+            var text = MessageText(Messages[NewMessagesFrom + i]);
+            var bytes = Encoding.UTF8.GetByteCount(text);
+            total += bytes;
+            texts[i] = remaining is { } left ? CutToBudget(text, bytes, ref left) : text;
+            remaining = remaining is null ? null : remaining - Encoding.UTF8.GetByteCount(texts[i]);
+        }
+
+        _newContentBytes = total;
+        return _newMessageTexts = texts;
+    }
+
+    private string? _newTextContent;
+
+    /// <summary>The cut texts of <see cref="NewMessageTexts"/>, joined by a single space: <see cref="TextContent"/>
+    /// restricted to the new messages and bounded by <see cref="MaxScanBytes"/>.</summary>
+    public string NewTextContent => _newTextContent ??= string.Join(" ", NewMessageTexts);
+
+    private string? _newProseContent;
+
+    /// <summary>The <see cref="ChatMessage.Text"/> of the new messages, joined by a single space and cut by the same
+    /// rule as <see cref="NewMessageTexts"/>, independently of it: prose only, without tool calls or tool results.</summary>
+    internal string NewProseContent
+    {
+        get
+        {
+            if (_newProseContent is { } cached) return cached;
+
+            var texts = new string[Messages.Count - NewMessagesFrom];
+            var remaining = (long?)MaxScanBytes;
+            for (var i = 0; i < texts.Length; i++)
+            {
+                var text = Messages[NewMessagesFrom + i].Text ?? string.Empty;
+                texts[i] = remaining is { } left ? CutToBudget(text, Encoding.UTF8.GetByteCount(text), ref left) : text;
+                remaining = remaining is null ? null : remaining - Encoding.UTF8.GetByteCount(texts[i]);
+            }
+
+            return _newProseContent = string.Join(" ", texts);
+        }
+    }
+
+    /// <summary>The UTF-8 byte total of the uncut detection texts of the new messages.</summary>
+    public long NewContentBytes
+    {
+        get
+        {
+            _ = NewTexts();
+            return _newContentBytes;
+        }
+    }
+
+    /// <summary>Whether the new messages' detection text is larger than <see cref="MaxScanBytes"/>, so the view of
+    /// it is cut and part of the content goes unjudged.</summary>
+    public bool ExceedsScanBudget => MaxScanBytes is { } max && NewContentBytes > max;
+
+    private static string CutToBudget(string text, int bytes, ref long remaining) =>
+        bytes <= remaining ? text : Utf8Text.Truncate(text, (int)remaining);
+
     /// <summary>
     /// The placeholders <paramref name="detector"/> must not flag as a value: <see cref="RedactionPlaceholders"/>,
     /// plus <see cref="RequestPlaceholders"/> when that detector redacted this call's request.
