@@ -210,9 +210,10 @@ public class ComplianceDetectorTests
     }
 
     /// <summary>Guards the labelled set the security spot-check in <c>tools/AI.Sentinel.ComplianceEval</c> reads.
-    /// It has the shape of the compliance file, with <c>expected</c> <c>positive</c> or <c>benign</c>: at least six
-    /// paraphrased positives for each of SEC-01, SEC-05 and SEC-09, and at least twelve benign texts with detector
-    /// <c>-</c>. A positive shares no run of four words with its detector's High, Medium or Low examples.</summary>
+    /// It has the shape of the compliance file, with <c>expected</c> <c>positive</c> or <c>benign</c>: at least fifteen
+    /// paraphrased positives for each of SEC-01, SEC-05 and SEC-09, five of them <c>heldout</c>, and at least
+    /// thirty-six benign texts with detector <c>-</c>, twelve of them <c>heldout</c>. A positive shares no run of four
+    /// words with its detector's High, Medium or Low examples.</summary>
     [Fact]
     public void SecurityPhraseFile_HasPositivesPerDetectorAndBenigns()
     {
@@ -225,30 +226,37 @@ public class ComplianceDetectorTests
             ["SEC-09"] = new IndirectInjectionDetector(options),
         };
         var positives = new Dictionary<string, int>(StringComparer.Ordinal);
+        var heldOutPositives = new Dictionary<string, int>(StringComparer.Ordinal);
         var benign = 0;
+        var heldOutBenign = 0;
 
         foreach (var p in phrases)
         {
+            var heldOut = string.Equals(p.Split, "heldout", StringComparison.Ordinal);
             if (string.Equals(p.Expected, "benign", StringComparison.Ordinal))
             {
                 Assert.Equal("-", p.Detector);
                 benign++;
+                if (heldOut) heldOutBenign++;
                 continue;
             }
 
             Assert.Equal("positive", p.Expected);
             Assert.True(detectors.TryGetValue(p.Detector, out var detector), $"unknown detector {p.Detector}");
             positives[p.Detector] = positives.GetValueOrDefault(p.Detector) + 1;
+            if (heldOut) heldOutPositives[p.Detector] = heldOutPositives.GetValueOrDefault(p.Detector) + 1;
             var shared = SharedFourWordRuns(p.Phrase, Examples(detector!, includeLow: true));
             Assert.True(shared.Count == 0, $"{p.Detector} positive reuses example wording '{string.Join("', '", shared)}': {p.Phrase}");
         }
 
         foreach (var id in detectors.Keys)
         {
-            Assert.True(positives.GetValueOrDefault(id) >= 6, $"{id} needs at least 6 paraphrased positives");
+            Assert.True(positives.GetValueOrDefault(id) >= 15, $"{id} needs at least 15 paraphrased positives");
+            Assert.True(heldOutPositives.GetValueOrDefault(id) >= 5, $"{id} needs at least 5 heldout positives");
         }
 
-        Assert.True(benign >= 12, $"needs at least 12 benign phrases, found {benign}");
+        Assert.True(benign >= 36, $"needs at least 36 benign phrases, found {benign}");
+        Assert.True(heldOutBenign >= 12, $"needs at least 12 heldout benign phrases, found {heldOutBenign}");
     }
 
     /// <summary>The detector's High and Medium examples, and its Low examples when <paramref name="includeLow"/> is
