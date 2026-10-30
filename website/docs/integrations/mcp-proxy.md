@@ -126,6 +126,8 @@ See [Redaction → Per surface](../redaction#per-surface) for how this compares 
 | `SENTINEL_REVIEW_MAX_PER_SCAN` | `4` | Reviews per scan. `0` turns the review off |
 | `SENTINEL_REVIEW_TIMEOUT_MS` | `5000` | Per-review timeout in milliseconds |
 
+**What the review endpoint receives.** `SENTINEL_REVIEW_ENDPOINT` is sent each flagged text, up to its last 64 KiB. That text can contain the secret or personal data a credential or PII detector flagged, just as the embedding endpoint receives the texts it embeds, so choose a provider you would trust with that data, or a local one. The reviewer's reason comes back the other way: it becomes part of the finding's reason, which the proxy's block error passes on to the agent. It is sanitised to one line and capped at 200 characters.
+
 ### MCP-specific
 
 | Variable | Default | Purpose |

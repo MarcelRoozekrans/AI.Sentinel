@@ -71,6 +71,8 @@ Both Claude Code and Copilot share the same env-var contract:
 | `SENTINEL_REVIEW_MAX_PER_SCAN` | `4` | Reviews per scan. `0` turns the review off |
 | `SENTINEL_REVIEW_TIMEOUT_MS` | `3000` | Per-review timeout in milliseconds. The hooks default to 3 s because they run on your critical path |
 
+**What the review endpoint receives.** `SENTINEL_REVIEW_ENDPOINT` is sent each flagged text, up to its last 64 KiB. That text can contain the secret or personal data a credential or PII detector flagged, just as the embedding endpoint receives the texts it embeds, so choose a provider you would trust with that data, or a local one. The reviewer's reason comes back the other way: it becomes part of the finding's reason, which the hook's block or warning text passes on to the model. It is sanitised to one line and capped at 200 characters.
+
 ### Detectors
 
 The hook scans prompts, tool arguments and tool output, never a model's reply. So by default it runs the same security preset as the [MCP proxy](./mcp-proxy#detector-profiles): 16 of the 32 security detectors and the four compliance detectors. It leaves out the operational and hallucination detectors, which were written for a model's reply and fire as noise on tool traffic. Build logs and directory listings repeat lines, so `OPS-02` flags them. `OPS-11` rates a tool output more than 100 times the size of the tool call, or above 50,000 characters, as `High`, which blocks under the default `SENTINEL_HOOK_ON_HIGH=Block`. `SENTINEL_HOOK_DETECTORS=all` runs every detector.

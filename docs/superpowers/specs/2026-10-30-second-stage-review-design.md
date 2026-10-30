@@ -160,7 +160,7 @@ The hook CLIs (`AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli`), the MCP
 - **C0. Which number is which: one rule for the whole pipeline.** These definitions settle candidacy, ranking, the request fields and the metric outcome:
   - The **bucket severity** is what scoring produced.
   - The **proposed severity** is the bucket severity after the configured Floor/Cap from `DetectorConfiguration`.
-  - The **shown severity** is the proposed severity after the semantic cap, so Medium at most.
+  - The **shown severity** is the proposed severity after the semantic cap, so at most Medium, or the configured floor when that is higher.
   - **`MaximumSeverity`** is the detector's highest bucket severity, limited by a configured `SeverityCap`.
   - Candidacy and ranking use the proposed severity. Without a verdict the result is the shown severity.
   - **A configured `SeverityFloor` above Medium raises the cap level to the floor; it does not remove the cap.** The shown severity is min(proposed, max(Medium, floor)), so a Critical bucket with a High floor shows High until a verdict confirms it. The floor is an explicit choice by whoever configured the pipeline, but it does not tell how sure the embedding is. The anti-goal is about the default behaviour.
@@ -184,7 +184,7 @@ The hook CLIs (`AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli`), the MCP
 - **C3. Order of operations,** using the terms of C0:
   1. detectors run, giving bucket severities;
   2. Floor/Cap from `DetectorConfiguration`, giving proposed severities;
-  3. the semantic cap, giving shown severities. a configured Floor above Medium raises the cap level to the floor;
+  3. the semantic cap, giving shown severities. A configured Floor above Medium raises the cap level to the floor;
   4. review on the candidates, ranked by proposed severity;
   5. Floor/Cap again;
   6. action overrides.
@@ -195,7 +195,7 @@ The hook CLIs (`AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli`), the MCP
   - whether the result came from the fast path, which is never capped.
 
   The public `AnalyzeAsync(ctx, ct)` is unchanged and uncapped. The cap and review are pipeline behaviour, so direct callers such as SDK tests see bucket severities as before.
-- **C5. The reason string** of a reviewed result names the outcome and keeps the reviewer's reason, sanitised like rule-match reasons: "Reviewed: confirmed — <reason>". A capped result says "Semantic match — capped at Medium pending review" so the dashboard and audit show why.
+- **C5. The reason string** of a reviewed result keeps the detector's own reason, then names the outcome and keeps the reviewer's reason, sanitised like rule-match reasons and capped at 200 characters: "<detector reason> — Reviewed: confirmed — <reason>". For a capped semantic result the detector's reason is the bucket reason from before the cap; a text that reached no bucket has none, and an empty reviewer reason drops the last part. A capped result says "Semantic match — capped at Medium pending review" so the dashboard and audit show why.
 - **C6. Delivery** is three PRs from fresh `origin/main` branches, in this order:
   1. #511: the reviewer, cap, band, metrics, CLI host reviewer (D7), eval split and the three-configuration report, with the existing phrases all marked `fit`;
   2. #432;
