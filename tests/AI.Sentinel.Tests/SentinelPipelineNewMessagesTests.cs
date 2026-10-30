@@ -4,6 +4,7 @@ using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Redaction;
+using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.AI;
 using Xunit;
 
@@ -233,29 +234,29 @@ public class SentinelPipelineNewMessagesTests
         Assert.Equal(2, ctx.NewMessagesFrom);
     }
 
-    // #439. A tool loop sends the whole history on every round trip; only the messages after the last assistant
-    // message are new, so a secret in round 1's tool result is reported once, not again on round 2.
+    // #439, through the real tool loop. The model calls the tool twice; the first result carries a secret. Redaction is
+    // off and criticals only log, so the loop runs to its end. Round 2 judges the secret; round 3 sends the same
+    // history again and must not report it a second time.
     [Fact]
     public async Task ToolLoop_SecretInRound1Result_FlaggedOnceNotInRound2()
     {
-        var pipeline = Build([new CredentialExposureDetector()], redactByDefault: false);
-        var call1 = new FunctionCallContent("c1", "read", new Dictionary<string, object?>(StringComparer.Ordinal));
-        var call2 = new FunctionCallContent("c2", "read", new Dictionary<string, object?>(StringComparer.Ordinal));
-        var userMessage = new ChatMessage(ChatRole.User, "read the file");
-        var callMessage = new ChatMessage(ChatRole.Assistant, [call1]);
-        var keyResult = new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c1", "password=hunter2secretvalue")]);
+        var model = new Redaction.RedactionPipelineTests.RecordingModel(messages =>
+        {
+            var results = messages.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Count();
+            return results >= 2
+                ? new ChatMessage(ChatRole.Assistant, "done")
+                : new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c" + results, "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "42" })]);
+        });
+        var h = Redaction.RedactionPipelineTests.Build("F>S", model, o => { o.RedactByDefault = false; o.OnCritical = SentinelAction.Log; });
+        var calls = 0;
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string id) => ++calls == 1 ? "password=hunter2secretvalue" : "all clean here", "Lookup")] };
 
-        var round1 = await pipeline.GetResponseResultAsync([userMessage, callMessage, keyResult], null, TestContext.Current.CancellationToken);
-        var round2 = await pipeline.GetResponseResultAsync(
-            [
-                userMessage, callMessage, keyResult,
-                new ChatMessage(ChatRole.Assistant, [call2]),
-                new ChatMessage(ChatRole.Tool, [new FunctionResultContent("c2", "all clean here")]),
-            ], null, TestContext.Current.CancellationToken);
+        var response = await h.Client.GetResponseAsync([new ChatMessage(ChatRole.User, "look it up")], options, TestContext.Current.CancellationToken);
 
-        var detections = Assert.IsType<SentinelError.ThreatDetected>(round1.Error).Detections;
-        Assert.Contains(detections, d => string.Equals(d.DetectorId.Value, "SEC-02", StringComparison.Ordinal));
-        Assert.True(round2.IsSuccess, "the round 1 secret is history in round 2");
+        Assert.Equal("done", response.Text);
+        Assert.Equal(3, model.Calls);
+        var entries = await RecordingAuditForwarder.ReadAllAsync(h.Audit);
+        Assert.Single(entries, e => string.Equals(e.DetectorId, "SEC-02", StringComparison.Ordinal));
     }
 
     [Fact]

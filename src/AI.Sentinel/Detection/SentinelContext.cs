@@ -110,7 +110,8 @@ public sealed class SentinelContext(
 
     private string[]? _newMessageProse;
 
-    /// <summary>The <see cref="ChatMessage.Text"/> of each new message, one entry per message, cut by the same rule as
+    /// <summary>The <see cref="ChatMessage.Text"/> of each new message, one entry per message and index-aligned: entry
+    /// <c>i</c> belongs to <c>Messages[NewMessagesFrom + i]</c>. Cut by the same rule as
     /// <see cref="NewMessageTexts"/>, independently of it: prose only, without tool calls or tool results.</summary>
     internal IReadOnlyList<string> NewMessageProse =>
         _newMessageProse ??= CutNewMessages(static m => m.Text ?? string.Empty, out _);

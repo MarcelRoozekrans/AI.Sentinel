@@ -82,31 +82,60 @@ public class NewMessagesOnlyDetectorTests
         Assert.False(r.IsClean, $"{name} missed the new message");
     }
 
+    // OPS-15 pairs the last user and the last assistant message, a property of the whole conversation. On the
+    // request leg the assistant message is history and only the user turn is new.
     [Fact]
-    public async Task WrongLanguage_IgnoresAMismatchInHistory()
+    public async Task WrongLanguage_RequestLegShape_FlagsAHistoryReplyAgainstTheNewUserTurn()
     {
         var messages = new ChatMessage[]
         {
-            new(ChatRole.User, English), new(ChatRole.Assistant, Chinese),
-            new(ChatRole.User, English), new(ChatRole.Assistant, "The capital of France is Paris, a major city."),
-        };
-
-        var r = await new WrongLanguageDetector().AnalyzeAsync(Ctx(messages, newFrom: 2), TestContext.Current.CancellationToken);
-
-        Assert.True(r.IsClean);
-    }
-
-    [Fact]
-    public async Task WrongLanguage_FlagsAMismatchInTheNewMessages()
-    {
-        var messages = new ChatMessage[]
-        {
-            new(ChatRole.User, English), new(ChatRole.Assistant, "The capital of France is Paris, a major city."),
-            new(ChatRole.User, English), new(ChatRole.Assistant, Chinese),
+            new(ChatRole.User, English), new(ChatRole.Assistant, Chinese), new(ChatRole.User, English),
         };
 
         var r = await new WrongLanguageDetector().AnalyzeAsync(Ctx(messages, newFrom: 2), TestContext.Current.CancellationToken);
 
         Assert.False(r.IsClean);
+    }
+
+    [Fact]
+    public async Task WrongLanguage_ReadsOnlyTheCutOfALargeMessage()
+    {
+        // 33 CJK characters are 99 bytes, inside the 100-byte budget; the megabyte of Latin after them is not read.
+        var reply = new string('巴', 33) + new string('a', 1_000_000);
+        var messages = new ChatMessage[] { new(ChatRole.User, English), new(ChatRole.Assistant, reply) };
+        var cut = new SentinelContext(new AgentId("a"), new AgentId("b"), SessionId.New(), messages, new List<AuditEntry>()) { MaxScanBytes = 100 };
+        var uncut = Ctx(messages, newFrom: 0);
+
+        var detector = new WrongLanguageDetector();
+
+        Assert.False((await detector.AnalyzeAsync(cut, TestContext.Current.CancellationToken)).IsClean);
+        Assert.True((await detector.AnalyzeAsync(uncut, TestContext.Current.CancellationToken)).IsClean);
+    }
+
+    [Theory]
+    [InlineData("Loading...")]
+    [InlineData("The answer is that we should,")]
+    public async Task TruncatedOutput_TailChecks_IgnoreHistory(string tail)
+    {
+        var detector = new TruncatedOutputDetector();
+        var inHistory = new ChatMessage[] { new(ChatRole.Assistant, tail), new(ChatRole.User, "go on") };
+        var asNew = new ChatMessage[] { new(ChatRole.User, "go on"), new(ChatRole.Assistant, tail) };
+
+        Assert.True((await detector.AnalyzeAsync(Ctx(inHistory, newFrom: 1), TestContext.Current.CancellationToken)).IsClean);
+        Assert.False((await detector.AnalyzeAsync(Ctx(asNew, newFrom: 1), TestContext.Current.CancellationToken)).IsClean);
+    }
+
+    // NewMessageProse is index-aligned with Messages from NewMessagesFrom; TruncatedOutput and WrongLanguage rely on it.
+    [Fact]
+    public void NewMessageProse_IsIndexAlignedWithTheNewMessages()
+    {
+        var messages = new ChatMessage[]
+        {
+            new(ChatRole.User, "zero"), new(ChatRole.Assistant, "one"), new(ChatRole.User, "two"), new(ChatRole.Assistant, "three"),
+        };
+
+        var prose = Ctx(messages, newFrom: 2).NewMessageProse;
+
+        Assert.Equal(["two", "three"], prose);
     }
 }

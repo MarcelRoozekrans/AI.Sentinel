@@ -35,20 +35,24 @@ public sealed partial class WrongLanguageDetector : IDetector
         return (latinCount / total, nonLatinCount / total);
     }
 
+    private static string Bounded(string? text, int? maxBytes) =>
+        text is null ? string.Empty
+        : maxBytes is { } max ? Utf8Text.Truncate(text, max)
+        : text;
+
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         string? lastUserText = null;
         string? lastAssistantText = null;
 
-        // Only the new messages: a mismatch in earlier turns was judged when it arrived.
-        var prose = ctx.NewMessageProse;
-        for (var i = 0; i < prose.Count; i++)
+        // The pair is a property of the whole conversation: on the request leg the new messages are the user turn
+        // and the assistant message it answers is history. Each text is cut to the scan budget to bound the cost.
+        foreach (var message in ctx.Messages)
         {
-            var role = ctx.Messages[ctx.NewMessagesFrom + i].Role;
-            if (role == ChatRole.User)
-                lastUserText = prose[i];
-            else if (role == ChatRole.Assistant)
-                lastAssistantText = prose[i];
+            if (message.Role == ChatRole.User)
+                lastUserText = Bounded(message.Text, ctx.MaxScanBytes);
+            else if (message.Role == ChatRole.Assistant)
+                lastAssistantText = Bounded(message.Text, ctx.MaxScanBytes);
         }
 
         if (lastUserText is null || lastAssistantText is null)
