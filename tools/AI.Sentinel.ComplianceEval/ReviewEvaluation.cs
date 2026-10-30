@@ -9,7 +9,8 @@ using Microsoft.Extensions.AI;
 namespace AI.Sentinel.ComplianceEval;
 
 /// <summary>Scores the held-out phrases through an internal <see cref="DetectionPipeline"/> over one detector, in three
-/// configurations: embeddings alone and uncapped, embeddings capped at Medium, and embeddings plus a reviewer.</summary>
+/// configurations: embeddings alone and uncapped, embeddings capped at Medium, and embeddings plus a reviewer. A
+/// separate full-pipeline pass runs every evaluated detector together to measure the review budget.</summary>
 /// <remarks>Configuration 1 is today's behaviour, and its verdict is the one the tool's exit code guards through the
 /// direct <c>AnalyzeAsync</c> path. Nothing here fails the run: judge output is not deterministic.</remarks>
 internal sealed class ReviewEvaluation(
@@ -62,6 +63,10 @@ internal sealed class ReviewEvaluation(
         var section = new StringBuilder();
         section.AppendLine(CultureInfo.InvariantCulture, $"### Held-out review: {id}");
         section.AppendLine();
+        // No configuration below sets a ReviewThreshold, so the detector's built-in one is the effective one.
+        section.AppendLine(CultureInfo.InvariantCulture,
+            $"Review threshold: {detector.EvaluationReviewThreshold:0.00}; Low threshold: {detector.EvaluationLowThreshold:0.00}.");
+        section.AppendLine();
         var positives = heldOut.Count(p => p.IsPositive);
         var benign = heldOut.Length - positives;
         if (heldOut.Length == 0)
@@ -73,8 +78,8 @@ internal sealed class ReviewEvaluation(
 
         section.AppendLine(CultureInfo.InvariantCulture, $"{positives} held-out positives, {benign} held-out benign texts.");
         section.AppendLine();
-        section.AppendLine("| Config | Positives >= High | Positives >= Medium | Benign >= High | Benign >= Medium | p50 added ms | p95 added ms | Reviews per scan | Share over budget |");
-        section.AppendLine("|---|---|---|---|---|---|---|---|---|");
+        section.AppendLine("| Config | Positives >= High | Positives >= Medium | Benign >= High | Benign >= Medium | p50 added ms | p95 added ms | Candidates per detector-scan |");
+        section.AppendLine("|---|---|---|---|---|---|---|---|");
 
         var configurations = new[]
         {
@@ -89,7 +94,7 @@ internal sealed class ReviewEvaluation(
             if (configurations[c] is not { } pipeline)
             {
                 section.AppendLine(CultureInfo.InvariantCulture,
-                    $"| {ConfigurationNames[c]} | skipped | skipped | skipped | skipped | skipped | skipped | skipped | skipped |");
+                    $"| {ConfigurationNames[c]} | skipped | skipped | skipped | skipped | skipped | skipped | skipped |");
                 continue;
             }
 
@@ -108,7 +113,7 @@ internal sealed class ReviewEvaluation(
         var id = detector.Id.Value;
         int positiveHigh = 0, positiveMedium = 0, benignHigh = 0, benignMedium = 0;
         var added = new List<double>();
-        using var reviews = new ReviewCounter(id);
+        using var reviews = new ReviewCounter([id]);
 
         foreach (var phrase in heldOut)
         {
@@ -143,11 +148,12 @@ internal sealed class ReviewEvaluation(
         var latency = judged
             ? $"{Percentile(added, 0.5):0.0} | {Percentile(added, 0.95):0.0}"
             : "n/a | n/a";
-        var perScan = judged ? reviews.PerScan(heldOut.Length) : "n/a";
-        var share = judged ? reviews.OverBudgetShare() : "n/a";
+        // One detector proposes at most one candidate per scan, so its own budget is never exceeded: the full-pipeline
+        // pass measures the budget across detectors.
+        var perScan = judged ? PerScan(reviews.Candidates, heldOut.Length) : "n/a";
         if (judged) NoteJudgeOutcomes(id, reviews);
         return string.Create(CultureInfo.InvariantCulture,
-            $"| {ConfigurationNames[configuration]} | {positiveHigh} / {positives} | {positiveMedium} / {positives} | {benignHigh} / {benign} | {benignMedium} / {benign} | {latency} | {perScan} | {share} |");
+            $"| {ConfigurationNames[configuration]} | {positiveHigh} / {positives} | {positiveMedium} / {positives} | {benignHigh} / {benign} | {benignMedium} / {benign} | {latency} | {perScan} |");
     }
 
     /// <summary>Lines shown beneath the detector's table: the review outcomes and any failure warning.</summary>
@@ -170,14 +176,18 @@ internal sealed class ReviewEvaluation(
     private const int CappedIndex = 1;
     private const int JudgedIndex = 2;
 
-    /// <summary>Counts the <c>sentinel.reviews</c> measurements for one detector, by outcome.</summary>
+    private static string PerScan(long count, int scans) =>
+        ((double)count / Math.Max(scans, 1)).ToString("0.00", CultureInfo.InvariantCulture);
+
+    /// <summary>Counts the <c>sentinel.reviews</c> measurements for a set of detectors, by outcome.</summary>
     private sealed class ReviewCounter : IDisposable
     {
         private readonly MeterListener _listener = new();
         private readonly Dictionary<string, long> _outcomes = new(StringComparer.Ordinal);
 
-        public ReviewCounter(string detectorId)
+        public ReviewCounter(IReadOnlyCollection<string> detectorIds)
         {
+            var ids = new HashSet<string>(detectorIds, StringComparer.Ordinal);
             _listener.InstrumentPublished = (instrument, l) =>
             {
                 if (string.Equals(instrument.Meter.Name, "ai.sentinel", StringComparison.Ordinal)
@@ -186,11 +196,11 @@ internal sealed class ReviewEvaluation(
                     l.EnableMeasurementEvents(instrument);
                 }
             };
-            _listener.SetMeasurementEventCallback<long>((_, value, tags, _) => Record(detectorId, value, tags));
+            _listener.SetMeasurementEventCallback<long>((_, value, tags, _) => Record(ids, value, tags));
             _listener.Start();
         }
 
-        private void Record(string detectorId, long value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
+        private void Record(HashSet<string> ids, long value, ReadOnlySpan<KeyValuePair<string, object?>> tags)
         {
             string? outcome = null;
             var forDetector = false;
@@ -199,7 +209,7 @@ internal sealed class ReviewEvaluation(
                 if (string.Equals(tag.Key, "outcome", StringComparison.Ordinal)) outcome = tag.Value as string;
                 else if (string.Equals(tag.Key, "detector", StringComparison.Ordinal))
                 {
-                    forDetector = string.Equals(tag.Value as string, detectorId, StringComparison.Ordinal);
+                    forDetector = tag.Value is string id && ids.Contains(id);
                 }
             }
 
@@ -207,33 +217,94 @@ internal sealed class ReviewEvaluation(
             lock (_outcomes) _outcomes[outcome] = _outcomes.GetValueOrDefault(outcome) + value;
         }
 
-        private static readonly string[] OutcomeNames =
-            ["confirmed", "raised", "lowered", "cleared", "no_verdict", "failed", "timed_out", "over_budget"];
-
-        /// <summary>Reviews that ran to a verdict or none: failed, timed out and over-budget candidates are not counted.</summary>
-        private long Reviewed => _outcomes
-            .Where(o => !string.Equals(o.Key, "over_budget", StringComparison.Ordinal) && !IsFailure(o.Key))
-            .Sum(o => o.Value);
-
-        public long Failures => _outcomes.Where(o => IsFailure(o.Key)).Sum(o => o.Value);
-
-        private static bool IsFailure(string outcome) =>
-            string.Equals(outcome, "failed", StringComparison.Ordinal) || string.Equals(outcome, "timed_out", StringComparison.Ordinal);
-
-        public string Outcomes() => string.Join(", ", OutcomeNames.Select(n =>
-            string.Create(CultureInfo.InvariantCulture, $"{n} {_outcomes.GetValueOrDefault(n)}")));
-
-        public string PerScan(int scans) =>
-            ((double)Reviewed / Math.Max(scans, 1)).ToString("0.00", CultureInfo.InvariantCulture);
-
-        public string OverBudgetShare()
+        private long Count(string outcome)
         {
-            var over = _outcomes.GetValueOrDefault("over_budget");
-            var candidates = Reviewed + Failures + over;
-            return candidates == 0 ? "0%" : ((double)over / candidates).ToString("P0", CultureInfo.InvariantCulture);
+            lock (_outcomes) return _outcomes.GetValueOrDefault(outcome);
         }
 
+        /// <summary>Every candidate: reviewed, failed, timed out or over budget.</summary>
+        public long Candidates => ReviewOutcomes.All.Sum(Count);
+
+        /// <summary>Candidates sent to the reviewer, whatever came back: all but the over-budget ones.</summary>
+        public long Sent => Candidates - OverBudget;
+
+        public long OverBudget => Count(ReviewOutcomes.OverBudget);
+
+        public long Failures => Count(ReviewOutcomes.Failed) + Count(ReviewOutcomes.TimedOut);
+
+        public string Outcomes() => string.Join(", ", ReviewOutcomes.All.Select(n =>
+            string.Create(CultureInfo.InvariantCulture, $"{n} {Count(n)}")));
+
         public void Dispose() => _listener.Dispose();
+    }
+
+    /// <summary>Answers every review with no verdict and counts the calls, so the full-pipeline pass measures
+    /// candidacy and the budget without a judge or a key.</summary>
+    private sealed class CountingReviewer : IDetectionReviewer
+    {
+        private int _calls;
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public ValueTask<ReviewVerdict> ReviewAsync(ReviewRequest request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _calls);
+            return ValueTask.FromResult(ReviewVerdict.None);
+        }
+    }
+
+    /// <summary>Runs every detector in <paramref name="detectors"/> together, capped and with the default
+    /// <c>MaxReviewsPerScan</c> of 4, over <paramref name="texts"/>, and reports how many review candidates a scan
+    /// produces, how many are sent and the share over budget.</summary>
+    /// <param name="scope">The embedding scope the detectors share.</param>
+    /// <param name="detectors">The evaluated detectors, all enabled at once.</param>
+    /// <param name="texts">Benign texts, each as a user message or, for a tool output, as a tool message.</param>
+    /// <param name="ct">Cancels the pass.</param>
+    /// <returns>The "Full-pipeline review budget" Markdown section.</returns>
+    /// <remarks>The reviewer answers no verdict, so no judge is needed and no result changes: this measures candidacy
+    /// and the budget only. A benign text that becomes a candidate costs a review in production.</remarks>
+    public static async Task<string> FullPipelineAsync(
+        EmbeddingScope scope, IReadOnlyList<SemanticDetectorBase> detectors, IReadOnlyList<(string Text, bool Tool)> texts,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(detectors);
+        ArgumentNullException.ThrowIfNull(texts);
+        var configurations = new Dictionary<Type, DetectorConfiguration>();
+        foreach (var detector in detectors) configurations[detector.GetType()] = new DetectorConfiguration { Enabled = true };
+        var reviewer = new CountingReviewer();
+        var pipeline = new DetectionPipeline(detectors, configurations, reviewer, embeddingScope: scope);
+
+        using var reviews = new ReviewCounter([.. detectors.Select(d => d.Id.Value)]);
+        var maxCandidates = 0L;
+        var scansOverBudget = 0;
+        var scansWithCandidates = 0;
+        foreach (var (text, tool) in texts)
+        {
+            var before = reviews.Candidates;
+            await pipeline.RunAsync(Context(text, tool), ct).ConfigureAwait(false);
+            var candidates = reviews.Candidates - before;
+            maxCandidates = Math.Max(maxCandidates, candidates);
+            if (candidates > 0) scansWithCandidates++;
+            if (candidates > ReviewLimits.Default.MaxPerScan) scansOverBudget++;
+        }
+
+        var share = reviews.Candidates == 0
+            ? "0%"
+            : ((double)reviews.OverBudget / reviews.Candidates).ToString("P0", CultureInfo.InvariantCulture);
+        var section = new StringBuilder();
+        section.AppendLine("### Full-pipeline review budget");
+        section.AppendLine();
+        section.AppendLine(CultureInfo.InvariantCulture,
+            $"All {detectors.Count} detectors above enabled together, capped, with the default budget of {ReviewLimits.Default.MaxPerScan} reviews per scan, over {texts.Count} benign texts: every everyday prompt plus the held-out benign texts. The reviewer answers no verdict, so no key is needed; this measures candidacy and the budget, not detection.");
+        section.AppendLine();
+        section.AppendLine("| Scans | Scans with a candidate | Candidates per scan | Reviews per scan | Most candidates in one scan | Scans over budget | Share of candidates over budget |");
+        section.AppendLine("|---|---|---|---|---|---|---|");
+        section.AppendLine(CultureInfo.InvariantCulture,
+            $"| {texts.Count} | {scansWithCandidates} | {PerScan(reviews.Candidates, texts.Count)} | {PerScan(reviewer.Calls, texts.Count)} | {maxCandidates} | {scansOverBudget} | {share} |");
+        section.AppendLine();
+        section.AppendLine(CultureInfo.InvariantCulture, $"Review outcomes: {reviews.Outcomes()}.");
+        section.AppendLine();
+        return section.ToString();
     }
 
     private DetectionPipeline Pipeline(SemanticDetectorBase detector, bool capped, bool withReviewer) => new(
@@ -247,7 +318,9 @@ internal sealed class ReviewEvaluation(
 
     /// <summary>A single message, so the detector scores exactly the phrase. Security phrases are tool messages, which
     /// keeps the rule layer silent; compliance phrases are user messages.</summary>
-    private SentinelContext Context(string text) => toolMessages
+    private SentinelContext Context(string text) => Context(text, toolMessages);
+
+    private static SentinelContext Context(string text, bool tool) => tool
         ? new SentinelContext(new AgentId("tool"), new AgentId("assistant"), SessionId.New(), [new ChatMessage(ChatRole.Tool, text)], [])
         : new SentinelContext(new AgentId("user"), new AgentId("assistant"), SessionId.New(), [new ChatMessage(ChatRole.User, text)], []);
 }

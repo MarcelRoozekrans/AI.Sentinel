@@ -15,6 +15,9 @@
 // The held-out review section scores the held-out phrases in three configurations: embeddings uncapped, embeddings
 // capped at Medium, and embeddings plus an LLM judge, which needs ANTHROPIC_API_KEY. It is reported and never fails the run.
 // Embeddings are cached by configurations 1 and 2, so the judge's added ms is review latency only, not cold-scan latency.
+// The full-pipeline pass then runs all seven detectors together with the default budget of 4 reviews per scan over
+// the everyday prompts and the held-out benign texts, with a reviewer that answers no verdict, so it needs no key.
+// It reports candidates and reviews per scan and the share of candidates over budget.
 using System.Globalization;
 using System.Text;
 using AI.Sentinel;
@@ -84,7 +87,8 @@ SemanticDetectorBase[] detectors =
 
 var everyday = Phrase.Load(everydayPath);
 string[] history = [.. everyday.Take(5).Select(p => p.Text)];
-Phrase[] phrases = [.. Phrase.Load(phrasesPath), .. everyday];
+var compliancePhrases = Phrase.Load(phrasesPath);
+Phrase[] phrases = [.. compliancePhrases, .. everyday];
 var summary = new StringBuilder();
 summary.AppendLine("| Detector | High / Medium threshold | Lowest positive, High set | Highest legitimate, High set | Highest legitimate, Medium set | Positives at High / Medium / missed | Legitimate at High / Medium | Rule's thresholds for this model: positives at High / Medium / missed | Multi-message agrees |");
 summary.AppendLine("|---|---|---|---|---|---|---|---|---|");
@@ -152,6 +156,15 @@ if (phrases.Concat(securityPhrases).All(p => !p.IsHeldOut))
 
 foreach (var detector in detectors) report.Append(await reviewEvaluation.EvaluateAsync(detector, phrases).ConfigureAwait(false));
 foreach (var detector in securityDetectors) report.Append(await securityReviewEvaluation.EvaluateAsync(detector, securityPhrases).ConfigureAwait(false));
+
+// Benign texts keep the role they are scored with above: compliance texts as user messages, security texts as tool output.
+(string Text, bool Tool)[] budgetTexts =
+[
+    .. everyday.Select(p => (p.Text, false)),
+    .. compliancePhrases.Where(p => !p.IsPositive && p.IsHeldOut).Select(p => (p.Text, false)),
+    .. securityPhrases.Where(p => !p.IsPositive && p.IsHeldOut).Select(p => (p.Text, true)),
+];
+report.Append(await ReviewEvaluation.FullPipelineAsync(scope, [.. detectors, .. securityDetectors], budgetTexts, ct).ConfigureAwait(false));
 
 var judgeFailures = reviewEvaluation.JudgeFailures + securityReviewEvaluation.JudgeFailures;
 if (judgeFailures > 0)
