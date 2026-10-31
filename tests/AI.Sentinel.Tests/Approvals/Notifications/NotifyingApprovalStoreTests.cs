@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using AI.Sentinel.Approvals;
+using AI.Sentinel.Approvals.Configuration;
 using AI.Sentinel.Approvals.Notifications;
 using Microsoft.Extensions.Logging;
 using Xunit;
@@ -13,11 +14,13 @@ public class NotifyingApprovalStoreTests
     private static readonly Uri Endpoint = new("https://hooks.example.com/services/abc");
 
     private static ApprovalNotifierSettings Settings(
-        Uri? url = null, bool includeArgs = false, Uri? dashboard = null, params (string, string)[] headers) =>
+        Uri? url = null, bool includeArgs = false, Uri? dashboard = null, bool linkToRequestPage = false,
+        params (string, string)[] headers) =>
         new(url ?? Endpoint,
             headers.ToDictionary(h => h.Item1, h => h.Item2, StringComparer.OrdinalIgnoreCase),
             includeArgs,
-            dashboard);
+            dashboard,
+            linkToRequestPage);
 
     private static ApprovalSpec Spec() => new() { PolicyName = "approval:Bash" };
 
@@ -174,6 +177,74 @@ public class NotifyingApprovalStoreTests
         await Notifier(new FixedStore(custom), other).EnsureRequestAsync(Caller(), Spec(), Ctx(), TestContext.Current.CancellationToken);
         Assert.EndsWith("(approval:Bash).", Body(other).GetProperty("text").GetString(), StringComparison.Ordinal);
     }
+
+    private static async Task<JsonElement> SqliteBodyAsync(string dashboard, string requestId, bool link = true)
+    {
+        var handler = new RecordingHandler();
+        var inner = new FixedStore(new ApprovalState.Pending(requestId, "sentinel://x", DateTimeOffset.UnixEpoch) { IsNew = true });
+        var store = Notifier(inner, handler, Settings(dashboard: new Uri(dashboard), linkToRequestPage: link));
+        await store.EnsureRequestAsync(Caller(), Spec(), Ctx(), TestContext.Current.CancellationToken);
+        return Body(handler);
+    }
+
+    [Fact]
+    public async Task Text_Sqlite_LinksToRequestPage()
+    {
+        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel/", "req-1");
+        Assert.EndsWith(" https://dash.example.com/ai-sentinel/approvals/req-1", body.GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Text_Sqlite_DashboardUrlWithoutTrailingSlash_GetsOne()
+    {
+        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel", "req-1");
+        Assert.EndsWith(" https://dash.example.com/ai-sentinel/approvals/req-1", body.GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Text_Sqlite_EscapesRequestId()
+    {
+        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel/", "a/b?c%d");
+        Assert.EndsWith("approvals/a%2Fb%3Fc%25d", body.GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Text_EntraPim_Unchanged()
+    {
+        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel/", "req-1", link: false);
+        Assert.EndsWith(" https://dash.example.com/ai-sentinel/", body.GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Payload_DashboardUrl_StaysConfiguredValue()
+    {
+        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel", "req-1");
+        Assert.Equal("https://dash.example.com/ai-sentinel", body.GetProperty("dashboardUrl").GetString());
+    }
+
+    [Fact]
+    public async Task Text_Sqlite_WithoutDashboardUrl_FallsBackToApprovalUrl()
+    {
+        var handler = new RecordingHandler();
+        var inner = new FixedStore(new ApprovalState.Pending("r1", "https://portal.example.com/x", DateTimeOffset.UnixEpoch) { IsNew = true });
+        var store = Notifier(inner, handler, Settings(linkToRequestPage: true));
+        await store.EnsureRequestAsync(Caller(), Spec(), Ctx(), TestContext.Current.CancellationToken);
+        Assert.EndsWith(" https://portal.example.com/x", Body(handler).GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    private static ApprovalConfig Config(string backend) =>
+        new(backend, null, null, 60, "j", false, new Dictionary<string, IReadOnlyList<ApprovalToolConfig>>(StringComparer.Ordinal))
+        {
+            NotifyUrl = Endpoint,
+        };
+
+    [Fact]
+    public void FromConfig_SqliteBackend_LinksToRequestPage() =>
+        Assert.True(ApprovalNotifierSettings.FromConfig(Config("sqlite"))!.LinkToRequestPage);
+
+    [Fact]
+    public void FromConfig_EntraPimBackend_DoesNot() =>
+        Assert.False(ApprovalNotifierSettings.FromConfig(Config("entra-pim"))!.LinkToRequestPage);
 
     [Fact]
     public async Task Text_PrefersDashboardOverHttpApprovalUrl()

@@ -63,7 +63,7 @@ public sealed class ApprovalStoreRegistrationTests : IDisposable
     }
 
     private static ApprovalNotifierSettings Notifier() =>
-        new(new Uri("http://127.0.0.1:9/"), new Dictionary<string, string>(StringComparer.Ordinal), false, null);
+        new(new Uri("http://127.0.0.1:9/"), new Dictionary<string, string>(StringComparer.Ordinal), false, null, false);
 
     private static List<IApprovalStore> Chain(IApprovalStore store)
     {
@@ -134,7 +134,7 @@ public sealed class ApprovalStoreRegistrationTests : IDisposable
         using var hook = new Helpers.WebhookListener();
         var services = new ServiceCollection();
         services.AddSingleton(new ApprovalNotifierSettings(
-            hook.Url, new Dictionary<string, string>(StringComparer.Ordinal), false, null));
+            hook.Url, new Dictionary<string, string>(StringComparer.Ordinal), false, null, false));
         services.AddSentinelApprovalStore(_ => new InMemoryApprovalStore());
         services.AddAISentinel(Gate);
         services.RemoveAll<IAuditStore>();

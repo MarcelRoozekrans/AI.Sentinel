@@ -26,7 +26,7 @@ public class GrantScopeTests
     {
         var services = new ServiceCollection();
         services.AddSingleton(new ApprovalNotifierSettings(
-            new Uri("http://127.0.0.1:9/"), new Dictionary<string, string>(StringComparer.Ordinal), false, null));
+            new Uri("http://127.0.0.1:9/"), new Dictionary<string, string>(StringComparer.Ordinal), false, null, false));
         services.AddSingleton<IGraphRoleClient>(new NoopGraphRoleClient());
         services.AddSentinelEntraPimApprovalStore(o => o.TenantId = FakeTenantId);
         services.AddAISentinel(o => o.RequireApproval("Bash", s => s.GrantScope = ApprovalGrantScope.Call));
