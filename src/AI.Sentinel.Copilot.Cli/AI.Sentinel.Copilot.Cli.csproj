@@ -1,8 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\eng\NativeTool.props" />
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
     <OutputType>Exe</OutputType>
-    <PackAsTool Condition="'$(PublishAot)' != 'true'">true</PackAsTool>
     <ToolCommandName>sentinel-copilot-hook</ToolCommandName>
     <PackageId>AI.Sentinel.Copilot.Cli</PackageId>
     <Description>GitHub Copilot hook command for AI.Sentinel — wire into hooks.json to scan tool calls.</Description>
@@ -15,7 +14,6 @@
     <RepositoryType>git</RepositoryType>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <InvariantGlobalization Condition="'$(PublishAot)' == 'true'">true</InvariantGlobalization>
     <!-- IL2104: Microsoft.Kiota.Serialization.Json (transitive via AI.Sentinel.Approvals.EntraPim)
          emits assembly-level trim-warnings. The entra-pim code path is opt-in at runtime; AOT-
          published CLI invocations that don't use it never reach the Kiota code paths. -->
