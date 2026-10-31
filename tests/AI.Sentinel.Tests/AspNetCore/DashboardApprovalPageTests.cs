@@ -4,6 +4,9 @@ using System.Net.Http;
 using System.Text.Json;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.AspNetCore;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -125,19 +128,6 @@ public class DashboardApprovalPageTests
     }
 
     [Fact]
-    public async Task Page_IdWithUrlSpecialCharacters_Resolves()
-    {
-        const string id = "a/b?c%d";
-        var store = new FixedIdStore(id);
-        using var host = await DashboardApprovalsTests.BuildHostAsync(store, "ops-bob");
-        var html = await (await GetAsync(host, "/sentinel/approvals/" + Uri.EscapeDataString(id)))
-            .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
-        Assert.Contains("delete_database", html, StringComparison.Ordinal);
-        Assert.Contains("hx-post=\"../api/approvals/" + Uri.EscapeDataString(id) + "/approve\"", html, StringComparison.Ordinal);
-        Assert.Contains("hx-post=\"../api/approvals/" + Uri.EscapeDataString(id) + "/deny\"", html, StringComparison.Ordinal);
-    }
-
-    [Fact]
     public async Task ListApprovals_RowLinksToPage()
     {
         var (store, pending) = await PendingAsync();
@@ -165,13 +155,102 @@ public class DashboardApprovalPageTests
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
     }
 
-    private sealed class FixedIdStore(string id) : IApprovalStore, IApprovalAdmin
+    [Fact]
+    public async Task Page_HasFramingProtection()
     {
+        var (store, pending) = await PendingAsync();
+        using var host = await DashboardApprovalsTests.BuildHostAsync(store, "ops-bob");
+        var resp = await GetAsync(host, "/sentinel/approvals/" + Uri.EscapeDataString(pending.RequestId));
+        Assert.Equal("DENY", Assert.Single(resp.Headers.GetValues("X-Frame-Options")));
+        Assert.Equal("frame-ancestors 'none'", Assert.Single(resp.Headers.GetValues("Content-Security-Policy")));
+    }
+
+    [Fact]
+    public async Task Page_ButtonsAreWiredToEndpointsAndReasonInput()
+    {
+        var (store, pending) = await PendingAsync();
+        using var host = await DashboardApprovalsTests.BuildHostAsync(store, "ops-bob");
+        var html = await (await GetAsync(host, "/sentinel/approvals/" + Uri.EscapeDataString(pending.RequestId)))
+            .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        var id = Uri.EscapeDataString(pending.RequestId);
+        Assert.Contains("hx-post=\"../api/approvals/" + id + "/deny\" hx-include=\"#deny-reason\"", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"deny-reason\"", html, StringComparison.Ordinal);
+        Assert.Contains("Could not record the decision.", html, StringComparison.Ordinal);
+        Assert.Contains("id=\"approval-status\"", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Deny_WithReasonForm_RecordsReason()
+    {
+        var (store, pending) = await PendingAsync();
+        using var host = await DashboardApprovalsTests.BuildHostAsync(store, "ops-bob");
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>(StringComparer.Ordinal) { ["reason"] = "too risky" });
+        var resp = await host.GetTestClient().PostAsync("/sentinel/api/approvals/" + pending.RequestId + "/deny", form, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var state = await store.EnsureRequestAsync(
+            new DashboardApprovalsTests.TestSec("alice"), DashboardApprovalsTests.MakeSpec(), SecretCtx(), TestContext.Current.CancellationToken);
+        Assert.Contains("too risky", Assert.IsType<ApprovalState.Denied>(state).Reason, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SpecialCharacterId_OnRealKestrel_PageRendersAndApproveWorks(bool useMap)
+    {
+        const string id = "a/b?c%d";
+        var store = new SettableIdStore(id);
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddRouting();
+        AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(builder.Services);
+        builder.Services.AddSingleton<IApprovalStore>(store);
+        await using var app = builder.Build();
+        app.Use(async (ctx, next) =>
+        {
+            ctx.User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+                [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "ops-bob")], "Test"));
+            await next(ctx);
+        });
+        if (useMap)
+        {
+            app.MapAISentinel("/sentinel");
+        }
+        else
+        {
+            app.UseAISentinel("/sentinel");
+        }
+        await app.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            var baseUrl = app.Urls.First();
+            using var client = new HttpClient { BaseAddress = new Uri(baseUrl) };
+            var esc = Uri.EscapeDataString(id);
+            var page = await client.GetAsync("/sentinel/approvals/" + esc, TestContext.Current.CancellationToken);
+            var html = await page.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+            Assert.Contains("delete_database", html, StringComparison.Ordinal);
+
+            var post = await client.PostAsync("/sentinel/api/approvals/" + esc + "/approve", new StringContent(""), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+            Assert.Equal(id, store.Approved);
+        }
+        finally
+        {
+            await app.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
+    private sealed class SettableIdStore(string id) : IApprovalStore, IApprovalAdmin
+    {
+        public string? Approved { get; private set; }
         public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
             throw new NotSupportedException();
         public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
             throw new NotSupportedException();
-        public ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct) => ValueTask.CompletedTask;
+        public ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
+        {
+            Approved = requestId;
+            return ValueTask.CompletedTask;
+        }
         public ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct) => ValueTask.CompletedTask;
         public async IAsyncEnumerable<PendingRequest> ListPendingAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
         {

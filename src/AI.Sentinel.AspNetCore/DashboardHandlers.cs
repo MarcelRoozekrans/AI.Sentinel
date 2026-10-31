@@ -533,6 +533,9 @@ internal static class DashboardHandlers
     public static async Task ApprovalPageAsync(HttpContext ctx)
     {
         ctx.Response.Headers.CacheControl = "no-store";
+        // The page holds approval buttons: never let another site frame it.
+        ctx.Response.Headers.XFrameOptions = "DENY";
+        ctx.Response.Headers.ContentSecurityPolicy = "frame-ancestors 'none'";
         ctx.Response.ContentType = "text/html; charset=utf-8";
 
         var store = ApprovalStoreAuditing.Resolve(ctx.RequestServices);
@@ -549,14 +552,11 @@ internal static class DashboardHandlers
             return;
         }
 
-        var requestId = (string?)ctx.Request.RouteValues["id"] ?? "";
-        // Hosts differ in whether %2F and friends arrive decoded in the route value, so accept both forms.
-        var decodedId = Uri.UnescapeDataString(requestId);
+        var requestId = RequestIdOf(ctx, trailingSegments: 0);
         PendingRequest? found = null;
         await foreach (var pending in admin.ListPendingAsync(ctx.RequestAborted).ConfigureAwait(false))
         {
-            if (string.Equals(pending.RequestId, requestId, StringComparison.Ordinal)
-                || string.Equals(pending.RequestId, decodedId, StringComparison.Ordinal))
+            if (string.Equals(pending.RequestId, requestId, StringComparison.Ordinal))
             {
                 found = pending;
                 break;
@@ -607,13 +607,38 @@ internal static class DashboardHandlers
 
         sb.Append("<div id=\"approval-actions\" class=\"approval-actions\">")
           .Append("<button type=\"button\" class=\"btn-approve\" hx-post=\"../api/approvals/").Append(idUrl)
-          .Append("/approve\" hx-swap=\"none\" hx-on::after-request=\"if (event.detail.successful) this.parentElement.textContent = 'Approved.'\">Approve</button>")
+          .Append("/approve\" hx-swap=\"none\" hx-on::after-request=\"if (event.detail.successful) { this.parentElement.textContent = 'Approved.'; } else { document.getElementById('approval-status').textContent = 'Could not record the decision.'; }\">Approve</button>")
           .Append("<input type=\"text\" name=\"reason\" id=\"deny-reason\" placeholder=\"Reason for denying (optional)\" maxlength=\"500\">")
           .Append("<button type=\"button\" class=\"btn-deny\" hx-post=\"../api/approvals/").Append(idUrl)
-          .Append("/deny\" hx-include=\"#deny-reason\" hx-swap=\"none\" hx-on::after-request=\"if (event.detail.successful) this.parentElement.textContent = 'Denied.'\">Deny</button>")
-          .AppendLine("</div>");
+          .Append("/deny\" hx-include=\"#deny-reason\" hx-swap=\"none\" hx-on::after-request=\"if (event.detail.successful) { this.parentElement.textContent = 'Denied.'; } else { document.getElementById('approval-status').textContent = 'Could not record the decision.'; }\">Deny</button>")
+          .AppendLine("</div>")
+          .AppendLine("<p id=\"approval-status\" class=\"approval-note\" role=\"status\"></p>");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The request id, decoded exactly once. Ids may contain %2F, ? and %, which hosts and routing
+    /// decode inconsistently in route values, so take the {id} segment from the undecoded request
+    /// target. <paramref name="trailingSegments"/> counts the segments after the id (0 for the page,
+    /// 1 for approve and deny). Falls back to the route value when the host gives no raw target.
+    /// </summary>
+    private static string RequestIdOf(HttpContext ctx, int trailingSegments)
+    {
+        var raw = ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()?.RawTarget;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            var end = raw.IndexOf('?', StringComparison.Ordinal);
+            var path = end >= 0 ? raw[..end] : raw;
+            var segments = path.Split('/');
+            var index = segments.Length - 1 - trailingSegments;
+            if (index >= 0 && segments[index].Length > 0)
+            {
+                return Uri.UnescapeDataString(segments[index]);
+            }
+        }
+
+        return (string?)ctx.Request.RouteValues["id"] ?? "";
     }
 
     private static string PageShell(string title, string body) =>
@@ -688,7 +713,7 @@ internal static class DashboardHandlers
             return;
         }
 
-        var requestId = (string?)ctx.Request.RouteValues["id"] ?? "";
+        var requestId = RequestIdOf(ctx, trailingSegments: 1);
         if (string.IsNullOrWhiteSpace(requestId))
         {
             ctx.Response.StatusCode = 400;
@@ -733,7 +758,7 @@ internal static class DashboardHandlers
             return;
         }
 
-        var requestId = (string?)ctx.Request.RouteValues["id"] ?? "";
+        var requestId = RequestIdOf(ctx, trailingSegments: 1);
         if (string.IsNullOrWhiteSpace(requestId))
         {
             ctx.Response.StatusCode = 400;
