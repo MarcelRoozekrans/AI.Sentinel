@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [4.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v4.1.1...v4.2.0) (2026-10-31)
+
+
+### Features
+
+* scan budget — new messages only, MaxScanBytes, fail closed on oversize and regex timeouts ([#546](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/546)) ([beae3de](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/beae3de3a566beb92f7f1778abb521aa6f98103b))
+* session history and drift escalation ([#551](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/551)) ([d665340](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/d665340802bd1c3713247c5c29640ec0adae8c4a))
+
 ## [4.1.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v4.1.0...v4.1.1) (2026-10-30)
 
 
