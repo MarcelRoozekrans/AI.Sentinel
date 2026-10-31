@@ -54,6 +54,12 @@ opts.Configure<SourceGroundingDetector>(c => c.Enabled = false);
 opts.Configure<StaleKnowledgeDetector>(c => c.SeverityCap = Severity.Low);
 ```
 
+## HAL-07 IntraSessionContradiction: repeats escalate
+
+When the same detector already flagged the session in at least two earlier scans within 24 hours, HAL-07 rises one level. Critical is the top. The reason gains `; repeated in earlier scans of this session`. A clean scan is never escalated.
+
+The semantic cap still applies: a result above Medium stays at Medium until a reviewer confirms it. A configured `SeverityCap` always holds, and a `SeverityFloor` applies to the raised severity. If the audit store cannot be read, nothing escalates and the scan keeps its normal findings.
+
 ## Severity ranges
 
 | Detector | Typical severity | Notes |

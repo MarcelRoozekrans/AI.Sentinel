@@ -70,3 +70,7 @@ opts.Configure<UnboundedConsumptionDetector>(c => c.SeverityFloor = Severity.Hig
 ## OPS-13 PersonaDrift — context poisoning canary
 
 Persona drift is a low-frequency, high-signal detector. When the model's stated identity, tone, or role shifts across turns of a session, that often means something is poisoning the conversation context — prompt injection from a tool result, retrieval-augmented data, or a user successfully jailbreaking earlier in the conversation. Pair with `SEC-09 IndirectInjection` and `SEC-31 VectorRetrievalPoisoning` for a defense-in-depth view.
+
+When the same detector already flagged the session in at least two earlier scans within 24 hours, OPS-13 rises one level. Critical is the top. The reason gains `; repeated in earlier scans of this session`. A clean scan is never escalated.
+
+The semantic cap still applies: a result above Medium stays at Medium until a reviewer confirms it. A configured `SeverityCap` always holds, and a `SeverityFloor` applies to the raised severity. If the audit store cannot be read, nothing escalates and the scan keeps its normal findings.

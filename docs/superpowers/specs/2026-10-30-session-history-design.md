@@ -23,7 +23,7 @@ What `History` adds is what earlier turns were flagged for. A drift that shows u
 - Escalation for any detector other than OPS-13 and HAL-07. Marcel's decision: for most detectors a repeat is the same topic coming up again, not drift.
 - A public per-detector setting for session escalation.
 - Storing message text in audit entries.
-- New-message scoping for the rule-based detectors: that is #439, PR #546.
+- New-message scoping for the rule-based detectors: that is #439, PR #546, which has merged.
 
 ## Anti-goals
 
@@ -39,7 +39,7 @@ What `History` adds is what earlier turns were flagged for. A drift that shows u
 
 Marcel picked A on 2026-10-30, with a failed read degrading to an empty History.
 
-Counting the earlier hits from `ctx.History` itself was considered and rejected: History holds the 50 most recent entries of every detector, and until #546 lands the rule-based detectors repeat their findings every turn, so they can push the drift hits out of the window and escalation would silently stop firing. Marcel chose the narrow lookup on a hit instead of a larger window.
+Counting the earlier hits from `ctx.History` itself was considered and rejected: History holds the 50 most recent entries of every detector, so a busy session can push the drift hits out of the window and escalation would silently stop firing. Marcel chose the narrow lookup on a hit instead of a larger window.
 
 ## Design
 
@@ -83,7 +83,7 @@ new AuditQuery { SessionId = sessionId.Value, Reverse = true, PageSize = 50, Fro
 
 ### Overlap with PR #546
 
-PR #546 (#439, not merged yet) also changes `SentinelContext` and the pipeline's context building. This work is designed against main. The overlap is a mechanical merge in `BuildContext` and `ScanAsync`; neither feature depends on the other. Until #546 lands, rule-based detectors rescan the whole conversation and repeat their findings every turn. Escalation is limited to two semantic detectors, which already score only new messages, so those repeats do not inflate its count.
+PR #546 (#439) has merged. It also changed `SentinelContext` and the pipeline's context building, and the overlap was resolved by rebasing this branch onto it. Rule-based detectors now scan new messages only.
 
 ## Tests
 
