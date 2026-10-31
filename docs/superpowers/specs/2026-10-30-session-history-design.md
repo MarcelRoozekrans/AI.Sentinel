@@ -57,7 +57,7 @@ new AuditQuery { SessionId = sessionId.Value, Reverse = true, PageSize = 50, Fro
 - The prompt leg's entries are written before the response leg scans, so the response leg's History includes them. That is intended: they are earlier findings in the same session.
 - A call without a caller-supplied session id gets a fresh id, so its History holds at most its own prompt leg's entries. No special case.
 
-**Failure.** Cancellation of the caller's token propagates as today. Any other exception from the store is caught: the scan proceeds with an empty History and the pipeline logs a warning naming the session. Detection is unaffected; only escalation is lost for that scan.
+**Failure.** Cancellation of the caller's token propagates as today. Any other exception from the store is caught: the scan proceeds with an empty History and the failure goes to `SentinelOptions.OnDetectorFailure`, naming the session. Detection is unaffected; only escalation is lost for that scan.
 
 ### The ring buffer query
 
@@ -68,7 +68,7 @@ new AuditQuery { SessionId = sessionId.Value, Reverse = true, PageSize = 50, Fro
 ### Drift escalation
 
 - **Which detectors.** OPS-13 and HAL-07 implement a new internal marker interface, `ISessionEscalatingDetector`. *My call: it keeps the knowledge on the detector, not as a list of ids in the pipeline, and adds no public API.*
-- **The lookup.** For a marked detector whose current result is not clean, `DetectionPipeline` queries the audit store: this session, this `DetectorId`, the last 24 hours, newest first, `PageSize = 2`. It re-checks session, detector id and age on what comes back, for the same reason as above. It runs only on a drift hit, so a clean scan costs nothing extra. `DetectionPipeline` gets the store, or an internal lookup over it, when it is built; the builder picks the shape. A failed lookup degrades like a failed History read: no escalation, a warning, the normal finding.
+- **The lookup.** For a marked detector whose current result is not clean, `DetectionPipeline` queries the audit store: this session, this `DetectorId`, the last 24 hours, newest first, `PageSize = 2`. It re-checks session, detector id and age on what comes back, for the same reason as above. It runs only on a drift hit, so a clean scan costs nothing extra. `DetectionPipeline` gets the store, or an internal lookup over it, when it is built; the builder picks the shape. A failed lookup degrades like a failed History read: no escalation, the failure goes to `OnDetectorFailure`, the normal finding.
 - **What counts.** Entries with the same `DetectorId` and a severity above None. Redaction and disclosure entries carry other ids, so they never count.
 - **The rule.** At two or more earlier hits, the current result goes up one level: Low to Medium, Medium to High, High to Critical. It is one step, however many earlier hits there are. *My call: predictable, and repeated pressure cannot climb several levels in one scan.*
 - **No ratchet.** Escalation lifts the current scan's own severity. The earlier entries are only counted, never read for their severity, so an escalated entry written this turn does not raise the base next turn.
@@ -92,7 +92,7 @@ PR #546 (#439) has merged. It also changed `SentinelContext` and the pipeline's 
 - Escalation: OPS-13 and HAL-07 go up one level after two earlier hits, even when more than 50 newer entries of other detectors sit between them and the current scan; one earlier hit does nothing; a clean result stays clean; another semantic detector with the same history does not escalate; a `SeverityCap` holds; without a reviewer a Medium-to-High escalation is capped back to Medium; with a confirming reviewer it reaches High.
 - A store that ignores the filters: another session's entries and over-age entries never reach History or the count.
 - No ratchet: three consecutive escalated scans stay one level above their own base severity.
-- Failure: a store that throws on query gives an empty History and no escalation, a logged warning and the normal findings; a cancelled token still cancels.
+- Failure: a store that throws on query gives an empty History and no escalation, a failure passed to `OnDetectorFailure` and the normal findings; a cancelled token still cancels.
 - Hooks: the hook CLIs pass the host's session id on every event and write to the local SQLite store by default (`LocalAudit`), so this test is three hook runs in one session against one SQLite file; the third escalates.
 
 ## Docs
@@ -104,5 +104,5 @@ PR #546 (#439) has merged. It also changed `SentinelContext` and the pipeline's 
 ## Left to the builder
 
 - Whether the 50-entry and 24-hour bounds are internal constants or also `SentinelOptions` settings. Default: internal constants, since Marcel did not ask for a setting and new public API needs his call.
-- The logger used for the failed-read warning: whatever `SentinelPipeline` already logs through.
+- Where a failed read is reported: decided, `SentinelOptions.OnDetectorFailure`, as for any other detector failure. The pipeline has no logger of its own.
 - Test names and fixtures.

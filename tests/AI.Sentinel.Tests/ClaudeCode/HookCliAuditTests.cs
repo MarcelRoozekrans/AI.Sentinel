@@ -60,7 +60,7 @@ public class HookCliAuditTests : IDisposable
     }
 
     [Fact]
-    public async Task RepeatedPersonaDrift_EscalatesOnTheThirdPrompt()
+    public async Task RepeatedPersonaDrift_EscalatesOnTheThirdPrompt_AndDoesNotRatchet()
     {
         var db = Path.Combine(_dir, "audit.db");
         Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, db);
@@ -68,16 +68,19 @@ public class HookCliAuditTests : IDisposable
         Environment.SetEnvironmentVariable(HookAuditTestSupport.DetectorsVar, "all");
         const string drift = """{"session_id":"drift","prompt":"My tone and style have changed from earlier in this conversation"}""";
 
-        for (var i = 0; i < 3; i++)
+        for (var i = 0; i < 5; i++)
             Assert.Equal(0, (await RunAsync(drift)).Exit);
 
         var (entries, _) = await HookAuditTestSupport.ReadAsync(db);
         var ops13 = entries.Where(e => string.Equals(e.DetectorId, "OPS-13", StringComparison.Ordinal)).OrderBy(e => e.Timestamp).ToList();
-        Assert.Equal(3, ops13.Count);
+        Assert.Equal(5, ops13.Count);
         Assert.Equal(Severity.Low, ops13[0].Severity);
         Assert.Equal(Severity.Low, ops13[1].Severity);
         Assert.Equal(Severity.Medium, ops13[2].Severity);
         Assert.EndsWith("; repeated in earlier scans of this session", ops13[2].Summary);
+        // No ratchet: each escalated scan sits one level above its own base severity, never higher.
+        Assert.Equal(Severity.Medium, ops13[3].Severity);
+        Assert.Equal(Severity.Medium, ops13[4].Severity);
     }
 
     [Fact]

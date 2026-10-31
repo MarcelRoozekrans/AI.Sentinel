@@ -2,6 +2,7 @@ using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
+using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.AI;
 using Xunit;
 
@@ -61,7 +62,7 @@ public class SentinelPipelineHistoryTests
             throw new InvalidOperationException("query down");
     }
 
-    private static (SentinelPipeline Pipeline, CapturingDetector Detector, RingBufferAuditStore Audit, List<string> Failures) Build(bool throwOnQuery = false)
+    private static (SentinelPipeline Pipeline, CapturingDetector Detector, RingBufferAuditStore Audit, List<string> Failures) Build(bool throwOnQuery = false, TimeProvider? clock = null)
     {
         var failures = new List<string>();
         var opts = new SentinelOptions { OnDetectorFailure = failures.Add };
@@ -69,15 +70,15 @@ public class SentinelPipelineHistoryTests
         var detector = new CapturingDetector();
         IAuditStore store = throwOnQuery ? new ThrowingQueryStore(audit) : new StrictlyIncreasingStore(audit);
         var pipeline = new SentinelPipeline(new EchoClient(), new DetectionPipeline([detector], null, null),
-            store, new InterventionEngine(opts, null), opts);
+            store, new InterventionEngine(opts, null), opts, timeProvider: clock);
         return (pipeline, detector, audit, failures);
     }
 
     private static ChatOptions WithKey(string value) =>
         new() { AdditionalProperties = new AdditionalPropertiesDictionary { ["sentinel.session_id"] = value } };
 
-    private static Task AskAsync(SentinelPipeline p, string session) =>
-        p.GetResponseResultAsync([new ChatMessage(ChatRole.User, "Hello there")], WithKey(session), TestContext.Current.CancellationToken).AsTask();
+    private static Task AskAsync(SentinelPipeline p, string session, string text = "Hello there") =>
+        p.GetResponseResultAsync([new ChatMessage(ChatRole.User, text)], WithKey(session), TestContext.Current.CancellationToken).AsTask();
 
     // The scans of one call, in order: the prompt scan first, then the response scan. Looked up by what each
     // scan can see, not by position in the capture list.
@@ -169,6 +170,102 @@ public class SentinelPipelineHistoryTests
             p.GetResponseResultAsync([new ChatMessage(ChatRole.User, "Hello there")], WithKey("a"), cts.Token).AsTask());
         Assert.True(store.Queried);
         Assert.Empty(failures);
+    }
+
+    [Fact]
+    public async Task History_EntryWrittenAt24HoursAndMore_IsOutOfHistory_OnThePipelineClock()
+    {
+        var clock = new ManualTimeProvider();
+        var (p, d, _, _) = Build(clock: clock);
+        await AskAsync(p, "a");
+
+        clock.Advance(TimeSpan.FromHours(25));
+        await AskAsync(p, "a");
+
+        // Call one: the prompt scan sees 0 entries, the response scan its prompt entry. Call two, 25 hours on, starts
+        // again at 0: the entry written at t is out of History, so only its own prompt entry reaches the response scan.
+        var scans = Scans(d, "a");
+        Assert.Equal([0, 0, 1, 1], scans.Select(c => c.History.Count));
+        Assert.True(Assert.Single(scans[3].History).Timestamp >= clock.GetUtcNow());
+    }
+
+    private static async Task<List<AuditEntry>> EntriesOfAsync(IAuditStore audit, string detectorId)
+    {
+        var entries = new List<AuditEntry>();
+        await foreach (var e in audit.QueryAsync(new AuditQuery(), TestContext.Current.CancellationToken))
+            if (string.Equals(e.DetectorId, detectorId, StringComparison.Ordinal)) entries.Add(e);
+        return [.. entries.OrderBy(e => e.Timestamp)];
+    }
+
+    private static (SentinelPipeline Pipeline, RingBufferAuditStore Audit, ManualTimeProvider Clock) BuildDrift()
+    {
+        var opts = new SentinelOptions();
+        var audit = new RingBufferAuditStore(1000);
+        var clock = new ManualTimeProvider();
+        var pipeline = new SentinelPipeline(new EchoClient(),
+            new DetectionPipeline([new DriftDetector(), new NoiseDetector()], null, null),
+            new StrictlyIncreasingStore(audit), new InterventionEngine(opts, null), opts, timeProvider: clock);
+        return (pipeline, audit, clock);
+    }
+
+    [Fact]
+    public async Task Escalation_ThirdHitAfterManyOtherEntries_StillEscalates()
+    {
+        var (p, audit, clock) = BuildDrift();
+        await AskAsync(p, "a", "drift");
+        clock.Advance(TimeSpan.FromMinutes(1));
+        await AskAsync(p, "a", "drift");
+        // Another detector fills the session with far more than the 50 entries of History.
+        for (var i = 0; i < 35; i++)
+        {
+            clock.Advance(TimeSpan.FromMinutes(1));
+            await AskAsync(p, "a", "hello there");
+        }
+        Assert.True((await EntriesOfAsync(audit, "TEST-NOISE")).Count > SessionHistory.MaxEntries);
+        clock.Advance(TimeSpan.FromMinutes(1));
+
+        await AskAsync(p, "a", "drift");
+
+        var drift = await EntriesOfAsync(audit, "TEST-DRIFT");
+        Assert.Equal([Severity.Low, Severity.Low, Severity.Medium], drift.Select(e => e.Severity));
+    }
+
+    [Fact]
+    public async Task Escalation_ConsecutiveEscalatedScans_DoNotRatchet()
+    {
+        var (p, audit, clock) = BuildDrift();
+        for (var i = 0; i < 6; i++)
+        {
+            await AskAsync(p, "a", "drift");
+            clock.Advance(TimeSpan.FromMinutes(1));
+        }
+
+        var drift = await EntriesOfAsync(audit, "TEST-DRIFT");
+        Assert.Equal(
+            [Severity.Low, Severity.Low, Severity.Medium, Severity.Medium, Severity.Medium, Severity.Medium],
+            drift.Select(e => e.Severity));
+    }
+
+    // A Low finding for any prompt that says "drift", marked for session escalation.
+    private sealed class DriftDetector : ISessionEscalatingDetector
+    {
+        public DetectorId Id { get; } = new("TEST-DRIFT");
+        public DetectorCategory Category => DetectorCategory.Operational;
+
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(ctx.Messages.Any(m => m.Text.Contains("drift", StringComparison.Ordinal))
+                ? DetectionResult.WithSeverity(Id, Severity.Low, "drift")
+                : DetectionResult.Clean(Id));
+    }
+
+    // Writes an audit entry on every scan, so it can crowd the session's History window.
+    private sealed class NoiseDetector : IDetector
+    {
+        public DetectorId Id { get; } = new("TEST-NOISE");
+        public DetectorCategory Category => DetectorCategory.Operational;
+
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(DetectionResult.WithSeverity(Id, Severity.Low, "noise"));
     }
 
     private sealed class CancellingQueryStore(CancellationTokenSource cts) : IAuditStore

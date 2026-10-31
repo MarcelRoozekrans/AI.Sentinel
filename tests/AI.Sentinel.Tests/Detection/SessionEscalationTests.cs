@@ -73,6 +73,23 @@ public class SessionEscalationTests
     }
 
     [Fact]
+    public async Task Escalation_UnmarkedSemanticDetector_NotEscalated_AndNoLookup()
+    {
+        var lookup = new Lookup(5);
+        var options = new SentinelOptions { EmbeddingGenerator = new ExactMatchEmbeddingGenerator() };
+        var pipeline = new DetectionPipeline(
+            [new PlainSemanticDetector(options)], null, reviewer: null,
+            embeddingScope: new EmbeddingScope(options.EmbeddingGenerator!, new InMemoryLruEmbeddingCache(), null));
+
+        var result = await pipeline.RunAsync(Ctx(lookup.Count, MediumExample), TestContext.Current.CancellationToken);
+
+        var d = Assert.Single(result.Detections);
+        Assert.Equal(Severity.Medium, d.Severity);
+        Assert.DoesNotContain(Suffix, d.Reason, StringComparison.Ordinal);
+        Assert.Empty(lookup.Asked);
+    }
+
+    [Fact]
     public async Task Escalation_NullLookup_NoChange()
     {
         var pipeline = new DetectionPipeline([new FakeEscalatingDetector("TST-ESC", Severity.Low)], null, reviewer: null);
@@ -253,6 +270,17 @@ public class SessionEscalationTests
     {
         protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public override DetectorId Id => new("TST-DRIFT");
+        public override DetectorCategory Category => DetectorCategory.Operational;
+        protected override string[] HighExamples => [HighExample];
+        protected override string[] MediumExamples => [MediumExample];
+        protected override string[] LowExamples => [LowExample];
+    }
+
+    /// <summary>The same semantic detector without the marker.</summary>
+    private sealed class PlainSemanticDetector(SentinelOptions options) : SemanticDetectorBase(options)
+    {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
+        public override DetectorId Id => new("TST-PLAIN-SEM");
         public override DetectorCategory Category => DetectorCategory.Operational;
         protected override string[] HighExamples => [HighExample];
         protected override string[] MediumExamples => [MediumExample];

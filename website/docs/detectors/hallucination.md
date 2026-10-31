@@ -60,7 +60,7 @@ opts.Configure<StaleKnowledgeDetector>(c => c.SeverityCap = Severity.Low);
 
 When the same detector already flagged the session in at least two earlier scans within 24 hours, HAL-07 rises one level. Critical is the top. The reason gains `; repeated in earlier scans of this session`. A clean scan is never escalated.
 
-The semantic cap still applies: a result above Medium stays at Medium until a reviewer confirms it. A configured `SeverityCap` always holds, and a `SeverityFloor` applies to the raised severity. If the audit store cannot be read, nothing escalates, the failure is passed to `OnDetectorFailure`, and the scan keeps its normal findings.
+The semantic cap still applies unless the detector opts out with `CapSemanticSeverity = false`: a result above Medium stays at Medium until a reviewer confirms it, and a `SeverityFloor` above Medium raises that level to the floor. See [the semantic cap](../configuration/migrating-to-4#semantic-detections-are-capped-at-medium). A configured `SeverityCap` always holds, and a `SeverityFloor` applies to the raised severity. If the audit store cannot be read, nothing escalates, the failure is passed to `OnDetectorFailure`, and the scan keeps its normal findings.
 
 The hook CLIs and the MCP proxy run the `security` preset by default, which leaves out HAL-07. There, escalation only applies with `SENTINEL_HOOK_DETECTORS=all` or `SENTINEL_MCP_DETECTORS=all`. See [Claude Code hooks](../integrations/claude-code) and the [MCP proxy](../integrations/mcp-proxy#detector-profiles).
 

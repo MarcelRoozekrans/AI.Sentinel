@@ -38,7 +38,7 @@ public sealed partial class SentinelPipeline
     /// <param name="alertSink">Optional alert sink invoked fire-and-forget when an action escalates to <c>Quarantine</c> or <c>Alert</c>.</param>
     /// <param name="forwarders">Optional audit forwarders that mirror every audit entry to external systems fire-and-forget. Default empty.</param>
     /// <param name="pipelineName">The named pipeline's name, recorded in the transparency mark; <see langword="null"/> for the default pipeline.</param>
-    /// <param name="timeProvider">Clock for the transparency mark and its idle-session eviction; defaults to <see cref="TimeProvider.System"/>.</param>
+    /// <param name="timeProvider">Clock for the transparency mark and its idle-session eviction, for the timestamps of the audit entries the pipeline writes, and for the 24-hour bound of the session history; defaults to <see cref="TimeProvider.System"/>.</param>
     internal SentinelPipeline(
         IChatClient innerClient,
         IDetectionPipeline pipeline,
@@ -997,7 +997,7 @@ public sealed partial class SentinelPipeline
             // Hash and PreviousHash are assigned by the store when it links the entry into its chain.
             var entry = new AuditEntry(
                 Guid.NewGuid().ToString("N"),
-                DateTimeOffset.UtcNow,
+                _timeProvider.GetUtcNow(),
                 Hash: string.Empty, PreviousHash: null,
                 detection.Severity,
                 detection.DetectorId.Value,
