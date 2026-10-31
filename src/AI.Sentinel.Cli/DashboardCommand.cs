@@ -325,7 +325,6 @@ public static class DashboardCommand
         ArgumentNullException.ThrowIfNull(stderr);
 
         var dbPath = settings.DbPath;
-        var port = settings.Port;
         if (!File.Exists(dbPath))
         {
             await stderr.WriteLineAsync($"Audit file not found: {dbPath}").ConfigureAwait(false);
@@ -348,23 +347,24 @@ public static class DashboardCommand
 
             var verification = await AuditHashChain.VerifyAsync(
                 store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct), ct).ConfigureAwait(false);
-
             app = BuildApp(store, settings, plan);
-            approvalStore = app.Services.GetService<SqliteApprovalStore>();
+            var resolved = await ResolveApprovalStoreAsync(app, plan, stderr).ConfigureAwait(false);
+            if (!resolved.Ok)
+            {
+                return null;
+            }
+            approvalStore = resolved.Store;
 
             await app.StartAsync(ct).ConfigureAwait(false);
-
             var url = BrowsableUrl(app, settings);
-
             await WriteStartupAsync(stdout, verification, url, plan.Describe(settings)).ConfigureAwait(false);
-
             started = true;
             return new RunningDashboard(app, store, approvalStore, url);
         }
         catch (IOException ex)
         {
             await stderr.WriteLineAsync(
-                $"Could not listen on {HostLiteral(settings.Bind)}:{port.ToString(CultureInfo.InvariantCulture)}: {ex.Message}").ConfigureAwait(false);
+                $"Could not listen on {HostLiteral(settings.Bind)}:{settings.Port.ToString(CultureInfo.InvariantCulture)}: {ex.Message}").ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or InvalidOperationException)
         {
@@ -400,19 +400,47 @@ public static class DashboardCommand
         return new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = dbPath });
     }
 
+    private static async Task<(bool Ok, SqliteApprovalStore? Store)> ResolveApprovalStoreAsync(
+        WebApplication app, DashboardApprovalPlan plan, TextWriter stderr)
+    {
+        try
+        {
+            return (true, app.Services.GetService<SqliteApprovalStore>());
+        }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or InvalidOperationException
+            or IOException or UnauthorizedAccessException)
+        {
+            await stderr.WriteLineAsync(
+                $"Could not open the approval database {plan.DatabasePath}: {ex.Message}").ConfigureAwait(false);
+            return (false, null);
+        }
+    }
+
     private static async Task DisposeAllAsync(WebApplication? app, IAsyncDisposable? approvalStore, SqliteAuditStore? store)
     {
-        if (app is not null)
+        try
         {
-            await app.DisposeAsync().ConfigureAwait(false);
+            if (app is not null)
+            {
+                await app.DisposeAsync().ConfigureAwait(false);
+            }
         }
-        if (approvalStore is not null)
+        finally
         {
-            await approvalStore.DisposeAsync().ConfigureAwait(false);
-        }
-        if (store is not null)
-        {
-            await store.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                if (approvalStore is not null)
+                {
+                    await approvalStore.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                if (store is not null)
+                {
+                    await store.DisposeAsync().ConfigureAwait(false);
+                }
+            }
         }
     }
 

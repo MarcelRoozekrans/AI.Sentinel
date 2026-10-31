@@ -44,7 +44,7 @@ public class DashboardApprovalsCommandTests : IDisposable
         var second = await http.PostAsync(new Uri(dashboard.Url, $"api/approvals/{id}/approve"), new StringContent(""), Ct);
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
-        Assert.True((int)second.StatusCode < 500, $"second approve gave {second.StatusCode}");
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
         Assert.Equal(("Active", Environment.UserName), ReadRequest(id));
         var entries = await ReadAuditAsync(db);
         Assert.Single(entries, e => string.Equals(e.PolicyCode, "APPROVED", StringComparison.Ordinal));
@@ -180,6 +180,60 @@ public class DashboardApprovalsCommandTests : IDisposable
 
         Assert.NotNull(dashboard);
         Assert.Contains("Approvals: off (", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InMemory_WithLocalApprover_FromEnvironment_NotesAndApprovalsStayOff()
+    {
+        var (db, config) = await SeedAsync("in-memory");
+        var stdout = new StringWriter();
+
+        await using var dashboard = await StartAsync(db, config, stdout, new StringWriter(), s => s with { ApprovalConfigExplicit = false });
+
+        Assert.NotNull(dashboard);
+        Assert.Contains("Approvals: off (", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task InMemory_WithLocalApprover_Explicit_ExitsWithError()
+    {
+        var (db, config) = await SeedAsync("in-memory");
+        var stderr = new StringWriter();
+
+        var dashboard = await StartAsync(db, config, new StringWriter(), stderr, s => s with { ApprovalConfigExplicit = true });
+
+        Assert.Null(dashboard);
+        Assert.Contains("in-memory", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task LocalApproverWithoutApprovals_NotesNothingToApprove()
+    {
+        var (db, _) = await SeedAsync("sqlite");
+        var stdout = new StringWriter();
+
+        await using var dashboard = await StartAsync(db, null, stdout, new StringWriter(), s => s);
+
+        Assert.NotNull(dashboard);
+        Assert.Contains(
+            "Approvals: off (no approval config, so --local-approver has nothing to approve)", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UnopenableApprovalDatabase_ReturnsNullNamingTheApprovalDatabase()
+    {
+        var (db, _) = await SeedAsync("sqlite");
+        var badPath = Path.Combine(_dir, "a-directory");
+        Directory.CreateDirectory(badPath);
+        var config = Path.Combine(_dir, "bad.json");
+        await File.WriteAllTextAsync(config, JsonSerializer.Serialize(new { backend = "sqlite", databasePath = badPath }), Ct);
+        var stderr = new StringWriter();
+
+        var dashboard = await StartAsync(db, config, new StringWriter(), stderr, s => s);
+
+        Assert.Null(dashboard);
+        Assert.Contains($"Could not open the approval database {badPath}:", stderr.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("audit file", stderr.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
