@@ -205,13 +205,47 @@ public class DashboardApprovalsTests
     }
 
     [Fact]
-    public async Task Approve_CrossSite_ViaUseAISentinel_Returns403()
+    public async Task Deny_CrossSiteFetchMetadata_Returns403AndLeavesPending()
     {
-        // BuildHostAsync mounts the dashboard with UseAISentinel and a branch hook; this pins that path.
         var (store, id) = await PendingAsync();
         using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/deny", ("Sec-Fetch-Site", "cross-site"));
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Equal(1, await PendingCountAsync(store));
+    }
+
+    [Theory]
+    [InlineData("https://localhost")]
+    [InlineData("http://localhost:8080")]
+    [InlineData("http://localhost/x")]
+    [InlineData("http://localhost/?a=1")]
+    public async Task Approve_OriginSchemePortOrPathMismatch_Returns403(string origin)
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/approve", ("Origin", origin));
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Equal(1, await PendingCountAsync(store));
+    }
+
+    [Fact]
+    public async Task Approve_CrossSite_ViaMapAISentinel_Returns403AndLeavesPending()
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildMapHostAsync(store, "ops-bob");
         var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/approve", ("Sec-Fetch-Site", "cross-site"));
         Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Equal(1, await PendingCountAsync(store));
+    }
+
+    [Fact]
+    public async Task Approve_SameOrigin_ViaMapAISentinel_Succeeds()
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildMapHostAsync(store, "ops-bob");
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/approve", ("Sec-Fetch-Site", "same-origin"));
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal(0, await PendingCountAsync(store));
     }
 
     [Fact]
@@ -293,6 +327,33 @@ public class DashboardApprovalsTests
                     {
                         app.UseAISentinel("/sentinel");
                     }
+                });
+            })
+            .StartAsync();
+    }
+
+    private static async Task<IHost> BuildMapHostAsync(IApprovalStore approvalStore, string authenticatedAs)
+    {
+        return await new HostBuilder()
+            .ConfigureWebHost(web =>
+            {
+                web.UseTestServer();
+                web.ConfigureServices(services =>
+                {
+                    services.AddRouting();
+                    AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(services);
+                    services.AddSingleton(approvalStore);
+                });
+                web.Configure(app =>
+                {
+                    app.Use(async (ctx, next) =>
+                    {
+                        ctx.User = new ClaimsPrincipal(new ClaimsIdentity(
+                            new[] { new Claim(ClaimTypes.Name, authenticatedAs) }, authenticationType: "Test"));
+                        await next(ctx);
+                    });
+                    app.UseRouting();
+                    app.UseEndpoints(endpoints => endpoints.MapAISentinel("/sentinel"));
                 });
             })
             .StartAsync();

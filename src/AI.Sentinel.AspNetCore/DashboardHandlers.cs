@@ -543,6 +543,13 @@ internal static class DashboardHandlers
                 return true;   // includes the literal "null"
             }
 
+            // Browsers send a bare origin; a path, query, fragment or userinfo means a forged header.
+            if (!string.Equals(originUri.AbsolutePath, "/", StringComparison.Ordinal) || originUri.Query.Length > 0
+                || originUri.Fragment.Length > 0 || originUri.UserInfo.Length > 0)
+            {
+                return true;
+            }
+
             var host = request.Host;
             var expectedPort = host.Port ?? (string.Equals(request.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? 443 : 80);
             return !string.Equals(originUri.Scheme, request.Scheme, StringComparison.OrdinalIgnoreCase)
