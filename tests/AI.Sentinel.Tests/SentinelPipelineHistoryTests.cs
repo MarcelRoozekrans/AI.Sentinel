@@ -173,7 +173,7 @@ public class SentinelPipelineHistoryTests
     }
 
     [Fact]
-    public async Task History_EntryWrittenAt24HoursAndMore_IsOutOfHistory_OnThePipelineClock()
+    public async Task History_EntryWrittenTwentyFiveHoursEarlier_IsOutOfHistory_OnThePipelineClock()
     {
         var clock = new ManualTimeProvider();
         var (p, d, _, _) = Build(clock: clock);
@@ -221,7 +221,8 @@ public class SentinelPipelineHistoryTests
             clock.Advance(TimeSpan.FromMinutes(1));
             await AskAsync(p, "a", "hello there");
         }
-        Assert.True((await EntriesOfAsync(audit, "TEST-NOISE")).Count > SessionHistory.MaxEntries);
+        var driftTwo = (await EntriesOfAsync(audit, "TEST-DRIFT")).Max(e => e.Timestamp);
+        Assert.True((await EntriesOfAsync(audit, "TEST-NOISE")).Count(e => e.Timestamp > driftTwo) > SessionHistory.MaxEntries);
         clock.Advance(TimeSpan.FromMinutes(1));
 
         await AskAsync(p, "a", "drift");

@@ -81,10 +81,10 @@ public class SessionEscalationTests
             [new PlainSemanticDetector(options)], null, reviewer: null,
             embeddingScope: new EmbeddingScope(options.EmbeddingGenerator!, new InMemoryLruEmbeddingCache(), null));
 
-        var result = await pipeline.RunAsync(Ctx(lookup.Count, MediumExample), TestContext.Current.CancellationToken);
+        var result = await pipeline.RunAsync(Ctx(lookup.Count, LowExample), TestContext.Current.CancellationToken);
 
         var d = Assert.Single(result.Detections);
-        Assert.Equal(Severity.Medium, d.Severity);
+        Assert.Equal(Severity.Low, d.Severity);
         Assert.DoesNotContain(Suffix, d.Reason, StringComparison.Ordinal);
         Assert.Empty(lookup.Asked);
     }
