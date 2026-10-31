@@ -85,8 +85,8 @@ webhook text links to it.
 - `PendingRequest` carries `RequestId, CallerId, PolicyName, ToolName, Args (JsonElement), RequestedAt, Justification`.
   `IApprovalAdmin` has only `ListPendingAsync`, no lookup by id.
 - `ApprovalNotification.Create` builds the link as `settings.DashboardUrl ?? (http approvalUrl)`. The CLIs read the
-  config through `ApprovalConfigLoader`, which is `internal` in AI.Sentinel. AI.Sentinel has no `InternalsVisibleTo` for
-  AI.Sentinel.Cli yet; add it, as the other CLIs have.
+  config through `ApprovalConfigLoader`, which is `internal` in AI.Sentinel; AI.Sentinel already grants `InternalsVisibleTo` to
+  AI.Sentinel.Cli.
 - AI.Sentinel.Cli references AI.Sentinel, AspNetCore and Sqlite, not `AI.Sentinel.Approvals.Sqlite`. It is not
   AOT-published (#456 covers the hook and MCP CLIs only).
 - `website/docs/integrations/claude-code.md` says the dashboard "shows no approvals panel"; `approvals/dashboard.md` and
