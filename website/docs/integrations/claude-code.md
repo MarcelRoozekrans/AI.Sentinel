@@ -13,7 +13,9 @@ title: Claude Code
 dotnet tool install -g AI.Sentinel.ClaudeCode.Cli
 ```
 
-The CLI installs as `sentinel-hook` on your `PATH`. It's a self-contained `dotnet tool` — no runtime configuration in your project.
+The CLI installs as `sentinel-hook` on your `PATH`, with no runtime configuration in your project. Installing needs the .NET 10 SDK. On linux-x64, linux-arm64, osx-arm64 and win-x64, `dotnet tool install` picks the Native AOT build, which starts in a few milliseconds instead of paying ~190 ms of JIT startup on every hook call. Other platforms get a framework-dependent build that runs on the .NET 10 runtime.
+
+A machine with only the .NET 8 SDK can no longer install the tool. Install the .NET 10 SDK, or use the [release binary](#native-binary-without-the-net-sdk), which needs no .NET at all.
 
 ## Wire it into Claude Code
 
@@ -212,16 +214,20 @@ The decision follows the action your `SentinelOptions` give each detection: `Qua
 
 Useful when you want a hook that ships entries to your own backend (Splunk, custom REST API, etc.) without going through file forwarders.
 
-## Native binary (faster cold start)
+## Native binary without the .NET SDK
 
-The hook CLI is Native-AOT ready. A native single-file binary cuts cold-start latency by roughly 10× compared to the `dotnet tool` entry point — worth it if hooks fire on every tool call.
+Every GitHub release carries the Native AOT builds as archives, for hosts that have no .NET SDK: `sentinel-hook-<version>-<rid>.tar.gz` for `linux-x64`, `linux-arm64` and `osx-arm64`, and `sentinel-hook-<version>-win-x64.zip`. `sentinel-copilot-hook` and `sentinel-mcp` ship the same way. Each release also carries a `SHA256SUMS` file, and every archive has a GitHub build attestation that proves it was built by this repository's release workflow.
 
 ```bash
-dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -f net10.0 -r linux-x64 -p:PublishAot=true
-# Output: bin/Release/net10.0/linux-x64/publish/sentinel-hook
+version=5.0.0
+gh release download "v$version" --repo MarcelRoozekrans/AI.Sentinel \
+  --pattern "sentinel-hook-$version-linux-x64.tar.gz" --pattern SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify "sentinel-hook-$version-linux-x64.tar.gz" --repo MarcelRoozekrans/AI.Sentinel
+sudo tar -xzf "sentinel-hook-$version-linux-x64.tar.gz" -C /usr/local/bin
 ```
 
-Replace `linux-x64` with `win-x64`, `osx-arm64`, etc. Point the hook `command` at the binary's full path instead of `sentinel-hook`:
+Point the hook `command` at the binary's full path instead of `sentinel-hook`:
 
 ```json
 {
@@ -233,7 +239,9 @@ Replace `linux-x64` with `win-x64`, `osx-arm64`, etc. Point the hook `command` a
 }
 ```
 
-**Prereqs on Windows:** Visual Studio "Desktop development with C++" workload. Linux needs `clang` + `libc` dev packages. macOS needs Xcode CLT.
+The binaries are not code-signed. On macOS, clear the quarantine flag once with `xattr -d com.apple.quarantine /usr/local/bin/sentinel-hook`. On Windows, run `Unblock-File` on the extracted `sentinel-hook.exe`.
+
+For a platform without a release build, publish one yourself: `dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -r <rid> -p:PublishAot=true`. This needs the native toolchain: the Visual Studio "Desktop development with C++" workload on Windows, `clang` and the `libc` dev packages on Linux, Xcode CLT on macOS.
 
 ## What gets blocked, in practice
 

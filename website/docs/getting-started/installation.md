@@ -81,9 +81,10 @@ dotnet tool install -g AI.Sentinel.Copilot.Cli      # GitHub Copilot hook adapte
 | `AI.Sentinel.Copilot` | ✓ | ✓ | ✓ |
 | `AI.Sentinel.Approvals.Sqlite` | ✓ | ✓ | ✓ |
 | `AI.Sentinel.Approvals.EntraPim` | ✓ | ✓ | ✓ |
-| CLIs (`*.Cli`) | ✓ | — | ✓ |
+| `AI.Sentinel.Cli` | ✓ | — | ✓ |
+| `AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli`, `AI.Sentinel.Mcp.Cli` | — | — | ✓ |
 
-CLIs ship as `dotnet tool` packages for net8.0 and net10.0; `dotnet tool install` picks the newest one your machine can run. Library packages multi-target, so a net8, net9 or net10 host gets a matching build.
+`AI.Sentinel.Cli` ships as a `dotnet tool` for net8.0 and net10.0; `dotnet tool install` picks the newest one your machine can run. The hook and MCP CLIs are .NET 10 RID-specific tools: installing them needs the .NET 10 SDK, and on linux-x64, linux-arm64, osx-arm64 and win-x64 you get a Native AOT build. Library packages multi-target, so a net8, net9 or net10 host gets a matching build.
 
 ## What you get out of the box
 
