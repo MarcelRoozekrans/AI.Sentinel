@@ -92,19 +92,40 @@ public class SessionEscalationTests
             [typeof(FakeEscalatingDetector)] = new() { SeverityCap = Severity.Low },
         };
 
-        var d = await RunSingleAsync(new FakeEscalatingDetector("TST-ESC", Severity.Low), new Lookup(2), configurations);
+        var lookup = new Lookup(2);
+
+        var d = await RunSingleAsync(new FakeEscalatingDetector("TST-ESC", Severity.Low), lookup, configurations);
 
         Assert.Equal(Severity.Low, d.Severity);
         Assert.Equal("fake", d.Reason);
+        Assert.Empty(lookup.Asked);
     }
 
     [Fact]
     public async Task Escalation_CriticalStaysCritical()
     {
-        var d = await RunSingleAsync(new FakeEscalatingDetector("TST-ESC", Severity.Critical), new Lookup(2));
+        var lookup = new Lookup(2);
+
+        var d = await RunSingleAsync(new FakeEscalatingDetector("TST-ESC", Severity.Critical), lookup);
 
         Assert.Equal(Severity.Critical, d.Severity);
         Assert.Equal("fake", d.Reason);
+        Assert.Empty(lookup.Asked);
+    }
+
+    [Fact]
+    public async Task Escalation_CancelledLookup_Throws()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var pipeline = new DetectionPipeline([new FakeEscalatingDetector("TST-ESC", Severity.Low)], null, reviewer: null);
+        var ctx = Ctx((_, t) =>
+        {
+            t.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(2);
+        });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await pipeline.RunAsync(ctx, cts.Token));
     }
 
     [Fact]
@@ -129,6 +150,26 @@ public class SessionEscalationTests
         Assert.Equal(Severity.High, request.ProposedSeverity);
         // The detector's reason, with the note, stays in front of the review's outcome.
         Assert.Equal("Semantic match — medium-severity threat pattern" + Suffix + " — Reviewed: confirmed — repeated drift", d.Reason);
+    }
+
+    [Fact]
+    public async Task Escalation_FloorHigh_ConfirmingReviewerReachesCritical()
+    {
+        // The floor lifts the Medium bucket to High, escalation to Critical: the review's maximum follows it.
+        var reviewer = new ConfirmingReviewer();
+        var configurations = new Dictionary<Type, DetectorConfiguration>
+        {
+            [typeof(EscalatingSemanticDetector)] = new() { SeverityFloor = Severity.High },
+        };
+
+        var d = await RunSemanticAsync(reviewer, configurations);
+
+        Assert.Equal(Severity.Critical, d.Severity);
+        var request = Assert.Single(reviewer.Requests);
+        Assert.Equal(Severity.Critical, request.ProposedSeverity);
+        Assert.Equal(request.ProposedSeverity, request.MaximumSeverity);
+        Assert.Contains("Reviewed: confirmed", d.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("lowered", d.Reason, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -164,11 +205,12 @@ public class SessionEscalationTests
     }
 
     /// <summary>A Medium-bucket hit of a marked semantic detector with two earlier hits, built like the semantic-cap tests.</summary>
-    private static async Task<DetectionResult> RunSemanticAsync(IDetectionReviewer? reviewer)
+    private static async Task<DetectionResult> RunSemanticAsync(
+        IDetectionReviewer? reviewer, IReadOnlyDictionary<Type, DetectorConfiguration>? configurations = null)
     {
         var options = new SentinelOptions { EmbeddingGenerator = new ExactMatchEmbeddingGenerator() };
         var pipeline = new DetectionPipeline(
-            [new EscalatingSemanticDetector(options)], configurations: null, reviewer: reviewer,
+            [new EscalatingSemanticDetector(options)], configurations, reviewer: reviewer,
             embeddingScope: new EmbeddingScope(options.EmbeddingGenerator!, new InMemoryLruEmbeddingCache(), null));
         var result = await pipeline.RunAsync(Ctx(new Lookup(2).Count, MediumExample), TestContext.Current.CancellationToken);
         return Assert.Single(result.Detections);

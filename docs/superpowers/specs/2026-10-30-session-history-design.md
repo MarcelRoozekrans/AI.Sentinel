@@ -73,9 +73,9 @@ new AuditQuery { SessionId = sessionId.Value, Reverse = true, PageSize = 50, Fro
 - **The rule.** At two or more earlier hits, the current result goes up one level: Low to Medium, Medium to High, High to Critical. It is one step, however many earlier hits there are. *My call: predictable, and repeated pressure cannot climb several levels in one scan.*
 - **No ratchet.** Escalation lifts the current scan's own severity. The earlier entries are only counted, never read for their severity, so an escalated entry written this turn does not raise the base next turn.
 - **Where in `DetectionPipeline.RunAsync`.** After the first `ApplySeverityClamp` and before `ProposedSeverities` and `ApplySemanticCap`:
-  1. escalate;
-  2. re-apply the Floor/Cap clamp, the same re-clamp #515 added after review escalation, so a configured `SeverityCap` still holds;
-  3. `ProposedSeverities` then records the escalated severity, so a reviewer that confirms can lift the result to it;
+  1. escalate. The raised severity goes through the same Floor/Cap clamp as every result, per result, so a configured `SeverityCap` still holds;
+  2. a result the clamp would not change, such as Critical or a result already at its cap, is neither looked up nor annotated;
+  3. `ProposedSeverities` then records the escalated severity, and the reviewer's maximum follows it, so a reviewer that confirms can lift the result to it. The configured `SeverityCap` still bounds that maximum;
   4. `ApplySemanticCap` caps an embedding result above Medium back to Medium pending review, as today.
 - **Reason.** An escalated result's reason gains "; repeated in earlier scans of this session". A scan writes at most one entry per detector, so the hits are earlier scans; the prompt and response legs of one call are two scans. When the semantic cap then rewrites the reason, the note is kept.
 - **The semantic cap's floor rule is unchanged.** A configured `SeverityFloor` above Medium already raises the semantic cap level to the floor; escalation does not alter that.

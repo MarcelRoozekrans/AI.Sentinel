@@ -138,7 +138,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
         if (reviewer is not null && proposed is not null)
         {
-            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, ct).ConfigureAwait(false);
+            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, escalated, ct).ConfigureAwait(false);
         }
 
         // After review: a verdict rebuilds the result, which would drop an override set earlier.
@@ -193,8 +193,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// <remarks>A clean result is never looked up nor raised. Nor is one the configured floor and cap would keep at
     /// its severity, such as a Critical result or one at its <see cref="DetectorConfiguration.SeverityCap"/>, so its
     /// reason does not claim an escalation that did not happen. The lookups run one after another: only a drift hit
-    /// reaches one, at most one per marked detector. A semantic detector's outcome takes the raised result too, so a
-    /// reviewer's verdict keeps the note in the detector's reason.</remarks>
+    /// reaches one, at most one per marked detector. A semantic detector's outcome takes the note too, so a reviewer's
+    /// verdict keeps it in the detector's reason; the review's maximum follows the raised severity.</remarks>
     private async ValueTask<bool[]?> EscalateRepeatedAsync(
         SentinelContext ctx, DetectionResult[] results, SemanticOutcome?[] outcomes, CancellationToken ct)
     {
@@ -217,7 +217,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
             {
                 outcomes[i] = outcome with
                 {
-                    Result = outcome.Result with { Severity = raised, Reason = outcome.Result.Reason + RepeatedSuffix },
+                    Result = outcome.Result with { Reason = outcome.Result.Reason + RepeatedSuffix },
                 };
             }
 
@@ -465,9 +465,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// </remarks>
     private async Task ReviewAllAsync(
         IDetectionReviewer reviewer, SentinelContext ctx, DetectionResult[] results, Severity[] proposed,
-        SemanticOutcome?[] outcomes, CancellationToken ct)
+        SemanticOutcome?[] outcomes, bool[]? escalated, CancellationToken ct)
     {
-        var candidates = CollectCandidates(ctx, results, proposed, outcomes);
+        var candidates = CollectCandidates(ctx, results, proposed, outcomes, escalated);
         if (candidates.Count == 0) return;
 
         candidates.Sort(CompareCandidates);
@@ -508,7 +508,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
     /// <summary>The review candidates of this scan, unranked.</summary>
     private List<Candidate> CollectCandidates(
-        SentinelContext ctx, DetectionResult[] results, Severity[] proposed, SemanticOutcome?[] outcomes)
+        SentinelContext ctx, DetectionResult[] results, Severity[] proposed, SemanticOutcome?[] outcomes,
+        bool[]? escalated)
     {
         var candidates = new List<Candidate>();
         for (var i = 0; i < _detectors.Length; i++)
@@ -528,6 +529,10 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 var maximum = cfg?.SeverityFloor is { } floor && floor > semantic.MaximumBucketSeverity
                     ? floor
                     : semantic.MaximumBucketSeverity;
+
+                // An escalated result proposes one level above its bucket, already held to the floor and cap; a
+                // confirming verdict must be able to reach it.
+                if (escalated?[i] == true && proposed[i] > maximum) maximum = proposed[i];
 
                 // The outcome holds the result before the semantic cap, so its reason is the bucket's.
                 candidates.Add(new Candidate(i, new ReviewRequest(
