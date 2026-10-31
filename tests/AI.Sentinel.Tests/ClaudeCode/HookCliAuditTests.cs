@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Xunit;
 using AI.Sentinel.Audit;
+using AI.Sentinel.Detection;
 using AI.Sentinel.ClaudeCode.Cli;
 using AI.Sentinel.Tests.Helpers;
 
@@ -17,12 +18,14 @@ public class HookCliAuditTests : IDisposable
     private readonly string? _prevSqlite = Environment.GetEnvironmentVariable(HookAuditTestSupport.SqliteVar);
     private readonly string? _prevVerbose = Environment.GetEnvironmentVariable("SENTINEL_HOOK_VERBOSE");
     private readonly string? _prevNdjson = Environment.GetEnvironmentVariable(HookAuditTestSupport.NdjsonVar);
+    private readonly string? _prevDetectors = Environment.GetEnvironmentVariable(HookAuditTestSupport.DetectorsVar);
 
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, _prevSqlite);
         Environment.SetEnvironmentVariable(HookAuditTestSupport.NdjsonVar, _prevNdjson);
         Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", _prevVerbose);
+        Environment.SetEnvironmentVariable(HookAuditTestSupport.DetectorsVar, _prevDetectors);
         HookAuditTestSupport.DeleteDir(_dir);
         GC.SuppressFinalize(this);
     }
@@ -54,6 +57,30 @@ public class HookCliAuditTests : IDisposable
         Assert.NotEmpty(entries);
         Assert.All(entries, e => Assert.Equal("claude-code", e.Source));
         Assert.True(intact);
+    }
+
+    [Fact]
+    public async Task RepeatedPersonaDrift_EscalatesOnTheThirdPrompt_AndDoesNotRatchet()
+    {
+        var db = Path.Combine(_dir, "audit.db");
+        Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, db);
+        // OPS-13 judges a reply, so it only runs in the full detector set, not the default security preset.
+        Environment.SetEnvironmentVariable(HookAuditTestSupport.DetectorsVar, "all");
+        const string drift = """{"session_id":"drift","prompt":"My tone and style have changed from earlier in this conversation"}""";
+
+        for (var i = 0; i < 5; i++)
+            Assert.Equal(0, (await RunAsync(drift)).Exit);
+
+        var (entries, _) = await HookAuditTestSupport.ReadAsync(db);
+        var ops13 = entries.Where(e => string.Equals(e.DetectorId, "OPS-13", StringComparison.Ordinal)).OrderBy(e => e.Timestamp).ToList();
+        Assert.Equal(5, ops13.Count);
+        Assert.Equal(Severity.Low, ops13[0].Severity);
+        Assert.Equal(Severity.Low, ops13[1].Severity);
+        Assert.Equal(Severity.Medium, ops13[2].Severity);
+        Assert.EndsWith("; repeated in earlier scans of this session", ops13[2].Summary);
+        // No ratchet: each escalated scan sits one level above its own base severity, never higher.
+        Assert.Equal(Severity.Medium, ops13[3].Severity);
+        Assert.Equal(Severity.Medium, ops13[4].Severity);
     }
 
     [Fact]

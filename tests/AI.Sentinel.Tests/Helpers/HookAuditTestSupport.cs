@@ -9,6 +9,7 @@ internal static class HookAuditTestSupport
 {
     public const string SqliteVar = "SENTINEL_HOOK_AUDIT_SQLITE";
     public const string NdjsonVar = "SENTINEL_HOOK_AUDIT_NDJSON";
+    public const string DetectorsVar = "SENTINEL_HOOK_DETECTORS";
 
     public static string NewTempDir()
     {

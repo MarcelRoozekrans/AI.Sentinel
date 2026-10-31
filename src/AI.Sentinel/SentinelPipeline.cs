@@ -25,6 +25,7 @@ public sealed partial class SentinelPipeline
     private readonly SentinelOptions options;
     private readonly IAlertSink? alertSink;
     private readonly IAuditForwarder[] _forwarders;
+    private readonly TimeProvider _timeProvider;
     private readonly Disclosure _disclosure;
     private int _rateLimiterWriteCount;
 
@@ -37,7 +38,7 @@ public sealed partial class SentinelPipeline
     /// <param name="alertSink">Optional alert sink invoked fire-and-forget when an action escalates to <c>Quarantine</c> or <c>Alert</c>.</param>
     /// <param name="forwarders">Optional audit forwarders that mirror every audit entry to external systems fire-and-forget. Default empty.</param>
     /// <param name="pipelineName">The named pipeline's name, recorded in the transparency mark; <see langword="null"/> for the default pipeline.</param>
-    /// <param name="timeProvider">Clock for the transparency mark and its idle-session eviction; defaults to <see cref="TimeProvider.System"/>.</param>
+    /// <param name="timeProvider">Clock for the transparency mark and its idle-session eviction, for the timestamps of its detection audit entries, and for the 24-hour bound of the session history; defaults to <see cref="TimeProvider.System"/>.</param>
     internal SentinelPipeline(
         IChatClient innerClient,
         IDetectionPipeline pipeline,
@@ -56,7 +57,8 @@ public sealed partial class SentinelPipeline
         this.options = options;
         this.alertSink = alertSink;
         _forwarders = AuditForwarding.Snapshot(forwarders);
-        _disclosure = new Disclosure(options, pipelineName, timeProvider ?? TimeProvider.System);
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _disclosure = new Disclosure(options, pipelineName, _timeProvider);
 
         // Tool calls the model makes run inside a FunctionInvokingChatClient below this pipeline, if there is
         // one; its hook restores their arguments and redacts their results for the current call.
@@ -836,7 +838,9 @@ public sealed partial class SentinelPipeline
         List<ScanFinding>? findings = null,
         int newMessagesFrom = 0)
     {
-        var ctx = BuildContext(msgs, sessionId, sender, receiver, systemPrompt, in exemptions, llmId, newMessagesFrom);
+        var history = await SessionHistory.ReadAsync(
+            auditStore, sessionId.Value, _timeProvider.GetUtcNow(), options.OnDetectorFailure, ct).ConfigureAwait(false);
+        var ctx = BuildContext(msgs, history, sessionId, sender, receiver, systemPrompt, in exemptions, llmId, newMessagesFrom);
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
         await AppendAuditAsync(pipelineResult, sessionId, ct).ConfigureAwait(false);
@@ -895,26 +899,27 @@ public sealed partial class SentinelPipeline
     }
 
     private SentinelContext BuildContext(
-        IReadOnlyList<ChatMessage> msgs, SessionId sessionId, AgentId sender, AgentId receiver,
-        string? systemPrompt, in Exemptions exemptions, string? llmId, int newMessagesFrom)
-        => exemptions.Minted is null
-            ? new SentinelContext(sender, receiver, sessionId, msgs, [])
-            {
-                SystemPrompt = systemPrompt,
-                LlmId = llmId,
-                NewMessagesFrom = newMessagesFrom,
-                MaxScanBytes = options.MaxScanBytes,
-            }
-            : new SentinelContext(sender, receiver, sessionId, msgs, [])
-            {
-                SystemPrompt = systemPrompt,
-                LlmId = llmId,
-                NewMessagesFrom = newMessagesFrom,
-                MaxScanBytes = options.MaxScanBytes,
-                RedactionPlaceholders = exemptions.Minted,
-                RequestPlaceholders = exemptions.Request ?? NoStrings,
-                RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,
-            };
+        IReadOnlyList<ChatMessage> msgs, IReadOnlyList<AuditEntry> history, SessionId sessionId, AgentId sender,
+        AgentId receiver, string? systemPrompt, in Exemptions exemptions, string? llmId, int newMessagesFrom)
+    {
+        var session = sessionId.Value;
+        ValueTask<int> EarlierHits(DetectorId id, CancellationToken t) => SessionHistory.CountEarlierHitsAsync(
+            auditStore, session, id.Value, _timeProvider.GetUtcNow(), options.OnDetectorFailure, t);
+
+        // Without minted placeholders nothing was redacted: the exemption sets stay empty, whatever else is set.
+        var redacted = exemptions.Minted is not null;
+        return new SentinelContext(sender, receiver, sessionId, msgs, history)
+        {
+            EarlierHits = EarlierHits,
+            SystemPrompt = systemPrompt,
+            LlmId = llmId,
+            NewMessagesFrom = newMessagesFrom,
+            MaxScanBytes = options.MaxScanBytes,
+            RedactionPlaceholders = exemptions.Minted ?? NoStrings,
+            RequestPlaceholders = redacted ? exemptions.Request ?? NoStrings : NoStrings,
+            RedactingDetectorIds = redacted ? exemptions.RedactorIds ?? NoStrings : NoStrings,
+        };
+    }
 
     /// <summary>The detection that drove <paramref name="action"/>: highest severity among those whose
     /// effective action equals it, so an alert never carries a detection whose own action was weaker.</summary>
@@ -992,7 +997,7 @@ public sealed partial class SentinelPipeline
             // Hash and PreviousHash are assigned by the store when it links the entry into its chain.
             var entry = new AuditEntry(
                 Guid.NewGuid().ToString("N"),
-                DateTimeOffset.UtcNow,
+                _timeProvider.GetUtcNow(),
                 Hash: string.Empty, PreviousHash: null,
                 detection.Severity,
                 detection.DetectorId.Value,

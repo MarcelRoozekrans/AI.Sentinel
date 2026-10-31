@@ -1,12 +1,19 @@
 using System.Runtime.CompilerServices;
-using ZeroAlloc.Collections;
 
 namespace AI.Sentinel.Audit;
 
 public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, IDisposable
 {
-    private readonly HeapRingBuffer<AuditEntry> _buffer = new(capacity);
+    // Owned circular array: HeapRingBuffer has no indexer, so a newest-first, filtered walk would
+    // need a full copy of the buffer on every query. _head is the slot of the oldest entry.
+    private readonly AuditEntry[] _buffer = new AuditEntry[capacity > 0
+        ? capacity
+        : throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive.")];
+    // Upper bound for the initial page list, so a large PageSize does not pre-allocate a large list.
+    private const int InitialPageCapacity = 64;
     private readonly SemaphoreSlim _lock = new(1, 1);
+    private int _head;
+    private int _count;
     private string? _lastHash;
 
     public async ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
@@ -18,9 +25,16 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, I
             var linked = AuditHashChain.Link(entry, _lastHash);
             // Overwrite oldest when full (ring buffer semantics). The evicted entry's hash stays
             // the PreviousHash of the new oldest entry, so the remaining chain still verifies.
-            if (_buffer.IsFull)
-                _buffer.TryRead(out _);
-            _buffer.TryWrite(linked);
+            if (_count == _buffer.Length)
+            {
+                _buffer[_head] = linked;
+                _head = (_head + 1) % _buffer.Length;
+            }
+            else
+            {
+                _buffer[(_head + _count) % _buffer.Length] = linked;
+                _count++;
+            }
             _lastHash = linked.Hash;
             return linked;
         }
@@ -31,36 +45,45 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, I
         AuditQuery query,
         [EnumeratorCancellation] CancellationToken ct)
     {
+        // Filter in place under the lock and keep only the page, so a query never copies the buffer.
+        var page = new List<AuditEntry>(Math.Clamp(query.PageSize, 0, InitialPageCapacity));
         await _lock.WaitAsync(ct).ConfigureAwait(false);
-        AuditEntry[] snapshot;
-        try { snapshot = _buffer.ToArray(); }
+        try
+        {
+            for (int i = 0; i < _count && page.Count < query.PageSize; i++)
+            {
+                var offset = query.Reverse ? _count - 1 - i : i;  // reverse: newest-first traversal
+                var entry = _buffer[(_head + offset) % _buffer.Length];
+                if (Matches(entry, query)) page.Add(entry);
+            }
+        }
         finally { _lock.Release(); }
 
-        if (query.Reverse) Array.Reverse(snapshot);  // newest-first traversal
-
-        int yielded = 0;
-        foreach (var entry in snapshot)
+        foreach (var entry in page)
         {
             if (ct.IsCancellationRequested) yield break;
-            if (yielded >= query.PageSize) yield break;
-            if (query.MinSeverity.HasValue && entry.Severity < query.MinSeverity) continue;
-            if (query.From.HasValue && entry.Timestamp < query.From) continue;
-            if (query.To.HasValue && entry.Timestamp > query.To) continue;
-            if (!string.IsNullOrEmpty(query.SessionId)
-                && !string.Equals(entry.SessionId, query.SessionId, StringComparison.Ordinal))
-                continue;
-            if (query.DetectorId is not null
-                && !string.Equals(entry.DetectorId, query.DetectorId, StringComparison.Ordinal))
-                continue;
-            if (query.PolicyCode is not null
-                && !string.Equals(entry.PolicyCode, query.PolicyCode, StringComparison.Ordinal))
-                continue;
-            if (!string.IsNullOrEmpty(query.Source)
-                && !string.Equals(entry.Source, query.Source, StringComparison.OrdinalIgnoreCase))
-                continue;
             yield return entry;
-            yielded++;
         }
+    }
+
+    private static bool Matches(AuditEntry entry, AuditQuery query)
+    {
+        if (query.MinSeverity.HasValue && entry.Severity < query.MinSeverity) return false;
+        if (query.From.HasValue && entry.Timestamp < query.From) return false;
+        if (query.To.HasValue && entry.Timestamp > query.To) return false;
+        if (!string.IsNullOrEmpty(query.SessionId)
+            && !string.Equals(entry.SessionId, query.SessionId, StringComparison.Ordinal))
+            return false;
+        if (query.DetectorId is not null
+            && !string.Equals(entry.DetectorId, query.DetectorId, StringComparison.Ordinal))
+            return false;
+        if (query.PolicyCode is not null
+            && !string.Equals(entry.PolicyCode, query.PolicyCode, StringComparison.Ordinal))
+            return false;
+        if (!string.IsNullOrEmpty(query.Source)
+            && !string.Equals(entry.Source, query.Source, StringComparison.OrdinalIgnoreCase))
+            return false;
+        return true;
     }
 
     public void Dispose() => _lock.Dispose();

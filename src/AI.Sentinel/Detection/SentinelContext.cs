@@ -20,6 +20,13 @@ public sealed class SentinelContext(
     public IReadOnlyList<ChatMessage> Messages { get; } = Messages;
     public IReadOnlyList<AuditEntry> History { get; } = History;
 
+    /// <summary>
+    /// Counts the earlier audit entries of this session that a detector raised, for detectors that escalate on
+    /// repeats. Null, the default, means no lookup, as for a context built by the SDK builder or a test; nothing
+    /// escalates then. The count is 0 when the audit store cannot be read.
+    /// </summary>
+    internal Func<DetectorId, CancellationToken, ValueTask<int>>? EarlierHits { get; init; }
+
     /// <summary>The identifier of the model the call targets, when known.</summary>
     public string? LlmId { get; init; }
 

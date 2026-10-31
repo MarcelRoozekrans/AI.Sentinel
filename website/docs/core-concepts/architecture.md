@@ -48,7 +48,7 @@ Every pass gets a `SentinelContext` carrying:
 - **`SenderId` / `ReceiverId`** — `AgentId` value objects. Defaults: `"user"` → `"assistant"`.
 - **`SessionId`** — stable across the two passes of a single chat call, and across a conversation's calls when the caller names the conversation: the string under `"sentinel.session_id"` (`SentinelPipeline.SessionIdKey`) in `ChatOptions.AdditionalProperties`, else `ChatOptions.ConversationId`. Without either, each call gets its own id. The hook CLIs and the MCP proxy use the agent's own session id.
 - **`Messages`** — the prompt or response messages being scanned.
-- **`History`** — reserved for previous `AuditEntry` records from the same session. The pipeline passes an empty list today, so no built-in detector relies on it; [#387](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/387) tracks filling it. The Detectors SDK's `SentinelContextBuilder` can set it for tests.
+- **`History`** — the session's earlier `AuditEntry` records: the newest 50 from the last 24 hours, oldest first. Entries carry findings, not message text. The Detectors SDK's `SentinelContextBuilder` can set it for tests.
 - **`LlmId`** — optional model identifier passed via `ChatOptions.ModelId`.
 
 Detectors read from this context and emit `DetectionResult`s.

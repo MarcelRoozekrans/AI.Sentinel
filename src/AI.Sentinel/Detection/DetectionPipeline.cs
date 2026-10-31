@@ -125,16 +125,20 @@ public sealed class DetectionPipeline : IDetectionPipeline
         // result out of review. The clamp skips clean results, so a Floor never makes a clean result a candidate.
         ApplySeverityClamp(results);
 
+        // After the clamp, so a configured cap holds the escalated severity; before the proposed severities, so a
+        // reviewer that confirms can lift a capped semantic result to it.
+        var escalated = await EscalateRepeatedAsync(ctx, results, outcomes, ct).ConfigureAwait(false);
+
         // The severity each detector proposes before the semantic cap, None for a clean result. A review
         // step can lift a capped result back to it, so it is only needed when review is on.
         var reviewer = _reviewLimits.MaxPerScan > 0 ? _reviewer : null;
         var proposed = reviewer is not null ? ProposedSeverities(results) : null;
 
-        ApplySemanticCap(results, outcomes);
+        ApplySemanticCap(results, outcomes, escalated);
 
         if (reviewer is not null && proposed is not null)
         {
-            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, ct).ConfigureAwait(false);
+            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, escalated, ct).ConfigureAwait(false);
         }
 
         // After review: a verdict rebuilds the result, which would drop an override set earlier.
@@ -178,6 +182,50 @@ public sealed class DetectionPipeline : IDetectionPipeline
         }
 
         return results;
+    }
+
+    /// <summary>The note an escalated result's reason ends with.</summary>
+    internal const string RepeatedSuffix = "; repeated in earlier scans of this session";
+
+    /// <summary>Raises the finding of each <see cref="ISessionEscalatingDetector"/> one level when the session holds
+    /// <see cref="Audit.SessionHistory.EscalationThreshold"/> or more earlier hits of it, and returns which indices
+    /// were raised, or <see langword="null"/> when none was.</summary>
+    /// <remarks>A clean result is never looked up nor raised. Nor is one the configured floor and cap would keep at
+    /// its severity, such as a Critical result or one at its <see cref="DetectorConfiguration.SeverityCap"/>, so its
+    /// reason does not claim an escalation that did not happen. The lookups run one after another: only a drift hit
+    /// reaches one, at most one per marked detector. A semantic detector's outcome takes the note too, so a reviewer's
+    /// verdict keeps it in the detector's reason; the review's maximum follows the raised severity.</remarks>
+    private async ValueTask<bool[]?> EscalateRepeatedAsync(
+        SentinelContext ctx, DetectionResult[] results, SemanticOutcome?[] outcomes, CancellationToken ct)
+    {
+        if (ctx.EarlierHits is not { } earlierHits) return null;
+
+        bool[]? escalated = null;
+        for (var i = 0; i < results.Length; i++)
+        {
+            if (_detectors[i] is not ISessionEscalatingDetector || results[i].IsClean) continue;
+
+            var current = results[i].Severity;
+            var raised = Clamp(i, current == Severity.Critical ? current : current + 1);
+            if (raised <= current) continue;
+
+            if (await earlierHits(results[i].DetectorId, ct).ConfigureAwait(false) < Audit.SessionHistory.EscalationThreshold)
+                continue;
+
+            results[i] = results[i] with { Severity = raised, Reason = results[i].Reason + RepeatedSuffix };
+            if (outcomes[i] is { } outcome)
+            {
+                outcomes[i] = outcome with
+                {
+                    Result = outcome.Result with { Reason = outcome.Result.Reason + RepeatedSuffix },
+                };
+            }
+
+            escalated ??= new bool[results.Length];
+            escalated[i] = true;
+        }
+
+        return escalated;
     }
 
     private static DetectionResult ScanLimitFinding(SentinelContext ctx) =>
@@ -417,9 +465,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// </remarks>
     private async Task ReviewAllAsync(
         IDetectionReviewer reviewer, SentinelContext ctx, DetectionResult[] results, Severity[] proposed,
-        SemanticOutcome?[] outcomes, CancellationToken ct)
+        SemanticOutcome?[] outcomes, bool[]? escalated, CancellationToken ct)
     {
-        var candidates = CollectCandidates(ctx, results, proposed, outcomes);
+        var candidates = CollectCandidates(ctx, results, proposed, outcomes, escalated);
         if (candidates.Count == 0) return;
 
         candidates.Sort(CompareCandidates);
@@ -460,7 +508,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
     /// <summary>The review candidates of this scan, unranked.</summary>
     private List<Candidate> CollectCandidates(
-        SentinelContext ctx, DetectionResult[] results, Severity[] proposed, SemanticOutcome?[] outcomes)
+        SentinelContext ctx, DetectionResult[] results, Severity[] proposed, SemanticOutcome?[] outcomes,
+        bool[]? escalated)
     {
         var candidates = new List<Candidate>();
         for (var i = 0; i < _detectors.Length; i++)
@@ -480,6 +529,10 @@ public sealed class DetectionPipeline : IDetectionPipeline
                 var maximum = cfg?.SeverityFloor is { } floor && floor > semantic.MaximumBucketSeverity
                     ? floor
                     : semantic.MaximumBucketSeverity;
+
+                // An escalated result proposes one level above its bucket, already held to the floor and cap; a
+                // confirming verdict must be able to reach it.
+                if (escalated?[i] == true && proposed[i] > maximum) maximum = proposed[i];
 
                 // The outcome holds the result before the semantic cap, so its reason is the bucket's.
                 candidates.Add(new Candidate(i, new ReviewRequest(
@@ -642,8 +695,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// <remarks>A regex fast-path match is never capped, nor is a detector configured with
     /// <see cref="DetectorConfiguration.CapSemanticSeverity"/> false. A floor above the cap raises the cap level to the
     /// floor, it does not remove the cap: the shown severity is the lower of the proposed severity and the higher of
-    /// Medium and the floor.</remarks>
-    private void ApplySemanticCap(DetectionResult[] results, SemanticOutcome?[] outcomes)
+    /// Medium and the floor. The capped reason of an index flagged in <paramref name="escalated"/> keeps the
+    /// <see cref="RepeatedSuffix"/> note.</remarks>
+    private void ApplySemanticCap(DetectionResult[] results, SemanticOutcome?[] outcomes, bool[]? escalated)
     {
         for (int i = 0; i < results.Length; i++)
         {
@@ -658,7 +712,9 @@ public sealed class DetectionPipeline : IDetectionPipeline
             results[i] = results[i] with
             {
                 Severity = level,
-                Reason = $"Semantic match — capped at {level} pending review",
+                Reason = escalated?[i] == true
+                    ? $"Semantic match — capped at {level} pending review{RepeatedSuffix}"
+                    : $"Semantic match — capped at {level} pending review",
             };
         }
     }
@@ -670,15 +726,21 @@ public sealed class DetectionPipeline : IDetectionPipeline
             var cfg = _configurations[i];
             if (cfg is null || results[i].IsClean) continue;
 
-            var clamped = results[i].Severity;
-            if (cfg.SeverityFloor is { } floor && clamped < floor) clamped = floor;
-            if (cfg.SeverityCap is { } cap && clamped > cap) clamped = cap;
-
+            var clamped = Clamp(i, results[i].Severity);
             if (clamped != results[i].Severity)
             {
                 results[i] = results[i] with { Severity = clamped };
             }
         }
+    }
+
+    /// <summary><paramref name="severity"/> held to the configured floor and cap of the detector at <paramref name="index"/>.</summary>
+    private Severity Clamp(int index, Severity severity)
+    {
+        var cfg = _configurations[index];
+        if (cfg?.SeverityFloor is { } floor && severity < floor) severity = floor;
+        if (cfg?.SeverityCap is { } cap && severity > cap) severity = cap;
+        return severity;
     }
 
     private void ApplyActionOverrides(DetectionResult[] results)
