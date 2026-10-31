@@ -6,7 +6,7 @@ using AI.Sentinel.Detection;
 using AI.Sentinel.Sqlite;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration.Memory;
 using Xunit;
 
 namespace AI.Sentinel.Tests.Cli;
@@ -16,7 +16,7 @@ namespace AI.Sentinel.Tests.Cli;
 /// section there would override the listener and bypass the --bind validation and the proxy-only gate.
 /// The environment variable test touches process-global state, so this class runs alone.
 /// </summary>
-[Collection(nameof(NonParallelCliCollection))]
+[Collection("NonParallel")]
 public class DashboardHostIsolationTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "sentinel-isolation-" + Guid.NewGuid().ToString("N"));
@@ -36,12 +36,10 @@ public class DashboardHostIsolationTests : IDisposable
         await using var _ = app;
         await using var __ = store;
 
-        var providers = AllProviders((IConfigurationRoot)app.Configuration).Select(p => p.GetType().Name).ToList();
-        Assert.DoesNotContain(providers, n => n.Contains("File", StringComparison.Ordinal)
-            || n.Contains("Json", StringComparison.Ordinal)
-            || n.Contains("Environment", StringComparison.Ordinal)
-            || n.Contains("CommandLine", StringComparison.Ordinal));
-        Assert.Empty(app.Services.GetServices<Microsoft.Extensions.FileProviders.IFileProvider>());
+        Assert.All(AllProviders((IConfigurationRoot)app.Configuration), provider =>
+            Assert.True(
+                provider is MemoryConfigurationProvider or ChainedConfigurationProvider,
+                $"Unexpected configuration provider {provider.GetType().Name}."));
     }
 
     private static IEnumerable<IConfigurationProvider> AllProviders(IConfigurationRoot root)
