@@ -234,14 +234,14 @@ jobs:
             @{ Id = 'AI.Sentinel.Mcp.Cli'; Command = 'sentinel-mcp'; Kind = 'mcp' }
           )
           foreach ($cli in $clis) {
-            dotnet tool install $cli.Id --version $env:VERSION --tool-path tools --add-source feed
+            dotnet tool install $cli.Id --version $env:VERSION --tool-path tool-path --add-source feed
             if ($LASTEXITCODE -ne 0) { throw "Install failed for $($cli.Id)" }
           }
           # The any fallback carries the managed CLI assembly; the native package does not.
-          $managed = Get-ChildItem tools/.store -Recurse -File -Filter 'AI.Sentinel.*.Cli.dll'
+          $managed = Get-ChildItem tool-path/.store -Recurse -File -Filter 'AI.Sentinel.*.Cli.dll'
           if ($managed) { $managed | ForEach-Object FullName; throw "dotnet tool install picked the framework-dependent any package" }
           foreach ($cli in $clis) {
-            ./eng/smoke-native.ps1 -Binary "tools/$($cli.Command)" -Kind $cli.Kind
+            ./eng/smoke-native.ps1 -Binary "tool-path/$($cli.Command)" -Kind $cli.Kind
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }
 
@@ -255,10 +255,10 @@ jobs:
               @{ Id = 'AI.Sentinel.ClaudeCode.Cli'; Command = 'sentinel-hook'; Kind = 'hook' },
               @{ Id = 'AI.Sentinel.Copilot.Cli'; Command = 'sentinel-copilot-hook'; Kind = 'copilot-hook' },
               @{ Id = 'AI.Sentinel.Mcp.Cli'; Command = 'sentinel-mcp'; Kind = 'mcp' })) {
-            dotnet tool install $cli.Id --version $env:VERSION --tool-path tools-any --add-source feed
+            dotnet tool install $cli.Id --version $env:VERSION --tool-path tool-path-any --add-source feed
             if ($LASTEXITCODE -ne 0) { throw "Install of the any package failed for $($cli.Id)" }
-            $managed = Get-ChildItem tools-any/.store -Recurse -File -Filter "$($cli.Id).dll"
+            $managed = Get-ChildItem tool-path-any/.store -Recurse -File -Filter "$($cli.Id).dll"
             if (-not $managed) { throw "dotnet tool install did not pick the any package for $($cli.Id)" }
-            ./eng/smoke-native.ps1 -Binary "tools-any/$($cli.Command)" -Kind $cli.Kind
+            ./eng/smoke-native.ps1 -Binary "tool-path-any/$($cli.Command)" -Kind $cli.Kind
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }

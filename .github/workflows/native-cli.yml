@@ -127,29 +127,40 @@ jobs:
         shell: pwsh
         run: ./eng/smoke-native.ps1 -Binary '${{ steps.extract.outputs.binary }}' -Kind ${{ matrix.cli.kind }}
 
-      # A musl binary cannot start on the glibc runner. The .NET SDK images include PowerShell.
+      # A musl binary cannot start on the glibc runner. The x64 Alpine SDK image includes PowerShell,
+      # the arm64 one does not: PowerShell ships no musl-arm64 build, so install its .NET global tool.
       - name: Smoke test in a musl container
         if: matrix.target.libc == 'musl'
+        env:
+          BINARY: ${{ steps.extract.outputs.binary }}
+          KIND: ${{ matrix.cli.kind }}
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src "$MUSL_IMAGE" \
-            pwsh -NoProfile -File eng/smoke-native.ps1 -Binary '${{ steps.extract.outputs.binary }}' -Kind ${{ matrix.cli.kind }}
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src -e BINARY -e KIND "$MUSL_IMAGE" sh -c '
+            set -e
+            if ! command -v pwsh >/dev/null 2>&1; then
+              # From /tmp, so the repository global.json does not pin the SDK for this install.
+              (cd /tmp && dotnet tool install --tool-path /opt/pwsh PowerShell --version 7.6.9 >/dev/null)
+              export PATH="/opt/pwsh:$PATH"
+            fi
+            pwsh -NoProfile -File eng/smoke-native.ps1 -Binary "$BINARY" -Kind "$KIND"'
 
       - name: Archive
         id: archive
         shell: pwsh
         run: |
-          New-Item -ItemType Directory artifacts | Out-Null
+          # upload/, not artifacts/: the repository tracks an artifacts/ folder.
+          New-Item -ItemType Directory upload | Out-Null
           $base = "${{ matrix.cli.command }}-${{ inputs.version }}-${{ matrix.target.rid }}"
           if ($IsWindows) {
-            $archive = "artifacts/$base.zip"
+            $archive = "upload/$base.zip"
             Compress-Archive -Path dist/* -DestinationPath $archive
           } else {
             # Named entries only: a ./ entry would reset the mode and owner of the directory it is extracted into.
-            $archive = "artifacts/$base.tar.gz"
+            $archive = "upload/$base.tar.gz"
             tar -czf $archive -C dist @((Get-ChildItem dist).Name)
             if ($LASTEXITCODE -ne 0) { throw "tar failed" }
           }
-          Copy-Item "out/AI.Sentinel.${{ matrix.cli.id }}.${{ matrix.target.rid }}.${{ inputs.version }}.nupkg" artifacts/
+          Copy-Item "out/AI.Sentinel.${{ matrix.cli.id }}.${{ matrix.target.rid }}.${{ inputs.version }}.nupkg" upload/
           "archive=$archive" >> $env:GITHUB_OUTPUT
 
       - name: Attest build provenance
@@ -161,5 +172,5 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: native-${{ matrix.cli.id }}-${{ matrix.target.rid }}
-          path: artifacts/
+          path: upload/
           if-no-files-found: error

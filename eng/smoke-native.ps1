@@ -33,7 +33,8 @@ if (-not $IsWindows -and -not ((Get-Item $Binary).UnixFileMode -band [IO.UnixFil
 
 $sizeMb = [math]::Round((Get-Item $Binary).Length / 1MB, 2)
 Write-Host "Binary: $Binary ($sizeMb MB)"
-if ($sizeMb -gt 20) { Write-Host "::warning::Binary is unexpectedly large ($sizeMb MB > 20 MB threshold)" }
+# The AOT binaries are about 40-47 MB; warn on real growth, not on the baseline.
+if ($sizeMb -gt 60) { Write-Host "::warning::Binary is unexpectedly large ($sizeMb MB > 60 MB threshold)" }
 
 $temp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
 $work = Join-Path $temp ("smoke-" + [guid]::NewGuid().ToString('N'))
