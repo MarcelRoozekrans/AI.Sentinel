@@ -83,8 +83,11 @@ sentinel dashboard \
   --approval-config ./approvals.json \
   --bind 0.0.0.0 --port 5170 \
   --trusted-proxy 10.0.0.0/8 \
+  --public-host 192.0.2.10 \
   --user-header X-Auth-Request-User
 ```
+
+Here `192.0.2.10` is the name or address the proxy sends in the `Host` header, see [Host check](#host-check-and---public-host). A wildcard bind does not accept its own address as a host name.
 
 - `--trusted-proxy` takes a CIDR range or one address, and can be repeated. IPv4-mapped IPv6 entries are treated as IPv4.
 - `--user-header` defaults to `X-Auth-Request-User`, which oauth2-proxy sets. Use `Remote-User` for Authelia.
@@ -102,11 +105,11 @@ A proxy on the same host is the common setup, so loopback stays allowed: `--trus
 Every request must carry a `Host` the dashboard answers to, or it gets `403`. This stops DNS rebinding: a web page can point its own host name at `127.0.0.1`, which makes the dashboard same-origin for the browser. With a same-host proxy the peer is then a trusted proxy, so the page would also pass the user header check.
 
 - A peer outside every trusted range must send `localhost`, `127.0.0.1` or `[::1]`, with any port. Otherwise the answer is `This dashboard only accepts requests addressed to localhost.`
-- A trusted proxy must send one of those, one of the names given with `--public-host`, or the `--bind` address itself, compared without case and ignoring the port. Otherwise the answer is `This dashboard only accepts requests for its configured host names.`
+- A trusted proxy must send one of those, one of the names given with `--public-host`, or the `--bind` address itself when it is not a wildcard such as `0.0.0.0`, compared without case and ignoring the port. Otherwise the answer is `This dashboard only accepts requests for its configured host names.`
 - `--public-host <name>` is repeatable and only valid together with `--trusted-proxy`. The value is a host name or IP address, without port, scheme or path, for example `dash.example.com` or `192.0.2.10`.
 - Startup lists the names on the `Approvals:` line.
 
-nginx `proxy_pass http://192.0.2.10:5170;` sends the upstream address as `Host` by default, which is the `--bind` address and needs no flag. If you set `proxy_set_header Host $host;`, nginx forwards the public name, so pass `--public-host` with that name.
+nginx `proxy_pass http://192.0.2.10:5170;` sends the upstream address as `Host` by default, which needs no flag when the dashboard is bound to that specific address. With a wildcard bind such as `0.0.0.0`, pass `--public-host` with the address the proxy sends. If you set `proxy_set_header Host $host;`, nginx forwards the public name, so pass `--public-host` with that name.
 
 #### Forward-auth example
 

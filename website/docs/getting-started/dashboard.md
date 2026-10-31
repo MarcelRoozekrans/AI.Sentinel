@@ -54,7 +54,7 @@ It serves `http://127.0.0.1:5170/ai-sentinel/` by default, listens on loopback u
 | `--approval-config <path>` | `SENTINEL_APPROVAL_CONFIG` | The [approval config](../approvals/cli-config). With a `sqlite` backend the dashboard lists pending requests and records approve and deny. |
 | `--trusted-proxy <cidr or ip>` | none | A reverse proxy whose user header is trusted. Repeatable. |
 | `--user-header <name>` | `X-Auth-Request-User` | The header the proxy sets to the user name. Only valid together with `--trusted-proxy`. |
-| `--public-host <name>` | none | A host name or IP address, without port, scheme or path, that the trusted proxy forwards in the `Host` header. Repeatable. Only valid together with `--trusted-proxy`. `localhost`, `127.0.0.1` and `[::1]` are always accepted. |
+| `--public-host <name>` | none | A host name or IP address, without port, scheme or path, that the trusted proxy forwards in the `Host` header. Repeatable. Only valid together with `--trusted-proxy`. `localhost`, `127.0.0.1` and `[::1]` are always accepted, and so is the `--bind` address when it is not a wildcard. |
 | `--local-approver` | off | Approve and deny as the current OS user. Needs a loopback `--bind` and cannot be combined with `--trusted-proxy`. |
 
 Approving from the CLI dashboard, who counts as an approver and the forward-auth setup are described in [the CLI dashboard as an approval host](../approvals/dashboard#the-cli-dashboard-as-an-approval-host). See [Claude Code → Audit destination](../integrations/claude-code#audit-destination) for what is recorded.
