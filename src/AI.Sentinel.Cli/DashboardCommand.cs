@@ -18,34 +18,55 @@ namespace AI.Sentinel.Cli;
 
 /// <summary>
 /// <c>sentinel dashboard</c>: hosts the embedded AI.Sentinel dashboard over the local audit file. It listens on
-/// 127.0.0.1 unless <c>--bind</c> says otherwise, and a non-loopback bind needs <c>--trusted-proxy</c>. Read-only: it opens the file with <c>SqliteAuditStore.OpenReadOnly</c>, so it never creates the file,
-/// upgrades an older schema, appends entries, or runs retention or a size cap. SQLite may still create the -wal and
-/// -shm coordination files next to it. No approval store is wired, so the approve and deny endpoints write nothing.
+/// 127.0.0.1 unless <c>--bind</c> says otherwise, and a non-loopback bind needs <c>--trusted-proxy</c>. Without an
+/// approval config it is read-only: it opens the file with <c>SqliteAuditStore.OpenReadOnly</c>, so it never creates
+/// the file, upgrades an older schema, appends entries, or runs retention or a size cap. SQLite may still create the
+/// -wal and -shm coordination files next to it. With a sqlite approval config it also lists, approves and denies
+/// pending requests, opening the audit file writable to append each decision to the chain; then
+/// <c>--local-approver</c> or <c>--trusted-proxy</c> says who may decide. With an Entra PIM config it only points to
+/// the portal.
 /// </summary>
 public static class DashboardCommand
 {
-    private sealed record OptionSet(
+    internal sealed record OptionSet(
         Option<string> Db,
         Option<int> Port,
         Option<string> Bind,
         Option<string?> ApprovalConfig,
         Option<string[]> TrustedProxy,
         Option<string> UserHeader,
-        Option<bool> LocalApprover);
-
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Command, OptionSet> OptionSets = new();
+        Option<bool> LocalApprover)
+    {
+        /// <summary>Reads the validated settings out of <paramref name="parseResult"/>.</summary>
+        internal DashboardSettings Read(ParseResult parseResult)
+        {
+            ArgumentNullException.ThrowIfNull(parseResult);
+            return new DashboardSettings(parseResult.GetRequiredValue(Db), parseResult.GetValue(Port))
+            {
+                Bind = IPAddress.Parse(parseResult.GetRequiredValue(Bind)),
+                ApprovalConfigPath = parseResult.GetValue(ApprovalConfig),
+                ApprovalConfigExplicit = parseResult.GetResult(ApprovalConfig)?.Implicit == false,
+                TrustedProxies = ParseProxies(parseResult.GetValue(TrustedProxy) ?? []),
+                UserHeader = parseResult.GetRequiredValue(UserHeader),
+                LocalApprover = parseResult.GetValue(LocalApprover),
+            };
+        }
+    }
 
     private const int DefaultPort = 5170;
     private const string PathPrefix = "/ai-sentinel";
-
-    private const string DefaultUserHeader = "X-Auth-Request-User";
 
     public static Command Build() => Build(LocalAudit.DefaultDatabasePath);
 
     internal static Command Build(Func<string> defaultDatabasePath) =>
         Build(defaultDatabasePath, () => Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG"));
 
-    internal static Command Build(Func<string> defaultDatabasePath, Func<string?> approvalConfigFromEnvironment)
+    internal static Command Build(Func<string> defaultDatabasePath, Func<string?> approvalConfigFromEnvironment) =>
+        Build(defaultDatabasePath, approvalConfigFromEnvironment, out _);
+
+    /// <summary>Builds the command and hands back the reader that turns a parse of it into settings.</summary>
+    internal static Command Build(
+        Func<string> defaultDatabasePath, Func<string?> approvalConfigFromEnvironment, out Func<ParseResult, DashboardSettings> readSettings)
     {
         var dbOpt = new Option<string>("--db")
         {
@@ -74,12 +95,12 @@ public static class DashboardCommand
         };
 
         var options = new OptionSet(dbOpt, portOpt, bindOpt, approvalConfigOpt, trustedProxyOpt, userHeaderOpt, localApproverOpt);
-        OptionSets.Add(cmd, options);
+        readSettings = options.Read;
         cmd.Validators.Add(result => ValidateCombination(result, options));
 
         cmd.SetAction(async (parseResult, ct) =>
         {
-            var settings = ReadSettings(parseResult);
+            var settings = options.Read(parseResult);
             var db = settings.DbPath;
             var stdout = parseResult.InvocationConfiguration.Output;
             var stderr = parseResult.InvocationConfiguration.Error;
@@ -173,7 +194,7 @@ public static class DashboardCommand
         var opt = new Option<string>("--user-header")
         {
             Description = "Header the trusted proxy sets to the authenticated user name.",
-            DefaultValueFactory = _ => DefaultUserHeader,
+            DefaultValueFactory = _ => DashboardSettings.DefaultUserHeader,
         };
         opt.Validators.Add(result =>
         {
@@ -186,8 +207,7 @@ public static class DashboardCommand
         return opt;
     }
 
-    private static void ValidateCombination(
-        CommandResult result, OptionSet options)
+    private static void ValidateCombination(CommandResult result, OptionSet options)
     {
         var (_, _, bindOpt, _, trustedProxyOpt, userHeaderOpt, localApproverOpt) = options;
         if (result.Errors.Any())
@@ -221,31 +241,17 @@ public static class DashboardCommand
         }
     }
 
-    internal static DashboardSettings ReadSettings(ParseResult parseResult)
+    private static List<IPNetwork> ParseProxies(IEnumerable<string> values)
     {
-        ArgumentNullException.ThrowIfNull(parseResult);
-        var o = OptionSets.TryGetValue(parseResult.CommandResult.Command, out var found)
-            ? found
-            : throw new ArgumentException("The parse result is not for the dashboard command.", nameof(parseResult));
-
         var proxies = new List<IPNetwork>();
-        foreach (var value in parseResult.GetValue(o.TrustedProxy) ?? [])
+        foreach (var value in values)
         {
             if (TryParseProxy(value, out var network))
             {
                 proxies.Add(network);
             }
         }
-
-        return new DashboardSettings(parseResult.GetRequiredValue(o.Db), parseResult.GetValue(o.Port))
-        {
-            Bind = IPAddress.Parse(parseResult.GetRequiredValue(o.Bind)),
-            ApprovalConfigPath = parseResult.GetValue(o.ApprovalConfig),
-            ApprovalConfigExplicit = parseResult.GetResult(o.ApprovalConfig)?.Implicit == false,
-            TrustedProxies = proxies,
-            UserHeader = parseResult.GetRequiredValue(o.UserHeader),
-            LocalApprover = parseResult.GetValue(o.LocalApprover),
-        };
+        return proxies;
     }
 
     private static bool TryParseProxy(string value, out IPNetwork network)
@@ -339,7 +345,6 @@ public static class DashboardCommand
 
         SqliteAuditStore? store = null;
         WebApplication? app = null;
-        IAsyncDisposable? approvalStore = null;
         var started = false;
         try
         {
@@ -348,18 +353,16 @@ public static class DashboardCommand
             var verification = await AuditHashChain.VerifyAsync(
                 store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct), ct).ConfigureAwait(false);
             app = BuildApp(store, settings, plan);
-            var resolved = await ResolveApprovalStoreAsync(app, plan, stderr).ConfigureAwait(false);
-            if (!resolved.Ok)
+            if (!await TryOpenApprovalStoreAsync(app, plan, stderr).ConfigureAwait(false))
             {
                 return null;
             }
-            approvalStore = resolved.Store;
 
             await app.StartAsync(ct).ConfigureAwait(false);
-            var url = BrowsableUrl(app, settings);
+            var url = BrowsableUrl(new Uri(app.Urls.First()), settings.Bind);
             await WriteStartupAsync(stdout, verification, url, plan.Describe(settings)).ConfigureAwait(false);
             started = true;
-            return new RunningDashboard(app, store, approvalStore, url);
+            return new RunningDashboard(app, store, url);
         }
         catch (IOException ex)
         {
@@ -374,18 +377,16 @@ public static class DashboardCommand
         {
             if (!started)
             {
-                await DisposeAllAsync(app, approvalStore, store).ConfigureAwait(false);
+                await DisposeAllAsync(app, store).ConfigureAwait(false);
             }
         }
 
         return null;
     }
 
-    private static Uri BrowsableUrl(WebApplication app, DashboardSettings settings)
-    {
-        var bound = new Uri(app.Urls.First());
-        return new Uri($"http://{HostLiteral(BrowsableAddress(settings.Bind))}:{bound.Port.ToString(CultureInfo.InvariantCulture)}{PathPrefix}/");
-    }
+    /// <summary>The address to browse to: a wildcard bind is reached through the matching loopback address.</summary>
+    internal static Uri BrowsableUrl(Uri bound, IPAddress bind) =>
+        new($"http://{HostLiteral(BrowsableAddress(bind))}:{bound.Port.ToString(CultureInfo.InvariantCulture)}{PathPrefix}/");
 
     private static async Task<SqliteAuditStore> OpenAuditStoreAsync(string dbPath, DashboardApprovalPlan plan)
     {
@@ -400,23 +401,24 @@ public static class DashboardCommand
         return new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = dbPath });
     }
 
-    private static async Task<(bool Ok, SqliteApprovalStore? Store)> ResolveApprovalStoreAsync(
-        WebApplication app, DashboardApprovalPlan plan, TextWriter stderr)
+    // Resolving the store at startup surfaces an unusable database now. The container owns it and disposes it with the app.
+    private static async Task<bool> TryOpenApprovalStoreAsync(WebApplication app, DashboardApprovalPlan plan, TextWriter stderr)
     {
         try
         {
-            return (true, app.Services.GetService<SqliteApprovalStore>());
+            _ = app.Services.GetService<SqliteApprovalStore>();
+            return true;
         }
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or InvalidOperationException
             or IOException or UnauthorizedAccessException)
         {
             await stderr.WriteLineAsync(
                 $"Could not open the approval database {plan.DatabasePath}: {ex.Message}").ConfigureAwait(false);
-            return (false, null);
+            return false;
         }
     }
 
-    private static async Task DisposeAllAsync(WebApplication? app, IAsyncDisposable? approvalStore, SqliteAuditStore? store)
+    private static async Task DisposeAllAsync(WebApplication? app, SqliteAuditStore? store)
     {
         try
         {
@@ -427,19 +429,9 @@ public static class DashboardCommand
         }
         finally
         {
-            try
+            if (store is not null)
             {
-                if (approvalStore is not null)
-                {
-                    await approvalStore.DisposeAsync().ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                if (store is not null)
-                {
-                    await store.DisposeAsync().ConfigureAwait(false);
-                }
+                await store.DisposeAsync().ConfigureAwait(false);
             }
         }
     }

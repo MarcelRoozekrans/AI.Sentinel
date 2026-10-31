@@ -23,6 +23,6 @@ internal sealed record ApprovalNotifierSettings(
         return config.NotifyUrl is null
             ? null
             : new ApprovalNotifierSettings(config.NotifyUrl, config.NotifyHeaders, config.NotifyIncludeArgs, config.DashboardUrl,
-                string.Equals(config.Backend, "sqlite", StringComparison.Ordinal));
+                ApprovalBackendSelector.GetBackend(config) == ApprovalBackendKind.Sqlite);
     }
 }

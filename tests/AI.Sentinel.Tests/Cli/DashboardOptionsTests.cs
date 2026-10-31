@@ -21,6 +21,12 @@ public class DashboardOptionsTests : IDisposable
     private RootCommand Root(string? env = null) =>
         new() { DashboardCommand.Build(() => Path.Combine(_dir, "audit.db"), () => env) };
 
+    private DashboardSettings Read(string? env, params string[] args)
+    {
+        var root = new RootCommand { DashboardCommand.Build(() => Path.Combine(_dir, "audit.db"), () => env, out var read) };
+        return read(root.Parse(["dashboard", .. args]));
+    }
+
     private async Task<(int Exit, string Err)> InvokeAsync(params string[] args)
     {
         var stdout = new StringWriter();
@@ -75,10 +81,18 @@ public class DashboardOptionsTests : IDisposable
         AssertRefused(await InvokeAsync("--bind", "fe80::1%1"), "scope ids");
 
     [Theory]
-    [InlineData("--bind", "::1")]
-    [InlineData("--bind", "127.0.0.1")]
-    public void ValidLoopbackBind_IsAccepted(string flag, string value) =>
-        Assert.Empty(Root().Parse(["dashboard", flag, value]).Errors);
+    [InlineData("::1")]
+    [InlineData("127.0.0.1")]
+    public void ValidLoopbackBind_IsAccepted(string value) =>
+        Assert.Empty(Root().Parse(["dashboard", "--bind", value]).Errors);
+
+    [Theory]
+    [InlineData("0.0.0.0", "http://127.0.0.1:5170/ai-sentinel/")]
+    [InlineData("::", "http://[::1]:5170/ai-sentinel/")]
+    [InlineData("10.1.2.3", "http://10.1.2.3:5170/ai-sentinel/")]
+    [InlineData("127.0.0.1", "http://127.0.0.1:5170/ai-sentinel/")]
+    public void BrowsableUrl_MapsAWildcardBindToLoopback(string bind, string expected) =>
+        Assert.Equal(expected, DashboardCommand.BrowsableUrl(new Uri("http://0.0.0.0:5170"), IPAddress.Parse(bind)).AbsoluteUri);
 
     [Fact]
     public void WildcardBind_WithTrustedProxy_IsAccepted() =>
@@ -104,9 +118,6 @@ public class DashboardOptionsTests : IDisposable
         var s = Read(null, "--trusted-proxy", input);
         Assert.Equal(expected, Assert.Single(s.TrustedProxies).ToString());
     }
-
-    private DashboardSettings Read(string? env, params string[] args) =>
-        DashboardCommand.ReadSettings(Root(env).Parse(["dashboard", .. args]));
 
     [Fact]
     public void Settings_Defaults()
@@ -208,25 +219,6 @@ public class DashboardOptionsTests : IDisposable
         await using (dashboard)
         {
             Assert.Equal("[::1]", dashboard.Url.Host);
-            using var http = new HttpClient();
-            var resp = await http.GetAsync(new Uri(dashboard.Url, "api/stats"), TestContext.Current.CancellationToken);
-            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        }
-    }
-
-    [Fact]
-    public async Task Start_WildcardBind_ReportsABrowsableLoopbackUrl()
-    {
-        var db = await SeedAsync();
-
-        var dashboard = await DashboardCommand.StartAsync(
-            new DashboardSettings(db, 0) { Bind = IPAddress.Any },
-            new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
-
-        Assert.NotNull(dashboard);
-        await using (dashboard)
-        {
-            Assert.Equal("127.0.0.1", dashboard.Url.Host);
             using var http = new HttpClient();
             var resp = await http.GetAsync(new Uri(dashboard.Url, "api/stats"), TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, resp.StatusCode);

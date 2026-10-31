@@ -36,7 +36,7 @@ public class DashboardApprovalsCommandTests : IDisposable
         var (db, config) = await SeedAsync("sqlite");
         var id = await CreatePendingAsync();
         var stdout = new StringWriter();
-        await using var dashboard = await StartAsync(db, config, stdout, new StringWriter(), s => s);
+        await using var dashboard = await StartAsync(db, config, stdout, new StringWriter(), s => s, localApprover: true);
         Assert.NotNull(dashboard);
         using var http = new HttpClient();
 
@@ -98,7 +98,7 @@ public class DashboardApprovalsCommandTests : IDisposable
         var (db, config) = await SeedAsync("sqlite");
         var id = await CreatePendingAsync();
         var stdout = new StringWriter();
-        await using var dashboard = await StartAsync(db, config, stdout, new StringWriter(), s => s, localApprover: false);
+        await using var dashboard = await StartAsync(db, config, stdout, new StringWriter(), s => s);
         Assert.NotNull(dashboard);
         using var http = new HttpClient();
 
@@ -188,7 +188,8 @@ public class DashboardApprovalsCommandTests : IDisposable
         var (db, config) = await SeedAsync("in-memory");
         var stdout = new StringWriter();
 
-        await using var dashboard = await StartAsync(db, config, stdout, new StringWriter(), s => s with { ApprovalConfigExplicit = false });
+        await using var dashboard = await StartAsync(
+            db, config, stdout, new StringWriter(), s => s with { ApprovalConfigExplicit = false }, localApprover: true);
 
         Assert.NotNull(dashboard);
         Assert.Contains("Approvals: off (", stdout.ToString(), StringComparison.Ordinal);
@@ -200,7 +201,8 @@ public class DashboardApprovalsCommandTests : IDisposable
         var (db, config) = await SeedAsync("in-memory");
         var stderr = new StringWriter();
 
-        var dashboard = await StartAsync(db, config, new StringWriter(), stderr, s => s with { ApprovalConfigExplicit = true });
+        var dashboard = await StartAsync(
+            db, config, new StringWriter(), stderr, s => s with { ApprovalConfigExplicit = true }, localApprover: true);
 
         Assert.Null(dashboard);
         Assert.Contains("in-memory", stderr.ToString(), StringComparison.Ordinal);
@@ -212,7 +214,7 @@ public class DashboardApprovalsCommandTests : IDisposable
         var (db, _) = await SeedAsync("sqlite");
         var stdout = new StringWriter();
 
-        await using var dashboard = await StartAsync(db, null, stdout, new StringWriter(), s => s);
+        await using var dashboard = await StartAsync(db, null, stdout, new StringWriter(), s => s, localApprover: true);
 
         Assert.NotNull(dashboard);
         Assert.Contains(
@@ -347,7 +349,7 @@ public class DashboardApprovalsCommandTests : IDisposable
 
     private async Task<RunningDashboard?> StartAsync(
         string db, string? config, StringWriter stdout, StringWriter stderr, Func<DashboardSettings, DashboardSettings> tweak,
-        bool proxy = false, bool localApprover = true, string proxyCidr = "127.0.0.1/32")
+        bool proxy = false, bool localApprover = false, string proxyCidr = "127.0.0.1/32")
     {
         var settings = new DashboardSettings(db, 0)
         {
