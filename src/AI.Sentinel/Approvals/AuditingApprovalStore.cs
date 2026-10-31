@@ -12,7 +12,7 @@ namespace AI.Sentinel.Approvals;
 /// <see cref="AuditingApprovalAdminStore"/>. The entry is written after the inner call succeeds; a failed write is
 /// logged and never fails the decision. Behaviour is otherwise the inner store's.
 /// </summary>
-internal class AuditingApprovalStore : IApprovalStore
+internal class AuditingApprovalStore : IApprovalStore, IApprovalStoreDecorator
 {
     /// <summary>Stands in for a policy, tool or request id this process never saw.</summary>
     private const string Unknown = "unknown";
@@ -32,7 +32,7 @@ internal class AuditingApprovalStore : IApprovalStore
     private readonly ILogger? _logger;
 
     /// <summary>The store this wrapper records the decisions of.</summary>
-    internal IApprovalStore Inner => _inner;
+    public IApprovalStore Inner => _inner;
 
     internal AuditingApprovalStore(
         IApprovalStore inner,

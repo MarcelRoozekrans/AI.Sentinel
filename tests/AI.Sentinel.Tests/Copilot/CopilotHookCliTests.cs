@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Xunit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Approvals;
@@ -160,6 +161,36 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         finally
         {
             Environment.SetEnvironmentVariable("SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING", null);
+        }
+    }
+
+    [Fact]
+    public async Task ApprovalConfig_WithNotifyUrl_PostsOnNewRequest()
+    {
+        using var hook = new WebhookListener();
+        var dir = HookAuditTestSupport.NewTempDir();
+        var previous = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
+        try
+        {
+            var db = Path.Combine(dir, "approvals.db");
+            var config = Path.Combine(dir, "approvals.json");
+            await File.WriteAllTextAsync(config, $$"""
+                { "backend": "sqlite", "databasePath": {{JsonSerializer.Serialize(db)}}, "notifyUrl": "{{hook.Url}}",
+                  "tools": { "bash": { "role": "Ops" } } }
+                """, TestContext.Current.CancellationToken);
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", config);
+            var stdin = new StringReader("""{"sessionId":"s","toolName":"bash","toolArgs":{"command":"ls"}}""");
+
+            await Program.RunAsync(["pre-tool-use"], stdin, new StringWriter(), new StringWriter());
+
+            var body = Assert.Single(hook.Bodies);
+            Assert.Equal("bash", body.RootElement.GetProperty("tool").GetString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", previous);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            HookAuditTestSupport.DeleteDir(dir);
         }
     }
 

@@ -628,6 +628,36 @@ public class HookCliTests : HookAuditOffFixtureBase
     }
 
     [Fact]
+    public async Task ApprovalConfig_WithNotifyUrl_PostsOnNewRequest()
+    {
+        using var hook = new WebhookListener();
+        var dir = HookAuditTestSupport.NewTempDir();
+        var previous = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
+        try
+        {
+            var db = Path.Combine(dir, "approvals.db");
+            var config = Path.Combine(dir, "approvals.json");
+            await File.WriteAllTextAsync(config, $$"""
+                { "backend": "sqlite", "databasePath": {{JsonSerializer.Serialize(db)}}, "notifyUrl": "{{hook.Url}}",
+                  "tools": { "Bash": { "role": "Ops" } } }
+                """, TestContext.Current.CancellationToken);
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", config);
+            var stdin = new StringReader("""{"session_id":"s","tool_name":"Bash","tool_input":{"command":"ls"}}""");
+
+            await Program.RunAsync(["pre-tool-use"], stdin, new StringWriter(), new StringWriter());
+
+            var body = Assert.Single(hook.Bodies);
+            Assert.Equal("Bash", body.RootElement.GetProperty("tool").GetString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", previous);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            HookAuditTestSupport.DeleteDir(dir);
+        }
+    }
+
+    [Fact]
     public async Task BuildProvider_SqliteBackend_RegistersSqliteApprovalStore()
     {
         // Stage 5 Task 5.6 bundled the Sqlite backend into the CLI. Selecting 'sqlite' must

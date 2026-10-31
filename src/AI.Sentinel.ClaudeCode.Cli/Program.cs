@@ -385,6 +385,8 @@ public static class Program
                 // carry an ApprovalSpec.
         }
 
+        ApprovalBackendSelector.AddNotifier(services, approvalConfig);
+
         services.AddAISentinel(opts =>
         {
             opts.OnCritical = SentinelAction.Quarantine;

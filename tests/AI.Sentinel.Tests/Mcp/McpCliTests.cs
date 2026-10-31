@@ -192,6 +192,47 @@ public class McpCliTests : McpAuditOffFixtureBase
         }
     }
 
+    [Fact]
+    public async Task ApprovalConfig_WithNotifyUrl_PostsOnNewRequest()
+    {
+        using var hook = new WebhookListener();
+        var dir = Path.Combine(Path.GetTempPath(), $"mcp-notify-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        var configPath = Path.Combine(dir, "approvals.json");
+        var db = Path.Combine(dir, "approvals.db");
+        await File.WriteAllTextAsync(configPath, $$"""
+            { "backend": "sqlite", "databasePath": {{System.Text.Json.JsonSerializer.Serialize(db)}}, "notifyUrl": "{{hook.Url}}",
+              "tools": { "Bash": { "role": "DBA" } } }
+            """, TestContext.Current.CancellationToken);
+        Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", configPath);
+        try
+        {
+            var (provider, _, store, _, configError) =
+                await ProxyCommand.BuildAuthorizationStackAsync(new StringWriter(), null, []);
+            try
+            {
+                Assert.False(configError);
+                var state = await store!.EnsureRequestAsync(
+                    new Caller(), new ApprovalSpec { PolicyName = "DBA" },
+                    new ApprovalContext("Bash", default, null), TestContext.Current.CancellationToken);
+
+                Assert.IsType<ApprovalState.Pending>(state);
+                var body = Assert.Single(hook.Bodies);
+                Assert.Equal("Bash", body.RootElement.GetProperty("tool").GetString());
+            }
+            finally
+            {
+                if (provider is not null) await provider.DisposeAsync();
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", null);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     private sealed class Caller : ZeroAlloc.Authorization.ISecurityContext
     {
         public string Id => "caller";

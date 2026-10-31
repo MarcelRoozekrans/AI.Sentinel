@@ -21,6 +21,9 @@ internal class NotifyingApprovalStore : IApprovalStore, IApprovalStoreDecorator
     // notifier would leak sockets.
     private static readonly SocketsHttpHandler SharedHandler = new() { PooledConnectionLifetime = TimeSpan.FromMinutes(5) };
 
+    // One client over that handler too: Resolve wraps a plain store on every call, and a client each would never be disposed.
+    private static readonly HttpClient SharedClient = NewClient(SharedHandler);
+
     private readonly IApprovalStore _inner;
     private readonly ApprovalNotifierSettings _settings;
     private readonly HttpClient _http;
@@ -35,9 +38,12 @@ internal class NotifyingApprovalStore : IApprovalStore, IApprovalStoreDecorator
         _inner = inner;
         _settings = settings;
         // The timeout is per request, through a linked token; HttpClient.Timeout would be a second, hidden one.
-        _http = new HttpClient(handler, disposeHandler: false) { Timeout = Timeout.InfiniteTimeSpan };
+        _http = ReferenceEquals(handler, SharedHandler) ? SharedClient : NewClient(handler);
         _logger = logger;
     }
+
+    private static HttpClient NewClient(HttpMessageHandler handler) =>
+        new(handler, disposeHandler: false) { Timeout = Timeout.InfiniteTimeSpan };
 
     /// <inheritdoc />
     public IApprovalStore Inner => _inner;

@@ -229,6 +229,25 @@ internal static class ProxyCommand
            or System.IO.FileNotFoundException
            or System.IO.IOException;
 
+    /// <summary>Registers the backend store and, when <c>notifyUrl</c> is set, the webhook notifier that wraps it.</summary>
+    private static void RegisterApprovalBackend(IServiceCollection services, ApprovalConfig approvalConfig)
+    {
+        var backendKind = ApprovalBackendSelector.GetBackend(approvalConfig);
+        switch (backendKind)
+        {
+            case ApprovalBackendKind.Sqlite:
+                services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = approvalConfig.DatabasePath!);
+                break;
+            case ApprovalBackendKind.EntraPim:
+                services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig.TenantId!);
+                break;
+                // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
+                // carry an ApprovalSpec.
+        }
+
+        ApprovalBackendSelector.AddNotifier(services, approvalConfig);
+    }
+
     /// <summary>
     /// Loads <c>SENTINEL_APPROVAL_CONFIG</c> (if set), builds an <see cref="IToolCallGuard"/> +
     /// <see cref="IApprovalStore"/> via a small DI container, and resolves
@@ -265,18 +284,7 @@ internal static class ProxyCommand
         // InMemoryApprovalStore — the Sqlite/EntraPim DI extensions throw on duplicate
         // registration, so they must be wired first.
         var services = new ServiceCollection();
-        var backendKind = ApprovalBackendSelector.GetBackend(approvalConfig);
-        switch (backendKind)
-        {
-            case ApprovalBackendKind.Sqlite:
-                services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = approvalConfig.DatabasePath!);
-                break;
-            case ApprovalBackendKind.EntraPim:
-                services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig.TenantId!);
-                break;
-                // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
-                // carry an ApprovalSpec.
-        }
+        RegisterApprovalBackend(services, approvalConfig);
 
         services.AddAISentinel(opts => ApprovalBackendSelector.Configure(opts, approvalConfig));
 
