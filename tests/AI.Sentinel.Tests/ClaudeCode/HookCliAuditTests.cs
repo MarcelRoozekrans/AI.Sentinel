@@ -18,14 +18,14 @@ public class HookCliAuditTests : IDisposable
     private readonly string? _prevSqlite = Environment.GetEnvironmentVariable(HookAuditTestSupport.SqliteVar);
     private readonly string? _prevVerbose = Environment.GetEnvironmentVariable("SENTINEL_HOOK_VERBOSE");
     private readonly string? _prevNdjson = Environment.GetEnvironmentVariable(HookAuditTestSupport.NdjsonVar);
-    private readonly string? _prevDetectors = Environment.GetEnvironmentVariable("SENTINEL_HOOK_DETECTORS");
+    private readonly string? _prevDetectors = Environment.GetEnvironmentVariable(HookAuditTestSupport.DetectorsVar);
 
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, _prevSqlite);
         Environment.SetEnvironmentVariable(HookAuditTestSupport.NdjsonVar, _prevNdjson);
         Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", _prevVerbose);
-        Environment.SetEnvironmentVariable("SENTINEL_HOOK_DETECTORS", _prevDetectors);
+        Environment.SetEnvironmentVariable(HookAuditTestSupport.DetectorsVar, _prevDetectors);
         HookAuditTestSupport.DeleteDir(_dir);
         GC.SuppressFinalize(this);
     }
@@ -65,11 +65,11 @@ public class HookCliAuditTests : IDisposable
         var db = Path.Combine(_dir, "audit.db");
         Environment.SetEnvironmentVariable(HookAuditTestSupport.SqliteVar, db);
         // OPS-13 judges a reply, so it only runs in the full detector set, not the default security preset.
-        Environment.SetEnvironmentVariable("SENTINEL_HOOK_DETECTORS", "all");
+        Environment.SetEnvironmentVariable(HookAuditTestSupport.DetectorsVar, "all");
         const string drift = """{"session_id":"drift","prompt":"My tone and style have changed from earlier in this conversation"}""";
 
         for (var i = 0; i < 3; i++)
-            await RunAsync(drift);
+            Assert.Equal(0, (await RunAsync(drift)).Exit);
 
         var (entries, _) = await HookAuditTestSupport.ReadAsync(db);
         var ops13 = entries.Where(e => string.Equals(e.DetectorId, "OPS-13", StringComparison.Ordinal)).OrderBy(e => e.Timestamp).ToList();
