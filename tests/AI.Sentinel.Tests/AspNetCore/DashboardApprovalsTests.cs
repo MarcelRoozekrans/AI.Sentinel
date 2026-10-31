@@ -147,6 +147,68 @@ public class DashboardApprovalsTests
         Assert.IsType<ApprovalState.Pending>(state);
     }
 
+    [Theory]
+    [InlineData("/sentinel/api/approvals/abc/approve/", 1, "abc")]
+    [InlineData("/sentinel/approvals/abc/", 0, "abc")]
+    [InlineData("/sentinel/approvals/abc", 0, "abc")]
+    [InlineData("/sentinel/approvals/a%2Fb%3Fc%25d?x=1", 0, "a/b?c%d")]
+    [InlineData("/sentinel/api/approvals/a%2Fb/deny?x=1", 1, "a/b")]
+    public void IdFromRawTarget_HandlesTrailingSlashAndQuery(string raw, int trailing, string expected) =>
+        Assert.Equal(expected, ApprovalRequestTarget.IdFromRawTarget(raw, trailing));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("/")]
+    public void IdFromRawTarget_NoSegment_ReturnsNull(string? raw) =>
+        Assert.Null(ApprovalRequestTarget.IdFromRawTarget(raw, 0));
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("deny")]
+    public async Task Decide_NotPending_Returns409WithMessage(string action)
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var first = await PostAsync(host, $"/sentinel/api/approvals/{id}/approve");
+        var second = await PostAsync(host, $"/sentinel/api/approvals/{id}/{action}");
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+        Assert.Equal("This request is no longer pending.", await second.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("deny")]
+    public async Task Decide_UnknownId_Returns409(string action)
+    {
+        using var host = await BuildHostAsync(new InMemoryApprovalStore(), authenticatedAs: "ops-bob");
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/nope/{action}");
+        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Deny_ReasonOver500Characters_Returns400AndLeavesPending()
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>(StringComparer.Ordinal) { ["reason"] = new string('x', 501) });
+        var resp = await host.GetTestClient().PostAsync($"/sentinel/api/approvals/{id}/deny", form, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Equal("Reason is longer than 500 characters.", await resp.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await PendingCountAsync(store));
+    }
+
+    [Fact]
+    public async Task Deny_ReasonOf500Characters_Succeeds()
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var form = new FormUrlEncodedContent(new Dictionary<string, string>(StringComparer.Ordinal) { ["reason"] = new string('x', 500) });
+        var resp = await host.GetTestClient().PostAsync($"/sentinel/api/approvals/{id}/deny", form, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+    }
+
     [Fact]
     public async Task Approve_CrossSiteFetchMetadata_Returns403AndLeavesPending()
     {
@@ -219,6 +281,8 @@ public class DashboardApprovalsTests
     [InlineData("http://localhost:8080")]
     [InlineData("http://localhost/x")]
     [InlineData("http://localhost/?a=1")]
+    [InlineData("http://localhost/#x")]
+    [InlineData("http://u@localhost")]
     public async Task Approve_OriginSchemePortOrPathMismatch_Returns403(string origin)
     {
         var (store, id) = await PendingAsync();

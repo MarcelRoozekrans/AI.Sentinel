@@ -178,7 +178,7 @@ public class NotifyingApprovalStoreTests
         Assert.EndsWith("(approval:Bash).", Body(other).GetProperty("text").GetString(), StringComparison.Ordinal);
     }
 
-    private static async Task<JsonElement> SqliteBodyAsync(string dashboard, string requestId, bool link = true)
+    private static async Task<JsonElement> BodyAsync(string dashboard, string requestId, bool link = true)
     {
         var handler = new RecordingHandler();
         var inner = new FixedStore(new ApprovalState.Pending(requestId, "sentinel://x", DateTimeOffset.UnixEpoch) { IsNew = true });
@@ -190,35 +190,42 @@ public class NotifyingApprovalStoreTests
     [Fact]
     public async Task Text_Sqlite_LinksToRequestPage()
     {
-        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel/", "req-1");
+        var body = await BodyAsync("https://dash.example.com/ai-sentinel/", "req-1");
         Assert.EndsWith(" https://dash.example.com/ai-sentinel/approvals/req-1", body.GetProperty("text").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Text_Sqlite_DashboardUrlWithoutTrailingSlash_GetsOne()
     {
-        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel", "req-1");
+        var body = await BodyAsync("https://dash.example.com/ai-sentinel", "req-1");
         Assert.EndsWith(" https://dash.example.com/ai-sentinel/approvals/req-1", body.GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Text_Sqlite_DashboardUrlWithQuery_KeepsQueryOutOfThePath()
+    {
+        var body = await BodyAsync("https://x/?a=1", "id");
+        Assert.EndsWith(" https://x/approvals/id?a=1", body.GetProperty("text").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Text_Sqlite_EscapesRequestId()
     {
-        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel/", "a/b?c%d");
+        var body = await BodyAsync("https://dash.example.com/ai-sentinel/", "a/b?c%d");
         Assert.EndsWith("approvals/a%2Fb%3Fc%25d", body.GetProperty("text").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Text_EntraPim_Unchanged()
     {
-        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel/", "req-1", link: false);
+        var body = await BodyAsync("https://dash.example.com/ai-sentinel/", "req-1", link: false);
         Assert.EndsWith(" https://dash.example.com/ai-sentinel/", body.GetProperty("text").GetString(), StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Payload_DashboardUrl_StaysConfiguredValue()
     {
-        var body = await SqliteBodyAsync("https://dash.example.com/ai-sentinel", "req-1");
+        var body = await BodyAsync("https://dash.example.com/ai-sentinel", "req-1");
         Assert.Equal("https://dash.example.com/ai-sentinel", body.GetProperty("dashboardUrl").GetString());
     }
 

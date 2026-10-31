@@ -462,13 +462,8 @@ public static class DashboardCommand
         address.AddressFamily == AddressFamily.InterNetworkV6 ? $"[{address.ToString().Split('%')[0]}]" : address.ToString();
 
     // Kestrel leaves an encoded slash in the route value, so the id is read from the raw target and escaped once.
-    private static IResult RedirectApprovalLink(HttpContext ctx)
-    {
-        var raw = ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()?.RawTarget ?? ctx.Request.Path.Value ?? "";
-        var end = raw.IndexOf('?', StringComparison.Ordinal);
-        var segment = (end >= 0 ? raw[..end] : raw).Split('/')[^1];
-        return Results.Redirect($"{PathPrefix}/approvals/{Uri.EscapeDataString(Uri.UnescapeDataString(segment))}");
-    }
+    private static IResult RedirectApprovalLink(HttpContext ctx) =>
+        Results.Redirect($"{PathPrefix}/approvals/{Uri.EscapeDataString(ApprovalRequestTarget.IdOf(ctx, trailingSegments: 0))}");
 
     private static WebApplication BuildApp(SqliteAuditStore store, DashboardSettings settings, DashboardApprovalPlan plan)
     {

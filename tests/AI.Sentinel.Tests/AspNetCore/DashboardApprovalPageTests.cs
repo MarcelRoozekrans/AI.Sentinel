@@ -22,6 +22,31 @@ public class DashboardApprovalPageTests
     private static ApprovalContext SecretCtx() =>
         new("delete_database", JsonDocument.Parse("{\"path\":\"/etc/x\",\"apiKey\":\"" + Secret + "\"}").RootElement, "<b>why</b>");
 
+    [Fact]
+    public async Task Page_SecretInJustification_IsRedacted()
+    {
+        var store = new InMemoryApprovalStore();
+        var ctx = new ApprovalContext("delete_database", default, "apiKey: " + Secret + " please");
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
+            new DashboardApprovalsTests.TestSec("alice"), DashboardApprovalsTests.MakeSpec(), ctx, TestContext.Current.CancellationToken);
+        using var host = await DashboardApprovalsTests.BuildHostAsync(store, "ops-bob");
+        var html = await (await GetAsync(host, "/sentinel/approvals/" + Uri.EscapeDataString(pending.RequestId)))
+            .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain(Secret, html, StringComparison.Ordinal);
+        Assert.Contains("Justification", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Page_ClearsAStaleErrorOnSuccessAndShowsTheConflictMessage()
+    {
+        var (store, pending) = await PendingAsync();
+        using var host = await DashboardApprovalsTests.BuildHostAsync(store, "ops-bob");
+        var html = await (await GetAsync(host, "/sentinel/approvals/" + Uri.EscapeDataString(pending.RequestId)))
+            .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("s.textContent = ''; this.parentElement.textContent = 'Approved.'", html, StringComparison.Ordinal);
+        Assert.Contains("xhr.status === 409 ? event.detail.xhr.responseText", html, StringComparison.Ordinal);
+    }
+
     private static async Task<(InMemoryApprovalStore Store, ApprovalState.Pending Pending)> PendingAsync()
     {
         var store = new InMemoryApprovalStore();
@@ -239,9 +264,42 @@ public class DashboardApprovalPageTests
         }
     }
 
+    [Fact]
+    public async Task SpecialCharacterId_OnRealKestrel_DenyWorks()
+    {
+        const string id = "a/b?c%d";
+        var store = new SettableIdStore(id);
+        var builder = WebApplication.CreateSlimBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddRouting();
+        AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(builder.Services);
+        builder.Services.AddSingleton<IApprovalStore>(store);
+        await using var app = builder.Build();
+        app.Use(async (ctx, next) =>
+        {
+            ctx.User = new System.Security.Claims.ClaimsPrincipal(new System.Security.Claims.ClaimsIdentity(
+                [new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.Name, "ops-bob")], "Test"));
+            await next(ctx);
+        });
+        app.MapAISentinel("/sentinel");
+        await app.StartAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            using var client = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };
+            var post = await client.PostAsync("/sentinel/api/approvals/" + Uri.EscapeDataString(id) + "/deny", new StringContent(""), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+            Assert.Equal(id, store.Denied);
+        }
+        finally
+        {
+            await app.StopAsync(TestContext.Current.CancellationToken);
+        }
+    }
+
     private sealed class SettableIdStore(string id) : IApprovalStore, IApprovalAdmin
     {
         public string? Approved { get; private set; }
+        public string? Denied { get; private set; }
         public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
             throw new NotSupportedException();
         public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
@@ -251,7 +309,11 @@ public class DashboardApprovalPageTests
             Approved = requestId;
             return ValueTask.CompletedTask;
         }
-        public ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct) => ValueTask.CompletedTask;
+        public ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
+        {
+            Denied = requestId;
+            return ValueTask.CompletedTask;
+        }
         public async IAsyncEnumerable<PendingRequest> ListPendingAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
         {
             await Task.Yield();

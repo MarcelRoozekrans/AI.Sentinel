@@ -44,7 +44,7 @@ public class DashboardApprovalsCommandTests : IDisposable
         var second = await http.PostAsync(new Uri(dashboard.Url, $"api/approvals/{id}/approve"), new StringContent(""), Ct);
 
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
-        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
         Assert.Equal(("Active", Environment.UserName), ReadRequest(id));
         var entries = await ReadAuditAsync(db);
         Assert.Single(entries, e => string.Equals(e.PolicyCode, "APPROVED", StringComparison.Ordinal));
@@ -294,6 +294,22 @@ public class DashboardApprovalsCommandTests : IDisposable
 
         Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
         Assert.EndsWith("/ai-sentinel/approvals/a%2Fb", resp.Headers.Location?.OriginalString, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("/approvals/abc/", "/ai-sentinel/approvals/abc")]
+    [InlineData("/approvals/a%2Fb?x=1", "/ai-sentinel/approvals/a%2Fb")]
+    public async Task RootApprovalLink_TrailingSlashAndQuery(string target, string expected)
+    {
+        var (db, config) = await SeedAsync("sqlite");
+        await using var dashboard = await StartAsync(db, config, new StringWriter(), new StringWriter(), s => s);
+        Assert.NotNull(dashboard);
+        using var http = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false });
+
+        var resp = await http.GetAsync(new Uri(dashboard.Url, target), Ct);
+
+        Assert.Equal(HttpStatusCode.Redirect, resp.StatusCode);
+        Assert.EndsWith(expected, resp.Headers.Location?.OriginalString, StringComparison.Ordinal);
     }
 
     [Fact]

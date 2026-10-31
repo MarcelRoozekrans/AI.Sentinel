@@ -58,13 +58,10 @@ internal sealed record ApprovalNotification(
 
     private static string RequestPageLink(Uri dashboard, string requestId)
     {
-        var baseUrl = dashboard.AbsoluteUri;
-        if (!baseUrl.EndsWith('/'))
-        {
-            baseUrl += "/";
-        }
-
-        return baseUrl + "approvals/" + Uri.EscapeDataString(requestId);
+        var builder = new UriBuilder(dashboard) { Fragment = "" };
+        var path = builder.Path.EndsWith('/') ? builder.Path : builder.Path + "/";
+        builder.Path = path + "approvals/" + Uri.EscapeDataString(requestId);
+        return builder.Uri.AbsoluteUri;
     }
 
     private static bool IsHttp(string url) =>
