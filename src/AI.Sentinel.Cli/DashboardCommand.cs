@@ -241,11 +241,18 @@ public static class DashboardCommand
         {
             // Brackets only wrap an IPv6 literal, with no port.
             return value[^1] == ']' && IPAddress.TryParse(value[1..^1], out var v6)
-                && v6.AddressFamily == AddressFamily.InterNetworkV6 && !value.Contains('%', StringComparison.Ordinal);
+                && v6.AddressFamily == AddressFamily.InterNetworkV6 && v6.ScopeId == 0;
         }
-        if (IPAddress.TryParse(value, out _))
+        if (IPAddress.TryParse(value, out var ip))
         {
-            return !value.Contains('%', StringComparison.Ordinal);
+            // Only an IPv6 address or a dotted quad that reads back exactly; 1, 127.1 and 0x7f.1 are not host names.
+            return ip.AddressFamily == AddressFamily.InterNetworkV6
+                ? ip.ScopeId == 0
+                : string.Equals(ip.ToString(), value, StringComparison.Ordinal);
+        }
+        if (value.Split('.')[^1].All(char.IsAsciiDigit))
+        {
+            return false; // an all-numeric last label is an IP form, never a DNS name
         }
         return value.Split('.').All(label =>
             label.Length is > 0 and <= 63 && !label.StartsWith('-') && !label.EndsWith('-')

@@ -153,6 +153,12 @@ public class DashboardOptionsTests : IDisposable
     [InlineData("[10.0.0.1]")]
     [InlineData("10.0.0.1:443")]
     [InlineData("[dash.example.com]")]
+    [InlineData("1")]
+    [InlineData("0x7f.1")]
+    [InlineData("127.1")]
+    [InlineData("1.2.3.4.5")]
+    [InlineData("fe80::1%1")]
+    [InlineData("[fe80::1%1]")]
     public async Task PublicHost_Invalid_IsRefused(string host) =>
         AssertRefused(await InvokeAsync("--trusted-proxy", "10.0.0.1", "--public-host", host), "--public-host must be");
 
