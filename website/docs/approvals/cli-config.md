@@ -244,7 +244,7 @@ Header names are case-insensitive. Two names that differ only in case fail the l
 
 `${VAR}` is expanded in all four values, as described under [Environment-variable interpolation](#environment-variable-interpolation). An unset variable becomes an empty string, and the load fails in two cases:
 
-- `notifyUrl` becomes empty, and the load fails with `notifyUrl must be an absolute http or https URL. Got: ''`.
+- `notifyUrl` becomes empty, and the load fails with `notifyUrl is empty`. The message never quotes the value, because the value of a webhook URL is a secret.
 - A header value is empty or only whitespace. `"Authorization": "${NTFY_TOKEN}"` with `NTFY_TOKEN` unset fails the load and names the header.
 
 A value that is only partly empty is not caught. `"Bearer ${NTFY_TOKEN}"` with the variable unset expands to `"Bearer "`, which the loader accepts and sends. The loader does not trim. If the receiver answers `401`, check that the variable is set in the process that runs the hook.
@@ -309,7 +309,7 @@ ntfy shows the raw JSON body as the message text. It does not read `text`. Use i
 
 ### When the POST fails
 
-The POST has a fixed 3 second timeout and is not retried. The response body is not read. A non-2xx status, a network error or the timeout is logged as a warning that names the endpoint and the request id, never the header values or the payload. A webhook failure never changes the approval or its outcome. Each CLI then behaves as described in [Per-CLI behavior on `RequireApproval`](#per-cli-behavior-on-requireapproval).
+The POST has a fixed 3 second timeout and is not retried. The response body is not read. A non-2xx status, a network error or the timeout is logged as a warning that names the endpoint's host, not the endpoint, and the request id. The path and query are left out because they often carry the secret, and so are the header values and the payload. Redirects are not followed: a 3xx counts as a failure. A webhook failure never changes the approval or its outcome. Each CLI then behaves as described in [Per-CLI behavior on `RequireApproval`](#per-cli-behavior-on-requireapproval).
 
 The POST is awaited, so it adds up to 3 seconds to the call that creates a request, in all three CLIs. The two hooks send it before they print the receipt.
 

@@ -1,6 +1,7 @@
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Notifications;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 namespace AI.Sentinel.Approvals.Configuration;
 
@@ -52,7 +53,13 @@ internal static class ApprovalBackendSelector
     /// Registers the <see cref="ApprovalNotifierSettings"/> when <paramref name="config"/> sets <c>notifyUrl</c>, so
     /// every resolved approval store posts a webhook for a new request. Does nothing otherwise, or when <paramref name="config"/> is null.
     /// </summary>
-    internal static void AddNotifier(IServiceCollection services, ApprovalConfig? config)
+    /// <param name="services">The service collection.</param>
+    /// <param name="config">The approval config, or <see langword="null"/> for none.</param>
+    /// <param name="warn">
+    /// Where the notifier's warnings go, such as a failed POST, or <see langword="null"/> for nowhere. The CLIs register
+    /// no logging stack, so without this a webhook failure would go unseen. Only the notifier's warnings reach it.
+    /// </param>
+    internal static void AddNotifier(IServiceCollection services, ApprovalConfig? config, Action<string>? warn = null)
     {
         ArgumentNullException.ThrowIfNull(services);
         if (config is null)
@@ -64,6 +71,10 @@ internal static class ApprovalBackendSelector
         if (settings is not null)
         {
             services.AddSingleton(settings);
+            if (warn is not null)
+            {
+                services.AddSingleton<ILogger<NotifyingApprovalStore>>(new WarningSinkLogger(warn));
+            }
         }
     }
 

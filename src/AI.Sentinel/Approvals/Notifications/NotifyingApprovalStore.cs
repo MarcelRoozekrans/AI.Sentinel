@@ -19,7 +19,12 @@ internal class NotifyingApprovalStore : IApprovalStore, IApprovalStoreDecorator
 
     // One handler for the process: a hook posts once and exits, a long-lived host posts rarely, and a handler per
     // notifier would leak sockets.
-    private static readonly SocketsHttpHandler SharedHandler = new() { PooledConnectionLifetime = TimeSpan.FromMinutes(5) };
+    private static readonly SocketsHttpHandler SharedHandler = new()
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        // A redirect would turn the POST into a GET and send the custom headers to another host; a 3xx is a failure.
+        AllowAutoRedirect = false,
+    };
 
     // One client over that handler too: Resolve wraps a plain store on every call, and a client each would never be disposed.
     private static readonly HttpClient SharedClient = NewClient(SharedHandler);
@@ -103,7 +108,7 @@ internal class NotifyingApprovalStore : IApprovalStore, IApprovalStoreDecorator
             {
                 _logger?.LogWarning(
                     "Approval webhook {Endpoint} answered {StatusCode} for request {RequestId}.",
-                    SafeHttp.Describe(_settings.Url), (int)response.StatusCode, pending.RequestId);
+                    SafeHttp.DescribeOrigin(_settings.Url), (int)response.StatusCode, pending.RequestId);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -117,7 +122,7 @@ internal class NotifyingApprovalStore : IApprovalStore, IApprovalStoreDecorator
             // Only the exception type: its message can carry the URL with its query string.
             _logger?.LogWarning(
                 "Approval webhook {Endpoint} failed for request {RequestId}: {Failure}.",
-                SafeHttp.Describe(_settings.Url), pending.RequestId,
+                SafeHttp.DescribeOrigin(_settings.Url), pending.RequestId,
                 ex is OperationCanceledException ? "timed out" : ex.GetType().Name);
         }
     }

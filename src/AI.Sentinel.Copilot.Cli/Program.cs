@@ -383,7 +383,9 @@ public static class Program
                 // carry an ApprovalSpec.
         }
 
-        ApprovalBackendSelector.AddNotifier(services, approvalConfig);
+        // No logging stack here, so the notifier's warnings, such as a failed POST, go to the same stderr sink.
+        ApprovalBackendSelector.AddNotifier(
+            services, approvalConfig, warning => detectorFailureSink?.Invoke($"[sentinel-copilot-hook] {warning}"));
 
         services.AddAISentinel(opts =>
         {

@@ -35,9 +35,12 @@ internal static class ApprovalStoreAuditing
         services.Any(d => d.ServiceType == typeof(IApprovalStore) && !d.IsKeyedService);
 
     /// <summary>
-    /// Returns the registered <see cref="IApprovalStore"/> wrapped by <see cref="AuditingApprovalStore"/> when an
-    /// <see cref="IAuditStore"/> is registered, the store itself when none is, and <see langword="null"/> when no store
-    /// is registered. A store registered through <see cref="ApprovalStoreServiceCollectionExtensions.AddSentinelApprovalStore{TStore}"/> is returned as DI hands it out,
+    /// Returns the registered <see cref="IApprovalStore"/> wrapped by <see cref="NotifyingApprovalStore"/> when
+    /// <see cref="ApprovalNotifierSettings"/> are registered, and then by <see cref="AuditingApprovalStore"/> when an
+    /// <see cref="IAuditStore"/> is registered. With neither it is the store itself, and <see langword="null"/> when no
+    /// store is registered. A <see cref="NotifyingApprovalStore"/> counts as already wrapped, like an
+    /// <see cref="AuditingApprovalStore"/>: when no audit store is registered, <see cref="Wrap"/> returns the notifier
+    /// as the outermost store, and wrapping it again would post every new request twice. A store registered through <see cref="ApprovalStoreServiceCollectionExtensions.AddSentinelApprovalStore{TStore}"/> is returned as DI hands it out,
     /// already wrapped; one registered straight as <see cref="IApprovalStore"/> is wrapped here. The wrapper implements
     /// <see cref="IApprovalAdmin"/> exactly when the store does.
     /// </summary>

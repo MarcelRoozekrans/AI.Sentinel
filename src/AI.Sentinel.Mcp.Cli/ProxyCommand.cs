@@ -111,6 +111,13 @@ internal static class ProxyCommand
     private static void ReportProblem(string problem, TextWriter stderr) =>
         stderr.WriteLine(FormatProblem(problem));
 
+    private static string FormatWarning(string warning) =>
+        StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["event"] = "approval_webhook",
+            ["detail"] = warning,
+        });
+
     private static string FormatProblem(string problem) =>
         StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -230,7 +237,7 @@ internal static class ProxyCommand
            or System.IO.IOException;
 
     /// <summary>Registers the backend store and, when <c>notifyUrl</c> is set, the webhook notifier that wraps it.</summary>
-    private static void RegisterApprovalBackend(IServiceCollection services, ApprovalConfig approvalConfig)
+    private static void RegisterApprovalBackend(IServiceCollection services, ApprovalConfig approvalConfig, TextWriter stderr)
     {
         var backendKind = ApprovalBackendSelector.GetBackend(approvalConfig);
         switch (backendKind)
@@ -245,7 +252,8 @@ internal static class ProxyCommand
                 // carry an ApprovalSpec.
         }
 
-        ApprovalBackendSelector.AddNotifier(services, approvalConfig);
+        ApprovalBackendSelector.AddNotifier(
+            services, approvalConfig, warning => stderr.WriteLine(FormatWarning(warning)));
     }
 
     /// <summary>
@@ -284,7 +292,7 @@ internal static class ProxyCommand
         // InMemoryApprovalStore — the Sqlite/EntraPim DI extensions throw on duplicate
         // registration, so they must be wired first.
         var services = new ServiceCollection();
-        RegisterApprovalBackend(services, approvalConfig);
+        RegisterApprovalBackend(services, approvalConfig, stderr);
 
         services.AddAISentinel(opts => ApprovalBackendSelector.Configure(opts, approvalConfig));
 

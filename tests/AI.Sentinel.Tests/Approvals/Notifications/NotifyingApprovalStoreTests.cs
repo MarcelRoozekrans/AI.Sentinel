@@ -150,6 +150,18 @@ public class NotifyingApprovalStoreTests
     }
 
     [Fact]
+    public async Task DashboardUrl_KeepsPercentEscapes()
+    {
+        var handler = new RecordingHandler();
+        var store = Notifier(new InMemoryApprovalStore(), handler, Settings(dashboard: new Uri("https://dash.example.com/my%20team/")));
+        await store.EnsureRequestAsync(Caller(), Spec(), Ctx(), TestContext.Current.CancellationToken);
+
+        var body = Body(handler);
+        Assert.Equal("https://dash.example.com/my%20team/", body.GetProperty("dashboardUrl").GetString());
+        Assert.EndsWith("https://dash.example.com/my%20team/", body.GetProperty("text").GetString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Text_LinksHttpApprovalUrlWhenNoDashboard()
     {
         var handler = new RecordingHandler();
@@ -240,7 +252,10 @@ public class NotifyingApprovalStoreTests
     {
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.Contains("https://hooks.example.com/services/abc", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("https://hooks.example.com", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("/services", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("abc", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("token", entry.Message, StringComparison.Ordinal);
         Assert.Contains("r1", entry.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("s3cret", entry.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("hdr-secret", entry.Message, StringComparison.Ordinal);
@@ -267,7 +282,8 @@ public class NotifyingApprovalStoreTests
         Assert.Equal(await inner.EnsureRequestAsync(Caller(), Spec(), Ctx(), TestContext.Current.CancellationToken), state);
         var entry = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Warning, entry.Level);
-        Assert.Contains("https://hooks.example.com/services/abc", entry.Message, StringComparison.Ordinal);
+        Assert.Contains("https://hooks.example.com", entry.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("/services", entry.Message, StringComparison.Ordinal);
         Assert.Contains("timed out", entry.Message, StringComparison.Ordinal);
     }
 

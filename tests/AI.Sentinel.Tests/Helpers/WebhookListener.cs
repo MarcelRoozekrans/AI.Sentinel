@@ -12,15 +12,33 @@ internal sealed class WebhookListener : IDisposable
     private readonly Task _loop;
     private readonly List<JsonDocument> _bodies = [];
 
-    public WebhookListener()
+    private readonly int _status;
+
+    /// <param name="status">The status every POST is answered with.</param>
+    public WebhookListener(int status = 200)
     {
-        var probe = new TcpListener(IPAddress.Loopback, 0);
-        probe.Start();
-        var port = ((IPEndPoint)probe.LocalEndpoint).Port;
-        probe.Stop();
-        Url = new Uri($"http://127.0.0.1:{port}/");
-        _listener.Prefixes.Add(Url.AbsoluteUri);
-        _listener.Start();
+        _status = status;
+        // A probed port can be taken between releasing it and binding the listener, so a failed bind retries.
+        for (var attempt = 1; ; attempt++)
+        {
+            var probe = new TcpListener(IPAddress.Loopback, 0);
+            probe.Start();
+            var port = ((IPEndPoint)probe.LocalEndpoint).Port;
+            probe.Stop();
+            var url = new Uri($"http://127.0.0.1:{port}/");
+            _listener.Prefixes.Clear();
+            _listener.Prefixes.Add(url.AbsoluteUri);
+            try
+            {
+                _listener.Start();
+                Url = url;
+                break;
+            }
+            catch (HttpListenerException) when (attempt < 5)
+            {
+            }
+        }
+
         _loop = Task.Run(LoopAsync);
     }
 
@@ -42,7 +60,7 @@ internal sealed class WebhookListener : IDisposable
                 using var reader = new StreamReader(ctx.Request.InputStream, Encoding.UTF8);
                 var body = await reader.ReadToEndAsync().ConfigureAwait(false);
                 lock (_bodies) { _bodies.Add(JsonDocument.Parse(body)); }
-                ctx.Response.StatusCode = 200;
+                ctx.Response.StatusCode = _status;
                 ctx.Response.Close();
             }
             catch (Exception ex) when (ex is HttpListenerException or ObjectDisposedException or InvalidOperationException)

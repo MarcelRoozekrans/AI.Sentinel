@@ -333,6 +333,39 @@ public class ApprovalConfigLoaderTests : IDisposable
     }
 
     [Theory]
+    [InlineData("notifyUrl", "hooks.example.com/services/T/B/s3cret", "is not an absolute URL")]
+    [InlineData("notifyUrl", "htps://hooks.example.com/services/T/B/s3cret", "has scheme 'htps'")]
+    [InlineData("notifyUrl", "ftp://hooks.example.com/services/T/B/s3cret", "has scheme 'ftp'")]
+    [InlineData("notifyUrl", "s3cret:token", "must use http or https")]
+    [InlineData("notifyUrl", "", "is empty")]
+    [InlineData("dashboardUrl", "dash.example.com/s3cret", "is not an absolute URL")]
+    public void Parse_InvalidUrl_NeverQuotesTheValue(string key, string value, string expected)
+    {
+        var json = string.Equals(key, "notifyUrl", StringComparison.Ordinal) ? $"\"notifyUrl\": \"{value}\"" : $"\"notifyUrl\": \"https://h.example.com/\", \"dashboardUrl\": \"{value}\"";
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify(json));
+        Assert.Contains(key, ex.Message, StringComparison.Ordinal);
+        Assert.Contains(expected, ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_NonStringUrl_DoesNotEchoTheValue()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify("\"notifyUrl\": { \"k\": \"s3cret\" }"));
+        Assert.Contains("notifyUrl", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_NotifyHeaderErrors_NameTheHeaderNotTheValue()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify(
+            "\"notifyUrl\": \"https://h.example.com/\", \"notifyHeaders\": { \"Bad Name\": \"s3cret\" }"));
+        Assert.Contains("Bad Name", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("relative")]
     [InlineData("/relative/path")]
     public void Parse_DashboardUrl_Invalid_Throws(string value)
@@ -413,7 +446,7 @@ public class ApprovalConfigLoaderTests : IDisposable
         // The expander turns an unset variable into an empty string, which the URL check then rejects.
         File.WriteAllText(_tempPath, "{ \"backend\": \"in-memory\", \"notifyUrl\": \"${UNSET_458_VAR}\" }");
         var ex = Assert.Throws<InvalidOperationException>(() => ApprovalConfigLoader.Load(_tempPath));
-        Assert.Contains("notifyUrl", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("notifyUrl is empty", ex.Message, StringComparison.Ordinal);
     }
 
     [Theory]

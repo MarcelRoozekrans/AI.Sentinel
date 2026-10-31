@@ -73,15 +73,24 @@ internal static class ApprovalConfigLoader
     private static Uri? ParseHttpUrl(JsonElement root, string key)
     {
         if (!root.TryGetProperty(key, out var el)) return null;
-        var text = el.ValueKind == JsonValueKind.String ? el.GetString() : null;
+        // A URL is a credential for a webhook (the path or query carries the secret) and ${VAR} has already been
+        // expanded, so no message below quotes the value.
+        if (el.ValueKind != JsonValueKind.String)
+            throw new InvalidOperationException($"{key} must be a string");
+        var text = el.GetString();
+        if (string.IsNullOrWhiteSpace(text))
+            throw new InvalidOperationException($"{key} is empty");
+        if (!Uri.TryCreate(text, UriKind.Absolute, out var uri))
+            throw new InvalidOperationException($"{key} is not an absolute URL");
         // On Unix "/x" parses as an absolute file:// URI, so the scheme check is what rejects it.
-        if (text is null
-            || !Uri.TryCreate(text, UriKind.Absolute, out var uri)
-            || (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal)
-                && !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)))
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal)
+            && !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal))
         {
-            throw new InvalidOperationException(
-                $"{key} must be an absolute http or https URL. Got: {(el.ValueKind == JsonValueKind.String ? $"'{text}'" : el.GetRawText())}");
+            // The scheme is shown only when the value really is scheme://..., never for a bare "a:b" that may be a token.
+            var shown = text.StartsWith(uri.Scheme + "://", StringComparison.OrdinalIgnoreCase)
+                ? $"has scheme '{uri.Scheme}'; only http and https are allowed"
+                : "must use http or https";
+            throw new InvalidOperationException($"{key} {shown}");
         }
         return uri;
     }
@@ -90,7 +99,7 @@ internal static class ApprovalConfigLoader
     {
         if (!root.TryGetProperty("notifyIncludeArgs", out var el)) return false;
         if (el.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-            throw new InvalidOperationException($"notifyIncludeArgs must be true or false. Got: {el.GetRawText()}");
+            throw new InvalidOperationException($"notifyIncludeArgs must be true or false");
         return el.GetBoolean();
     }
 

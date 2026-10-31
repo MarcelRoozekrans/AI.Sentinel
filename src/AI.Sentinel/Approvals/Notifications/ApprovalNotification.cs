@@ -34,7 +34,7 @@ internal sealed record ApprovalNotification(
     internal static ApprovalNotification Create(
         ApprovalState.Pending pending, string callerId, string policy, ApprovalContext context, ApprovalNotifierSettings settings)
     {
-        var link = settings.DashboardUrl?.ToString() ?? (IsHttp(pending.ApprovalUrl) ? pending.ApprovalUrl : null);
+        var link = settings.DashboardUrl?.AbsoluteUri ?? (IsHttp(pending.ApprovalUrl) ? pending.ApprovalUrl : null);
         var text = $"Approval needed: {context.ToolName} for {callerId} ({policy}).";
         if (link is not null)
         {
@@ -51,7 +51,7 @@ internal sealed record ApprovalNotification(
 
         return new ApprovalNotification(
             text, pending.RequestId, context.ToolName, callerId, policy, pending.RequestedAt,
-            pending.ApprovalUrl, settings.DashboardUrl?.ToString(), args);
+            pending.ApprovalUrl, settings.DashboardUrl?.AbsoluteUri, args);
     }
 
     private static bool IsHttp(string url) =>

@@ -195,6 +195,47 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
     }
 
     [Fact]
+    public async Task ApprovalConfig_WithNotifyUrl_WebhookFailure_WritesOneCleanStderrLine()
+    {
+        using var hook = new WebhookListener(status: 500);
+        var dir = HookAuditTestSupport.NewTempDir();
+        var previous = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
+        try
+        {
+            var db = Path.Combine(dir, "approvals.db");
+            var config = Path.Combine(dir, "approvals.json");
+            var secretUrl = new Uri(hook.Url, "services/T/B/s3cret?token=q");
+            await File.WriteAllTextAsync(config, $$"""
+                { "backend": "sqlite", "databasePath": {{JsonSerializer.Serialize(db)}}, "notifyUrl": "{{secretUrl}}",
+                  "notifyHeaders": { "Authorization": "Bearer hdr-secret" },
+                  "tools": { "bash": { "role": "Ops" } } }
+                """, TestContext.Current.CancellationToken);
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", config);
+            var stdin = new StringReader("""{"sessionId":"s","toolName":"bash","toolArgs":{"command":"ls"}}""");
+            var stderr = new StringWriter();
+
+            await Program.RunAsync(["pre-tool-use"], stdin, new StringWriter(), stderr);
+
+            Assert.Single(hook.Bodies);
+            var line = Assert.Single(
+                stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries),
+                l => l.Contains("webhook", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains("500", line, StringComparison.Ordinal);
+            Assert.Contains(hook.Url.Authority, line, StringComparison.Ordinal);
+            Assert.DoesNotContain("s3cret", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("services", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("token", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("hdr-secret", line, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", previous);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            HookAuditTestSupport.DeleteDir(dir);
+        }
+    }
+
+    [Fact]
     public async Task BuildProvider_SqliteBackend_RegistersSqliteApprovalStore()
     {
         // Stage 5 Task 5.6 bundled the Sqlite backend into the Copilot CLI. Mirror of the
