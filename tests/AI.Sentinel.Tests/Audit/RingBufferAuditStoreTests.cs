@@ -185,4 +185,53 @@ public class RingBufferAuditStoreTests
         Assert.Empty(await Ids(new AuditQuery { PolicyCode = "approved" }));
         Assert.Equal(4, (await Ids(new AuditQuery())).Length);
     }
+
+    private static async Task<string[]> QueryIds(RingBufferAuditStore store, AuditQuery query)
+    {
+        var ids = new List<string>();
+        await foreach (var e in store.QueryAsync(query, CancellationToken.None)) ids.Add(e.Id);
+        return [.. ids];
+    }
+
+    private static async Task<RingBufferAuditStore> FilledStoreAsync()
+    {
+        var store = new RingBufferAuditStore(1_000);
+        for (int i = 1; i <= 1_000; i++)
+            await store.AppendAsync(new AuditEntry(i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                DateTimeOffset.UtcNow, $"h{i}", null, Severity.None, "OPS-01", "m")
+                { SessionId = i % 100 == 0 ? "s" : "other" }, CancellationToken.None);
+        return store;
+    }
+
+    [Fact]
+    public async Task Query_SessionFilterOnFullBuffer_ReturnsNewestMatchesOnly()
+    {
+        var store = await FilledStoreAsync();
+
+        var ids = await QueryIds(store, new AuditQuery { SessionId = "s", Reverse = true, PageSize = 3 });
+
+        Assert.Equal(["1000", "900", "800"], ids);
+    }
+
+    [Fact]
+    public async Task Query_ForwardWithPageSize_ReturnsOldestMatches()
+    {
+        var store = await FilledStoreAsync();
+
+        var ids = await QueryIds(store, new AuditQuery { SessionId = "s", PageSize = 3 });
+
+        Assert.Equal(["100", "200", "300"], ids);
+    }
+
+    [Fact]
+    public async Task Query_WrappedBuffer_KeepsOrder()
+    {
+        var store = new RingBufferAuditStore(capacity: 5);
+        for (int i = 1; i <= 8; i++)
+            await store.AppendAsync(new AuditEntry(i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                DateTimeOffset.UtcNow, $"h{i}", null, Severity.None, "OPS-01", "m"), CancellationToken.None);
+
+        Assert.Equal(["4", "5", "6", "7", "8"], await QueryIds(store, new AuditQuery()));
+        Assert.Equal(["8", "7", "6", "5", "4"], await QueryIds(store, new AuditQuery { Reverse = true }));
+    }
 }
