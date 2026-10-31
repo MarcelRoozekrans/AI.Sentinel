@@ -522,12 +522,51 @@ internal static class DashboardHandlers
     }
 
     /// <summary>
+    /// True when a browser marked the request as cross-site. Cookie-based forward auth sends the
+    /// session cookie on a cross-site POST, so authentication alone does not prove intent.
+    /// Sec-Fetch-Site decides when present; otherwise Origin must match the request origin.
+    /// Requests with neither header (scripts, curl) are not browser-driven and pass.
+    /// </summary>
+    private static bool IsCrossSite(HttpRequest request)
+    {
+        if (request.Headers.TryGetValue("Sec-Fetch-Site", out var site) && site.Count > 0)
+        {
+            var value = site.ToString();
+            return !string.Equals(value, "same-origin", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(value, "none", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (request.Headers.TryGetValue("Origin", out var origin) && origin.Count > 0)
+        {
+            if (!Uri.TryCreate(origin.ToString(), UriKind.Absolute, out var originUri))
+            {
+                return true;   // includes the literal "null"
+            }
+
+            var host = request.Host;
+            var expectedPort = host.Port ?? (string.Equals(request.Scheme, "https", StringComparison.OrdinalIgnoreCase) ? 443 : 80);
+            return !string.Equals(originUri.Scheme, request.Scheme, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(originUri.Host, host.Host, StringComparison.OrdinalIgnoreCase)
+                || originUri.Port != expectedPort;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// POST /api/approvals/{id}/approve — flips a Pending request to Active. 200 + empty
     /// row HTML on success (so HTMX swaps the row out). 404 if the store doesn't expose
     /// IApprovalAdmin (e.g., EntraPim — should never receive POSTs in that mode).
     /// </summary>
     public static async Task ApproveAsync(HttpContext ctx)
     {
+        if (IsCrossSite(ctx.Request))
+        {
+            ctx.Response.StatusCode = 403;
+            await ctx.Response.WriteAsync("Cross-site approval requests are refused.").ConfigureAwait(false);
+            return;
+        }
+
         // Fail closed: a misconfigured deployment that forgot to wrap the dashboard with auth
         // would otherwise silently record "anonymous" as the approver in the audit log forever.
         // Force a 401 so the operator notices and wires real authentication.
@@ -568,6 +607,13 @@ internal static class DashboardHandlers
     /// </summary>
     public static async Task DenyAsync(HttpContext ctx)
     {
+        if (IsCrossSite(ctx.Request))
+        {
+            ctx.Response.StatusCode = 403;
+            await ctx.Response.WriteAsync("Cross-site approval requests are refused.").ConfigureAwait(false);
+            return;
+        }
+
         // Fail closed: see ApproveAsync for rationale.
         if (ctx.User?.Identity?.IsAuthenticated != true)
         {

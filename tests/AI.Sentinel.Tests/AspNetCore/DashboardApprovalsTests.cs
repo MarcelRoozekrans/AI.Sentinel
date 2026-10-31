@@ -147,6 +147,110 @@ public class DashboardApprovalsTests
         Assert.IsType<ApprovalState.Pending>(state);
     }
 
+    [Fact]
+    public async Task Approve_CrossSiteFetchMetadata_Returns403AndLeavesPending()
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/approve", ("Sec-Fetch-Site", "cross-site"));
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Equal("Cross-site approval requests are refused.", await resp.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(1, await PendingCountAsync(store));
+    }
+
+    [Fact]
+    public async Task Approve_SameSiteFetchMetadata_Returns403()
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/approve", ("Sec-Fetch-Site", "same-site"));
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Deny_MismatchedOrigin_Returns403()
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/deny", ("Origin", "https://evil.example"));
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+        Assert.Equal(1, await PendingCountAsync(store));
+    }
+
+    [Fact]
+    public async Task Approve_NullOrigin_Returns403()
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/approve", ("Origin", "null"));
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("Sec-Fetch-Site", "same-origin")]
+    [InlineData("Sec-Fetch-Site", "none")]
+    [InlineData("Origin", "http://localhost")]
+    [InlineData("Origin", "http://localhost:80")]
+    [InlineData("", "")]
+    public async Task Approve_SameOriginOrNoBrowserHeaders_Succeeds(string header, string value)
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var resp = header.Length == 0
+            ? await PostAsync(host, $"/sentinel/api/approvals/{id}/approve")
+            : await PostAsync(host, $"/sentinel/api/approvals/{id}/approve", (header, value));
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Equal(0, await PendingCountAsync(store));
+    }
+
+    [Fact]
+    public async Task Approve_CrossSite_ViaUseAISentinel_Returns403()
+    {
+        // BuildHostAsync mounts the dashboard with UseAISentinel and a branch hook; this pins that path.
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/approve", ("Sec-Fetch-Site", "cross-site"));
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Approve_CrossSite_Anonymous_Returns403NotUnauthorized()
+    {
+        var (store, id) = await PendingAsync();
+        using var host = await BuildHostAsync(store);
+        var resp = await PostAsync(host, $"/sentinel/api/approvals/{id}/approve", ("Sec-Fetch-Site", "cross-site"));
+        Assert.Equal(HttpStatusCode.Forbidden, resp.StatusCode);
+    }
+
+    private static async Task<(InMemoryApprovalStore Store, string Id)> PendingAsync()
+    {
+        var store = new InMemoryApprovalStore();
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
+            new TestSec("alice"), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        return (store, pending.RequestId);
+    }
+
+    private static async Task<int> PendingCountAsync(InMemoryApprovalStore store)
+    {
+        var count = 0;
+        await foreach (var _ in store.ListPendingAsync(TestContext.Current.CancellationToken))
+        {
+            count++;
+        }
+        return count;
+    }
+
+    private static async Task<HttpResponseMessage> PostAsync(IHost host, string path, params (string Name, string Value)[] headers)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = new StringContent("") };
+        foreach (var (name, value) in headers)
+        {
+            req.Headers.TryAddWithoutValidation(name, value);
+        }
+        return await host.GetTestClient().SendAsync(req, TestContext.Current.CancellationToken);
+    }
+
     /// <summary>
     /// Builds a test host. When <paramref name="authenticatedAs"/> is non-null, an
     /// auth-injection middleware is wired via the UseAISentinel branch hook so that
