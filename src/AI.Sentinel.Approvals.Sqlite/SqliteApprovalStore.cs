@@ -91,7 +91,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
             var now = _time.GetUtcNow();
             await InsertPendingAsync(tx, requestId, caller, spec, context, now, ct).ConfigureAwait(false);
             tx.Commit();
-            return new ApprovalState.Pending(requestId, $"sentinel://approve/{requestId}", now);
+            return new ApprovalState.Pending(requestId, $"sentinel://approve/{requestId}", now) { IsNew = true };
         }
         finally
         {

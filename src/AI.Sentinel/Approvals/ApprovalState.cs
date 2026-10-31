@@ -20,7 +20,15 @@ public abstract record ApprovalState
     }
 
     /// <summary>An approval is pending. The caller should wait or fail-with-receipt.</summary>
-    public sealed record Pending(string RequestId, string ApprovalUrl, DateTimeOffset RequestedAt) : ApprovalState;
+    public sealed record Pending(string RequestId, string ApprovalUrl, DateTimeOffset RequestedAt) : ApprovalState
+    {
+        /// <summary>
+        /// <see langword="true"/> only on the <see cref="IApprovalStore.EnsureRequestAsync"/> call that created this
+        /// request. <see cref="IApprovalStore.WaitForDecisionAsync"/> and every reuse of an existing request return
+        /// <see langword="false"/>. A store that does not set it gets no approval notifications.
+        /// </summary>
+        public bool IsNew { get; init; }
+    }
 
     /// <summary>The approval was denied or has expired.</summary>
     public sealed record Denied(string Reason, DateTimeOffset DeniedAt) : ApprovalState

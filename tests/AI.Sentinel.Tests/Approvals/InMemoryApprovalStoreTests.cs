@@ -164,6 +164,49 @@ public class InMemoryApprovalStoreTests
         Assert.Equal("req-missing", unknown.RequestId);
     }
 
+    [Fact]
+    public async Task EnsureRequest_NewRequest_IsNew()
+    {
+        var store = new InMemoryApprovalStore();
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        Assert.True(Assert.IsType<ApprovalState.Pending>(state).IsNew);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_Reuse_IsNotNew()
+    {
+        var store = new InMemoryApprovalStore();
+        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        var second = Assert.IsType<ApprovalState.Pending>(
+            await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken));
+        Assert.Equal(first.RequestId, second.RequestId, StringComparer.Ordinal);
+        Assert.False(second.IsNew);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_AfterDenial_IsNewAgain()
+    {
+        var store = new InMemoryApprovalStore();
+        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.DenyAsync(first.RequestId, "approver", "no", TestContext.Current.CancellationToken);
+        Assert.IsType<ApprovalState.Denied>(
+            await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken));
+        var fresh = Assert.IsType<ApprovalState.Pending>(
+            await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken));
+        Assert.NotEqual(first.RequestId, fresh.RequestId, StringComparer.Ordinal);
+        Assert.True(fresh.IsNew);
+    }
+
+    [Fact]
+    public async Task WaitForDecision_Pending_IsNotNew()
+    {
+        var store = new InMemoryApprovalStore();
+        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        var waited = Assert.IsType<ApprovalState.Pending>(
+            await store.WaitForDecisionAsync(first.RequestId, TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken));
+        Assert.False(waited.IsNew);
+    }
+
     private sealed class ManualTime(DateTimeOffset start) : TimeProvider
     {
         public DateTimeOffset Now { get; set; } = start;
