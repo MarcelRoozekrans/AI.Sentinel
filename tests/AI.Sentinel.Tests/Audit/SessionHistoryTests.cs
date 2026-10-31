@@ -15,11 +15,14 @@ public class SessionHistoryTests
 
     private sealed class FakeStore(IReadOnlyList<AuditEntry> entries) : IAuditStore
     {
+        public AuditQuery? LastQuery { get; private set; }
+
         public ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct) => new(entry);
 
         public async IAsyncEnumerable<AuditEntry> QueryAsync(AuditQuery query,
             [EnumeratorCancellation] CancellationToken ct)
         {
+            LastQuery = query;
             foreach (var e in entries) yield return e;
             await Task.CompletedTask;
         }
@@ -135,5 +138,67 @@ public class SessionHistoryTests
 
         Assert.Equal(0, count);
         Assert.Contains("sess-42", Assert.Single(messages));
+    }
+
+    [Fact]
+    public async Task ReadAsync_StoreReturnsNewestFirstOrShuffled_ReturnsOldestFirst()
+    {
+        var a = Entry("s", Now.AddMinutes(-5));
+        var b = Entry("s", Now.AddMinutes(-3));
+        var c = Entry("s", Now.AddMinutes(-1));
+
+        var result = await SessionHistory.ReadAsync(new FakeStore([b, c, a]), "s", Now, null, CancellationToken.None);
+
+        Assert.Equal([a.Id, b.Id, c.Id], result.Select(e => e.Id), StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task ReadAsync_EqualTimestamps_OrderIsDeterministic()
+    {
+        var at = Now.AddMinutes(-1);
+        var first = Entry("s", at);
+        var second = Entry("s", at);
+        var third = Entry("s", at);
+
+        var result = await SessionHistory.ReadAsync(new FakeStore([first, second, third]), "s", Now, null, CancellationToken.None);
+
+        // Ties keep the store's order, which the final reversal flips.
+        Assert.Equal([third.Id, second.Id, first.Id], result.Select(e => e.Id), StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task CountEarlierHits_QueryAsksForHitsOnly()
+    {
+        var store = new FakeStore([]);
+        await SessionHistory.CountEarlierHitsAsync(store, "s", "OPS-13", Now, null, CancellationToken.None);
+
+        Assert.NotNull(store.LastQuery);
+        Assert.Equal(Severity.Low, store.LastQuery.MinSeverity);
+        Assert.Equal("OPS-13", store.LastQuery.DetectorId);
+        Assert.Equal("s", store.LastQuery.SessionId);
+    }
+
+    [Fact]
+    public async Task CountEarlierHits_StoreIgnoresFilters_RechecksAgeAndDetector()
+    {
+        var store = new FakeStore([
+            Entry("s", Now.AddHours(-25), "OPS-13"),
+            Entry("s", Now.AddMinutes(-1), "SEC-01"),
+            Entry("s", Now.AddMinutes(-2), "OPS-13"),
+        ]);
+
+        var count = await SessionHistory.CountEarlierHitsAsync(store, "s", "OPS-13", Now, null, CancellationToken.None);
+
+        Assert.Equal(1, count);
+    }
+
+    [Fact]
+    public async Task CountEarlierHits_CancelledToken_Throws()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+            await SessionHistory.CountEarlierHitsAsync(new ThrowingStore(new InvalidOperationException()), "s", "OPS-13", Now, null, cts.Token));
     }
 }

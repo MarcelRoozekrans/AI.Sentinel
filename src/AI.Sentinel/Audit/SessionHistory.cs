@@ -34,11 +34,11 @@ internal static class SessionHistory
                     matches.Add(entry);
             }
 
-            // The store may ignore Reverse, so order and trim here.
-            matches.Sort(static (a, b) => b.Timestamp.CompareTo(a.Timestamp));
-            if (matches.Count > MaxEntries) matches.RemoveRange(MaxEntries, matches.Count - MaxEntries);
-            matches.Reverse();
-            return matches;
+            // The store may ignore Reverse, so order and trim here. OrderByDescending is stable: entries with
+            // equal timestamps keep the order the store returned them in, then the final reversal flips it.
+            var newest = matches.OrderByDescending(static e => e.Timestamp).Take(MaxEntries).ToList();
+            newest.Reverse();
+            return newest;
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
@@ -61,17 +61,19 @@ internal static class SessionHistory
         {
             var query = new AuditQuery
             {
-                SessionId = sessionId, DetectorId = detectorId, Reverse = true, PageSize = EscalationThreshold, From = from,
+                SessionId = sessionId, DetectorId = detectorId, MinSeverity = Detection.Severity.Low, Reverse = true, PageSize = EscalationThreshold, From = from,
             };
             var count = 0;
             await foreach (var entry in store.QueryAsync(query, ct).WithCancellation(ct).ConfigureAwait(false))
             {
-                if (string.Equals(entry.SessionId, sessionId, StringComparison.Ordinal)
-                    && string.Equals(entry.DetectorId, detectorId, StringComparison.Ordinal)
-                    && entry.Timestamp >= from
-                    && entry.Severity > Detection.Severity.None
-                    && ++count >= EscalationThreshold)
-                    break;
+                if (!string.Equals(entry.SessionId, sessionId, StringComparison.Ordinal)
+                    || !string.Equals(entry.DetectorId, detectorId, StringComparison.Ordinal)
+                    || entry.Timestamp < from
+                    || entry.Severity <= Detection.Severity.None)
+                    continue;
+
+                count++;
+                if (count >= EscalationThreshold) break;
             }
             return count;
         }
