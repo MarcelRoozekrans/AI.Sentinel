@@ -9,8 +9,8 @@ name: Native CLI
 # The Linux packages are linked inside a container (eng/pack-native-linux.sh): AlmaLinux 8 for
 # glibc, so the binaries need glibc 2.28 at most, and the Alpine .NET SDK image for musl.
 #
-# Permissions are inherited from the caller: the release grants id-token and attestations
-# write for the provenance attestation, the PR check does not and passes attest: false.
+# Permissions are inherited from the caller: the release grants id-token, attestations and
+# artifact-metadata write for the provenance attestation, the PR check does not and passes attest: false.
 
 on:
   workflow_call:
