@@ -241,7 +241,7 @@ jobs:
           $managed = Get-ChildItem tool-path/.store -Recurse -File -Filter 'AI.Sentinel.*.Cli.dll'
           if ($managed) { $managed | ForEach-Object FullName; throw "dotnet tool install picked the framework-dependent any package" }
           foreach ($cli in $clis) {
-            ./eng/smoke-native.ps1 -Binary "tool-path/$($cli.Command)" -Kind $cli.Kind
+            sh eng/smoke-native.sh "tool-path/$($cli.Command)" $cli.Kind
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }
 
@@ -259,6 +259,6 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Install of the any package failed for $($cli.Id)" }
             $managed = Get-ChildItem tool-path-any/.store -Recurse -File -Filter "$($cli.Id).dll"
             if (-not $managed) { throw "dotnet tool install did not pick the any package for $($cli.Id)" }
-            ./eng/smoke-native.ps1 -Binary "tool-path-any/$($cli.Command)" -Kind $cli.Kind
+            sh eng/smoke-native.sh "tool-path-any/$($cli.Command)" $cli.Kind
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }

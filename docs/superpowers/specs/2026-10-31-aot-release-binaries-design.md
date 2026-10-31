@@ -71,11 +71,11 @@ For each of the three CLI projects:
 
 ### Shared smoke script
 
-The smoke test in `aot-publish.yml` moves to `eng/smoke-native.ps1`, taking the binary path as an argument. PowerShell 7 is on every GitHub-hosted runner, so one script serves Linux, macOS and Windows. Its checks stay as today: MCP exits 1 with Usage; hooks exit 0 on a benign prompt and create the SQLite audit file, exit 2 on a blocking prompt, and write an NDJSON entry with SEC-01. On Linux/macOS the binary has no `.exe`; the script takes the path, not a glob.
+The smoke test in `aot-publish.yml` moves to `eng/smoke-native.sh`, taking the binary path and kind as arguments. It is POSIX sh, so one script serves Linux, macOS, Alpine busybox and Git Bash on Windows; PowerShell was the first choice, but it ships no musl-arm64 build (first CI run). Its checks stay as today: MCP exits 1 with Usage; hooks exit 0 on a benign prompt and create the SQLite audit file, exit 2 on a blocking prompt, and write an NDJSON entry with SEC-01. On Linux/macOS the binary has no `.exe`; the script takes the path, not a glob.
 
 ### PR check — `aot-publish.yml`
 
-- Matrix: 3 projects × 4 RIDs, runners `ubuntu-latest` (linux-x64), `ubuntu-24.04-arm` (linux-arm64), `macos-latest` (osx-arm64), `windows-latest` (win-x64). Each leg runs `dotnet publish -r <rid> -p:PublishAot=true`, the size check and `eng/smoke-native.ps1`.
+- Matrix: 3 projects × 4 RIDs, runners `ubuntu-latest` (linux-x64), `ubuntu-24.04-arm` (linux-arm64), `macos-latest` (osx-arm64), `windows-latest` (win-x64). Each leg runs `dotnet publish -r <rid> -p:PublishAot=true`, the size check and `eng/smoke-native.sh`.
 - The MCP nested-JSON round-trip stays a PR-check step on the win-x64 MCP leg, as today. It is not part of the release gate: the release runs the same code that passed it on the PR. (My call.)
 - Smoke and MCP detection key on the command name or an explicit matrix field, not on a `*Mcp*` file glob.
 - One extra job, `tool-install` on `ubuntu-latest`: packs the pointer, the `any` package and `linux-x64` for one CLI into a local folder with a throwaway version, then `dotnet tool install --tool-path <tmp> --add-source <folder>` and checks that the installed command is the native binary and runs the smoke script against it. This proves the pointer resolves before any release depends on it.
@@ -87,7 +87,7 @@ The single `publish` job becomes three jobs:
 
 1. **`native`** (needs `release-please`, runs only when a release was created). Matrix 3 CLIs × 4 RIDs, same runners as the PR check. Each leg:
    - `dotnet pack <cli> -c Release -r <rid> -p:PackageVersion=<v>`, producing the RID package.
-   - Extract the native binary from that `.nupkg` and run `eng/smoke-native.ps1` on it. The archive is built from the same extracted binary, so NuGet and the GitHub release ship identical, smoke-tested bits. There is no separate `dotnet publish` in the release. (Builder check; my call.)
+   - Extract the native binary from that `.nupkg` and run `eng/smoke-native.sh` on it. The archive is built from the same extracted binary, so NuGet and the GitHub release ship identical, smoke-tested bits. There is no separate `dotnet publish` in the release. (Builder check; my call.)
    - Archive the binary, renamed to its command name (`sentinel-hook`, `sentinel-copilot-hook`, `sentinel-mcp`, plus `.exe` on Windows), as `<command>-<version>-<rid>.tar.gz` for Linux/macOS or `.zip` for Windows. The AOT output is named after the assembly, so the rename happens in the archive step; `AssemblyName` stays. The archive holds the binary only, no `.pdb` or `.dbg`. (My call.)
    - `actions/attest-build-provenance` on the archive. The job needs `id-token: write` and `attestations: write`.
    - Upload the RID package and the archive as workflow artifacts.
@@ -110,5 +110,5 @@ If any `native` leg fails, nothing is pushed. The release tag and notes already 
 
 - Where the RID list lives (props file or the three csproj files).
 - How the CLI test files are excluded on net8.0.
-- Script details of `eng/smoke-native.ps1` and the archive step per OS.
+- Script details of `eng/smoke-native.sh` and the archive step per OS.
 - How `tool-install` tells the native binary from the framework-dependent one, for example by checking that the installed tool folder holds no `.dll` for the CLI's own assembly.

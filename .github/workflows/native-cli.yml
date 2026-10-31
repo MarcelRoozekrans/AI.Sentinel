@@ -122,27 +122,22 @@ jobs:
             exit 1
           fi
 
+      # bash is Git Bash on Windows; the script is POSIX sh.
       - name: Smoke test
         if: matrix.target.libc != 'musl'
-        shell: pwsh
-        run: ./eng/smoke-native.ps1 -Binary '${{ steps.extract.outputs.binary }}' -Kind ${{ matrix.cli.kind }}
+        shell: bash
+        env:
+          BINARY: ${{ steps.extract.outputs.binary }}
+        run: sh eng/smoke-native.sh "$BINARY" ${{ matrix.cli.kind }}
 
-      # A musl binary cannot start on the glibc runner. The x64 Alpine SDK image includes PowerShell,
-      # the arm64 one does not: PowerShell ships no musl-arm64 build, so install its .NET global tool.
+      # A musl binary cannot start on the glibc runner.
       - name: Smoke test in a musl container
         if: matrix.target.libc == 'musl'
         env:
           BINARY: ${{ steps.extract.outputs.binary }}
-          KIND: ${{ matrix.cli.kind }}
         run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src -e BINARY -e KIND "$MUSL_IMAGE" sh -c '
-            set -e
-            if ! command -v pwsh >/dev/null 2>&1; then
-              # From /tmp, so the repository global.json does not pin the SDK for this install.
-              (cd /tmp && dotnet tool install --tool-path /opt/pwsh PowerShell --version 7.6.9 >/dev/null)
-              export PATH="/opt/pwsh:$PATH"
-            fi
-            pwsh -NoProfile -File eng/smoke-native.ps1 -Binary "$BINARY" -Kind "$KIND"'
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src "$MUSL_IMAGE" \
+            sh eng/smoke-native.sh "$BINARY" ${{ matrix.cli.kind }}
 
       - name: Archive
         id: archive
