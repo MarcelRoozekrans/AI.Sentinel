@@ -237,10 +237,15 @@ public static class DashboardCommand
         {
             return false;
         }
-        var bare = value.Length > 2 && value[0] == '[' && value[^1] == ']' ? value[1..^1] : value;
-        if (IPAddress.TryParse(bare, out _))
+        if (value[0] == '[')
         {
-            return !bare.Contains('%', StringComparison.Ordinal);
+            // Brackets only wrap an IPv6 literal, with no port.
+            return value[^1] == ']' && IPAddress.TryParse(value[1..^1], out var v6)
+                && v6.AddressFamily == AddressFamily.InterNetworkV6 && !value.Contains('%', StringComparison.Ordinal);
+        }
+        if (IPAddress.TryParse(value, out _))
+        {
+            return !value.Contains('%', StringComparison.Ordinal);
         }
         return value.Split('.').All(label =>
             label.Length is > 0 and <= 63 && !label.StartsWith('-') && !label.EndsWith('-')

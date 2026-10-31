@@ -293,6 +293,24 @@ public class ApproverIdentityMiddlewareTests
         var (status, body) = await GetAsync(Settings(["127.0.0.1/32"]), "127.0.0.1", HostAndUser("attacker.example:5170"));
         Assert.Equal(HttpStatusCode.Forbidden, status);
         Assert.Equal(ProxyHostMessage, body);
+        Assert.DoesNotContain("alice", body, StringComparison.Ordinal);
+        Assert.DoesNotContain("True|", body, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task WildcardBind_ProxyPeer_DoesNotAcceptTheWildcardLiteral()
+    {
+        var (status, _) = await GetAsync(Settings(["10.0.0.0/24"], bind: "0.0.0.0"), "10.0.0.5", HostAndUser("0.0.0.0:5170"));
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+    }
+
+    [Fact]
+    public async Task NonProxyPeer_SendingTheBindLiteralAsHost_Is403()
+    {
+        var (status, body) = await GetAsync(
+            Settings(["10.0.0.0/24"], bind: "192.0.2.10"), "127.0.0.1", r => r.Host = new HostString("192.0.2.10:5170"));
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("This dashboard only accepts requests addressed to localhost.", body);
     }
 
     [Fact]

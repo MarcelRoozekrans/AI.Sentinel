@@ -131,6 +131,10 @@ public class DashboardOptionsTests : IDisposable
     }
 
     [Fact]
+    public void PublicHost_BareIPv6_IsStoredInBrackets() =>
+        Assert.Equal("[2001:db8::1]", Assert.Single(Read(null, "--trusted-proxy", "10.0.0.1", "--public-host", "2001:db8::1").PublicHosts));
+
+    [Fact]
     public void PublicHost_IsRepeatable() =>
         Assert.Equal(2, Read(null, "--trusted-proxy", "10.0.0.1", "--public-host", "a.example", "--public-host", "b.example").PublicHosts.Count);
 
@@ -145,6 +149,10 @@ public class DashboardOptionsTests : IDisposable
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("a b")]
+    [InlineData("[2001:db8::1]:443")]
+    [InlineData("[10.0.0.1]")]
+    [InlineData("10.0.0.1:443")]
+    [InlineData("[dash.example.com]")]
     public async Task PublicHost_Invalid_IsRefused(string host) =>
         AssertRefused(await InvokeAsync("--trusted-proxy", "10.0.0.1", "--public-host", host), "--public-host must be");
 
