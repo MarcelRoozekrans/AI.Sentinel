@@ -247,16 +247,18 @@ jobs:
 
       - name: Install the any fallback and smoke-test it
         shell: pwsh
-        env:
-          # A RID with no package of its own resolves to the framework-dependent any package.
-          DOTNET_RUNTIME_ID: osx-x64
         run: |
           foreach ($cli in @(
               @{ Id = 'AI.Sentinel.ClaudeCode.Cli'; Command = 'sentinel-hook'; Kind = 'hook' },
               @{ Id = 'AI.Sentinel.Copilot.Cli'; Command = 'sentinel-copilot-hook'; Kind = 'copilot-hook' },
               @{ Id = 'AI.Sentinel.Mcp.Cli'; Command = 'sentinel-mcp'; Kind = 'mcp' })) {
+            # A RID with no package of its own resolves to the framework-dependent any package. Only the
+            # install sees the override: at run time the host would also pick osx-x64 native assets.
+            $env:DOTNET_RUNTIME_ID = 'osx-x64'
             dotnet tool install $cli.Id --version $env:VERSION --tool-path tool-path-any --add-source feed
-            if ($LASTEXITCODE -ne 0) { throw "Install of the any package failed for $($cli.Id)" }
+            $installCode = $LASTEXITCODE
+            Remove-Item Env:DOTNET_RUNTIME_ID
+            if ($installCode -ne 0) { throw "Install of the any package failed for $($cli.Id)" }
             $managed = Get-ChildItem tool-path-any/.store -Recurse -File -Filter "$($cli.Id).dll"
             if (-not $managed) { throw "dotnet tool install did not pick the any package for $($cli.Id)" }
             sh eng/smoke-native.sh "tool-path-any/$($cli.Command)" $cli.Kind
