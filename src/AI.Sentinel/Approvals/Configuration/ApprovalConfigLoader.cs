@@ -58,10 +58,70 @@ internal static class ApprovalConfigLoader
 
         var config = new ApprovalConfig(
             backend, tenantId, databasePath, defaultGrantMinutes, defaultJustificationTemplate,
-            includeConversationContext, tools);
+            includeConversationContext, tools)
+        {
+            NotifyUrl = ParseHttpUrl(root, "notifyUrl"),
+            NotifyHeaders = ParseNotifyHeaders(root),
+            NotifyIncludeArgs = ParseNotifyIncludeArgs(root),
+            DashboardUrl = ParseHttpUrl(root, "dashboardUrl"),
+        };
 
         Validate(config);
         return config;
+    }
+
+    private static Uri? ParseHttpUrl(JsonElement root, string key)
+    {
+        if (!root.TryGetProperty(key, out var el)) return null;
+        var text = el.ValueKind == JsonValueKind.String ? el.GetString() : null;
+        // On Unix "/x" parses as an absolute file:// URI, so the scheme check is what rejects it.
+        if (text is null
+            || !Uri.TryCreate(text, UriKind.Absolute, out var uri)
+            || (!string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.Ordinal)
+                && !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                $"{key} must be an absolute http or https URL. Got: {(el.ValueKind == JsonValueKind.String ? $"'{text}'" : el.GetRawText())}");
+        }
+        return uri;
+    }
+
+    private static bool ParseNotifyIncludeArgs(JsonElement root)
+    {
+        if (!root.TryGetProperty("notifyIncludeArgs", out var el)) return false;
+        if (el.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            throw new InvalidOperationException($"notifyIncludeArgs must be true or false. Got: {el.GetRawText()}");
+        return el.GetBoolean();
+    }
+
+    private static Dictionary<string, string> ParseNotifyHeaders(JsonElement root)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (!root.TryGetProperty("notifyHeaders", out var el)) return headers;
+        if (el.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("notifyHeaders must be an object of header name to string value");
+        using var probe = new HttpRequestMessage();
+        foreach (var prop in el.EnumerateObject())
+        {
+            if (headers.ContainsKey(prop.Name))
+                throw new InvalidOperationException($"notifyHeaders has duplicate key '{prop.Name}'");
+            if (prop.Value.ValueKind != JsonValueKind.String)
+                throw new InvalidOperationException($"notifyHeaders['{prop.Name}'] must be a string");
+            if (string.Equals(prop.Name, "Content-Type", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(prop.Name, "Content-Length", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"notifyHeaders['{prop.Name}'] is not allowed: the notifier sets the body headers itself");
+            }
+            var value = prop.Value.GetString()!;
+            // An unset ${VAR} expands to an empty string; sending a blank header would hide the misconfiguration.
+            if (string.IsNullOrWhiteSpace(value))
+                throw new InvalidOperationException($"notifyHeaders['{prop.Name}'] must not be empty");
+            if (!probe.Headers.TryAddWithoutValidation(prop.Name, value))
+                throw new InvalidOperationException($"notifyHeaders['{prop.Name}'] is not a valid header name or value");
+            headers[prop.Name] = value;
+        }
+        return headers;
     }
 
     private static IReadOnlyList<ApprovalToolConfig> ParseTools(JsonElement el, string toolName, string backend)
@@ -207,6 +267,13 @@ internal static class ApprovalConfigLoader
         {
             throw new InvalidOperationException(
                 "backend 'entra-pim' requires a tenantId field.");
+        }
+        if (config.NotifyUrl is null)
+        {
+            if (config.NotifyHeaders.Count > 0)
+                throw new InvalidOperationException("notifyHeaders requires notifyUrl.");
+            if (config.NotifyIncludeArgs)
+                throw new InvalidOperationException("notifyIncludeArgs requires notifyUrl.");
         }
     }
 
