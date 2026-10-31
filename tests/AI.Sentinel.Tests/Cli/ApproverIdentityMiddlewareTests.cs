@@ -256,6 +256,39 @@ public class ApproverIdentityMiddlewareTests
         Assert.Throws<ArgumentException>(() => app.UseApproverIdentity(Settings(["10.0.0.0/24"], local: true)));
     }
 
+    private static Action<HttpRequest> HostIs(string host) => r => r.Host = new HostString(host);
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoopbackPeer_ForeignHost_Is403(bool local)
+    {
+        var (status, body) = await GetAsync(Settings(local: local), "127.0.0.1", HostIs("evil.example:5170"));
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("This dashboard only accepts requests addressed to localhost.", body);
+    }
+
+    [Theory]
+    [InlineData("localhost:5170")]
+    [InlineData("LOCALHOST")]
+    [InlineData("127.0.0.1:5170")]
+    [InlineData("[::1]:5170")]
+    public async Task LoopbackPeer_LocalHost_Passes(string host)
+    {
+        var (status, body) = await GetAsync(Settings(local: true), "127.0.0.1", HostIs(host));
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal($"True|{Environment.UserName}|LocalApprover", body);
+    }
+
+    [Fact]
+    public async Task TrustedProxyPeer_PublicHost_PassesWithHeaderIdentity()
+    {
+        var (status, body) = await GetAsync(Settings(["10.0.0.0/24"]), "10.0.0.5",
+            r => { r.Host = new HostString("dash.example.com"); r.Headers[DefaultHeader] = "alice"; });
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("True|alice|TrustedProxy", body);
+    }
+
     private sealed class NullServiceProvider : IServiceProvider
     {
         public object? GetService(Type serviceType) => null;

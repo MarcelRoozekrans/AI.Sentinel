@@ -1,5 +1,5 @@
-using System.Net;
 using System.Globalization;
+using System.Net;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -16,6 +16,7 @@ internal static class ApproverIdentityMiddleware
     internal const string TrustedProxyAuthType = "TrustedProxy";
     internal const string LocalApproverAuthType = "LocalApprover";
     private const int MaxUserLength = 256;
+    private const string LocalHostOnlyMessage = "This dashboard only accepts requests addressed to localhost.";
     private const string ProxyOnlyMessage = "This dashboard only accepts requests through its trusted proxy.";
 
     internal static IApplicationBuilder UseApproverIdentity(this IApplicationBuilder app, DashboardSettings settings)
@@ -28,9 +29,6 @@ internal static class ApproverIdentityMiddleware
             throw new ArgumentException(
                 "The local approver requires a loopback bind and no trusted proxies.", nameof(settings));
         var proxies = settings.TrustedProxies;
-        if (!gate && proxies.Count == 0 && !settings.LocalApprover)
-            return app;
-
         var userHeader = settings.UserHeader;
         var localName = Environment.UserName;
 
@@ -40,11 +38,15 @@ internal static class ApproverIdentityMiddleware
             var isLoopback = remote is not null && IPAddress.IsLoopback(remote);
             var isProxy = remote is not null && Contains(proxies, remote);
 
+            if (!isProxy && !IsLocalHost(ctx.Request.Host))
+            {
+                await RejectAsync(ctx, LocalHostOnlyMessage).ConfigureAwait(false);
+                return;
+            }
+
             if (gate && !isLoopback && !isProxy)
             {
-                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
-                ctx.Response.ContentType = "text/plain; charset=utf-8";
-                await ctx.Response.WriteAsync(ProxyOnlyMessage, ctx.RequestAborted).ConfigureAwait(false);
+                await RejectAsync(ctx, ProxyOnlyMessage).ConfigureAwait(false);
                 return;
             }
 
@@ -60,6 +62,18 @@ internal static class ApproverIdentityMiddleware
 
             await next(ctx).ConfigureAwait(false);
         });
+    }
+
+    // Defends against DNS rebinding: a rebound hostname reaches loopback with a foreign Host header.
+    private static bool IsLocalHost(HostString host) =>
+        host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+        || host.Host is "127.0.0.1" or "[::1]";
+
+    private static async Task RejectAsync(HttpContext ctx, string message)
+    {
+        ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+        ctx.Response.ContentType = "text/plain; charset=utf-8";
+        await ctx.Response.WriteAsync(message, ctx.RequestAborted).ConfigureAwait(false);
     }
 
     private static IPAddress? Normalise(IPAddress? address) =>
