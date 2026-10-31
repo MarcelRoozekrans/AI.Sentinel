@@ -65,7 +65,7 @@ services.AddAISentinel(opts =>
 }
 ```
 
-A rule can carry [argument conditions](/docs/approvals/cli-config#argument-conditions), but `grantScope: "call"` is rejected with this backend, at config load, and in code when the tool-call guard is first resolved, because a PIM grant is a role activation and cannot be tied to arguments. The in-code check sees the store through AI.Sentinel's own auditing wrapper only. A decorator of your own around `EntraPimApprovalStore` hides the store from the check, so a call-scoped rule is then not rejected and its grant silently covers the whole role activation.
+A rule can carry [argument conditions](/docs/approvals/cli-config#argument-conditions), but `grantScope: "call"` is rejected with this backend, at config load, and in code when the tool-call guard is first resolved, because a PIM grant is a role activation and cannot be tied to arguments. The in-code check sees the store through AI.Sentinel's own wrappers only, the auditing and webhook wrappers. A decorator of your own around `EntraPimApprovalStore` hides the store from the check, so a call-scoped rule is then not rejected and its grant silently covers the whole role activation.
 
 ## Authentication chain
 
@@ -83,6 +83,12 @@ To override (e.g. inject a test credential), register a `TokenCredential` in DI 
 - The store polls Graph for the request status with backoff + jitter (`PollInterval` default `1s`, `PollMaxBackoff` default `30s`, ±20% jitter). Tune both via `EntraPimOptions` if Graph rate limits become a concern at scale.
 - Honors `Retry-After` on 429/503/504 responses.
 - Reflective `ODataError` accessors keep the runtime decoupled from Graph SDK internals (AOT-safe — see [trim suppressions](https://github.com/MarcelRoozekrans/AI.Sentinel/blob/main/src/AI.Sentinel.Approvals.EntraPim/MicrosoftGraphRoleClient.cs)).
+
+## Repeated calls
+
+While an activation request for the same caller and role is pending, a second call returns that request and creates no new one. If the lookup for a pending request cannot finish within 20 pages of results from Graph, the call is denied instead of risking a duplicate.
+
+Because only a call that creates a request sends the [approval webhook](/docs/approvals/cli-config#notify-on-new-requests), the repeat call sends nothing.
 
 ## Approver UX
 

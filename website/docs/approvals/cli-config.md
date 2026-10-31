@@ -42,6 +42,10 @@ If the env var is unset (or empty), approvals are disabled — the CLI behaves e
 | `defaultJustificationTemplate` | string | no | `"AI agent invocation: {tool}"` | Currently informational; per-tool override planned. |
 | `includeConversationContext` | bool | no | `true` | Forwarded to backend (currently informational). |
 | `tools` | map | no | empty | Pattern → binding. Keys are tool-name patterns (glob-style with `*`). |
+| `notifyUrl` | string | no | none | Absolute `http` or `https` URL that receives a POST for each new request. No value turns the webhook off. See [Notify on new requests](#notify-on-new-requests). |
+| `notifyHeaders` | object | no | empty | Extra request headers, name to string value. Needs `notifyUrl`. |
+| `notifyIncludeArgs` | bool | no | `false` | Send the redacted tool arguments. Needs `notifyUrl`. |
+| `dashboardUrl` | string | no | none | Absolute `http` or `https` URL of your dashboard. The message text links to it. |
 
 ### Per-tool fields
 
@@ -209,6 +213,106 @@ An existing config file keeps its policy names, so pending requests and active g
 
 The receipt the CLI prints names the rule that matched, for example `Rule: approval:Bash[1]`.
 
+## Notify on new requests
+
+Set `notifyUrl` and the CLI POSTs a JSON body to it when a call creates an approval request. Approvers learn about the request without watching the terminal or the dashboard.
+
+```json
+{
+  "backend": "sqlite",
+  "databasePath": "/var/lib/ai-sentinel/approvals.db",
+  "notifyUrl": "https://hooks.slack.com/services/T000/B000/XXXX",
+  "dashboardUrl": "https://dash.example.com",
+  "tools": { "delete_database": { "role": "DBA" } }
+}
+```
+
+The webhook belongs to the CLIs: `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp`. A host that calls `AddAISentinel` in code gets no notifier API.
+
+### Keys
+
+| Key | Type | Default | Notes |
+|---|---|---|---|
+| `notifyUrl` | string | none | Absolute `http` or `https` URL. |
+| `notifyHeaders` | object | empty | Header name to string value. Needs `notifyUrl`. `Content-Type` and `Content-Length` are rejected, because the notifier sets them. |
+| `notifyIncludeArgs` | bool | `false` | Adds `args` to the body. Needs `notifyUrl`. |
+| `dashboardUrl` | string | none | Absolute `http` or `https` URL. Valid on its own, but only the webhook reads it. |
+
+`notifyHeaders` or `notifyIncludeArgs` without `notifyUrl` fails the load.
+
+Header names are case-insensitive. Two names that differ only in case fail the load.
+
+`${VAR}` is expanded in all four values, as described under [Environment-variable interpolation](#environment-variable-interpolation). An unset variable becomes an empty string, and the load fails in two cases:
+
+- `notifyUrl` becomes empty, and the load fails with `notifyUrl must be an absolute http or https URL. Got: ''`.
+- A header value is empty or only whitespace. `"Authorization": "${NTFY_TOKEN}"` with `NTFY_TOKEN` unset fails the load and names the header.
+
+A value that is only partly empty is not caught. `"Bearer ${NTFY_TOKEN}"` with the variable unset expands to `"Bearer "`, which the loader accepts and sends. The loader does not trim. If the receiver answers `401`, check that the variable is set in the process that runs the hook.
+
+### Payload
+
+`POST notifyUrl` with `Content-Type: application/json`:
+
+```json
+{
+  "text": "Approval needed: Bash for alice (approval:Bash). https://dash.example.com/",
+  "requestId": "req-1234",
+  "tool": "Bash",
+  "callerId": "alice",
+  "policy": "approval:Bash",
+  "requestedAt": "2026-10-31T12:00:00+00:00",
+  "approvalUrl": "sentinel://approve/req-1234",
+  "dashboardUrl": "https://dash.example.com/",
+  "args": { "command": "curl -H 'Authorization: [SECRET_1_k3f9x2]' https://api.example.com" }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `text` | One line for chat tools. The link at the end is `dashboardUrl` when set, otherwise `approvalUrl` when that is an `http` or `https` URL, such as the Entra PIM portal URL. Otherwise there is no link. |
+| `requestId`, `tool`, `callerId`, `policy`, `requestedAt` | The request, as the store holds it. `policy` is the [policy name](#policy-names). |
+| `approvalUrl` | The URL the store reports for the request, sent as is. |
+| `dashboardUrl` | The config value. Omitted when not set. |
+| `args` | Only with `notifyIncludeArgs: true`. See [Arguments](#arguments). |
+
+With `entra-pim`, `callerId` is the caller's Entra object id and `approvalUrl` is the PIM portal URL of the request. `dashboardUrl` is sent in its normalized form, so a bare host gains a trailing slash.
+
+The link in `text` is the dashboard base URL, not a page for the request. Per-request pages are tracked in [#453](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/453).
+
+The webhook fires once per request, when a call creates it. A later call that finds the request still pending sends nothing.
+
+### Arguments
+
+With `notifyIncludeArgs: true` the body carries the tool arguments, redacted. The notifier always scans them for credentials and PII, whatever other [redaction](/docs/redaction) settings the CLI has. Argument names stay. Values that match are replaced by placeholders such as `[SECRET_1_k3f9x2]`, and the original values never leave the process. Values that do not match are sent as they are, so keep this off if the arguments can hold sensitive text that no detector recognises.
+
+### Slack
+
+Use the Slack incoming webhook URL as `notifyUrl`. Slack reads `text` and ignores the other fields.
+
+```json
+{
+  "notifyUrl": "https://hooks.slack.com/services/T000/B000/XXXX",
+  "dashboardUrl": "https://dash.example.com"
+}
+```
+
+### ntfy
+
+```json
+{
+  "notifyUrl": "https://ntfy.sh/my-approvals",
+  "notifyHeaders": { "Authorization": "Bearer ${NTFY_TOKEN}" }
+}
+```
+
+ntfy shows the raw JSON body as the message text. It does not read `text`. Use it as is, or put a small relay in front that picks the fields you want.
+
+### When the POST fails
+
+The POST has a fixed 3 second timeout and is not retried. The response body is not read. A non-2xx status, a network error or the timeout is logged as a warning that names the endpoint and the request id, never the header values or the payload. A webhook failure never changes the approval or its outcome. Each CLI then behaves as described in [Per-CLI behavior on `RequireApproval`](#per-cli-behavior-on-requireapproval).
+
+The POST is awaited, so it adds up to 3 seconds to the call that creates a request, in all three CLIs. The two hooks send it before they print the receipt.
+
 ## Per-CLI behavior on `RequireApproval`
 
 | CLI | When the guard returns `RequireApproval` |
@@ -236,6 +340,9 @@ The config loader validates required fields at startup:
 - A tool entry key that is a known key spelled differently, such as `grant_scope`, `grantscope` or `When` → fail, naming the key and the expected spelling. Other unknown keys, such as `description`, are ignored.
 - A duplicate key inside `tools`, inside a tool entry or inside a `when` → fail.
 - `grantScope: "call"` with `backend=entra-pim` → fail.
+- `notifyUrl` or `dashboardUrl` that is not an absolute `http` or `https` URL → fail.
+- `notifyHeaders` or `notifyIncludeArgs` without `notifyUrl` → fail.
+- A `notifyHeaders` value that is not a string, is empty after expansion, or is not a valid header, a duplicate name in any case, or `Content-Type` or `Content-Length` → fail.
 
 Validation failures print to stderr and exit `1`, with one exception: on `PreToolUse`, `sentinel-hook` and `sentinel-copilot-hook` block the tool call with exit `2` and `Sentinel internal error: approval config '<path>' could not be loaded: <message>`, and record an audit entry with the code `internal_error`. A broken file must not turn off every approval rule. Fix the file, or unset `SENTINEL_APPROVAL_CONFIG`, to unblock tool calls. See [Claude Code → When the hook itself fails](/docs/integrations/claude-code#when-the-hook-itself-fails). Successful load is silent.
 
