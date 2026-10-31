@@ -97,9 +97,16 @@ Whoever the proxy lets in can approve. Restrict the dashboard route in the proxy
 
 A proxy on the same host is the common setup, so loopback stays allowed: `--trusted-proxy 127.0.0.1/32` works. Then any local process can also connect to the dashboard and send the user header itself, so the header is only as trustworthy as the machine. Do not use that setup on a machine with other users or untrusted processes.
 
-#### Host check
+#### Host check and `--public-host`
 
-A request whose peer is not inside a trusted range must carry a `Host` of `localhost`, `127.0.0.1` or `[::1]`, with any port. Otherwise the dashboard answers `403` with `This dashboard only accepts requests addressed to localhost.` This stops DNS rebinding: a web page can point its own hostname at `127.0.0.1`, which makes the dashboard same-origin for the browser and would otherwise let that page read the audit data and approve as the local user. A trusted proxy is exempt, because it forwards the public host name. The check applies in every mode, also without approvals.
+Every request must carry a `Host` the dashboard answers to, or it gets `403`. This stops DNS rebinding: a web page can point its own host name at `127.0.0.1`, which makes the dashboard same-origin for the browser. With a same-host proxy the peer is then a trusted proxy, so the page would also pass the user header check.
+
+- A peer outside every trusted range must send `localhost`, `127.0.0.1` or `[::1]`, with any port. Otherwise the answer is `This dashboard only accepts requests addressed to localhost.`
+- A trusted proxy must send one of those, one of the names given with `--public-host`, or the `--bind` address itself, compared without case and ignoring the port. Otherwise the answer is `This dashboard only accepts requests for its configured host names.`
+- `--public-host <name>` is repeatable and only valid together with `--trusted-proxy`. The value is a host name or IP address, without port, scheme or path, for example `dash.example.com` or `192.0.2.10`.
+- Startup lists the names on the `Approvals:` line.
+
+nginx `proxy_pass http://192.0.2.10:5170;` sends the upstream address as `Host` by default, which is the `--bind` address and needs no flag. If you set `proxy_set_header Host $host;`, nginx forwards the public name, so pass `--public-host` with that name.
 
 #### Forward-auth example
 
