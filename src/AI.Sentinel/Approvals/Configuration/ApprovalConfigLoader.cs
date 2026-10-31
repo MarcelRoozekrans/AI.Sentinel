@@ -99,7 +99,7 @@ internal static class ApprovalConfigLoader
     {
         if (!root.TryGetProperty("notifyIncludeArgs", out var el)) return false;
         if (el.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
-            throw new InvalidOperationException($"notifyIncludeArgs must be true or false");
+            throw new InvalidOperationException("notifyIncludeArgs must be true or false");
         return el.GetBoolean();
     }
 

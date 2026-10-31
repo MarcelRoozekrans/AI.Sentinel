@@ -311,6 +311,8 @@ ntfy shows the raw JSON body as the message text. It does not read `text`. Use i
 
 The POST has a fixed 3 second timeout and is not retried. The response body is not read. A non-2xx status, a network error or the timeout is logged as a warning that names the endpoint's host, not the endpoint, and the request id. The path and query are left out because they often carry the secret, and so are the header values and the payload. Redirects are not followed: a 3xx counts as a failure. A webhook failure never changes the approval or its outcome. Each CLI then behaves as described in [Per-CLI behavior on `RequireApproval`](#per-cli-behavior-on-requireapproval).
 
+`sentinel-mcp` writes the warning to stderr. The two hooks write it to stderr only when stderr does not carry the block reason, because the agent reads that reason. A blocking `PreToolUse`, the usual case for a new request, therefore shows the warning only with [`SENTINEL_HOOK_VERBOSE=1`](/docs/integrations/claude-code). Set it while you set up the webhook.
+
 The POST is awaited, so it adds up to 3 seconds to the call that creates a request, in all three CLIs. The two hooks send it before they print the receipt.
 
 ## Per-CLI behavior on `RequireApproval`

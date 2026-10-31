@@ -1,6 +1,7 @@
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Notifications;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace AI.Sentinel.Approvals.Configuration;
@@ -73,7 +74,7 @@ internal static class ApprovalBackendSelector
             services.AddSingleton(settings);
             if (warn is not null)
             {
-                services.AddSingleton<ILogger<NotifyingApprovalStore>>(new WarningSinkLogger(warn));
+                services.TryAddSingleton<ILogger<NotifyingApprovalStore>>(new WarningSinkLogger(warn));
             }
         }
     }

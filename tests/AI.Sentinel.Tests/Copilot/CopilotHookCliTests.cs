@@ -194,12 +194,17 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         }
     }
 
-    [Fact]
-    public async Task ApprovalConfig_WithNotifyUrl_WebhookFailure_WritesOneCleanStderrLine()
+    // The pending approval blocks with exit 2, so stderr carries the block reason the model reads. The webhook warning
+    // follows the audit problems: kept off that stderr, reported with verbose on.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApprovalConfig_WithNotifyUrl_WebhookFailure_StaysOffTheBlockReason(bool verbose)
     {
         using var hook = new WebhookListener(status: 500);
         var dir = HookAuditTestSupport.NewTempDir();
         var previous = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", verbose ? "1" : null);
         try
         {
             var db = Path.Combine(dir, "approvals.db");
@@ -214,12 +219,19 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
             var stdin = new StringReader("""{"sessionId":"s","toolName":"bash","toolArgs":{"command":"ls"}}""");
             var stderr = new StringWriter();
 
-            await Program.RunAsync(["pre-tool-use"], stdin, new StringWriter(), stderr);
+            var exit = await Program.RunAsync(["pre-tool-use"], stdin, new StringWriter(), stderr);
 
+            Assert.Equal(2, exit);
             Assert.Single(hook.Bodies);
-            var line = Assert.Single(
-                stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries),
-                l => l.Contains("webhook", StringComparison.OrdinalIgnoreCase));
+            var lines = stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.NotEmpty(lines);
+            if (!verbose)
+            {
+                Assert.DoesNotContain(lines, l => l.Contains("webhook", StringComparison.OrdinalIgnoreCase));
+                return;
+            }
+
+            var line = Assert.Single(lines, l => l.Contains("webhook", StringComparison.OrdinalIgnoreCase));
             Assert.Contains("500", line, StringComparison.Ordinal);
             Assert.Contains(hook.Url.Authority, line, StringComparison.Ordinal);
             Assert.DoesNotContain("s3cret", line, StringComparison.Ordinal);
@@ -229,6 +241,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         }
         finally
         {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", null);
             Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", previous);
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             HookAuditTestSupport.DeleteDir(dir);

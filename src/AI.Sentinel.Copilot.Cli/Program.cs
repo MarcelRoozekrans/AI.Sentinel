@@ -96,10 +96,11 @@ public static class Program
 
         CopilotHookResult result;
         string? semanticWarning;
+        var approvalWarnings = new List<string>();
         try
         {
             (result, semanticWarning) = await EvaluateAsync(
-                evt, input, config, hookEnv, approvalConfig, audit, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
+                evt, input, config, hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
         }
         catch (Exception ex) when (evt == CopilotHookEvent.PreToolUse)
         {
@@ -107,7 +108,7 @@ public static class Program
                 args, input.ToolName, input.SessionId, HookInternalError.Reason(ex), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
         }
 
-        return await WriteDecisionAsync(args, evt, input, result, semanticWarning, config, audit, auditProblems, stdout, stderr).ConfigureAwait(false);
+        return await WriteDecisionAsync(args, evt, input, result, semanticWarning, config, audit, auditProblems, approvalWarnings, stdout, stderr).ConfigureAwait(false);
     }
 
     /// <summary>Writes the decision: the verbose line, audit problems, the semantic warning, the reason and the
@@ -115,7 +116,7 @@ public static class Program
     /// turn it into an internal-error block, so the wire output on stdout always matches the exit code.</summary>
     private static async Task<int> WriteDecisionAsync(
         string[] args, CopilotHookEvent evt, CopilotHookInput input, CopilotHookResult result, string? semanticWarning, CopilotHookConfig config,
-        LocalAuditSession audit, List<string> auditProblems, TextWriter stdout, TextWriter stderr)
+        LocalAuditSession audit, List<string> auditProblems, List<string> approvalWarnings, TextWriter stdout, TextWriter stderr)
     {
         var output = result.Output;
         if (config.Verbose)
@@ -127,6 +128,15 @@ public static class Program
         // diagnostics stay off it. An audit failure never changes the decision.
         var allowed = output.Decision == HookDecision.Allow;
         var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || allowed, stderr).ConfigureAwait(false);
+        // Webhook warnings follow the audit problems: kept off the stderr that carries a block reason, unless verbose.
+        if (config.Verbose || allowed)
+        {
+            foreach (var warning in approvalWarnings)
+            {
+                await stderr.WriteLineAsync(warning).ConfigureAwait(false);
+            }
+        }
+
         if (semanticWarning is not null)
         {
             await stderr.WriteLineAsync(semanticWarning).ConfigureAwait(false);
@@ -145,7 +155,7 @@ public static class Program
     /// detections are capped because nothing reviews them.</summary>
     private static async Task<(CopilotHookResult Result, string? SemanticWarning)> EvaluateAsync(
         CopilotHookEvent evt, CopilotHookInput input, CopilotHookConfig config, Dictionary<string, string?> hookEnv, ApprovalConfig? approvalConfig,
-        LocalAuditSession audit, TextWriter stderr, IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
+        LocalAuditSession audit, List<string> approvalWarnings, TextWriter stderr, IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         IDetectionReviewer? reviewer)
     {
         // A caller-supplied generator wins; otherwise read SENTINEL_EMBEDDING_* so the hook can do
@@ -172,7 +182,7 @@ public static class Program
             await stderr.WriteLineAsync(reviewError).ConfigureAwait(false);
         }
 
-        var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), audit,
+        var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), approvalWarnings.Add, audit,
             reviewer: reviewer ?? review?.Reviewer, reviewLimits: ReviewLimitsFor(review),
             enableComplianceDetectors: config.EnableComplianceDetectors, detectors: DetectorPresets.Parse(hookEnv.GetValueOrDefault("SENTINEL_HOOK_DETECTORS")),
             maxScanBytes: HookConfig.ParseMaxScanBytes(hookEnv, "SENTINEL_HOOK_MAX_SCAN_BYTES"));
@@ -359,6 +369,7 @@ public static class Program
         ApprovalConfig? approvalConfig,
         IEmbeddingCache? exampleEmbeddingCache = null,
         Action<string>? detectorFailureSink = null,
+        Action<string>? approvalWarningSink = null,
         LocalAuditSession? audit = null,
         bool enableComplianceDetectors = false,
         DetectorPreset detectors = DetectorPreset.Security,
@@ -383,9 +394,10 @@ public static class Program
                 // carry an ApprovalSpec.
         }
 
-        // No logging stack here, so the notifier's warnings, such as a failed POST, go to the same stderr sink.
+        // No logging stack here, so the notifier's warnings, such as a failed POST, go to a sink the caller reports
+        // under the same rule as audit problems: they must stay off the stderr that carries a block reason.
         ApprovalBackendSelector.AddNotifier(
-            services, approvalConfig, warning => detectorFailureSink?.Invoke($"[sentinel-copilot-hook] {warning}"));
+            services, approvalConfig, warning => approvalWarningSink?.Invoke($"[sentinel-copilot-hook] {warning}"));
 
         services.AddAISentinel(opts =>
         {
