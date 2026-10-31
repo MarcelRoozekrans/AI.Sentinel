@@ -206,7 +206,7 @@ public class RingBufferAuditStoreTests
     [Fact]
     public async Task Query_SessionFilterOnFullBuffer_ReturnsNewestMatchesOnly()
     {
-        var store = await FilledStoreAsync();
+        using var store = await FilledStoreAsync();
 
         var ids = await QueryIds(store, new AuditQuery { SessionId = "s", Reverse = true, PageSize = 3 });
 
@@ -216,7 +216,7 @@ public class RingBufferAuditStoreTests
     [Fact]
     public async Task Query_ForwardWithPageSize_ReturnsOldestMatches()
     {
-        var store = await FilledStoreAsync();
+        using var store = await FilledStoreAsync();
 
         var ids = await QueryIds(store, new AuditQuery { SessionId = "s", PageSize = 3 });
 
@@ -226,12 +226,39 @@ public class RingBufferAuditStoreTests
     [Fact]
     public async Task Query_WrappedBuffer_KeepsOrder()
     {
-        var store = new RingBufferAuditStore(capacity: 5);
+        using var store = new RingBufferAuditStore(capacity: 5);
         for (int i = 1; i <= 8; i++)
             await store.AppendAsync(new AuditEntry(i.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 DateTimeOffset.UtcNow, $"h{i}", null, Severity.None, "OPS-01", "m"), CancellationToken.None);
 
         Assert.Equal(["4", "5", "6", "7", "8"], await QueryIds(store, new AuditQuery()));
         Assert.Equal(["8", "7", "6", "5", "4"], await QueryIds(store, new AuditQuery { Reverse = true }));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Constructor_NonPositiveCapacity_Throws(int capacity)
+        => Assert.Throws<ArgumentOutOfRangeException>(() => new RingBufferAuditStore(capacity));
+
+    [Fact]
+    public async Task Query_PageSizeZero_ReturnsNothing()
+    {
+        using var store = await FilledStoreAsync();
+
+        Assert.Empty(await QueryIds(store, new AuditQuery { PageSize = 0 }));
+    }
+
+    [Fact]
+    public async Task Query_ReverseOnWrappedBufferWithSessionFilter_ReturnsNewestMatchesFirst()
+    {
+        using var store = new RingBufferAuditStore(capacity: 5);
+        for (int i = 1; i <= 8; i++)
+            await store.AppendAsync(new AuditEntry(i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                DateTimeOffset.UtcNow, $"h{i}", null, Severity.None, "OPS-01", "m")
+                { SessionId = i % 2 == 0 ? "s" : "other" }, CancellationToken.None);
+
+        Assert.Equal(["8", "6", "4"], await QueryIds(store, new AuditQuery { SessionId = "s", Reverse = true }));
+        Assert.Equal(["8", "6"], await QueryIds(store, new AuditQuery { SessionId = "s", Reverse = true, PageSize = 2 }));
     }
 }

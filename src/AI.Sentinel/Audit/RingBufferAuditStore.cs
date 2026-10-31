@@ -9,6 +9,8 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, I
     private readonly AuditEntry[] _buffer = new AuditEntry[capacity > 0
         ? capacity
         : throw new ArgumentOutOfRangeException(nameof(capacity), capacity, "Capacity must be positive.")];
+    // Upper bound for the initial page list, so a large PageSize does not pre-allocate a large list.
+    private const int InitialPageCapacity = 64;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private int _head;
     private int _count;
@@ -44,7 +46,7 @@ public sealed class RingBufferAuditStore(int capacity = 10_000) : IAuditStore, I
         [EnumeratorCancellation] CancellationToken ct)
     {
         // Filter in place under the lock and keep only the page, so a query never copies the buffer.
-        var page = new List<AuditEntry>(Math.Clamp(query.PageSize, 0, 64));
+        var page = new List<AuditEntry>(Math.Clamp(query.PageSize, 0, InitialPageCapacity));
         await _lock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
