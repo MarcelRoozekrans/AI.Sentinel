@@ -94,7 +94,8 @@ internal sealed record DashboardApprovalPlan(DashboardApprovalMode Mode, string?
     {
         if (settings.TrustedProxies.Count > 0)
         {
-            return $"approver from {settings.UserHeader} via {string.Join(", ", settings.TrustedProxies.Select(p => p.ToString()))}";
+            var line = $"approver from {settings.UserHeader} via {string.Join(", ", settings.TrustedProxies.Select(p => p.ToString()))}";
+            return settings.PublicHosts.Count > 0 ? $"{line}, public hosts {string.Join(", ", settings.PublicHosts)}" : line;
         }
         return settings.LocalApprover
             ? $"approver is the local user {Environment.UserName}"

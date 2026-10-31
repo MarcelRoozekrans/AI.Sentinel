@@ -9,7 +9,8 @@ namespace AI.Sentinel.Cli;
 /// <summary>
 /// Derives the approver identity for the dashboard from the socket peer address only, never from
 /// forwarded headers. A trusted proxy may name the user in a header; a loopback peer may act as the
-/// local OS user when the local approver is enabled.
+/// local OS user when the local approver is enabled. Every peer must also send a Host header the dashboard answers
+/// to, which stops DNS rebinding.
 /// </summary>
 internal static class ApproverIdentityMiddleware
 {
@@ -17,6 +18,7 @@ internal static class ApproverIdentityMiddleware
     internal const string LocalApproverAuthType = "LocalApprover";
     private const int MaxUserLength = 256;
     private const string LocalHostOnlyMessage = "This dashboard only accepts requests addressed to localhost.";
+    private const string ProxyHostMessage = "This dashboard only accepts requests for its configured host names.";
     private const string ProxyOnlyMessage = "This dashboard only accepts requests through its trusted proxy.";
 
     internal static IApplicationBuilder UseApproverIdentity(this IApplicationBuilder app, DashboardSettings settings)
@@ -29,6 +31,10 @@ internal static class ApproverIdentityMiddleware
             throw new ArgumentException(
                 "The local approver requires a loopback bind and no trusted proxies.", nameof(settings));
         var proxies = settings.TrustedProxies;
+        // nginx proxy_pass sends the upstream address as Host, so the bind address itself is a name the proxy may use.
+        var publicHosts = settings.Bind.Equals(IPAddress.Any) || settings.Bind.Equals(IPAddress.IPv6Any)
+            ? settings.PublicHosts
+            : [.. settings.PublicHosts, BindLiteral(settings.Bind)];
         var userHeader = settings.UserHeader;
         var localName = Environment.UserName;
 
@@ -38,15 +44,16 @@ internal static class ApproverIdentityMiddleware
             var isLoopback = remote is not null && IPAddress.IsLoopback(remote);
             var isProxy = remote is not null && Contains(proxies, remote);
 
-            if (!isProxy && !IsLocalHost(ctx.Request.Host))
-            {
-                await RejectAsync(ctx, LocalHostOnlyMessage).ConfigureAwait(false);
-                return;
-            }
-
             if (gate && !isLoopback && !isProxy)
             {
                 await RejectAsync(ctx, ProxyOnlyMessage).ConfigureAwait(false);
+                return;
+            }
+
+            // Every peer, a same-host proxy included, must send a host name this dashboard answers to.
+            if (!IsLocalHost(ctx.Request.Host) && !(isProxy && IsPublicHost(ctx.Request.Host, publicHosts)))
+            {
+                await RejectAsync(ctx, isProxy ? ProxyHostMessage : LocalHostOnlyMessage).ConfigureAwait(false);
                 return;
             }
 
@@ -68,6 +75,16 @@ internal static class ApproverIdentityMiddleware
     private static bool IsLocalHost(HostString host) =>
         host.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
         || host.Host is "127.0.0.1" or "[::1]";
+
+    private static string BindLiteral(IPAddress bind) =>
+        bind.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{bind}]" : bind.ToString();
+
+    private static bool IsPublicHost(HostString host, IReadOnlyList<string> publicHosts)
+    {
+        for (var i = 0; i < publicHosts.Count; i++)
+            if (host.Host.Equals(publicHosts[i], StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
 
     private static async Task RejectAsync(HttpContext ctx, string message)
     {

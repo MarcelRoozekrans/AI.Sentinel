@@ -14,4 +14,5 @@ internal sealed record DashboardSettings(string DbPath, int Port)
     public IReadOnlyList<IPNetwork> TrustedProxies { get; init; } = [];
     public string UserHeader { get; init; } = DefaultUserHeader;
     public bool LocalApprover { get; init; }
+    public IReadOnlyList<string> PublicHosts { get; init; } = [];
 }

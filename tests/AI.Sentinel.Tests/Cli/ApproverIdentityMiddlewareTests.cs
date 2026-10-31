@@ -14,13 +14,15 @@ public class ApproverIdentityMiddlewareTests
     private const string DefaultHeader = "X-Auth-Request-User";
 
     private static DashboardSettings Settings(
-        string[]? proxies = null, string header = DefaultHeader, bool local = false, string bind = "127.0.0.1") =>
+        string[]? proxies = null, string header = DefaultHeader, bool local = false, string bind = "127.0.0.1",
+        string[]? publicHosts = null) =>
         new("audit.db", 5000)
         {
             Bind = IPAddress.Parse(bind),
             TrustedProxies = (proxies ?? []).Select(IPNetwork.Parse).ToArray(),
             UserHeader = header,
             LocalApprover = local,
+            PublicHosts = publicHosts ?? [],
         };
 
     private static async Task<IHost> BuildHostAsync(
@@ -280,13 +282,63 @@ public class ApproverIdentityMiddlewareTests
         Assert.Equal($"True|{Environment.UserName}|LocalApprover", body);
     }
 
+    private const string ProxyHostMessage = "This dashboard only accepts requests for its configured host names.";
+
+    private static Action<HttpRequest> HostAndUser(string host) =>
+        r => { r.Host = new HostString(host); r.Headers[DefaultHeader] = "alice"; };
+
     [Fact]
-    public async Task TrustedProxyPeer_PublicHost_PassesWithHeaderIdentity()
+    public async Task SameHostProxy_RebindingHost_Is403AndAnonymous()
     {
-        var (status, body) = await GetAsync(Settings(["10.0.0.0/24"]), "10.0.0.5",
-            r => { r.Host = new HostString("dash.example.com"); r.Headers[DefaultHeader] = "alice"; });
+        var (status, body) = await GetAsync(Settings(["127.0.0.1/32"]), "127.0.0.1", HostAndUser("attacker.example:5170"));
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal(ProxyHostMessage, body);
+    }
+
+    [Fact]
+    public async Task ProxyPeer_LocalHost_PassesWithHeaderIdentity()
+    {
+        var (status, body) = await GetAsync(Settings(["10.0.0.0/24"]), "10.0.0.5", HostAndUser("127.0.0.1:5170"));
         Assert.Equal(HttpStatusCode.OK, status);
         Assert.Equal("True|alice|TrustedProxy", body);
+    }
+
+    [Theory]
+    [InlineData("DASH.example.com")]
+    [InlineData("dash.example.com:8443")]
+    public async Task ProxyPeer_ListedPublicHost_PassesWithHeaderIdentity(string host)
+    {
+        var (status, body) = await GetAsync(
+            Settings(["10.0.0.0/24"], publicHosts: ["dash.example.com"]), "10.0.0.5", HostAndUser(host));
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("True|alice|TrustedProxy", body);
+    }
+
+    [Fact]
+    public async Task ProxyPeer_SendingTheBindAddressAsHost_Passes()
+    {
+        var (status, body) = await GetAsync(
+            Settings(["10.0.0.0/24"], bind: "192.0.2.10"), "10.0.0.5", HostAndUser("192.0.2.10:5170"));
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal("True|alice|TrustedProxy", body);
+    }
+
+    [Fact]
+    public async Task ProxyPeer_UnlistedHost_Is403()
+    {
+        var (status, body) = await GetAsync(
+            Settings(["10.0.0.0/24"], publicHosts: ["dash.example.com"]), "10.0.0.5", HostAndUser("other.example.com"));
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal(ProxyHostMessage, body);
+    }
+
+    [Fact]
+    public async Task NonLoopbackBind_PeerBypassingProxy_GetsTheProxyOnlyMessage()
+    {
+        var (status, body) = await GetAsync(
+            Settings(["10.0.0.0/24"], bind: "192.0.2.10"), "192.0.2.50", r => r.Host = new HostString("192.0.2.10:5170"));
+        Assert.Equal(HttpStatusCode.Forbidden, status);
+        Assert.Equal("This dashboard only accepts requests through its trusted proxy.", body);
     }
 
     private sealed class NullServiceProvider : IServiceProvider

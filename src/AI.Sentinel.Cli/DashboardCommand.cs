@@ -35,7 +35,8 @@ public static class DashboardCommand
         Option<string?> ApprovalConfig,
         Option<string[]> TrustedProxy,
         Option<string> UserHeader,
-        Option<bool> LocalApprover)
+        Option<bool> LocalApprover,
+        Option<string[]> PublicHost)
     {
         /// <summary>Reads the validated settings out of <paramref name="parseResult"/>.</summary>
         internal DashboardSettings Read(ParseResult parseResult)
@@ -49,6 +50,7 @@ public static class DashboardCommand
                 TrustedProxies = ParseProxies(parseResult.GetValue(TrustedProxy) ?? []),
                 UserHeader = parseResult.GetRequiredValue(UserHeader),
                 LocalApprover = parseResult.GetValue(LocalApprover),
+                PublicHosts = (parseResult.GetValue(PublicHost) ?? []).Select(NormalisePublicHost).ToArray(),
             };
         }
     }
@@ -78,6 +80,7 @@ public static class DashboardCommand
         var approvalConfigOpt = CreateApprovalConfigOption(approvalConfigFromEnvironment);
         var trustedProxyOpt = CreateTrustedProxyOption();
         var userHeaderOpt = CreateUserHeaderOption();
+        var publicHostOpt = CreatePublicHostOption();
         var localApproverOpt = new Option<bool>("--local-approver")
         {
             Description = "Let the local operator approve and deny as the current OS user. Loopback only, no proxy.",
@@ -92,9 +95,10 @@ public static class DashboardCommand
             trustedProxyOpt,
             userHeaderOpt,
             localApproverOpt,
+            publicHostOpt,
         };
 
-        var options = new OptionSet(dbOpt, portOpt, bindOpt, approvalConfigOpt, trustedProxyOpt, userHeaderOpt, localApproverOpt);
+        var options = new OptionSet(dbOpt, portOpt, bindOpt, approvalConfigOpt, trustedProxyOpt, userHeaderOpt, localApproverOpt, publicHostOpt);
         readSettings = options.Read;
         cmd.Validators.Add(result => ValidateCombination(result, options));
 
@@ -207,9 +211,51 @@ public static class DashboardCommand
         return opt;
     }
 
+    private static Option<string[]> CreatePublicHostOption()
+    {
+        var opt = new Option<string[]>("--public-host")
+        {
+            Description = "Host name or IP address the trusted proxy forwards in the Host header. Repeatable. localhost is always accepted.",
+            AllowMultipleArgumentsPerToken = false,
+        };
+        opt.Validators.Add(result =>
+        {
+            foreach (var value in result.GetValueOrDefault<string[]>() ?? [])
+            {
+                if (!IsPublicHost(value))
+                {
+                    result.AddError($"--public-host must be a host name or IP address without scheme, port or path, but was '{value}'.");
+                }
+            }
+        });
+        return opt;
+    }
+
+    private static bool IsPublicHost(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 253)
+        {
+            return false;
+        }
+        var bare = value.Length > 2 && value[0] == '[' && value[^1] == ']' ? value[1..^1] : value;
+        if (IPAddress.TryParse(bare, out _))
+        {
+            return !bare.Contains('%', StringComparison.Ordinal);
+        }
+        return value.Split('.').All(label =>
+            label.Length is > 0 and <= 63 && !label.StartsWith('-') && !label.EndsWith('-')
+            && label.All(c => char.IsAsciiLetterOrDigit(c) || c == '-'));
+    }
+
+    // IPv6 literals travel in brackets in a Host header, so keep them in that form.
+    private static string NormalisePublicHost(string value) =>
+        IPAddress.TryParse(value, out var ip) && ip.AddressFamily == AddressFamily.InterNetworkV6 && !value.StartsWith('[')
+            ? $"[{value}]"
+            : value;
+
     private static void ValidateCombination(CommandResult result, OptionSet options)
     {
-        var (_, _, bindOpt, _, trustedProxyOpt, userHeaderOpt, localApproverOpt) = options;
+        var (_, _, bindOpt, _, trustedProxyOpt, userHeaderOpt, localApproverOpt, publicHostOpt) = options;
         if (result.Errors.Any())
         {
             return;
@@ -227,6 +273,10 @@ public static class DashboardCommand
         if (result.GetResult(userHeaderOpt)?.Implicit == false && proxies.Length == 0)
         {
             result.AddError("--user-header only applies together with --trusted-proxy.");
+        }
+        if ((result.GetValue(publicHostOpt) ?? []).Length > 0 && proxies.Length == 0)
+        {
+            result.AddError("--public-host only applies together with --trusted-proxy.");
         }
         if (result.GetValue(localApproverOpt))
         {

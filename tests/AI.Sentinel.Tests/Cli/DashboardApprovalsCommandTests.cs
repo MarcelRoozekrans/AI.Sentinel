@@ -76,6 +76,17 @@ public class DashboardApprovalsCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task StartupLine_NamesThePublicHosts()
+    {
+        var (db, config) = await SeedAsync("sqlite");
+        var stdout = new StringWriter();
+        await using var dashboard = await StartAsync(
+            db, config, stdout, new StringWriter(), s => s with { PublicHosts = ["dash.example.com"] }, proxy: true);
+        Assert.NotNull(dashboard);
+        Assert.Contains("via 127.0.0.1/32, public hosts dash.example.com", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task StartupLine_NeverPrintsHeaderValues()
     {
         var (db, config) = await SeedAsync("sqlite");

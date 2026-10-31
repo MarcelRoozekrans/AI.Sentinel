@@ -119,6 +119,35 @@ public class DashboardOptionsTests : IDisposable
         Assert.Equal(expected, Assert.Single(s.TrustedProxies).ToString());
     }
 
+    [Theory]
+    [InlineData("dash.example.com")]
+    [InlineData("192.0.2.10")]
+    [InlineData("[2001:db8::1]")]
+    [InlineData("localhost")]
+    public void PublicHost_WithTrustedProxy_IsAcceptedAndRead(string host)
+    {
+        Assert.Empty(Root().Parse(["dashboard", "--trusted-proxy", "10.0.0.1", "--public-host", host]).Errors);
+        Assert.Equal(host, Assert.Single(Read(null, "--trusted-proxy", "10.0.0.1", "--public-host", host).PublicHosts));
+    }
+
+    [Fact]
+    public void PublicHost_IsRepeatable() =>
+        Assert.Equal(2, Read(null, "--trusted-proxy", "10.0.0.1", "--public-host", "a.example", "--public-host", "b.example").PublicHosts.Count);
+
+    [Fact]
+    public async Task PublicHost_WithoutTrustedProxy_IsRefused() =>
+        AssertRefused(await InvokeAsync("--public-host", "dash.example.com"), "--public-host only applies together with --trusted-proxy");
+
+    [Theory]
+    [InlineData("http://x")]
+    [InlineData("x:443")]
+    [InlineData("x/y")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("a b")]
+    public async Task PublicHost_Invalid_IsRefused(string host) =>
+        AssertRefused(await InvokeAsync("--trusted-proxy", "10.0.0.1", "--public-host", host), "--public-host must be");
+
     [Fact]
     public void Settings_Defaults()
     {
@@ -126,6 +155,7 @@ public class DashboardOptionsTests : IDisposable
         Assert.Equal(IPAddress.Loopback, s.Bind);
         Assert.Equal("X-Auth-Request-User", s.UserHeader);
         Assert.Empty(s.TrustedProxies);
+        Assert.Empty(s.PublicHosts);
         Assert.Null(s.ApprovalConfigPath);
         Assert.False(s.ApprovalConfigExplicit);
         Assert.False(s.LocalApprover);
