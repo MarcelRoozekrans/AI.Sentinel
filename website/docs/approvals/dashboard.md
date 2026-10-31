@@ -52,6 +52,84 @@ User-provided fields (`callerId`, `toolName`, justification text) flow through `
 
 Below 600px viewport width, the panel collapses to single-column with horizontal table scroll; below 480px, the (diagnostic-only) hash column is hidden — operators triage on Time / Caller / Tool / Actions.
 
+## The CLI dashboard as an approval host
+
+`sentinel dashboard` from the `AI.Sentinel.Cli` tool serves the same panel over the local audit file, so an approver can decide requests that the CLIs (`sentinel-hook`, `sentinel-copilot-hook`, `sentinel-mcp`) hold, without an ASP.NET app. See [Browse the local audit file](/docs/getting-started/dashboard#browse-the-local-audit-file) for the other options.
+
+```bash
+sentinel dashboard --approval-config ./approvals.json --local-approver
+```
+
+What the command does depends on the [approval config](/docs/approvals/cli-config). Pass it with `--approval-config <path>`, or set `SENTINEL_APPROVAL_CONFIG`.
+
+| Config | Result |
+|---|---|
+| `backend: "sqlite"` | The panel lists pending requests, each links to its own page, and Approve and Deny work. The audit file is opened writable, so each decision is appended to the hash chain. |
+| `backend: "entra-pim"` | The panel shows the [external approvals message](#when-the-store-doesnt-implement-iapprovaladmin). Approvers decide in the Azure portal. The audit file stays read-only. |
+| No config, `backend: "none"` or an in-memory backend | No approvals. The audit file stays read-only. Startup prints the reason. An in-memory backend passed explicitly with `--approval-config` is an error, because it keeps nothing between processes. |
+
+Startup prints an `Approvals:` line next to the audit-chain line. It names the backend and the identity mode, for example `Approvals: sqlite /var/lib/ai-sentinel/approvals.db, approver from X-Auth-Request-User via 10.0.0.0/8`. It never prints a header value.
+
+### Who may approve
+
+Without an identity, approve and deny return `401`, as for any unauthenticated dashboard. There are two ways to give the dashboard one. Both look at the socket peer address only and never at `X-Forwarded-For`.
+
+**Local approver.** `--local-approver` treats every loopback request as the current OS user, and records that user name as the approver. It needs a loopback `--bind` and cannot be combined with `--trusted-proxy`. Use it on a workstation where only you reach `127.0.0.1`.
+
+**Trusted proxy.** Put the dashboard behind a reverse proxy that authenticates the user and passes the name in a header:
+
+```bash
+sentinel dashboard \
+  --approval-config ./approvals.json \
+  --bind 0.0.0.0 --port 5170 \
+  --trusted-proxy 10.0.0.0/8 \
+  --user-header X-Auth-Request-User
+```
+
+- `--trusted-proxy` takes a CIDR range or one address, and can be repeated. IPv4-mapped IPv6 entries are treated as IPv4.
+- `--user-header` defaults to `X-Auth-Request-User`, which oauth2-proxy sets. Use `Remote-User` for Authelia.
+- The header is read only when the peer address is inside a trusted range. From anywhere else it is ignored.
+- The value must be a single header value of at most 256 characters, with no control or Unicode format characters. Otherwise the request counts as anonymous and approve and deny return `401`.
+
+A `--bind` that is not loopback needs at least one `--trusted-proxy`. With such a bind the dashboard refuses every request whose peer is neither loopback nor inside a trusted range, with `403`, so the audit data is not served to clients that bypass the proxy. A wildcard bind such as `0.0.0.0` prints a loopback URL on startup.
+
+Whoever the proxy lets in can approve. Restrict the dashboard route in the proxy to the people allowed to approve.
+
+#### Forward-auth example
+
+With oauth2-proxy in front of nginx, the proxy authenticates the user and nginx passes the name on:
+
+```nginx
+location /ai-sentinel/ {
+    auth_request /oauth2/auth;
+    auth_request_set $user $upstream_http_x_auth_request_user;
+    proxy_set_header X-Auth-Request-User $user;
+    proxy_pass http://192.0.2.10:5170;
+}
+```
+
+Run `sentinel dashboard --bind 192.0.2.10 --trusted-proxy 192.0.2.20`, where `192.0.2.20` is the nginx host. For Authelia, set `proxy_set_header Remote-User $user;` with the Authelia response header, and pass `--user-header Remote-User`.
+
+nginx replaces any `X-Auth-Request-User` the client sent, which is what keeps the name trustworthy. Make sure your proxy does the same.
+
+### Cross-site requests
+
+Cookie-based forward auth sends its session cookie on a cross-site `POST`, so authentication alone does not show that the approver meant the click. The approve and deny endpoints therefore refuse a browser request marked cross-site with `403`:
+
+- When the browser sends `Sec-Fetch-Site`, only `same-origin` and `none` pass.
+- Otherwise a request with an `Origin` header passes only when its scheme, host and port match the request. A `null` or malformed origin is refused.
+- A request with neither header, such as `curl`, passes. It is not browser-driven.
+
+Behind a proxy that terminates TLS and forwards plain `http` without forwarded-header handling, the request scheme is `http`. A browser that then sends an `https` `Origin` but no `Sec-Fetch-Site` is refused. Current browsers send `Sec-Fetch-Site` and are not affected.
+
+### The request page
+
+`/ai-sentinel/approvals/{id}` shows one pending request: tool, caller, policy, request time, justification and the arguments, with Approve and Deny buttons and an optional deny reason. The arguments pass through the same redaction as the [webhook](/docs/approvals/cli-config#arguments): credentials and PII are replaced by placeholders. The page is sent with `Cache-Control: no-store` and cannot be framed. A request that is already decided or expired shows a short note instead.
+
+`/approvals/{id}` at the root redirects to that page, so a `dashboardUrl` without the path prefix still works. With `sqlite`, the [notification](/docs/approvals/cli-config#payload) links to this page.
+
+Deny without a reason records `denied via dashboard`.
+
 ## Programmatic access
 
 If you'd rather drive approvals from your own UI:
