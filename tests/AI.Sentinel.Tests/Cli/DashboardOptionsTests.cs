@@ -68,7 +68,42 @@ public class DashboardOptionsTests : IDisposable
 
     [Fact]
     public async Task LocalApprover_WithNonLoopbackBind_IsRefused() =>
-        AssertRefused(await InvokeAsync("--local-approver", "--bind", "0.0.0.0"), "--bind");
+        AssertRefused(await InvokeAsync("--local-approver", "--bind", "0.0.0.0"), "--local-approver needs a loopback --bind");
+
+    [Fact]
+    public async Task Bind_WithScopeId_IsRefused() =>
+        AssertRefused(await InvokeAsync("--bind", "fe80::1%1"), "scope ids");
+
+    [Theory]
+    [InlineData("--bind", "::1")]
+    [InlineData("--bind", "127.0.0.1")]
+    public void ValidLoopbackBind_IsAccepted(string flag, string value) =>
+        Assert.Empty(Root().Parse(["dashboard", flag, value]).Errors);
+
+    [Fact]
+    public void WildcardBind_WithTrustedProxy_IsAccepted() =>
+        Assert.Empty(Root().Parse(["dashboard", "--bind", "0.0.0.0", "--trusted-proxy", "10.0.0.0/8"]).Errors);
+
+    [Fact]
+    public void UserHeader_WithTrustedProxy_IsAccepted() =>
+        Assert.Empty(Root().Parse(["dashboard", "--trusted-proxy", "10.0.0.1", "--user-header", "Remote-User"]).Errors);
+
+    [Fact]
+    public void Settings_ExplicitBind_IsRead()
+    {
+        var s = Read(null, "--bind", "0.0.0.0", "--trusted-proxy", "10.0.0.0/8", "--user-header", "Remote-User");
+        Assert.Equal(IPAddress.Any, s.Bind);
+        Assert.Equal("Remote-User", s.UserHeader);
+    }
+
+    [Theory]
+    [InlineData("::ffff:10.0.0.1", "10.0.0.1/32")]
+    [InlineData("::ffff:10.0.0.0/104", "10.0.0.0/8")]
+    public void Settings_MappedProxy_IsNormalisedToIPv4(string input, string expected)
+    {
+        var s = Read(null, "--trusted-proxy", input);
+        Assert.Equal(expected, Assert.Single(s.TrustedProxies).ToString());
+    }
 
     private DashboardSettings Read(string? env, params string[] args) =>
         DashboardCommand.ReadSettings(Root(env).Parse(["dashboard", .. args]));
@@ -126,34 +161,72 @@ public class DashboardOptionsTests : IDisposable
         Assert.Equal(2, s.TrustedProxies.Count);
     }
 
-    [Fact]
-    public async Task Start_BindsTheGivenLoopbackAddress()
+    private static bool Ipv6LoopbackAvailable()
     {
         if (!Socket.OSSupportsIPv6)
         {
-            Assert.Skip("IPv6 is not available.");
+            return false;
         }
-        var db = Path.Combine(_dir, "audit.db");
-        await using (var store = new AI.Sentinel.Sqlite.SqliteAuditStore(
-            new AI.Sentinel.Sqlite.SqliteAuditStoreOptions { DatabasePath = db }))
+        try
         {
-            await store.AppendAsync(new AI.Sentinel.Audit.AuditEntry(
-                Id: "id1", Timestamp: DateTimeOffset.UtcNow, Hash: "", PreviousHash: null,
-                Severity: AI.Sentinel.Detection.Severity.High, DetectorId: "SEC-01", Summary: "seeded"),
-                TestContext.Current.CancellationToken);
+            using var probe = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
+            probe.Bind(new IPEndPoint(IPAddress.IPv6Loopback, 0));
+            return true;
         }
+        catch (SocketException)
+        {
+            return false;
+        }
+    }
 
-        var stdout = new StringWriter();
-        var dashboard = await DashboardCommand.StartAsync(
-            new DashboardSettings(db, 0) { Bind = IPAddress.IPv6Loopback },
-            stdout, new StringWriter(), TestContext.Current.CancellationToken);
-        if (dashboard is null)
+    private async Task<string> SeedAsync()
+    {
+        var db = Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".db");
+        await using var store = new AI.Sentinel.Sqlite.SqliteAuditStore(
+            new AI.Sentinel.Sqlite.SqliteAuditStoreOptions { DatabasePath = db });
+        await store.AppendAsync(new AI.Sentinel.Audit.AuditEntry(
+            Id: "id1", Timestamp: DateTimeOffset.UtcNow, Hash: "", PreviousHash: null,
+            Severity: AI.Sentinel.Detection.Severity.High, DetectorId: "SEC-01", Summary: "seeded"),
+            TestContext.Current.CancellationToken);
+        return db;
+    }
+
+    [Fact]
+    public async Task Start_BindsTheGivenLoopbackAddress()
+    {
+        if (!Ipv6LoopbackAvailable())
         {
             Assert.Skip("IPv6 loopback is unavailable.");
         }
+        var db = await SeedAsync();
+
+        var dashboard = await DashboardCommand.StartAsync(
+            new DashboardSettings(db, 0) { Bind = IPAddress.IPv6Loopback },
+            new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
+
+        Assert.NotNull(dashboard);
         await using (dashboard)
         {
             Assert.Equal("[::1]", dashboard.Url.Host);
+            using var http = new HttpClient();
+            var resp = await http.GetAsync(new Uri(dashboard.Url, "api/stats"), TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task Start_WildcardBind_ReportsABrowsableLoopbackUrl()
+    {
+        var db = await SeedAsync();
+
+        var dashboard = await DashboardCommand.StartAsync(
+            new DashboardSettings(db, 0) { Bind = IPAddress.Any },
+            new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
+
+        Assert.NotNull(dashboard);
+        await using (dashboard)
+        {
+            Assert.Equal("127.0.0.1", dashboard.Url.Host);
             using var http = new HttpClient();
             var resp = await http.GetAsync(new Uri(dashboard.Url, "api/stats"), TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, resp.StatusCode);

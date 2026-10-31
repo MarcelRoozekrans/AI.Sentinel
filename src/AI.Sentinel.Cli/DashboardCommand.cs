@@ -16,13 +16,24 @@ using Microsoft.Extensions.Logging;
 namespace AI.Sentinel.Cli;
 
 /// <summary>
-/// <c>sentinel dashboard</c>: hosts the embedded AI.Sentinel dashboard over the local audit file on
-/// 127.0.0.1. Read-only: it opens the file with <c>SqliteAuditStore.OpenReadOnly</c>, so it never creates the file,
+/// <c>sentinel dashboard</c>: hosts the embedded AI.Sentinel dashboard over the local audit file. It listens on
+/// 127.0.0.1 unless <c>--bind</c> says otherwise, and a non-loopback bind needs <c>--trusted-proxy</c>. Read-only: it opens the file with <c>SqliteAuditStore.OpenReadOnly</c>, so it never creates the file,
 /// upgrades an older schema, appends entries, or runs retention or a size cap. SQLite may still create the -wal and
 /// -shm coordination files next to it. No approval store is wired, so the approve and deny endpoints write nothing.
 /// </summary>
 public static class DashboardCommand
 {
+    private sealed record OptionSet(
+        Option<string> Db,
+        Option<int> Port,
+        Option<string> Bind,
+        Option<string?> ApprovalConfig,
+        Option<string[]> TrustedProxy,
+        Option<string> UserHeader,
+        Option<bool> LocalApprover);
+
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Command, OptionSet> OptionSets = new();
+
     private const int DefaultPort = 5170;
     private const string PathPrefix = "/ai-sentinel";
 
@@ -40,20 +51,7 @@ public static class DashboardCommand
             Description = "Path to the audit SQLite file. Defaults to the file the hooks and the MCP proxy write.",
             DefaultValueFactory = _ => defaultDatabasePath(),
         };
-        var portOpt = new Option<int>("--port")
-        {
-            Description = "Port to listen on (127.0.0.1 only). Use 0 for any free port.",
-            DefaultValueFactory = _ => DefaultPort,
-        };
-        portOpt.Validators.Add(result =>
-        {
-            var port = result.GetValueOrDefault<int>();
-            if (port is < 0 or > 65535)
-            {
-                result.AddError($"--port must be between 0 and 65535, but was {port.ToString(CultureInfo.InvariantCulture)}.");
-            }
-        });
-
+        var portOpt = CreatePortOption();
         var bindOpt = CreateBindOption();
         var approvalConfigOpt = CreateApprovalConfigOption(approvalConfigFromEnvironment);
         var trustedProxyOpt = CreateTrustedProxyOption();
@@ -74,7 +72,9 @@ public static class DashboardCommand
             localApproverOpt,
         };
 
-        cmd.Validators.Add(result => ValidateCombination(result, bindOpt, trustedProxyOpt, userHeaderOpt, localApproverOpt));
+        var options = new OptionSet(dbOpt, portOpt, bindOpt, approvalConfigOpt, trustedProxyOpt, userHeaderOpt, localApproverOpt);
+        OptionSets.Add(cmd, options);
+        cmd.Validators.Add(result => ValidateCombination(result, options));
 
         cmd.SetAction(async (parseResult, ct) =>
         {
@@ -96,6 +96,24 @@ public static class DashboardCommand
         return cmd;
     }
 
+    private static Option<int> CreatePortOption()
+    {
+        var portOpt = new Option<int>("--port")
+        {
+            Description = "Port to listen on, on the --bind address (127.0.0.1 by default). Use 0 for any free port.",
+            DefaultValueFactory = _ => DefaultPort,
+        };
+        portOpt.Validators.Add(result =>
+        {
+            var port = result.GetValueOrDefault<int>();
+            if (port is < 0 or > 65535)
+            {
+                result.AddError($"--port must be between 0 and 65535, but was {port.ToString(CultureInfo.InvariantCulture)}.");
+            }
+        });
+        return portOpt;
+    }
+
     private static Option<string> CreateBindOption()
     {
         var opt = new Option<string>("--bind")
@@ -106,9 +124,14 @@ public static class DashboardCommand
         opt.Validators.Add(result =>
         {
             var value = result.GetValueOrDefault<string>();
-            if (!IPAddress.TryParse(value, out _))
+            if (!IPAddress.TryParse(value, out var ip))
             {
                 result.AddError($"--bind must be an IP address, but was '{value}'.");
+            }
+            else if (value!.Contains('%', StringComparison.Ordinal)
+                || (ip.AddressFamily == AddressFamily.InterNetworkV6 && ip.ScopeId != 0))
+            {
+                result.AddError("--bind does not support IPv6 scope ids (zone suffixes).");
             }
         });
         return opt;
@@ -163,20 +186,18 @@ public static class DashboardCommand
     }
 
     private static void ValidateCombination(
-        CommandResult result,
-        Option<string> bindOpt,
-        Option<string[]> trustedProxyOpt,
-        Option<string> userHeaderOpt,
-        Option<bool> localApproverOpt)
+        CommandResult result, OptionSet options)
     {
+        var (_, _, bindOpt, _, trustedProxyOpt, userHeaderOpt, localApproverOpt) = options;
         if (result.Errors.Any())
         {
             return;
         }
         var proxies = result.GetValue(trustedProxyOpt) ?? [];
-        if (!IPAddress.TryParse(result.GetValue(bindOpt) ?? IPAddress.Loopback.ToString(), out var bind))
+        var bindText = result.GetValue(bindOpt) ?? IPAddress.Loopback.ToString();
+        if (!IPAddress.TryParse(bindText, out var bind) || bindText.Contains('%', StringComparison.Ordinal))
         {
-            return;
+            return; // the --bind option validator reports the reason
         }
         if (!IPAddress.IsLoopback(bind) && proxies.Length == 0)
         {
@@ -202,12 +223,12 @@ public static class DashboardCommand
     internal static DashboardSettings ReadSettings(ParseResult parseResult)
     {
         ArgumentNullException.ThrowIfNull(parseResult);
-        var command = parseResult.CommandResult.Command;
-        T Value<T>(string name) => parseResult.GetValue((Option<T>)command.Options.First(o => string.Equals(o.Name, name, StringComparison.Ordinal)))!;
-        var approvalConfig = command.Options.First(o => string.Equals(o.Name, "--approval-config", StringComparison.Ordinal));
+        var o = OptionSets.TryGetValue(parseResult.CommandResult.Command, out var found)
+            ? found
+            : throw new ArgumentException("The parse result is not for the dashboard command.", nameof(parseResult));
 
         var proxies = new List<IPNetwork>();
-        foreach (var value in Value<string[]>("--trusted-proxy") ?? [])
+        foreach (var value in parseResult.GetValue(o.TrustedProxy) ?? [])
         {
             if (TryParseProxy(value, out var network))
             {
@@ -215,14 +236,14 @@ public static class DashboardCommand
             }
         }
 
-        return new DashboardSettings(Value<string>("--db"), Value<int>("--port"))
+        return new DashboardSettings(parseResult.GetRequiredValue(o.Db), parseResult.GetValue(o.Port))
         {
-            Bind = IPAddress.Parse(Value<string>("--bind")),
-            ApprovalConfigPath = Value<string?>("--approval-config"),
-            ApprovalConfigExplicit = parseResult.GetResult(approvalConfig)?.Implicit == false,
+            Bind = IPAddress.Parse(parseResult.GetRequiredValue(o.Bind)),
+            ApprovalConfigPath = parseResult.GetValue(o.ApprovalConfig),
+            ApprovalConfigExplicit = parseResult.GetResult(o.ApprovalConfig)?.Implicit == false,
             TrustedProxies = proxies,
-            UserHeader = Value<string>("--user-header"),
-            LocalApprover = Value<bool>("--local-approver"),
+            UserHeader = parseResult.GetRequiredValue(o.UserHeader),
+            LocalApprover = parseResult.GetValue(o.LocalApprover),
         };
     }
 
@@ -230,11 +251,23 @@ public static class DashboardCommand
     {
         if (value.Contains('/', StringComparison.Ordinal))
         {
-            return IPNetwork.TryParse(value, out network);
+            if (!IPNetwork.TryParse(value, out network))
+            {
+                return false;
+            }
+            if (network.BaseAddress.IsIPv4MappedToIPv6 && network.PrefixLength >= 96)
+            {
+                network = new IPNetwork(network.BaseAddress.MapToIPv4(), network.PrefixLength - 96);
+            }
+            return true;
         }
         if ((value.Contains('.', StringComparison.Ordinal) || value.Contains(':', StringComparison.Ordinal))
             && IPAddress.TryParse(value, out var ip))
         {
+            if (ip.IsIPv4MappedToIPv6)
+            {
+                ip = ip.MapToIPv4();
+            }
             network = new IPNetwork(ip, ip.AddressFamily == AddressFamily.InterNetworkV6 ? 128 : 32);
             return true;
         }
@@ -313,7 +346,7 @@ public static class DashboardCommand
             await app.StartAsync(ct).ConfigureAwait(false);
 
             var bound = new Uri(app.Urls.First());
-            var url = new Uri($"http://{HostLiteral(settings.Bind)}:{bound.Port.ToString(CultureInfo.InvariantCulture)}{PathPrefix}/");
+            var url = new Uri($"http://{HostLiteral(BrowsableAddress(settings.Bind))}:{bound.Port.ToString(CultureInfo.InvariantCulture)}{PathPrefix}/");
 
             await WriteStartupAsync(stdout, verification, url).ConfigureAwait(false);
 
@@ -354,6 +387,11 @@ public static class DashboardCommand
             : $"Audit chain broken at entry {verification.FirstBrokenEntryId}").ConfigureAwait(false);
         await stdout.WriteLineAsync($"Dashboard: {url}").ConfigureAwait(false);
     }
+
+    private static IPAddress BrowsableAddress(IPAddress bind) =>
+        bind.Equals(IPAddress.Any) ? IPAddress.Loopback
+        : bind.Equals(IPAddress.IPv6Any) ? IPAddress.IPv6Loopback
+        : bind;
 
     private static string HostLiteral(IPAddress address) =>
         address.AddressFamily == AddressFamily.InterNetworkV6 ? $"[{address.ToString().Split('%')[0]}]" : address.ToString();
