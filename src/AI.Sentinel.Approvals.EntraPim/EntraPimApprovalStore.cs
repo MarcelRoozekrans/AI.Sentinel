@@ -105,7 +105,12 @@ public sealed class EntraPimApprovalStore : IApprovalStore, IRoleActivationAppro
             if (!eligible)
                 return new ApprovalState.Denied($"caller is not eligible for role '{roleName}'", now);
 
-            // 3. Create activation request.
+            // 3. Already waiting on a decision? Return that request instead of opening a second one.
+            var open = await _graph.GetPendingActivationRequestAsync(principalId, roleId, ct).ConfigureAwait(false);
+            if (open is not null)
+                return new ApprovalState.Pending(open.RequestId, BuildPortalUrl(open.RequestId), open.CreatedAt);
+
+            // 4. Create activation request.
             var justification = !string.IsNullOrWhiteSpace(context.Justification)
                 ? context.Justification!
                 : $"AI agent invocation: {context.ToolName}";
@@ -114,7 +119,7 @@ public sealed class EntraPimApprovalStore : IApprovalStore, IRoleActivationAppro
                 .CreateActivationRequestAsync(principalId, roleId, spec.GrantDuration, justification, ct)
                 .ConfigureAwait(false);
 
-            return new ApprovalState.Pending(requestId, BuildPortalUrl(requestId), now);
+            return new ApprovalState.Pending(requestId, BuildPortalUrl(requestId), now) { IsNew = true };
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -282,7 +287,7 @@ public sealed class EntraPimApprovalStore : IApprovalStore, IRoleActivationAppro
         string.Equals(status, "Provisioned", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(status, "PendingProvisioning", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsPendingStatus(string status) =>
+    internal static bool IsPendingStatus(string status) =>
         string.Equals(status, "PendingApproval", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(status, "Granted", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(status, "PendingScheduleCreation", StringComparison.OrdinalIgnoreCase) ||

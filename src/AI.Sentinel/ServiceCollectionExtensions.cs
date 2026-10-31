@@ -341,7 +341,7 @@ public static class ServiceCollectionExtensions
 
     private static void RejectCallScopedGrantsOnRoleActivationStore(IApprovalStore? approvalStore, IReadOnlyList<ToolCallPolicyBinding> bindings)
     {
-        var active = approvalStore is AuditingApprovalStore auditing ? auditing.Inner : approvalStore;
+        var active = approvalStore is null ? null : ApprovalStoreAuditing.Unwrap(approvalStore);
         if (active is not IRoleActivationApprovalStore store)
         {
             return;

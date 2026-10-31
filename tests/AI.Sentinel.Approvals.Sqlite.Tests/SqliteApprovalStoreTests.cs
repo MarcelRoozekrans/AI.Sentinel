@@ -305,4 +305,61 @@ public sealed class SqliteApprovalStoreTests : IDisposable
         cmd.Parameters.AddWithValue("$policy", policy);
         return (long)(await cmd.ExecuteScalarAsync(TestContext.Current.CancellationToken))!;
     }
+
+    [Fact]
+    public async Task EnsureRequest_NewRequest_IsNew()
+    {
+        await using var store = NewStore();
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        Assert.True(Assert.IsType<ApprovalState.Pending>(state).IsNew);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_Reuse_IsNotNew()
+    {
+        await using var store = NewStore();
+        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        var second = Assert.IsType<ApprovalState.Pending>(
+            await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken));
+        Assert.Equal(first.RequestId, second.RequestId, StringComparer.Ordinal);
+        Assert.False(second.IsNew);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_AfterDenial_IsNewAgain()
+    {
+        await using var store = NewStore();
+        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        await store.DenyAsync(first.RequestId, "approver", "no", TestContext.Current.CancellationToken);
+        Assert.IsType<ApprovalState.Denied>(
+            await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken));
+        var fresh = Assert.IsType<ApprovalState.Pending>(
+            await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken));
+        Assert.NotEqual(first.RequestId, fresh.RequestId, StringComparer.Ordinal);
+        Assert.True(fresh.IsNew);
+    }
+
+    [Fact]
+    public async Task WaitForDecision_Pending_IsNotNew()
+    {
+        await using var store = NewStore();
+        var first = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        var waited = Assert.IsType<ApprovalState.Pending>(
+            await store.WaitForDecisionAsync(first.RequestId, TimeSpan.FromMilliseconds(10), TestContext.Current.CancellationToken));
+        Assert.False(waited.IsNew);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_TwoStoresOneFile_ExactlyOneIsNew()
+    {
+        await using var a = NewStore();
+        await using var b = NewStore();
+        var ct = TestContext.Current.CancellationToken;
+        var taskA = Task.Run(async () => await a.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), ct), ct);
+        var taskB = Task.Run(async () => await b.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), ct), ct);
+        var states = await Task.WhenAll(taskA, taskB);
+        var pendings = states.Select(s => Assert.IsType<ApprovalState.Pending>(s)).ToArray();
+        Assert.Equal(pendings[0].RequestId, pendings[1].RequestId, StringComparer.Ordinal);
+        Assert.Single(pendings, p => p.IsNew);
+    }
 }

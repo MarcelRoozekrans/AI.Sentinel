@@ -21,6 +21,17 @@ internal static class SafeHttp
         return $"{endpoint.Scheme}://{endpoint.Host}{port}{endpoint.AbsolutePath}";
     }
 
+    /// <summary>
+    /// Scheme, host and port only: no userinfo, path, query or fragment. For a webhook the path is the credential
+    /// (Slack, Discord, Teams, an ntfy topic), so a log line names the origin and nothing more.
+    /// </summary>
+    internal static string DescribeOrigin(Uri endpoint)
+    {
+        ArgumentNullException.ThrowIfNull(endpoint);
+        var port = endpoint.IsDefaultPort ? string.Empty : $":{endpoint.Port}";
+        return $"{endpoint.Scheme}://{endpoint.Host}{port}";
+    }
+
     /// <summary>The endpoint with userinfo, query and fragment removed.</summary>
     internal static Uri Redact(Uri endpoint) => new(Describe(endpoint), UriKind.Absolute);
 

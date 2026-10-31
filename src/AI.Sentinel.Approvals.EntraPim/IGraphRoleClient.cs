@@ -20,6 +20,11 @@ internal interface IGraphRoleClient
     /// (has a roleEligibilitySchedule).</summary>
     ValueTask<bool> IsEligibleAsync(string principalId, string roleId, CancellationToken ct);
 
+    /// <summary>Returns the newest <c>selfActivate</c> request for the (principal, role) pair that is
+    /// still awaiting a decision, or null when none is open.</summary>
+    ValueTask<PendingRoleRequest?> GetPendingActivationRequestAsync(
+        string principalId, string roleId, CancellationToken ct);
+
     /// <summary>Creates a <c>selfActivate</c> activation request. Returns the new request ID.</summary>
     ValueTask<string> CreateActivationRequestAsync(
         string principalId, string roleId, TimeSpan duration, string justification, CancellationToken ct);

@@ -290,4 +290,185 @@ public class ApprovalConfigLoaderTests : IDisposable
         var ex = Assert.Throws<InvalidOperationException>(() => LoadTools(toolsJson));
         Assert.Contains($"{location} has duplicate key '{key}'", ex.Message, StringComparison.Ordinal);
     }
+
+    private static ApprovalConfig ParseNotify(string extraKeys)
+    {
+        using var doc = JsonDocument.Parse("{ \"backend\": \"in-memory\", " + extraKeys + " }");
+        return ApprovalConfigLoader.Parse(doc.RootElement.Clone());
+    }
+
+    [Fact]
+    public void Parse_NotifyKeys_Populated()
+    {
+        var config = ParseNotify("""
+            "notifyUrl": "https://hooks.example.com/a", "notifyHeaders": { "Authorization": "Bearer x" },
+            "notifyIncludeArgs": true, "dashboardUrl": "http://localhost:5000/"
+            """);
+        Assert.Equal(new Uri("https://hooks.example.com/a"), config.NotifyUrl);
+        Assert.Equal("Bearer x", config.NotifyHeaders["Authorization"]);
+        Assert.True(config.NotifyIncludeArgs);
+        Assert.Equal(new Uri("http://localhost:5000/"), config.DashboardUrl);
+    }
+
+    [Fact]
+    public void Parse_NoNotifyKeys_Defaults()
+    {
+        var config = ParseNotify("\"tenantId\": \"t\"");
+        Assert.Null(config.NotifyUrl);
+        Assert.Empty(config.NotifyHeaders);
+        Assert.False(config.NotifyIncludeArgs);
+        Assert.Null(config.DashboardUrl);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("relative/path")]
+    [InlineData("/relative/path")]
+    [InlineData("ftp://x")]
+    [InlineData("not a url")]
+    public void Parse_NotifyUrl_Invalid_Throws(string value)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify($"\"notifyUrl\": \"{value}\""));
+        Assert.Contains("notifyUrl", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("notifyUrl", "hooks.example.com/services/T/B/s3cret", "is not an absolute URL")]
+    [InlineData("notifyUrl", "htps://hooks.example.com/services/T/B/s3cret", "has scheme 'htps'")]
+    [InlineData("notifyUrl", "ftp://hooks.example.com/services/T/B/s3cret", "has scheme 'ftp'")]
+    [InlineData("notifyUrl", "s3cret:token", "must use http or https")]
+    [InlineData("notifyUrl", "", "is empty")]
+    [InlineData("dashboardUrl", "dash.example.com/s3cret", "is not an absolute URL")]
+    public void Parse_InvalidUrl_NeverQuotesTheValue(string key, string value, string expected)
+    {
+        var json = string.Equals(key, "notifyUrl", StringComparison.Ordinal) ? $"\"notifyUrl\": \"{value}\"" : $"\"notifyUrl\": \"https://h.example.com/\", \"dashboardUrl\": \"{value}\"";
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify(json));
+        Assert.Contains(key, ex.Message, StringComparison.Ordinal);
+        Assert.Contains(expected, ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_NonStringUrl_DoesNotEchoTheValue()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify("\"notifyUrl\": { \"k\": \"s3cret\" }"));
+        Assert.Contains("notifyUrl", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_NotifyHeaderErrors_NameTheHeaderNotTheValue()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify(
+            "\"notifyUrl\": \"https://h.example.com/\", \"notifyHeaders\": { \"Bad Name\": \"s3cret\" }"));
+        Assert.Contains("Bad Name", ex.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("s3cret", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("relative")]
+    [InlineData("/relative/path")]
+    public void Parse_DashboardUrl_Invalid_Throws(string value)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify($"\"dashboardUrl\": \"{value}\""));
+        Assert.Contains("dashboardUrl", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_NotifyHeadersWithoutUrl_Throws()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify("\"notifyHeaders\": { \"X-A\": \"b\" }"));
+        Assert.Contains("notifyHeaders", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("notifyUrl", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_NotifyIncludeArgsWithoutUrl_Throws()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify("\"notifyIncludeArgs\": true"));
+        Assert.Contains("notifyIncludeArgs", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("notifyUrl", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Parse_DashboardUrlAlone_Loads()
+    {
+        var config = ParseNotify("\"dashboardUrl\": \"https://d.example.com/\"");
+        Assert.NotNull(config.DashboardUrl);
+        Assert.Null(config.NotifyUrl);
+    }
+
+    [Fact]
+    public void Parse_NotifyHeaders_NonString_Throws()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify(
+            "\"notifyUrl\": \"https://h.example.com/\", \"notifyHeaders\": { \"X-A\": 1 }"));
+        Assert.Contains("notifyHeaders['X-A']", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("Content-Type")]
+    [InlineData("content-length")]
+    [InlineData("Bad Name")]
+    public void Parse_NotifyHeaders_ForbiddenOrInvalidName_Throws(string name)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify(
+            $"\"notifyUrl\": \"https://h.example.com/\", \"notifyHeaders\": {{ \"{name}\": \"v\" }}"));
+        Assert.Contains("notifyHeaders", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(name, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Load_ExpandsEnvInNotifyUrlAndHeaders()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_TEST_458_HOST", "hooks.example.com");
+        Environment.SetEnvironmentVariable("SENTINEL_TEST_458_TOKEN", "s3cret");
+        try
+        {
+            File.WriteAllText(_tempPath, """
+            { "backend": "in-memory", "notifyUrl": "https://${SENTINEL_TEST_458_HOST}/x",
+              "notifyHeaders": { "Authorization": "Bearer ${SENTINEL_TEST_458_TOKEN}" } }
+            """);
+            var config = ApprovalConfigLoader.Load(_tempPath);
+            Assert.Equal("hooks.example.com", config.NotifyUrl!.Host);
+            Assert.Equal("Bearer s3cret", config.NotifyHeaders["Authorization"]);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_TEST_458_HOST", null);
+            Environment.SetEnvironmentVariable("SENTINEL_TEST_458_TOKEN", null);
+        }
+    }
+
+    [Fact]
+    public void Load_UnsetEnvInNotifyUrl_Throws()
+    {
+        // The expander turns an unset variable into an empty string, which the URL check then rejects.
+        File.WriteAllText(_tempPath, "{ \"backend\": \"in-memory\", \"notifyUrl\": \"${UNSET_458_VAR}\" }");
+        var ex = Assert.Throws<InvalidOperationException>(() => ApprovalConfigLoader.Load(_tempPath));
+        Assert.Contains("notifyUrl is empty", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("\"notifyUrl\": 5", "notifyUrl")]
+    [InlineData("\"dashboardUrl\": 5", "dashboardUrl")]
+    [InlineData("\"notifyUrl\": \"https://h.example.com/\", \"notifyIncludeArgs\": \"yes\"", "notifyIncludeArgs")]
+    [InlineData("\"notifyUrl\": \"https://h.example.com/\", \"notifyHeaders\": { \"X-A\": \"1\", \"X-A\": \"2\" }", "notifyHeaders")]
+    [InlineData("\"notifyUrl\": \"https://h.example.com/\", \"notifyHeaders\": { \"X-A\": \"1\", \"x-a\": \"2\" }", "duplicate key")]
+    public void Parse_WrongTypeOrDuplicate_ThrowsNamingKey(string json, string expected)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => ParseNotify(json));
+        Assert.Contains(expected, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Load_UnsetEnvInNotifyHeaderValue_Throws()
+    {
+        File.WriteAllText(_tempPath, """
+        { "backend": "in-memory", "notifyUrl": "https://h.example.com/",
+          "notifyHeaders": { "Authorization": "${UNSET_458_HDR}" } }
+        """);
+        var ex = Assert.Throws<InvalidOperationException>(() => ApprovalConfigLoader.Load(_tempPath));
+        Assert.Contains("notifyHeaders['Authorization']", ex.Message, StringComparison.Ordinal);
+    }
 }

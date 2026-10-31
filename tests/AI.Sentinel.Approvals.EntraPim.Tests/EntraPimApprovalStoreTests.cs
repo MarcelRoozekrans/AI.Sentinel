@@ -85,6 +85,20 @@ public class EntraPimApprovalStoreTests
             return new ValueTask<bool>(Eligible.Contains((principalId, roleId)));
         }
 
+        public Dictionary<(string principalId, string roleId), PendingRoleRequest?> PendingRequests { get; } = new();
+        public Exception? PendingLookupError { get; set; }
+        public int PendingLookupCount;
+
+        public ValueTask<PendingRoleRequest?> GetPendingActivationRequestAsync(
+            string principalId, string roleId, CancellationToken ct)
+        {
+            Interlocked.Increment(ref PendingLookupCount);
+            if (PendingLookupError is not null)
+                throw PendingLookupError;
+            PendingRequests.TryGetValue((principalId, roleId), out var pending);
+            return new ValueTask<PendingRoleRequest?>(pending);
+        }
+
         public ValueTask<string> CreateActivationRequestAsync(
             string principalId, string roleId, TimeSpan duration, string justification, CancellationToken ct)
         {
@@ -175,6 +189,67 @@ public class EntraPimApprovalStoreTests
         var state = await store.WaitForDecisionAsync(ReqId, TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.Equal(ReqId, Assert.IsType<ApprovalState.Active>(state).RequestId);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_PendingRequestExists_ReturnsItWithoutCreating()
+    {
+        var fake = MakeFake();
+        fake.Eligible.Add((AlicePrincipalId, DbAdminRoleId));
+        var t0 = DateTimeOffset.UtcNow.AddMinutes(-3);
+        fake.PendingRequests[(AlicePrincipalId, DbAdminRoleId)] = new PendingRoleRequest("pim-1", t0);
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+
+        var pending = Assert.IsType<ApprovalState.Pending>(state);
+        Assert.Equal("pim-1", pending.RequestId);
+        Assert.Equal(t0, pending.RequestedAt);
+        Assert.Contains("pim-1", pending.ApprovalUrl, StringComparison.Ordinal);
+        Assert.False(pending.IsNew);
+        Assert.Empty(fake.CreateCalls);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_NoPendingRequest_CreatesAndIsNew()
+    {
+        var fake = MakeFake();
+        fake.Eligible.Add((AlicePrincipalId, DbAdminRoleId));
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+
+        Assert.True(Assert.IsType<ApprovalState.Pending>(state).IsNew);
+        Assert.Single(fake.CreateCalls);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_PendingLookupFails_MapsLikeOtherGraphErrors()
+    {
+        var fake = MakeFake();
+        fake.Eligible.Add((AlicePrincipalId, DbAdminRoleId));
+        fake.PendingLookupError = new HttpRequestException("forbidden", null, System.Net.HttpStatusCode.Forbidden);
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+
+        var denied = Assert.IsType<ApprovalState.Denied>(state);
+        Assert.Contains("access denied", denied.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(fake.CreateCalls);
+    }
+
+    [Fact]
+    public async Task EnsureRequest_ActiveGrant_SkipsPendingLookup()
+    {
+        var fake = MakeFake();
+        fake.ActiveAssignments[(AlicePrincipalId, DbAdminRoleId)] =
+            new RoleScheduleSnapshot("Provisioned", DateTimeOffset.UtcNow.AddMinutes(10));
+        var store = new EntraPimApprovalStore(fake, MakeOptions());
+
+        var state = await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+
+        Assert.IsType<ApprovalState.Active>(state);
+        Assert.Equal(0, fake.PendingLookupCount);
     }
 
     // ---------------------------------------------------------------------

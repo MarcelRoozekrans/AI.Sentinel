@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.EntraPim;
+using AI.Sentinel.Approvals.Notifications;
 using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
@@ -59,6 +60,91 @@ public sealed class ApprovalStoreRegistrationTests : IDisposable
             }
         }
         return entries;
+    }
+
+    private static ApprovalNotifierSettings Notifier() =>
+        new(new Uri("http://127.0.0.1:9/"), new Dictionary<string, string>(StringComparer.Ordinal), false, null);
+
+    private static List<IApprovalStore> Chain(IApprovalStore store)
+    {
+        var chain = new List<IApprovalStore> { store };
+        while (chain[^1] is IApprovalStoreDecorator d)
+        {
+            chain.Add(d.Inner);
+        }
+
+        return chain;
+    }
+
+    private static ServiceProvider BuildWithNotifier(bool notifier, bool audit)
+    {
+        var services = new ServiceCollection();
+        if (notifier) services.AddSingleton(Notifier());
+        services.AddAISentinel(Gate);
+        if (!audit) services.RemoveAll<IAuditStore>();
+        return services.BuildServiceProvider();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Registration_WithNotifierSettings_WrapsStore(bool audit)
+    {
+        await using var sp = BuildWithNotifier(notifier: true, audit);
+
+        var resolved = ApprovalStoreAuditing.Resolve(sp)!;
+
+        Assert.IsType<InMemoryApprovalStore>(ApprovalStoreAuditing.Unwrap(resolved));
+        Assert.Single(Chain(resolved), s => s is NotifyingApprovalStore);
+        Assert.Equal(audit, Chain(resolved).Any(s => s is AuditingApprovalStore));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Registration_WithoutNotifierSettings_NoNotifier(bool audit)
+    {
+        await using var sp = BuildWithNotifier(notifier: false, audit);
+
+        var resolved = ApprovalStoreAuditing.Resolve(sp)!;
+
+        Assert.DoesNotContain(Chain(resolved), s => s is NotifyingApprovalStore);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Registration_AdminStillResolvable_WithNotifier(bool audit)
+    {
+        await using var sp = BuildWithNotifier(notifier: true, audit);
+
+        var requestId = await OpenRequestAsync(sp.GetRequiredService<IApprovalStore>());
+        var admin = sp.GetRequiredService<IApprovalAdmin>();
+        await admin.ApproveAsync(requestId, "approver", null, Ct);
+
+        var state = await sp.GetRequiredService<IApprovalStore>().EnsureRequestAsync(
+            new TestCaller("caller"), new ApprovalSpec { PolicyName = Policy }, MakeCtx(), Ct);
+        Assert.IsType<ApprovalState.Active>(state);
+    }
+
+    // Without an audit store the registered store is already the notifier; Resolve must not wrap it again.
+    [Fact]
+    public async Task RegisteredStore_WithNotifierAndNoAuditStore_NotifiesOnce()
+    {
+        using var hook = new Helpers.WebhookListener();
+        var services = new ServiceCollection();
+        services.AddSingleton(new ApprovalNotifierSettings(
+            hook.Url, new Dictionary<string, string>(StringComparer.Ordinal), false, null));
+        services.AddSentinelApprovalStore(_ => new InMemoryApprovalStore());
+        services.AddAISentinel(Gate);
+        services.RemoveAll<IAuditStore>();
+        await using var sp = services.BuildServiceProvider();
+
+        var resolved = ApprovalStoreAuditing.Resolve(sp)!;
+        await OpenRequestAsync(resolved);
+
+        Assert.Single(Chain(resolved), s => s is NotifyingApprovalStore);
+        Assert.Single(hook.Bodies);
     }
 
     [Fact]

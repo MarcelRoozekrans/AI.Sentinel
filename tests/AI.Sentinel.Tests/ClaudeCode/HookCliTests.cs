@@ -628,6 +628,90 @@ public class HookCliTests : HookAuditOffFixtureBase
     }
 
     [Fact]
+    public async Task ApprovalConfig_WithNotifyUrl_PostsOnNewRequest()
+    {
+        using var hook = new WebhookListener();
+        var dir = HookAuditTestSupport.NewTempDir();
+        var previous = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
+        try
+        {
+            var db = Path.Combine(dir, "approvals.db");
+            var config = Path.Combine(dir, "approvals.json");
+            await File.WriteAllTextAsync(config, $$"""
+                { "backend": "sqlite", "databasePath": {{JsonSerializer.Serialize(db)}}, "notifyUrl": "{{hook.Url}}",
+                  "tools": { "Bash": { "role": "Ops" } } }
+                """, TestContext.Current.CancellationToken);
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", config);
+            var stdin = new StringReader("""{"session_id":"s","tool_name":"Bash","tool_input":{"command":"ls"}}""");
+
+            await Program.RunAsync(["pre-tool-use"], stdin, new StringWriter(), new StringWriter());
+
+            var body = Assert.Single(hook.Bodies);
+            Assert.Equal("Bash", body.RootElement.GetProperty("tool").GetString());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", previous);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            HookAuditTestSupport.DeleteDir(dir);
+        }
+    }
+
+    // The pending approval blocks with exit 2, so stderr carries the block reason the model reads. The webhook warning
+    // follows the audit problems: kept off that stderr, reported with verbose on.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApprovalConfig_WithNotifyUrl_WebhookFailure_StaysOffTheBlockReason(bool verbose)
+    {
+        using var hook = new WebhookListener(status: 500);
+        var dir = HookAuditTestSupport.NewTempDir();
+        var previous = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", verbose ? "1" : null);
+        try
+        {
+            var db = Path.Combine(dir, "approvals.db");
+            var config = Path.Combine(dir, "approvals.json");
+            var secretUrl = new Uri(hook.Url, "services/T/B/s3cret?token=q");
+            await File.WriteAllTextAsync(config, $$"""
+                { "backend": "sqlite", "databasePath": {{JsonSerializer.Serialize(db)}}, "notifyUrl": "{{secretUrl}}",
+                  "notifyHeaders": { "Authorization": "Bearer hdr-secret" },
+                  "tools": { "Bash": { "role": "Ops" } } }
+                """, TestContext.Current.CancellationToken);
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", config);
+            var stdin = new StringReader("""{"session_id":"s","tool_name":"Bash","tool_input":{"command":"ls"}}""");
+            var stderr = new StringWriter();
+
+            var exit = await Program.RunAsync(["pre-tool-use"], stdin, new StringWriter(), stderr);
+
+            Assert.Equal(2, exit);
+            Assert.Single(hook.Bodies);
+            var lines = stderr.ToString().Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            Assert.NotEmpty(lines);
+            if (!verbose)
+            {
+                Assert.DoesNotContain(lines, l => l.Contains("webhook", StringComparison.OrdinalIgnoreCase));
+                return;
+            }
+
+            var line = Assert.Single(lines, l => l.Contains("webhook", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains("500", line, StringComparison.Ordinal);
+            Assert.Contains(hook.Url.Authority, line, StringComparison.Ordinal);
+            Assert.DoesNotContain("s3cret", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("services", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("token", line, StringComparison.Ordinal);
+            Assert.DoesNotContain("hdr-secret", line, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_VERBOSE", null);
+            Environment.SetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG", previous);
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            HookAuditTestSupport.DeleteDir(dir);
+        }
+    }
+
+    [Fact]
     public async Task BuildProvider_SqliteBackend_RegistersSqliteApprovalStore()
     {
         // Stage 5 Task 5.6 bundled the Sqlite backend into the CLI. Selecting 'sqlite' must

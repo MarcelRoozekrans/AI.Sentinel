@@ -1,4 +1,5 @@
 using AI.Sentinel.Approvals;
+using AI.Sentinel.Approvals.Notifications;
 using AI.Sentinel.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -14,6 +15,22 @@ public class GrantScopeTests
     public void CallScopedRule_OnEntraPimStore_FailsWhenTheGuardIsResolved()
     {
         using var sp = Build(ApprovalGrantScope.Call);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => sp.GetRequiredService<IToolCallGuard>());
+        Assert.Contains("GrantScope.Call", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("Entra PIM", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GrantScopeCall_RejectedWithNotifier()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton(new ApprovalNotifierSettings(
+            new Uri("http://127.0.0.1:9/"), new Dictionary<string, string>(StringComparer.Ordinal), false, null));
+        services.AddSingleton<IGraphRoleClient>(new NoopGraphRoleClient());
+        services.AddSentinelEntraPimApprovalStore(o => o.TenantId = FakeTenantId);
+        services.AddAISentinel(o => o.RequireApproval("Bash", s => s.GrantScope = ApprovalGrantScope.Call));
+        using var sp = services.BuildServiceProvider();
 
         var ex = Assert.Throws<InvalidOperationException>(() => sp.GetRequiredService<IToolCallGuard>());
         Assert.Contains("GrantScope.Call", ex.Message, StringComparison.Ordinal);
@@ -82,6 +99,9 @@ public class GrantScopeTests
             new((RoleScheduleSnapshot?)null);
 
         public ValueTask<bool> IsEligibleAsync(string principalId, string roleId, CancellationToken ct) => new(false);
+
+        public ValueTask<PendingRoleRequest?> GetPendingActivationRequestAsync(
+            string principalId, string roleId, CancellationToken ct) => new((PendingRoleRequest?)null);
 
         public ValueTask<string> CreateActivationRequestAsync(
             string principalId, string roleId, TimeSpan duration, string justification, CancellationToken ct) => new("req");

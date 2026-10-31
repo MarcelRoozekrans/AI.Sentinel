@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using AI.Sentinel.Approvals.Notifications;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,9 +35,12 @@ internal static class ApprovalStoreAuditing
         services.Any(d => d.ServiceType == typeof(IApprovalStore) && !d.IsKeyedService);
 
     /// <summary>
-    /// Returns the registered <see cref="IApprovalStore"/> wrapped by <see cref="AuditingApprovalStore"/> when an
-    /// <see cref="IAuditStore"/> is registered, the store itself when none is, and <see langword="null"/> when no store
-    /// is registered. A store registered through <see cref="ApprovalStoreServiceCollectionExtensions.AddSentinelApprovalStore{TStore}"/> is returned as DI hands it out,
+    /// Returns the registered <see cref="IApprovalStore"/> wrapped by <see cref="NotifyingApprovalStore"/> when
+    /// <see cref="ApprovalNotifierSettings"/> are registered, and then by <see cref="AuditingApprovalStore"/> when an
+    /// <see cref="IAuditStore"/> is registered. With neither it is the store itself, and <see langword="null"/> when no
+    /// store is registered. A <see cref="NotifyingApprovalStore"/> counts as already wrapped, like an
+    /// <see cref="AuditingApprovalStore"/>: when no audit store is registered, <see cref="Wrap"/> returns the notifier
+    /// as the outermost store, and wrapping it again would post every new request twice. A store registered through <see cref="ApprovalStoreServiceCollectionExtensions.AddSentinelApprovalStore{TStore}"/> is returned as DI hands it out,
     /// already wrapped; one registered straight as <see cref="IApprovalStore"/> is wrapped here. The wrapper implements
     /// <see cref="IApprovalAdmin"/> exactly when the store does.
     /// </summary>
@@ -45,15 +49,24 @@ internal static class ApprovalStoreAuditing
     {
         ArgumentNullException.ThrowIfNull(sp);
         var store = sp.GetService<IApprovalStore>();
-        return store is null or AuditingApprovalStore ? store : Wrap(sp, store);
+        // NotifyingApprovalStore counts as wrapped: with no audit store, Wrap applied it at registration.
+        return store is null or AuditingApprovalStore or NotifyingApprovalStore ? store : Wrap(sp, store);
     }
 
     /// <summary>
-    /// Wraps <paramref name="inner"/> when an <see cref="IAuditStore"/> is registered, and returns it unwrapped when
-    /// none is. Every wrapper over the same inner store shares one <see cref="ApprovalAuditMemory"/>.
+    /// Wraps <paramref name="inner"/> in <see cref="NotifyingApprovalStore"/> when <see cref="ApprovalNotifierSettings"/>
+    /// are registered, then in <see cref="AuditingApprovalStore"/> when an <see cref="IAuditStore"/> is registered.
+    /// Every wrapper over the same inner store shares one <see cref="ApprovalAuditMemory"/>.
     /// </summary>
     internal static IApprovalStore Wrap(IServiceProvider sp, IApprovalStore inner)
     {
+        var original = inner;
+        var settings = sp.GetService<ApprovalNotifierSettings>();
+        if (settings is not null)
+        {
+            inner = NotifyingApprovalStore.Wrap(inner, settings, sp.GetService<ILogger<NotifyingApprovalStore>>());
+        }
+
         var audit = sp.GetService<IAuditStore>();
         if (audit is null)
         {
@@ -62,10 +75,23 @@ internal static class ApprovalStoreAuditing
 
         var forwarders = AuditForwarding.Snapshot(sp.GetServices<IAuditForwarder>());
         var logger = sp.GetService<ILogger<AuditingApprovalStore>>();
-        var memory = Memories.GetValue(inner, static _ => new ApprovalAuditMemory());
+        var memory = Memories.GetValue(original, static _ => new ApprovalAuditMemory());
         return inner is IApprovalAdmin admin
             ? new AuditingApprovalAdminStore(inner, admin, audit, forwarders, logger, memory)
             : new AuditingApprovalStore(inner, audit, forwarders, logger, memory);
+    }
+
+    /// <summary>Follows <see cref="IApprovalStoreDecorator.Inner"/> to the first store that is not a decorator.</summary>
+    /// <param name="store">The store DI resolved.</param>
+    internal static IApprovalStore Unwrap(IApprovalStore store)
+    {
+        ArgumentNullException.ThrowIfNull(store);
+        while (store is IApprovalStoreDecorator decorator)
+        {
+            store = decorator.Inner;
+        }
+
+        return store;
     }
 
     /// <summary>

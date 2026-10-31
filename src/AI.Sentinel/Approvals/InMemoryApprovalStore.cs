@@ -77,7 +77,7 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
             };
             _byRequestId[requestId] = entry;
             _dedupe[key] = requestId;
-            return ValueTask.FromResult(StateOf(entry));
+            return ValueTask.FromResult<ApprovalState>(((ApprovalState.Pending)StateOf(entry)) with { IsNew = true });
         }
     }
 
