@@ -25,6 +25,7 @@ public sealed partial class SentinelPipeline
     private readonly SentinelOptions options;
     private readonly IAlertSink? alertSink;
     private readonly IAuditForwarder[] _forwarders;
+    private readonly TimeProvider _timeProvider;
     private readonly Disclosure _disclosure;
     private int _rateLimiterWriteCount;
 
@@ -56,7 +57,8 @@ public sealed partial class SentinelPipeline
         this.options = options;
         this.alertSink = alertSink;
         _forwarders = AuditForwarding.Snapshot(forwarders);
-        _disclosure = new Disclosure(options, pipelineName, timeProvider ?? TimeProvider.System);
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _disclosure = new Disclosure(options, pipelineName, _timeProvider);
 
         // Tool calls the model makes run inside a FunctionInvokingChatClient below this pipeline, if there is
         // one; its hook restores their arguments and redacts their results for the current call.
@@ -836,7 +838,9 @@ public sealed partial class SentinelPipeline
         List<ScanFinding>? findings = null,
         int newMessagesFrom = 0)
     {
-        var ctx = BuildContext(msgs, sessionId, sender, receiver, systemPrompt, in exemptions, llmId, newMessagesFrom);
+        var history = await SessionHistory.ReadAsync(
+            auditStore, sessionId.Value, _timeProvider.GetUtcNow(), options.OnDetectorFailure, ct).ConfigureAwait(false);
+        var ctx = BuildContext(msgs, history, sessionId, sender, receiver, systemPrompt, in exemptions, llmId, newMessagesFrom);
         using var scanActivity = _activitySource.StartActivity("sentinel.scan");
         var pipelineResult = await pipeline.RunAsync(ctx, ct).ConfigureAwait(false);
         await AppendAuditAsync(pipelineResult, sessionId, ct).ConfigureAwait(false);
@@ -895,18 +899,25 @@ public sealed partial class SentinelPipeline
     }
 
     private SentinelContext BuildContext(
-        IReadOnlyList<ChatMessage> msgs, SessionId sessionId, AgentId sender, AgentId receiver,
-        string? systemPrompt, in Exemptions exemptions, string? llmId, int newMessagesFrom)
-        => exemptions.Minted is null
-            ? new SentinelContext(sender, receiver, sessionId, msgs, [])
+        IReadOnlyList<ChatMessage> msgs, IReadOnlyList<AuditEntry> history, SessionId sessionId, AgentId sender,
+        AgentId receiver, string? systemPrompt, in Exemptions exemptions, string? llmId, int newMessagesFrom)
+    {
+        var session = sessionId.Value;
+        ValueTask<int> EarlierHits(DetectorId id, CancellationToken t) => SessionHistory.CountEarlierHitsAsync(
+            auditStore, session, id.Value, _timeProvider.GetUtcNow(), options.OnDetectorFailure, t);
+
+        return exemptions.Minted is null
+            ? new SentinelContext(sender, receiver, sessionId, msgs, history)
             {
+                EarlierHits = EarlierHits,
                 SystemPrompt = systemPrompt,
                 LlmId = llmId,
                 NewMessagesFrom = newMessagesFrom,
                 MaxScanBytes = options.MaxScanBytes,
             }
-            : new SentinelContext(sender, receiver, sessionId, msgs, [])
+            : new SentinelContext(sender, receiver, sessionId, msgs, history)
             {
+                EarlierHits = EarlierHits,
                 SystemPrompt = systemPrompt,
                 LlmId = llmId,
                 NewMessagesFrom = newMessagesFrom,
@@ -915,6 +926,7 @@ public sealed partial class SentinelPipeline
                 RequestPlaceholders = exemptions.Request ?? NoStrings,
                 RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,
             };
+    }
 
     /// <summary>The detection that drove <paramref name="action"/>: highest severity among those whose
     /// effective action equals it, so an alert never carries a detection whose own action was weaker.</summary>
