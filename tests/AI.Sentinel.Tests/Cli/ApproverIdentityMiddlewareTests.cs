@@ -23,7 +23,7 @@ public class ApproverIdentityMiddlewareTests
             LocalApprover = local,
         };
 
-    private static async Task<HttpClient> BuildClientAsync(
+    private static async Task<IHost> BuildHostAsync(
         DashboardSettings settings, string? remote, Action<HttpRequest>? prep = null)
     {
         var host = await new HostBuilder()
@@ -46,13 +46,14 @@ public class ApproverIdentityMiddlewareTests
                     });
                 }))
             .StartAsync(TestContext.Current.CancellationToken);
-        return host.GetTestClient();
+        return host;
     }
 
     private static async Task<(HttpStatusCode Status, string Body)> GetAsync(
         DashboardSettings settings, string? remote, Action<HttpRequest>? prep = null)
     {
-        var client = await BuildClientAsync(settings, remote, prep);
+        using var host = await BuildHostAsync(settings, remote, prep);
+        using var client = host.GetTestClient();
         var res = await client.GetAsync("/", TestContext.Current.CancellationToken);
         return (res.StatusCode, await res.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
     }
@@ -94,6 +95,9 @@ public class ApproverIdentityMiddlewareTests
         "   ",
         new string('a', 257),
         "ali\u0001ce",
+        "ali\u202Ece",
+        "ali\u200Bce",
+        "ali\u200Dce",
     };
 
     [Theory]
@@ -215,5 +219,45 @@ public class ApproverIdentityMiddlewareTests
     {
         var (status, _) = await GetAsync(Settings(["10.0.0.0/24"]), "192.0.2.7");
         Assert.Equal(HttpStatusCode.OK, status);
+    }
+
+    [Fact]
+    public async Task Local_IPv4MappedLoopback_IsOsUser()
+    {
+        var (_, body) = await GetAsync(Settings(local: true), "::ffff:127.0.0.1");
+        Assert.Equal($"True|{Environment.UserName}|LocalApprover", body);
+    }
+
+    [Fact]
+    public async Task LoopbackProxy_ValidHeader_IsTrustedProxyUser()
+    {
+        var (_, body) = await GetAsync(Settings(["127.0.0.1/32"]), "127.0.0.1", User("alice"));
+        Assert.Equal("True|alice|TrustedProxy", body);
+    }
+
+    [Fact]
+    public async Task LoopbackProxy_BadHeader_IsAnonymous()
+    {
+        var (_, body) = await GetAsync(Settings(["127.0.0.1/32"]), "127.0.0.1", User("  "));
+        Assert.Equal("False||", body);
+    }
+
+    [Fact]
+    public void LocalApprover_WithNonLoopbackBind_Throws()
+    {
+        var app = new ApplicationBuilder(new NullServiceProvider());
+        Assert.Throws<ArgumentException>(() => app.UseApproverIdentity(Settings(local: true, bind: "0.0.0.0")));
+    }
+
+    [Fact]
+    public void LocalApprover_WithTrustedProxies_Throws()
+    {
+        var app = new ApplicationBuilder(new NullServiceProvider());
+        Assert.Throws<ArgumentException>(() => app.UseApproverIdentity(Settings(["10.0.0.0/24"], local: true)));
+    }
+
+    private sealed class NullServiceProvider : IServiceProvider
+    {
+        public object? GetService(Type serviceType) => null;
     }
 }

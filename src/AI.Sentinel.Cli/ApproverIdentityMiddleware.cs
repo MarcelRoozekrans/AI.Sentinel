@@ -1,4 +1,5 @@
 using System.Net;
+using System.Globalization;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -23,6 +24,9 @@ internal static class ApproverIdentityMiddleware
         ArgumentNullException.ThrowIfNull(settings);
 
         var gate = !IPAddress.IsLoopback(settings.Bind);
+        if (settings.LocalApprover && (gate || settings.TrustedProxies.Count > 0))
+            throw new ArgumentException(
+                "The local approver requires a loopback bind and no trusted proxies.", nameof(settings));
         var proxies = settings.TrustedProxies;
         if (!gate && proxies.Count == 0 && !settings.LocalApprover)
             return app;
@@ -75,7 +79,7 @@ internal static class ApproverIdentityMiddleware
         var trimmed = values[0]?.Trim();
         if (string.IsNullOrEmpty(trimmed) || trimmed.Length > MaxUserLength) return false;
         foreach (var c in trimmed)
-            if (char.IsControl(c)) return false;
+            if (char.IsControl(c) || char.GetUnicodeCategory(c) == UnicodeCategory.Format) return false;
         name = trimmed;
         return true;
     }
