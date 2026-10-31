@@ -1,0 +1,18 @@
+<Project>
+  <!-- Shared by sentinel-hook, sentinel-copilot-hook and sentinel-mcp: RID-specific .NET 10 tool packages.
+       `dotnet pack` produces the pointer package, `dotnet pack -r <rid>` the Native AOT package for one RID
+       (on a runner of that OS), and `dotnet pack -r any -p:PublishAot=false` the framework-dependent fallback.
+       The release pushes every RID package before the pointer, see .github/workflows/release-please.yml. -->
+  <PropertyGroup>
+    <TargetFrameworks></TargetFrameworks>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackAsTool>true</PackAsTool>
+    <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
+    <!-- musl needs its own packages: the RID graph sends linux-musl-x64 to linux-x64 before any,
+         and a glibc binary cannot start on Alpine. -->
+    <ToolPackageRuntimeIdentifiers>linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-arm64;win-x64;any</ToolPackageRuntimeIdentifiers>
+    <!-- The framework-dependent any fallback also starts on a host that only has a newer .NET runtime. -->
+    <RollForward>Major</RollForward>
+    <InvariantGlobalization Condition="'$(PublishAot)' == 'true'">true</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

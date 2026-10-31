@@ -13,7 +13,9 @@ title: Claude Code
 dotnet tool install -g AI.Sentinel.ClaudeCode.Cli
 ```
 
-The CLI installs as `sentinel-hook` on your `PATH`. It's a self-contained `dotnet tool` — no runtime configuration in your project.
+The CLI installs as `sentinel-hook` on your `PATH`, with no runtime configuration in your project. Installing needs the .NET 10 SDK. On linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64, `dotnet tool install` picks the Native AOT build, which starts in a few milliseconds instead of paying ~190 ms of JIT startup on every hook call. Other platforms get a framework-dependent build that runs on the .NET 10 runtime.
+
+A machine with an SDK older than .NET 10 can no longer install the tool. Install the .NET 10 SDK, or use the [release binary](#native-binary-without-the-net-sdk), which needs no .NET at all.
 
 ## Wire it into Claude Code
 
@@ -212,28 +214,35 @@ The decision follows the action your `SentinelOptions` give each detection: `Qua
 
 Useful when you want a hook that ships entries to your own backend (Splunk, custom REST API, etc.) without going through file forwarders.
 
-## Native binary (faster cold start)
+## Native binary without the .NET SDK
 
-The hook CLI is Native-AOT ready. A native single-file binary cuts cold-start latency by roughly 10× compared to the `dotnet tool` entry point — worth it if hooks fire on every tool call.
+Every GitHub release carries the Native AOT builds as archives, for hosts that have no .NET SDK: `sentinel-hook-<version>-<rid>.tar.gz` for `linux-x64`, `linux-arm64`, `linux-musl-x64`, `linux-musl-arm64` and `osx-arm64`, and `sentinel-hook-<version>-win-x64.zip`. The glibc builds need glibc 2.28 or later, which covers every glibc distribution .NET 10 supports, RHEL 8 and SLES 15 included; the `linux-musl-*` builds are for Alpine. `sentinel-copilot-hook` and `sentinel-mcp` ship the same way. Each release also carries a `SHA256SUMS` file, and every archive has a GitHub build attestation that proves it was built by this repository's release workflow.
 
 ```bash
-dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -f net10.0 -r linux-x64 -p:PublishAot=true
-# Output: bin/Release/net10.0/linux-x64/publish/sentinel-hook
+version=5.0.0
+gh release download "v$version" --repo MarcelRoozekrans/AI.Sentinel \
+  --pattern "sentinel-hook-$version-linux-x64.tar.gz" --pattern SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify "sentinel-hook-$version-linux-x64.tar.gz" --repo MarcelRoozekrans/AI.Sentinel
+sudo mkdir -p /opt/sentinel-hook
+sudo tar -xzf "sentinel-hook-$version-linux-x64.tar.gz" --no-same-owner -C /opt/sentinel-hook
 ```
 
-Replace `linux-x64` with `win-x64`, `osx-arm64`, etc. Point the hook `command` at the binary's full path instead of `sentinel-hook`:
+The archive holds the binary and the native SQLite library it loads from its own folder, so keep them together in their own directory. Point the hook `command` at the binary's full path instead of `sentinel-hook`:
 
 ```json
 {
   "hooks": {
     "UserPromptSubmit": [
-      { "hooks": [{ "type": "command", "command": "/usr/local/bin/sentinel-hook user-prompt-submit" }] }
+      { "hooks": [{ "type": "command", "command": "/opt/sentinel-hook/sentinel-hook user-prompt-submit" }] }
     ]
   }
 }
 ```
 
-**Prereqs on Windows:** Visual Studio "Desktop development with C++" workload. Linux needs `clang` + `libc` dev packages. macOS needs Xcode CLT.
+The binaries are not code-signed. `gh release download` and `curl` set no quarantine flag, but after a browser download macOS quarantines every extracted file: clear it with `xattr -dr com.apple.quarantine /opt/sentinel-hook`. On Windows, run `Unblock-File` on each extracted file after a browser download.
+
+For a platform without a release build, publish one yourself: `dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -r <rid> -p:PublishAot=true`. This needs the native toolchain: the Visual Studio "Desktop development with C++" workload on Windows, `clang` and the `libc` dev packages on Linux, Xcode CLT on macOS.
 
 ## What gets blocked, in practice
 
