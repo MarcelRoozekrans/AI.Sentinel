@@ -83,6 +83,9 @@ public class GrantScopeTests
 
         public ValueTask<bool> IsEligibleAsync(string principalId, string roleId, CancellationToken ct) => new(false);
 
+        public ValueTask<PendingRoleRequest?> GetPendingActivationRequestAsync(
+            string principalId, string roleId, CancellationToken ct) => new((PendingRoleRequest?)null);
+
         public ValueTask<string> CreateActivationRequestAsync(
             string principalId, string roleId, TimeSpan duration, string justification, CancellationToken ct) => new("req");
 

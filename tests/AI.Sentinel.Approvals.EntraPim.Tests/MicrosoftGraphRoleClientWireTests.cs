@@ -81,6 +81,87 @@ public class MicrosoftGraphRoleClientWireTests
         Assert.Equal("req-pim-123", snapshot!.RequestId);
     }
 
+    [Fact]
+    public async Task GetPendingActivationRequest_PicksTheNewestPendingAndFiltersOnSelfActivate()
+    {
+        HttpRequestMessage? captured = null;
+        var handler = new CapturingHandler(
+            req => { captured = req; return Task.CompletedTask; },
+            """
+            {"value":[
+              {"id":"old-pending","status":"PendingApproval","createdDateTime":"2026-10-31T09:00:00Z"},
+              {"id":"new-pending","status":"PendingApproval","createdDateTime":"2026-10-31T10:00:00Z"},
+              {"id":"newer-failed","status":"Failed","createdDateTime":"2026-10-31T11:00:00Z"},
+              {"id":"no-time","status":"PendingApproval"}]}
+            """);
+        using var http = new HttpClient(handler);
+        using var adapter = new HttpClientRequestAdapter(new AnonymousAuthenticationProvider(), httpClient: http);
+        var client = new MicrosoftGraphRoleClient(new GraphServiceClient(adapter));
+
+        var pending = await client.GetPendingActivationRequestAsync(
+            "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000099",
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(pending);
+        Assert.Equal("new-pending", pending!.RequestId);
+        Assert.Equal(new DateTimeOffset(2026, 10, 31, 10, 0, 0, TimeSpan.Zero), pending.CreatedAt);
+        var query = Uri.UnescapeDataString(captured!.RequestUri!.Query);
+        Assert.Contains("action eq 'selfActivate'", query, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task GetPendingActivationRequest_FollowsNextLinkToFindAPendingRequestOnLaterPage()
+    {
+        var calls = 0;
+        var handler = new CapturingHandler(
+            _ => Task.CompletedTask,
+            _ => ++calls == 1
+                ? """
+                  {"@odata.nextLink":"https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignmentScheduleRequests?$skiptoken=p2",
+                   "value":[{"id":"done","status":"Provisioned","createdDateTime":"2026-10-31T08:00:00Z"}]}
+                  """
+                : """
+                  {"value":[{"id":"page2-pending","status":"PendingApproval","createdDateTime":"2026-10-31T09:00:00Z"}]}
+                  """);
+        using var http = new HttpClient(handler);
+        using var adapter = new HttpClientRequestAdapter(new AnonymousAuthenticationProvider(), httpClient: http);
+        var client = new MicrosoftGraphRoleClient(new GraphServiceClient(adapter));
+
+        var pending = await client.GetPendingActivationRequestAsync(
+            "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000099",
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal("page2-pending", pending!.RequestId);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task GetPendingActivationRequest_PastThePageCap_ThrowsWithoutFetchingAnotherPage()
+    {
+        var calls = 0;
+        var handler = new CapturingHandler(
+            _ => Task.CompletedTask,
+            _ =>
+            {
+                calls++;
+                return """
+                  {"@odata.nextLink":"https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignmentScheduleRequests?$skiptoken=more",
+                   "value":[]}
+                  """;
+            });
+        using var http = new HttpClient(handler);
+        using var adapter = new HttpClientRequestAdapter(new AnonymousAuthenticationProvider(), httpClient: http);
+        var client = new MicrosoftGraphRoleClient(new GraphServiceClient(adapter));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await client.GetPendingActivationRequestAsync(
+                "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000099",
+                TestContext.Current.CancellationToken));
+
+        Assert.Contains("20 pages", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(20, calls);
+    }
+
     /// <summary>
     /// Spins up an in-memory Graph SDK pipeline pointed at a capturing HTTP handler,
     /// invokes <see cref="MicrosoftGraphRoleClient.CreateActivationRequestAsync"/>,
@@ -127,12 +208,21 @@ public class MicrosoftGraphRoleClientWireTests
         private readonly Func<HttpRequestMessage, Task> _capture;
         private readonly string _responseJson;
 
+        private readonly Func<HttpRequestMessage, string>? _responder;
+
         public CapturingHandler(
             Func<HttpRequestMessage, Task> capture,
             string responseJson = "{\"id\":\"req-stub-id\",\"status\":\"PendingApproval\"}")
         {
             _capture = capture;
             _responseJson = responseJson;
+        }
+
+        /// <summary>Computes each response body from the request, for multi-page stubs.</summary>
+        public CapturingHandler(Func<HttpRequestMessage, Task> capture, Func<HttpRequestMessage, string> responder)
+            : this(capture)
+        {
+            _responder = responder;
         }
 
         protected override async Task<HttpResponseMessage> SendAsync(
@@ -150,7 +240,7 @@ public class MicrosoftGraphRoleClientWireTests
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    _responseJson,
+                    _responder?.Invoke(request) ?? _responseJson,
                     Encoding.UTF8,
                     "application/json"),
             };

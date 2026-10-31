@@ -32,6 +32,9 @@ internal sealed class MicrosoftGraphRoleClient : IGraphRoleClient
         "members preserved by the SDK's own trim attributes. Reflection avoids a hard type reference so AI.Sentinel " +
         "stays decoupled from Graph SDK internals. AOT-published CLIs that don't use entra-pim never invoke this path.";
 
+    // Upper bound on pages read by the pending-request lookup.
+    private const int MaxPendingLookupPages = 20;
+
     private readonly GraphServiceClient _graph;
 
     public MicrosoftGraphRoleClient(GraphServiceClient graph)
@@ -128,6 +131,65 @@ internal sealed class MicrosoftGraphRoleClient : IGraphRoleClient
             ct).ConfigureAwait(false);
 
         return page?.Value is { Count: > 0 };
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask<PendingRoleRequest?> GetPendingActivationRequestAsync(
+        string principalId, string roleId, CancellationToken ct)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(principalId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(roleId);
+
+        // Status is filtered client-side: Graph does not document status as filterable on this
+        // collection. Without Top the page is Graph's default size, so a principal with a long
+        // request history is paged through via @odata.nextLink; a pending request on a later page
+        // would otherwise be missed and a duplicate created.
+        var filter =
+            $"principalId eq '{EscapeOData(principalId)}' and " +
+            $"roleDefinitionId eq '{EscapeOData(roleId)}' and " +
+            "action eq 'selfActivate'";
+
+        PendingRoleRequest? newest = null;
+        var page = await WithGraphRetryAsync(
+            () => _graph.RoleManagement.Directory.RoleAssignmentScheduleRequests
+                .GetAsync(rc =>
+                {
+                    rc.QueryParameters.Filter = filter;
+                    rc.QueryParameters.Select = new[] { "id", "status", "createdDateTime" };
+                }, ct),
+            ct).ConfigureAwait(false);
+
+        for (var pages = 1; page is not null; pages++)
+        {
+            foreach (var req in page.Value ?? [])
+            {
+                // A candidate without an id or a created time cannot be reported; skip it.
+                if (string.IsNullOrEmpty(req.Id) || req.CreatedDateTime is not { } created)
+                    continue;
+                if (!EntraPimApprovalStore.IsPendingStatus(req.Status ?? string.Empty))
+                    continue;
+                if (newest is null || created > newest.CreatedAt)
+                    newest = new PendingRoleRequest(req.Id, created);
+            }
+
+            var next = page.OdataNextLink;
+            if (string.IsNullOrEmpty(next))
+                break;
+            // Fail closed: returning a partial answer here could hide a pending request and let the
+            // store create a duplicate. The store maps this exception to Denied.
+            if (pages >= MaxPendingLookupPages)
+            {
+                throw new InvalidOperationException(
+                    $"Pending activation request lookup exceeded {MaxPendingLookupPages} pages; " +
+                    "refusing to guess whether a request is already open.");
+            }
+            page = await WithGraphRetryAsync(
+                () => _graph.RoleManagement.Directory.RoleAssignmentScheduleRequests
+                    .WithUrl(next).GetAsync(cancellationToken: ct),
+                ct).ConfigureAwait(false);
+        }
+
+        return newest;
     }
 
     /// <inheritdoc/>
