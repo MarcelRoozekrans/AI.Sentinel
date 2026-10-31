@@ -197,9 +197,12 @@ public class RingBufferAuditStoreTests
     {
         var store = new RingBufferAuditStore(1_000);
         for (int i = 1; i <= 1_000; i++)
-            await store.AppendAsync(new AuditEntry(i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        {
+            var entry = new AuditEntry(i.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 DateTimeOffset.UtcNow, $"h{i}", null, Severity.None, "OPS-01", "m")
-                { SessionId = i % 100 == 0 ? "s" : "other" }, CancellationToken.None);
+            { SessionId = i % 100 == 0 ? "s" : "other" };
+            await store.AppendAsync(entry, CancellationToken.None);
+        }
         return store;
     }
 
@@ -254,9 +257,12 @@ public class RingBufferAuditStoreTests
     {
         using var store = new RingBufferAuditStore(capacity: 5);
         for (int i = 1; i <= 8; i++)
-            await store.AppendAsync(new AuditEntry(i.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        {
+            var entry = new AuditEntry(i.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 DateTimeOffset.UtcNow, $"h{i}", null, Severity.None, "OPS-01", "m")
-                { SessionId = i % 2 == 0 ? "s" : "other" }, CancellationToken.None);
+            { SessionId = i % 2 == 0 ? "s" : "other" };
+            await store.AppendAsync(entry, CancellationToken.None);
+        }
 
         Assert.Equal(["8", "6", "4"], await QueryIds(store, new AuditQuery { SessionId = "s", Reverse = true }));
         Assert.Equal(["8", "6"], await QueryIds(store, new AuditQuery { SessionId = "s", Reverse = true, PageSize = 2 }));

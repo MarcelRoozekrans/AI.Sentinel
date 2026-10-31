@@ -61,7 +61,12 @@ internal static class SessionHistory
         {
             var query = new AuditQuery
             {
-                SessionId = sessionId, DetectorId = detectorId, MinSeverity = Detection.Severity.Low, Reverse = true, PageSize = EscalationThreshold, From = from,
+                SessionId = sessionId,
+                DetectorId = detectorId,
+                MinSeverity = Detection.Severity.Low,
+                Reverse = true,
+                PageSize = EscalationThreshold,
+                From = from,
             };
             var count = 0;
             await foreach (var entry in store.QueryAsync(query, ct).WithCancellation(ct).ConfigureAwait(false))
