@@ -1003,7 +1003,7 @@ An audit failure never changes a decision. `sentinel-hook` prints it to stderr w
 
 ### Native binary
 
-`sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` are .NET 10 RID-specific tools. `dotnet tool install` needs the .NET 10 SDK, and on linux-x64, linux-arm64, osx-arm64 and win-x64 it installs the Native AOT build, which skips the ~190 ms JIT startup on every hook call. Other platforms get a framework-dependent build.
+`sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` are .NET 10 RID-specific tools. `dotnet tool install` needs the .NET 10 SDK, and on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64 it installs the Native AOT build, which skips the ~190 ms JIT startup on every hook call. Other platforms get a framework-dependent build.
 
 For hosts without the .NET SDK, every GitHub release carries `<command>-<version>-<rid>` archives with a `SHA256SUMS` file and GitHub build attestations. See [Native binary without the .NET SDK](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#native-binary-without-the-net-sdk) for download and verification steps.
 

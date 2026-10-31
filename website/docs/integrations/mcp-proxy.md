@@ -15,7 +15,7 @@ Unlike the [Claude Code](./claude-code) and [Copilot](./copilot) hooks (which in
 dotnet tool install -g AI.Sentinel.Mcp.Cli
 ```
 
-Installs as `sentinel-mcp` on your `PATH`. Installing needs the .NET 10 SDK, and the Native AOT build is picked on linux-x64, linux-arm64, osx-arm64 and win-x64. Hosts without the .NET SDK can use the `sentinel-mcp-<version>-<rid>` archive from the GitHub release; see [Claude Code → Native binary without the .NET SDK](./claude-code#native-binary-without-the-net-sdk) for how to verify it.
+Installs as `sentinel-mcp` on your `PATH`. Installing needs the .NET 10 SDK, and the Native AOT build is picked on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64. Hosts without the .NET SDK can use the `sentinel-mcp-<version>-<rid>` archive from the GitHub release; see [Claude Code → Native binary without the .NET SDK](./claude-code#native-binary-without-the-net-sdk) for how to verify it.
 
 ## Wire it into your MCP host
 

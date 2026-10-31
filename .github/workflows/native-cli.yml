@@ -6,6 +6,9 @@ name: Native CLI
 # (aot-publish.yml) and the release (release-please.yml) both call this workflow, so a PR
 # exercises exactly the bits a release pushes to NuGet and attaches to the GitHub release.
 #
+# The Linux packages are linked inside a container (eng/pack-native-linux.sh): AlmaLinux 8 for
+# glibc, so the binaries need glibc 2.28 at most, and the Alpine .NET SDK image for musl.
+#
 # Permissions are inherited from the caller: the release grants id-token and attestations
 # write for the provenance attestation, the PR check does not and passes attest: false.
 
@@ -21,6 +24,12 @@ on:
         type: boolean
         default: false
 
+env:
+  GLIBC_IMAGE: almalinux:8
+  # Newest GLIBC_x.y symbol version a glibc binary may need: the glibc of AlmaLinux 8 / RHEL 8.
+  GLIBC_CEILING: '2.28'
+  MUSL_IMAGE: mcr.microsoft.com/dotnet/sdk:10.0-alpine
+
 jobs:
   native:
     name: ${{ matrix.cli.command }} ${{ matrix.target.rid }}
@@ -32,21 +41,26 @@ jobs:
           - { id: ClaudeCode.Cli, command: sentinel-hook, kind: hook }
           - { id: Copilot.Cli, command: sentinel-copilot-hook, kind: copilot-hook }
           - { id: Mcp.Cli, command: sentinel-mcp, kind: mcp }
+        # libc: glibc and musl legs pack in a container; none packs on the runner itself.
         target:
-          - { rid: linux-x64, os: ubuntu-latest }
-          - { rid: linux-arm64, os: ubuntu-24.04-arm }
-          - { rid: osx-arm64, os: macos-latest }
-          - { rid: win-x64, os: windows-latest }
+          - { rid: linux-x64, os: ubuntu-latest, libc: glibc }
+          - { rid: linux-arm64, os: ubuntu-24.04-arm, libc: glibc }
+          - { rid: linux-musl-x64, os: ubuntu-latest, libc: musl }
+          - { rid: linux-musl-arm64, os: ubuntu-24.04-arm, libc: musl }
+          - { rid: osx-arm64, os: macos-latest, libc: none }
+          - { rid: win-x64, os: windows-latest, libc: none }
 
     steps:
       - uses: actions/checkout@v7
 
       - name: Setup .NET
+        if: matrix.target.libc == 'none'
         uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
 
       - name: Pack the ${{ matrix.target.rid }} tool package
+        if: matrix.target.libc == 'none'
         shell: pwsh
         run: |
           dotnet pack src/AI.Sentinel.${{ matrix.cli.id }}/AI.Sentinel.${{ matrix.cli.id }}.csproj `
@@ -56,6 +70,18 @@ jobs:
             -p:Version=${{ inputs.version }} `
             -o out
           if ($LASTEXITCODE -ne 0) { throw "Pack failed" }
+
+      - name: Pack the ${{ matrix.target.rid }} tool package in a ${{ matrix.target.libc }} container
+        if: matrix.target.libc != 'none'
+        env:
+          IMAGE: ${{ matrix.target.libc == 'musl' && env.MUSL_IMAGE || env.GLIBC_IMAGE }}
+          PROJECT: src/AI.Sentinel.${{ matrix.cli.id }}/AI.Sentinel.${{ matrix.cli.id }}.csproj
+          RID: ${{ matrix.target.rid }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src \
+            -e PROJECT -e RID -e VERSION \
+            "$IMAGE" sh eng/pack-native-linux.sh
 
       - name: Extract the native binary from the package
         id: extract
@@ -77,13 +103,36 @@ jobs:
           Get-ChildItem $dir.FullName -File |
             Where-Object { $_.Extension -notin '.pdb', '.dbg', '.xml' -and $_.Name -ne $assembly } |
             Copy-Item -Destination dist
-          Copy-Item (Join-Path $dir.FullName $assembly) "dist/${{ matrix.cli.command }}$ext"
+          $binary = "dist/${{ matrix.cli.command }}$ext"
+          Copy-Item (Join-Path $dir.FullName $assembly) $binary
+          # A zip carries no Unix mode, so Expand-Archive leaves the binary without the execute bit.
+          if (-not $IsWindows) { chmod +x $binary }
           Write-Host "Archive contents:"; Get-ChildItem dist | ForEach-Object { "  $($_.Name) ($([math]::Round($_.Length / 1MB, 2)) MB)" }
-          "binary=dist/${{ matrix.cli.command }}$ext" >> $env:GITHUB_OUTPUT
+          "binary=$binary" >> $env:GITHUB_OUTPUT
+
+      - name: Check the glibc floor
+        if: matrix.target.libc == 'glibc'
+        env:
+          BINARY: ${{ steps.extract.outputs.binary }}
+        run: |
+          newest=$(objdump -T "$BINARY" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+          echo "Newest GLIBC symbol version: $newest (ceiling $GLIBC_CEILING)"
+          if [ "$(printf '%s\n%s\n' "$newest" "$GLIBC_CEILING" | sort -V | tail -1)" != "$GLIBC_CEILING" ]; then
+            echo "::error::$BINARY needs GLIBC_$newest, newer than the $GLIBC_CEILING ceiling"
+            exit 1
+          fi
 
       - name: Smoke test
+        if: matrix.target.libc != 'musl'
         shell: pwsh
         run: ./eng/smoke-native.ps1 -Binary '${{ steps.extract.outputs.binary }}' -Kind ${{ matrix.cli.kind }}
+
+      # A musl binary cannot start on the glibc runner. The .NET SDK images include PowerShell.
+      - name: Smoke test in a musl container
+        if: matrix.target.libc == 'musl'
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/src" -w /src "$MUSL_IMAGE" \
+            pwsh -NoProfile -File eng/smoke-native.ps1 -Binary '${{ steps.extract.outputs.binary }}' -Kind ${{ matrix.cli.kind }}
 
       - name: Archive
         id: archive
@@ -95,8 +144,9 @@ jobs:
             $archive = "artifacts/$base.zip"
             Compress-Archive -Path dist/* -DestinationPath $archive
           } else {
+            # Named entries only: a ./ entry would reset the mode and owner of the directory it is extracted into.
             $archive = "artifacts/$base.tar.gz"
-            tar -czf $archive -C dist .
+            tar -czf $archive -C dist @((Get-ChildItem dist).Name)
             if ($LASTEXITCODE -ne 0) { throw "tar failed" }
           }
           Copy-Item "out/AI.Sentinel.${{ matrix.cli.id }}.${{ matrix.target.rid }}.${{ inputs.version }}.nupkg" artifacts/

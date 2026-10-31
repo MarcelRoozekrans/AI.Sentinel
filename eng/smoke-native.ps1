@@ -25,8 +25,11 @@ function Fail([string] $message) {
 if (-not (Test-Path $Binary -PathType Leaf)) { Fail "Binary not found: $Binary" }
 $Binary = (Resolve-Path $Binary).Path
 
-# Extracted from a .nupkg (a zip), the binary has no execute bit on Linux/macOS.
-if (-not $IsWindows) { chmod +x $Binary }
+# The archive and the installed tool must carry the execute bit themselves; the smoke test
+# does not set it, so a package or archive that loses it fails here.
+if (-not $IsWindows -and -not ((Get-Item $Binary).UnixFileMode -band [IO.UnixFileMode]::UserExecute)) {
+  Fail "Binary is not executable: $Binary"
+}
 
 $sizeMb = [math]::Round((Get-Item $Binary).Length / 1MB, 2)
 Write-Host "Binary: $Binary ($sizeMb MB)"

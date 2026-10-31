@@ -155,9 +155,36 @@ jobs:
         run: mv ./native/*.nupkg ./nupkg-rid/
 
       # A pointer package names its RID packages, and `dotnet tool install` fails outright on a RID
-      # whose package is missing. Push every RID and any package first, the pointers last.
+      # whose package is missing. Check that every named package was built, push them all, wait
+      # until NuGet serves each one, and push the pointers last.
+      - name: Check every RID package a pointer names was built
+        run: |
+          for ptr in ./nupkg-pointer/*.nupkg; do
+            ids=$(unzip -p "$ptr" tools/any/any/DotnetToolSettings.xml | grep -o 'Id="[^"]*"' | cut -d'"' -f2)
+            [ -n "$ids" ] || { echo "::error::$(basename "$ptr") names no RID packages"; exit 1; }
+            for id in $ids; do
+              [ -f "./nupkg-rid/$id.$VERSION.nupkg" ] || { echo "::error::$(basename "$ptr") names $id, but $id.$VERSION.nupkg was not built"; exit 1; }
+            done
+          done
+
       - name: Push the RID packages to NuGet
         run: dotnet nuget push "./nupkg-rid/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      # NuGet validates and indexes each package on its own schedule, so push order alone does not
+      # make a large RID package available before the small pointer that names it.
+      - name: Wait until NuGet serves every RID package
+        run: |
+          for f in ./nupkg-rid/*.nupkg; do
+            id=$(basename "$f" ".$VERSION.nupkg" | tr '[:upper:]' '[:lower:]')
+            for attempt in $(seq 1 60); do
+              if curl -fsS "https://api.nuget.org/v3-flatcontainer/$id/index.json" 2>/dev/null | grep -q "\"$VERSION\""; then
+                continue 2
+              fi
+              sleep 30
+            done
+            echo "::error::$id $VERSION is not available on NuGet after 30 minutes; the pointer packages were not pushed"
+            exit 1
+          done
 
       - name: Push the libraries and the CLI pointer packages to NuGet
         run: |

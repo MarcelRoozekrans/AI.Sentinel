@@ -9,9 +9,9 @@ title: Migrating to 5.0
 
 ## The hook and MCP CLIs need the .NET 10 SDK
 
-`AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli` and `AI.Sentinel.Mcp.Cli` target net10.0 only. On linux-x64, linux-arm64, osx-arm64 and win-x64, `dotnet tool install` and `dotnet tool update` install the Native AOT build, which needs no .NET runtime at all. Other platforms get a framework-dependent build that runs on the .NET 10 runtime.
+`AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli` and `AI.Sentinel.Mcp.Cli` target net10.0 only. On linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64, `dotnet tool install` and `dotnet tool update` install the Native AOT build, which needs no .NET runtime at all. Other platforms get a framework-dependent build that runs on the .NET 10 runtime.
 
-**What breaks:** on a machine with only the .NET 8 SDK, `dotnet tool install` and `dotnet tool update` fail for these three packages.
+**What breaks:** on a machine with an SDK older than .NET 10, `dotnet tool install` and `dotnet tool update` fail for these three packages.
 
 **What to do:** pick one of these.
 

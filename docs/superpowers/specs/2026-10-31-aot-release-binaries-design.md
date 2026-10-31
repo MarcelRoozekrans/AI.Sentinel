@@ -10,7 +10,7 @@ Scope: `sentinel-hook` (AI.Sentinel.ClaudeCode.Cli), `sentinel-copilot-hook` (AI
 
 ## Goals
 
-- NuGet: the three tool packages become RID-specific .NET 10 tool packages. Native AOT for `linux-x64`, `linux-arm64`, `osx-arm64`, `win-x64`, and a framework-dependent `any` fallback for every other platform. Same package IDs, same command names.
+- NuGet: the three tool packages become RID-specific .NET 10 tool packages. Native AOT for `linux-x64`, `linux-arm64`, `linux-musl-x64`, `linux-musl-arm64`, `osx-arm64`, `win-x64`, and a framework-dependent `any` fallback for every other platform. The glibc builds need glibc 2.28 at most, so they start on every glibc distribution .NET 10 supports. Same package IDs, same command names.
 - GitHub release: per RID, a native binary archive for each CLI, a `SHA256SUMS` file covering every archive, and a GitHub artifact attestation (Sigstore build provenance) for each archive.
 - Every release-side build step is exercised on PRs too, so a broken native leg fails a PR rather than a release.
 - Docs show the native path as the default and explain how to verify a downloaded binary.
@@ -18,7 +18,7 @@ Scope: `sentinel-hook` (AI.Sentinel.ClaudeCode.Cli), `sentinel-copilot-hook` (AI
 ## Non-goals
 
 - OS code signing (Authenticode, Apple notarization). Windows SmartScreen and macOS Gatekeeper still warn on downloaded binaries. The docs say so.
-- More RIDs (win-arm64, osx-x64, musl). They get the `any` fallback.
+- More RIDs (win-arm64, osx-x64). They get the `any` fallback. musl is in scope: the RID graph sends `linux-musl-x64` to `linux-x64` before `any`, so without its own packages Alpine would get a glibc binary that cannot start (final review, Marcel chose native musl legs).
 - Homebrew, winget, apt or container images.
 - AOT for `AI.Sentinel.Cli`.
 
@@ -39,6 +39,9 @@ Scope: `sentinel-hook` (AI.Sentinel.ClaudeCode.Cli), `sentinel-copilot-hook` (AI
 - The repo is public, so `actions/attest-build-provenance` and `gh attestation verify` are available.
 - The release pushes 15 new package IDs (`<Id>.<rid>` and `<Id>.any` for each CLI). The `NUGET_API_KEY` uses an `AI.Sentinel.*` glob, so it covers them (confirmed by Marcel).
 
+- A Native AOT binary needs the glibc of the machine it was linked on or newer. ubuntu-24.04 has glibc 2.39, so the glibc legs link inside an AlmaLinux 8 container (glibc 2.28) and CI fails a binary that needs a newer `GLIBC_` symbol. The musl legs link inside the Alpine .NET SDK image. Both go through `eng/pack-native-linux.sh` (final review, Marcel chose the old-glibc container).
+- nuget.org indexes packages asynchronously, so the release checks that every RID package a pointer names was built, and waits until NuGet serves each RID package before it pushes the pointers.
+
 ## Approaches
 
 | | Approach | Trade-off |
@@ -58,7 +61,7 @@ For each of the three CLI projects:
 - `TargetFramework` `net10.0` replaces `TargetFrameworks` `net8.0;net10.0`. The libraries they reference keep `net8.0;net10.0`.
 - `PackAsTool` is `true` unconditionally. The `Condition="'$(PublishAot)' != 'true'"` goes away.
 - `PublishAot` `true` in the project, so AOT and trim analyzers run on every build, not only in the AOT workflow.
-- `ToolPackageRuntimeIdentifiers` `linux-x64;linux-arm64;osx-arm64;win-x64;any`.
+- `ToolPackageRuntimeIdentifiers` `linux-x64;linux-arm64;linux-musl-x64;linux-musl-arm64;osx-arm64;win-x64;any`, and `RollForward` `Major` so the `any` fallback also starts on a newer runtime.
 - `InvariantGlobalization` keeps following `PublishAot`. It must stay false for the `any` package, which is packed with `PublishAot=false`, so the existing condition already gives the right result.
 - The shared RID list lives in one place, a property in `Directory.Build.props` scoped to the three CLIs or a small `src/Cli.Native.props` imported by them. Builder's call.
 

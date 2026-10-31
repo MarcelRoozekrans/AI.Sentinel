@@ -1,7 +1,8 @@
 name: AOT publish
 
 # Builds, smoke-tests and installs the Native AOT builds of sentinel-hook, sentinel-copilot-hook
-# and sentinel-mcp on every RID the release ships (linux-x64, linux-arm64, osx-arm64, win-x64),
+# and sentinel-mcp on every RID the release ships (linux-x64, linux-arm64, linux-musl-x64,
+# linux-musl-arm64, osx-arm64, win-x64), and installs the framework-dependent any fallback,
 # through the same reusable workflow the release uses, so a broken native leg fails the PR
 # instead of the release.
 #
@@ -192,7 +193,8 @@ jobs:
   tool-install:
     # Proves the pointer package resolves to the native RID package: installs each CLI from a
     # local feed holding the pointer, the any fallback and the linux-x64 package, then checks
-    # that no managed CLI assembly was installed and smoke-tests the installed command.
+    # that no managed CLI assembly was installed and smoke-tests the installed command. Then
+    # installs again as a RID without its own package, which must get the any fallback.
     needs: native
     runs-on: ubuntu-latest
     env:
@@ -240,5 +242,23 @@ jobs:
           if ($managed) { $managed | ForEach-Object FullName; throw "dotnet tool install picked the framework-dependent any package" }
           foreach ($cli in $clis) {
             ./eng/smoke-native.ps1 -Binary "tools/$($cli.Command)" -Kind $cli.Kind
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+
+      - name: Install the any fallback and smoke-test it
+        shell: pwsh
+        env:
+          # A RID with no package of its own resolves to the framework-dependent any package.
+          DOTNET_RUNTIME_ID: osx-x64
+        run: |
+          foreach ($cli in @(
+              @{ Id = 'AI.Sentinel.ClaudeCode.Cli'; Command = 'sentinel-hook'; Kind = 'hook' },
+              @{ Id = 'AI.Sentinel.Copilot.Cli'; Command = 'sentinel-copilot-hook'; Kind = 'copilot-hook' },
+              @{ Id = 'AI.Sentinel.Mcp.Cli'; Command = 'sentinel-mcp'; Kind = 'mcp' })) {
+            dotnet tool install $cli.Id --version $env:VERSION --tool-path tools-any --add-source feed
+            if ($LASTEXITCODE -ne 0) { throw "Install of the any package failed for $($cli.Id)" }
+            $managed = Get-ChildItem tools-any/.store -Recurse -File -Filter "$($cli.Id).dll"
+            if (-not $managed) { throw "dotnet tool install did not pick the any package for $($cli.Id)" }
+            ./eng/smoke-native.ps1 -Binary "tools-any/$($cli.Command)" -Kind $cli.Kind
             if ($LASTEXITCODE -ne 0) { exit 1 }
           }

@@ -13,7 +13,7 @@ title: GitHub Copilot
 dotnet tool install -g AI.Sentinel.Copilot.Cli
 ```
 
-The CLI installs as `sentinel-copilot-hook` on your `PATH`. As with the Claude Code adapter, installing needs the .NET 10 SDK, and the Native AOT build is picked on linux-x64, linux-arm64, osx-arm64 and win-x64.
+The CLI installs as `sentinel-copilot-hook` on your `PATH`. As with the Claude Code adapter, installing needs the .NET 10 SDK, and the Native AOT build is picked on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64.
 
 ## Wire it into Copilot
 
@@ -158,7 +158,7 @@ Each GitHub release carries `sentinel-copilot-hook-<version>-<rid>` archives. Do
   "version": 1,
   "hooks": {
     "userPromptSubmitted": [
-      { "type": "command", "bash": "/usr/local/bin/sentinel-copilot-hook user-prompt-submitted", "timeoutSec": 10 }
+      { "type": "command", "bash": "/opt/sentinel-copilot-hook/sentinel-copilot-hook user-prompt-submitted", "timeoutSec": 10 }
     ]
   }
 }
