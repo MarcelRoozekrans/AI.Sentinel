@@ -484,3 +484,31 @@ tr.audit-row-authz td:first-child {
   .feed-chip.chip-compliance.active { color: #7e22ce; }
   .export-button { background: #f1f5f9; }
 }
+
+/* Per-request approval page */
+.approval-page { max-width: 48rem; margin: 0 auto; padding: 1.5rem 1rem; }
+.approval-back { color: var(--muted); font-size: 0.8rem; text-decoration: none; }
+.approval-back:hover { color: var(--text); }
+.approval-page h1 { font-size: 1.2rem; margin: 0.75rem 0 1rem; }
+.approval-page h2 { font-size: 0.9rem; color: var(--muted); margin: 1.25rem 0 0.4rem; }
+.approval-note { color: var(--muted); }
+.approval-fields { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0; }
+.approval-fields dt { color: var(--muted); font-size: 0.8rem; }
+.approval-fields dd { margin: 0; overflow-wrap: anywhere; }
+.approval-args {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+}
+.approval-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 1.25rem; }
+.approval-actions input[name="reason"] {
+  flex: 1 1 14rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+}

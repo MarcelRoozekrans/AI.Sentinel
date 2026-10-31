@@ -8,7 +8,9 @@ using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
+using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
+using AI.Sentinel.Redaction;
 
 namespace AI.Sentinel.AspNetCore;
 
@@ -466,6 +468,8 @@ internal static class DashboardHandlers
         return reader.ReadToEnd();
     }
 
+    private const string ExternalMessage = "Approvals are managed externally (Entra PIM portal). Use the Azure portal to approve or deny.";
+
     private static string HtmlEncode(string s) =>
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&#39;");
 
@@ -477,7 +481,7 @@ internal static class DashboardHandlers
     public static async Task ListApprovalsAsync(HttpContext ctx)
     {
         var store = ApprovalStoreAuditing.Resolve(ctx.RequestServices);
-        if (store is null)
+        if (store is null && ctx.RequestServices.GetService<ExternalApprovalPortal>() is null)
         {
             ctx.Response.ContentType = "text/html";
             await ctx.Response.WriteAsync("""<tr class="approvals-empty"><td colspan="4">No approval store configured.</td></tr>""").ConfigureAwait(false);
@@ -486,9 +490,9 @@ internal static class DashboardHandlers
 
         if (store is not IApprovalAdmin admin)
         {
-            // EntraPim path — admin actions happen in the external system.
+            // EntraPim path: admin actions happen in the external system.
             ctx.Response.ContentType = "text/html";
-            await ctx.Response.WriteAsync("""<tr class="approvals-external"><td colspan="4">Approvals are managed externally (Entra PIM portal). Use the Azure portal to approve or deny.</td></tr>""").ConfigureAwait(false);
+            await ctx.Response.WriteAsync($"""<tr class="approvals-external"><td colspan="4">{ExternalMessage}</td></tr>""").ConfigureAwait(false);
             return;
         }
 
@@ -504,7 +508,7 @@ internal static class DashboardHandlers
             // escape those, so use Uri.EscapeDataString for the hx-post URL contexts.
             var requestIdUrl = Uri.EscapeDataString(pending.RequestId);
             sb.Append("<tr data-request-id=\"").Append(requestIdEsc).Append("\">")
-              .Append("<td>").Append(ts).Append("</td>")
+              .Append("<td><a href=\"approvals/").Append(requestIdUrl).Append("\">").Append(ts).Append("</a></td>")
               .Append("<td>").Append(HtmlEncode(pending.CallerId)).Append("</td>")
               .Append("<td>").Append(HtmlEncode(pending.ToolName)).Append("</td>")
               .Append("<td class=\"actions\">")
@@ -520,6 +524,106 @@ internal static class DashboardHandlers
         ctx.Response.ContentType = "text/html";
         await ctx.Response.WriteAsync(sb.ToString()).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// GET /approvals/{id}: one pending request with its justification and redacted arguments,
+    /// and Approve / Deny buttons that post to the existing endpoints. The page sits one segment
+    /// below the prefix, so every URL is relative to <c>../</c>. Never cached: it shows live state.
+    /// </summary>
+    public static async Task ApprovalPageAsync(HttpContext ctx)
+    {
+        ctx.Response.Headers.CacheControl = "no-store";
+        ctx.Response.ContentType = "text/html; charset=utf-8";
+
+        var store = ApprovalStoreAuditing.Resolve(ctx.RequestServices);
+        if (store is null && ctx.RequestServices.GetService<ExternalApprovalPortal>() is null)
+        {
+            ctx.Response.StatusCode = 404;
+            await ctx.Response.WriteAsync(PageShell("Approval", "<p class=\"approval-note\">No approval store configured.</p>")).ConfigureAwait(false);
+            return;
+        }
+
+        if (store is not IApprovalAdmin admin)
+        {
+            await ctx.Response.WriteAsync(PageShell("Approval", $"<p class=\"approval-note\">{ExternalMessage}</p>")).ConfigureAwait(false);
+            return;
+        }
+
+        var requestId = (string?)ctx.Request.RouteValues["id"] ?? "";
+        // Hosts differ in whether %2F and friends arrive decoded in the route value, so accept both forms.
+        var decodedId = Uri.UnescapeDataString(requestId);
+        PendingRequest? found = null;
+        await foreach (var pending in admin.ListPendingAsync(ctx.RequestAborted).ConfigureAwait(false))
+        {
+            if (string.Equals(pending.RequestId, requestId, StringComparison.Ordinal)
+                || string.Equals(pending.RequestId, decodedId, StringComparison.Ordinal))
+            {
+                found = pending;
+                break;
+            }
+        }
+
+        if (found is null)
+        {
+            await ctx.Response.WriteAsync(PageShell("Approval",
+                "<p class=\"approval-note\">This request is no longer pending. It was already decided, or it expired.</p>")).ConfigureAwait(false);
+            return;
+        }
+
+        await ctx.Response.WriteAsync(PageShell("Approval: " + found.ToolName, RenderRequest(found))).ConfigureAwait(false);
+    }
+
+    private static string RenderRequest(PendingRequest found)
+    {
+        var idUrl = Uri.EscapeDataString(found.RequestId);
+        var sb = new StringBuilder();
+        sb.AppendLine("<dl class=\"approval-fields\">")
+          .Append("<dt>Tool</dt><dd>").Append(HtmlEncode(found.ToolName)).AppendLine("</dd>")
+          .Append("<dt>Caller</dt><dd>").Append(HtmlEncode(found.CallerId)).AppendLine("</dd>")
+          .Append("<dt>Policy</dt><dd>").Append(HtmlEncode(found.PolicyName)).AppendLine("</dd>")
+          .Append("<dt>Requested at</dt><dd>")
+          .Append(found.RequestedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture))
+          .AppendLine("</dd>");
+        if (!string.IsNullOrWhiteSpace(found.Justification))
+        {
+            sb.Append("<dt>Justification</dt><dd>").Append(HtmlEncode(found.Justification)).AppendLine("</dd>");
+        }
+        sb.AppendLine("</dl>");
+
+        if (found.Args.ValueKind != JsonValueKind.Undefined)
+        {
+            // Same redaction as the approval notifications: credentials and PII never reach the page.
+            var session = new RedactionSession([new CredentialExposureDetector(), new PiiLeakageDetector()]);
+            var redacted = session.RedactJsonValues(found.Args);
+            using var buffer = new MemoryStream();
+            using (var writer = new Utf8JsonWriter(buffer, new JsonWriterOptions { Indented = true }))
+            {
+                redacted.WriteTo(writer);
+            }
+            sb.Append("<h2>Arguments</h2><pre class=\"approval-args\">")
+              .Append(HtmlEncode(Encoding.UTF8.GetString(buffer.ToArray())))
+              .AppendLine("</pre>");
+        }
+
+        sb.Append("<div id=\"approval-actions\" class=\"approval-actions\">")
+          .Append("<button type=\"button\" class=\"btn-approve\" hx-post=\"../api/approvals/").Append(idUrl)
+          .Append("/approve\" hx-swap=\"none\" hx-on::after-request=\"if (event.detail.successful) this.parentElement.textContent = 'Approved.'\">Approve</button>")
+          .Append("<input type=\"text\" name=\"reason\" id=\"deny-reason\" placeholder=\"Reason for denying (optional)\" maxlength=\"500\">")
+          .Append("<button type=\"button\" class=\"btn-deny\" hx-post=\"../api/approvals/").Append(idUrl)
+          .Append("/deny\" hx-include=\"#deny-reason\" hx-swap=\"none\" hx-on::after-request=\"if (event.detail.successful) this.parentElement.textContent = 'Denied.'\">Deny</button>")
+          .AppendLine("</div>");
+
+        return sb.ToString();
+    }
+
+    private static string PageShell(string title, string body) =>
+        "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n"
+        + "  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        + "  <title>" + HtmlEncode(title) + "</title>\n  <link rel=\"icon\" href=\"data:,\">\n"
+        + "  <script src=\"https://unpkg.com/htmx.org@2.0.4\" integrity=\"sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+\" crossorigin=\"anonymous\"></script>\n"
+        + "  <link rel=\"stylesheet\" href=\"../static/sentinel.css\">\n</head>\n<body>\n"
+        + "<main class=\"approval-page\">\n<a class=\"approval-back\" href=\"../\">&larr; Dashboard</a>\n"
+        + "<h1>" + HtmlEncode(title) + "</h1>\n" + body + "\n</main>\n</body>\n</html>\n";
 
     /// <summary>
     /// True when a browser marked the request as cross-site. Cookie-based forward auth sends the

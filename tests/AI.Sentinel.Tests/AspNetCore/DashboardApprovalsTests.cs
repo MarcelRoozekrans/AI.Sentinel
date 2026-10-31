@@ -292,7 +292,7 @@ public class DashboardApprovalsTests
     /// the production posture where operators wrap the dashboard with an auth
     /// middleware via the same branch hook.
     /// </summary>
-    private static async Task<IHost> BuildHostAsync(IApprovalStore? approvalStore, string? authenticatedAs = null)
+    internal static async Task<IHost> BuildHostAsync(IApprovalStore? approvalStore, string? authenticatedAs = null, Action<IServiceCollection>? configure = null)
     {
         return await new HostBuilder()
             .ConfigureWebHost(web =>
@@ -306,6 +306,7 @@ public class DashboardApprovalsTests
                     {
                         services.AddSingleton<IApprovalStore>(approvalStore);
                     }
+                    configure?.Invoke(services);
                 });
                 web.Configure(app =>
                 {
@@ -332,7 +333,7 @@ public class DashboardApprovalsTests
             .StartAsync();
     }
 
-    private static async Task<IHost> BuildMapHostAsync(IApprovalStore approvalStore, string authenticatedAs)
+    internal static async Task<IHost> BuildMapHostAsync(IApprovalStore approvalStore, string authenticatedAs)
     {
         return await new HostBuilder()
             .ConfigureWebHost(web =>
@@ -359,10 +360,10 @@ public class DashboardApprovalsTests
             .StartAsync();
     }
 
-    private static ApprovalSpec MakeSpec() => new() { PolicyName = "p" };
-    private static ApprovalContext MakeCtx() => new("delete_database", default, null);
+    internal static ApprovalSpec MakeSpec() => new() { PolicyName = "p" };
+    internal static ApprovalContext MakeCtx() => new("delete_database", default, null);
 
-    private sealed record TestSec(string Id) : ISecurityContext
+    internal sealed record TestSec(string Id) : ISecurityContext
     {
         private static readonly HashSet<string> EmptyRoles = new(StringComparer.Ordinal);
         private static readonly Dictionary<string, string> EmptyClaims = new(StringComparer.Ordinal);
@@ -374,7 +375,7 @@ public class DashboardApprovalsTests
     /// mirrors the EntraPim shape for testing the dashboard's external-store branch.
     /// The dashboard's list endpoint short-circuits before calling these methods, and
     /// the approve endpoint short-circuits with 404, so they should never execute.</summary>
-    private sealed class ExternalOnlyApprovalStore : IApprovalStore
+    internal sealed class ExternalOnlyApprovalStore : IApprovalStore
     {
         public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
             throw new NotSupportedException("ExternalOnlyApprovalStore is a test double for the dashboard's no-admin branch.");

@@ -28,6 +28,7 @@ public static class ApplicationBuilderExtensions
         group.MapGet("/api/export.ndjson", DashboardHandlers.ExportNdjsonAsync);
         group.MapGet("/api/trs", DashboardHandlers.TrsStreamAsync);
         group.MapGet("/api/approvals", DashboardHandlers.ListApprovalsAsync);
+        group.MapGet("/approvals/{id}", DashboardHandlers.ApprovalPageAsync);
         group.MapPost("/api/approvals/{id}/approve", DashboardHandlers.ApproveAsync);
         group.MapPost("/api/approvals/{id}/deny", DashboardHandlers.DenyAsync);
         group.MapGet("/static/{file}", DashboardHandlers.StaticFileAsync);
@@ -67,6 +68,7 @@ public static class ApplicationBuilderExtensions
                 endpoints.MapGet("/api/export.ndjson", DashboardHandlers.ExportNdjsonAsync);
                 endpoints.MapGet("/api/trs", DashboardHandlers.TrsStreamAsync);
                 endpoints.MapGet("/api/approvals", DashboardHandlers.ListApprovalsAsync);
+                endpoints.MapGet("/approvals/{id}", DashboardHandlers.ApprovalPageAsync);
                 endpoints.MapPost("/api/approvals/{id}/approve", DashboardHandlers.ApproveAsync);
                 endpoints.MapPost("/api/approvals/{id}/deny", DashboardHandlers.DenyAsync);
                 endpoints.MapGet("/static/{file}", DashboardHandlers.StaticFileAsync);
