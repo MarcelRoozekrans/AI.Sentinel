@@ -66,7 +66,7 @@ What the command does depends on the [approval config](/docs/approvals/cli-confi
 |---|---|
 | `backend: "sqlite"` | The panel lists pending requests, each links to its own page, and Approve and Deny work. The audit file is opened writable, so each decision is appended to the hash chain. |
 | `backend: "entra-pim"` | The panel shows the [external approvals message](#when-the-store-doesnt-implement-iapprovaladmin). Approvers decide in the Azure portal. The audit file stays read-only. |
-| No config, `backend: "none"` or an in-memory backend | No approvals. The audit file stays read-only. Startup prints the reason. An in-memory backend passed explicitly with `--approval-config` is an error, because it keeps nothing between processes. |
+| No config, `backend: "none"` or an in-memory backend | No approvals. The audit file stays read-only. Startup prints `Approvals: off`, with the reason when there is one. An in-memory backend passed explicitly with `--approval-config` is an error, because it keeps nothing between processes. |
 
 Startup prints an `Approvals:` line next to the audit-chain line. It names the backend and the identity mode, for example `Approvals: sqlite /var/lib/ai-sentinel/approvals.db, approver from X-Auth-Request-User via 10.0.0.0/8`. It never prints a header value.
 
@@ -74,7 +74,7 @@ Startup prints an `Approvals:` line next to the audit-chain line. It names the b
 
 Without an identity, approve and deny return `401`, as for any unauthenticated dashboard. There are two ways to give the dashboard one. Both look at the socket peer address only and never at `X-Forwarded-For`.
 
-**Local approver.** `--local-approver` treats every loopback request as the current OS user, and records that user name as the approver. It needs a loopback `--bind` and cannot be combined with `--trusted-proxy`. Use it on a workstation where only you reach `127.0.0.1`.
+**Local approver.** `--local-approver` treats every loopback request as the current OS user, and records that user name as the approver. It needs a loopback `--bind` and cannot be combined with `--trusted-proxy`. Every process and every OS user that can reach loopback on that machine counts as that user, so use it only on a single-user machine.
 
 **Trusted proxy.** Put the dashboard behind a reverse proxy that authenticates the user and passes the name in a header:
 
@@ -95,6 +95,12 @@ A `--bind` that is not loopback needs at least one `--trusted-proxy`. With such 
 
 Whoever the proxy lets in can approve. Restrict the dashboard route in the proxy to the people allowed to approve.
 
+A proxy on the same host is the common setup, so loopback stays allowed: `--trusted-proxy 127.0.0.1/32` works. Then any local process can also connect to the dashboard and send the user header itself, so the header is only as trustworthy as the machine. Do not use that setup on a machine with other users or untrusted processes.
+
+#### Host check
+
+A request whose peer is not inside a trusted range must carry a `Host` of `localhost`, `127.0.0.1` or `[::1]`, with any port. Otherwise the dashboard answers `403` with `This dashboard only accepts requests addressed to localhost.` This stops DNS rebinding: a web page can point its own hostname at `127.0.0.1`, which makes the dashboard same-origin for the browser and would otherwise let that page read the audit data and approve as the local user. A trusted proxy is exempt, because it forwards the public host name. The check applies in every mode, also without approvals.
+
 #### Forward-auth example
 
 With oauth2-proxy in front of nginx, the proxy authenticates the user and nginx passes the name on:
@@ -108,7 +114,7 @@ location /ai-sentinel/ {
 }
 ```
 
-Run `sentinel dashboard --bind 192.0.2.10 --trusted-proxy 192.0.2.20`, where `192.0.2.20` is the nginx host. For Authelia, set `proxy_set_header Remote-User $user;` with the Authelia response header, and pass `--user-header Remote-User`.
+Run `sentinel dashboard --bind 192.0.2.10 --trusted-proxy 192.0.2.20`, where `192.0.2.20` is the nginx host. For Authelia, use `auth_request_set $user $upstream_http_remote_user;` and `proxy_set_header Remote-User $user;`, and pass `--user-header Remote-User`.
 
 nginx replaces any `X-Auth-Request-User` the client sent, which is what keeps the name trustworthy. Make sure your proxy does the same.
 
