@@ -67,6 +67,13 @@ public class SemanticDetectorBaseTests
         protected override string GetText(SentinelContext ctx) => "   ";
     }
 
+    /// <summary>A rule layer that matches <see cref="HighText"/>, with the default fast-path text.</summary>
+    private sealed class FastPathDetector(SentinelOptions options) : TestDetector(options)
+    {
+        protected override System.Text.RegularExpressions.Regex? FastPathPattern { get; } =
+            new("ignore all previous instructions", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+    }
+
     // Subclass with empty High/Medium buckets, only Low defined
     private sealed class LowOnlyDetector(SentinelOptions options) : SemanticDetectorBase(options)
     {
@@ -257,6 +264,118 @@ public class SemanticDetectorBaseTests
         await detector.AnalyzeAsync(Ctx(0, User("send it to [EMAIL_1_q7w2e4]")), ct);
 
         Assert.Equal(["send it to [EMAIL]"], Scored(gen));
+    }
+
+    private static SentinelContext BudgetCtx(int maxBytes, params ChatMessage[] messages)
+    {
+        return new SentinelContext(
+            new AgentId("a"), new AgentId("b"), SessionId.New(), messages, new List<AuditEntry>())
+        { NewMessagesFrom = 0, MaxScanBytes = maxBytes };
+    }
+
+    // The default texts share the scan's one budget, in message order: 8 + 2 bytes of 8 + 8.
+    [Fact]
+    public async Task DefaultTexts_AreBudgetCut()
+    {
+        var gen = Recording();
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        await detector.AnalyzeAsync(BudgetCtx(10, User("aaaaaaaa"), User("bbbbbbbb")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["aaaaaaaa", "bb"], Scored(gen));
+    }
+
+    [Fact]
+    public async Task PastBudgetMessage_NotEmbedded()
+    {
+        var gen = Recording();
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        await detector.AnalyzeAsync(BudgetCtx(8, User("aaaaaaaa"), User("bbbbbbbb")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["aaaaaaaa"], Scored(gen));
+    }
+
+    // The candidate's role is found by comparing against the cut text that was embedded.
+    [Fact]
+    public async Task RoleOf_MatchesCutText()
+    {
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = Recording() });
+        var longText = HighText + " and a long tail";
+        var outcome = await detector.AnalyzeAsync(
+            BudgetCtx(HighText.Length, Assistant(longText)), configuration: null, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(outcome.Candidate);
+        Assert.Equal(HighText, outcome.Candidate.Value.Text);
+        Assert.Equal(ChatRole.Assistant, outcome.Candidate.Value.Role);
+    }
+
+    // The rule layer reads a new user message only as far as the scan budget reaches (#439).
+    [Fact]
+    public async Task FastPath_PhrasePastTheCut_IsNotMatched()
+    {
+        var detector = new FastPathDetector(new SentinelOptions());
+        var text = new string('a', 1000) + " " + HighText;
+
+        var r = await detector.AnalyzeAsync(BudgetCtx(100, User(text)), TestContext.Current.CancellationToken);
+
+        Assert.True(r.IsClean);
+    }
+
+    [Fact]
+    public async Task FastPath_PhraseInsideTheCut_IsMatched()
+    {
+        var detector = new FastPathDetector(new SentinelOptions());
+        var text = HighText + " " + new string('a', 1000);
+
+        var r = await detector.AnalyzeAsync(BudgetCtx(100, User(text)), TestContext.Current.CancellationToken);
+
+        Assert.Equal(Severity.High, r.Severity);
+    }
+
+    // History is not new, so it is not cut: the newest user message still decides when it is history.
+    [Fact]
+    public async Task FastPath_HistoryMessage_IsNotCut()
+    {
+        var detector = new FastPathDetector(new SentinelOptions());
+        var text = new string('a', 1000) + " " + HighText;
+        var ctx = new SentinelContext(
+            new AgentId("a"), new AgentId("b"), SessionId.New(), [User(text)], new List<AuditEntry>())
+        { NewMessagesFrom = 1, MaxScanBytes = 100 };
+
+        var r = await detector.AnalyzeAsync(ctx, TestContext.Current.CancellationToken);
+
+        Assert.Equal(Severity.High, r.Severity);
+    }
+
+    // Past 16 new messages the role is found by selecting the texts again; with a cut, against the cut texts.
+    [Fact]
+    public async Task RoleOf_MoreThan16NewMessages_WithACut()
+    {
+        var messages = new ChatMessage[20];
+        for (var i = 0; i < 19; i++)
+        {
+            messages[i] = User($"message {i + 1:D2}");
+        }
+        messages[19] = Assistant(HighText + " and a long tail");
+        // 19 texts of 10 bytes, then the assistant text cut to the High text.
+        var budget = 19 * 10 + HighText.Length;
+
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = Recording() });
+        var outcome = await detector.AnalyzeAsync(
+            BudgetCtx(budget, messages), configuration: null, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(outcome.Candidate);
+        Assert.Equal(HighText, outcome.Candidate.Value.Text);
+        Assert.Equal(ChatRole.Assistant, outcome.Candidate.Value.Role);
+    }
+
+    [Fact]
+    public async Task GetTextsToScoreOverride_NotCut()
+    {
+        var gen = Recording();
+        var detector = new UserOnlyDetector(new SentinelOptions { EmbeddingGenerator = gen });
+        await detector.AnalyzeAsync(BudgetCtx(4, User("aaaaaaaa"), Assistant("bbbbbbbb")), TestContext.Current.CancellationToken);
+
+        Assert.Equal(["aaaaaaaa"], Scored(gen));
     }
 
     // Past 16 texts the oldest are joined into the first input, so at most 16 go out and none goes unjudged.

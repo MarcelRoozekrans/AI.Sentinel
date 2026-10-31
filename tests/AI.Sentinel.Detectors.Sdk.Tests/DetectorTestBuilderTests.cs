@@ -308,6 +308,44 @@ public class DetectorTestBuilderTests
             .ExpectClean(TestContext.Current.CancellationToken);
     }
 
+    /// <summary><see cref="SentinelContextBuilder.WithMaxScanBytes"/> flows into <see cref="SentinelContext.MaxScanBytes"/>.</summary>
+    [Fact]
+    public void WithMaxScanBytes_FlowsIntoTheContext()
+    {
+        var ctx = new SentinelContextBuilder().WithUserMessage("hi").WithMaxScanBytes(10).Build();
+
+        Assert.Equal(10, ctx.MaxScanBytes);
+        Assert.Null(new SentinelContextBuilder().Build().MaxScanBytes);
+    }
+
+    /// <summary>The documented rule-based example: it reads <see cref="SentinelContext.NewTextContent"/>.</summary>
+    private sealed class HelloWorldDetector : IDetector
+    {
+        private static readonly DetectorId _id = new("MYORG-01");
+        public DetectorId Id => _id;
+        public DetectorCategory Category => DetectorCategory.Operational;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ctx.NewTextContent.Contains("hello", StringComparison.OrdinalIgnoreCase)
+                ? ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Low, "Greeting detected"))
+                : ValueTask.FromResult(DetectionResult.Clean(_id));
+    }
+
+    /// <summary>The documented budget example: a phrase past <see cref="SentinelContextBuilder.WithMaxScanBytes"/> is
+    /// not in <see cref="SentinelContext.NewTextContent"/>; inside it, it is.</summary>
+    [Fact]
+    public async Task WithMaxScanBytes_CutsTheNewText()
+    {
+        await new DetectorTestBuilder()
+            .WithDetector<HelloWorldDetector>()
+            .WithContext(b => b.WithUserMessage(new string('x', 100) + " hello").WithMaxScanBytes(50))
+            .ExpectClean(TestContext.Current.CancellationToken);
+
+        await new DetectorTestBuilder()
+            .WithDetector<HelloWorldDetector>()
+            .WithContext(b => b.WithUserMessage("hello " + new string('x', 100)).WithMaxScanBytes(50))
+            .ExpectDetection(Severity.Low, TestContext.Current.CancellationToken);
+    }
+
     /// <summary>Thresholds set through <see cref="SentinelOptionsConfigureExtensions.Configure{T}"/> in
     /// <see cref="DetectorTestBuilder.WithOptions"/> apply to the detector under test, as they do in the pipeline.</summary>
     [Fact]

@@ -485,6 +485,10 @@ public sealed partial class SentinelPipeline
     /// When <paramref name="sessionId"/> is supplied the audit entries carry it; otherwise a fresh id is minted per call.
     /// Every message is judged as new, and so is <see cref="ChatOptions.Instructions"/>, which the scan sees as a
     /// leading system message.
+    /// <para>Because every message is new, all of them count against <see cref="SentinelOptions.MaxScanBytes"/>. A host
+    /// that passes its whole transcript on each call is judged on the whole transcript, and once it grows past the
+    /// budget every later scan reports a Critical <c>SEC-00</c> finding, quarantined under the default
+    /// <see cref="SentinelOptions.OnCritical"/>. Pass only the messages that are new since the previous scan.</para>
     /// </remarks>
     /// <param name="messages">The messages to scan.</param>
     /// <param name="chatOptions">Options used for the rate-limit check and whose
@@ -664,16 +668,17 @@ public sealed partial class SentinelPipeline
         return new HostRedactionResult(request.Content, findings, error, EmptyCounts, [], fellBack) { SessionId = sessionId.Value };
     }
 
-    /// <summary>The context, then one message per content item under the content role, then the unredactable
-    /// content.</summary>
+    /// <summary>The context, then one message per content item under the content role, except the items in
+    /// <see cref="HostRedactionRequest.UnscannedContent"/>, then the unredactable content.</summary>
     private static List<ChatMessage> HostScanMessages(
         IReadOnlyList<ChatMessage> context, IReadOnlyList<HostContent> content, HostRedactionRequest request)
     {
         var messages = new List<ChatMessage>(context.Count + content.Count + request.Unredactable.Count);
         messages.AddRange(context);
-        foreach (var item in content)
+        for (var i = 0; i < content.Count; i++)
         {
-            messages.Add(new ChatMessage(request.ContentRole, item.ScanText()));
+            if (request.UnscannedContent?.Contains(i) == true) continue;
+            messages.Add(new ChatMessage(request.ContentRole, content[i].ScanText()));
         }
         messages.AddRange(request.Unredactable);
         return messages;
@@ -889,7 +894,7 @@ public sealed partial class SentinelPipeline
         return null;
     }
 
-    private static SentinelContext BuildContext(
+    private SentinelContext BuildContext(
         IReadOnlyList<ChatMessage> msgs, SessionId sessionId, AgentId sender, AgentId receiver,
         string? systemPrompt, in Exemptions exemptions, string? llmId, int newMessagesFrom)
         => exemptions.Minted is null
@@ -898,12 +903,14 @@ public sealed partial class SentinelPipeline
                 SystemPrompt = systemPrompt,
                 LlmId = llmId,
                 NewMessagesFrom = newMessagesFrom,
+                MaxScanBytes = options.MaxScanBytes,
             }
             : new SentinelContext(sender, receiver, sessionId, msgs, [])
             {
                 SystemPrompt = systemPrompt,
                 LlmId = llmId,
                 NewMessagesFrom = newMessagesFrom,
+                MaxScanBytes = options.MaxScanBytes,
                 RedactionPlaceholders = exemptions.Minted,
                 RequestPlaceholders = exemptions.Request ?? NoStrings,
                 RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,

@@ -537,6 +537,70 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         Assert.Equal("", stderr.ToString());
     }
 
+    // A tool input over the budget, such as a write of a large file, is blocked before the tool runs.
+    [Fact]
+    public async Task Cli_PreToolUse_OversizeInput_BlockedWithSec00()
+    {
+        var content = new string('a', new SentinelOptions().MaxScanBytes + 1);
+        var stdin = new StringReader($$$"""{"sessionId":"s","toolName":"create","toolArgs":{"path":"/a/notes.txt","file_text":"{{{content}}}"}}""");
+        var stdout = new StringWriter();
+
+        var exit = await Program.RunAsync(["pre-tool-use"], stdin, stdout, new StringWriter(), new ExactMatchEmbeddingGenerator());
+
+        Assert.Equal(2, exit);
+        Assert.StartsWith("""{"decision":"Block","reason":"SEC-00""", stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    // SENTINEL_HOOK_MAX_SCAN_BYTES sets the scan budget, so a host can raise it past a block on a large tool result.
+    [Fact]
+    public async Task Cli_PostToolUse_MaxScanBytesFromEnvironment_BlocksOverBudgetWithSec00()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", "100");
+        try
+        {
+            var content = new string('a', 200);
+            var stdin = new StringReader($$$"""{"sessionId":"s","toolName":"view","toolArgs":{"path":"/a"},"toolResult":{"resultType":"success","textResultForLlm":"{{{content}}}"}}""");
+            var stdout = new StringWriter();
+
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, new StringWriter(), new ExactMatchEmbeddingGenerator());
+
+            Assert.Equal(0, exit);
+            using var doc = System.Text.Json.JsonDocument.Parse(stdout.ToString());
+            Assert.Equal("Block", doc.RootElement.GetProperty("decision").GetString());
+            Assert.Contains("SEC-00", doc.RootElement.GetProperty("reason").GetString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", null);
+        }
+    }
+
+    // Anything but a positive integer keeps the 262144 default, as SENTINEL_MCP_MAX_SCAN_BYTES does.
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("lots")]
+    public async Task Cli_PostToolUse_InvalidMaxScanBytes_KeepsTheDefault(string value)
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", value);
+        try
+        {
+            var content = new string('a', 200);
+            var stdin = new StringReader($$$"""{"sessionId":"s","toolName":"view","toolArgs":{"path":"/a"},"toolResult":{"resultType":"success","textResultForLlm":"{{{content}}}"}}""");
+            var stdout = new StringWriter();
+
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, new StringWriter(), new ExactMatchEmbeddingGenerator());
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("SEC-00", stdout.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("Block", stdout.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", null);
+        }
+    }
+
     [Fact]
     public async Task Cli_PostToolUse_Injection_ExitZero_WithModifiedResult()
     {

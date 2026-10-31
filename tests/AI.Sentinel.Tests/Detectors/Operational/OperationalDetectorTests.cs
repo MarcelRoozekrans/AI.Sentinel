@@ -58,6 +58,26 @@ public class OperationalDetectorTests
         Assert.Equal(Severity.Medium, result.Severity);
     }
 
+    // The texts are judged as if joined and trimmed: white space between messages counts, around them it does not.
+    [Theory]
+    [InlineData(Severity.Medium, "  ", "\n", "\t ")]
+    [InlineData(Severity.Low, "  ab", "   ", "cd  ")]
+    [InlineData(Severity.Low, "abcd", "", "efghi")]
+    [InlineData(Severity.None, "abcd", "", "efghij")]
+    [InlineData(Severity.None, " a   ", "", "     b ")]
+    [InlineData(Severity.None, "a long enough reply", "", "")]
+    public async Task BlankResponse_JudgesTheJoinedTrimmedText(Severity expected, string first, string second, string third)
+    {
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User, first), new(ChatRole.Assistant, second), new(ChatRole.Assistant, third),
+        };
+
+        var result = await new BlankResponseDetector().AnalyzeAsync(CtxMessages(messages), TestContext.Current.CancellationToken);
+
+        Assert.Equal(expected, result.Severity);
+    }
+
     [Fact]
     public async Task BlankResponse_NoMessages_IsStillBlank()
     {

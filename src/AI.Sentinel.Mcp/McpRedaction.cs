@@ -12,25 +12,27 @@ namespace AI.Sentinel.Mcp;
 internal static class McpRedaction
 {
     /// <summary>Redacts <paramref name="content"/> and scans it together with <paramref name="context"/>, which is
-    /// redacted in the scan copy only, and <paramref name="unredactable"/>, which is scanned as it is. Placeholders
-    /// the proxy minted earlier are neither flagged nor redacted again.</summary>
+    /// redacted in the scan copy only. Every item is redacted whole; the scan of <paramref name="content"/> is cut to
+    /// <see cref="SentinelOptions.MaxScanBytes"/> and reports content over it as <c>SEC-00</c>. Placeholders the proxy
+    /// minted earlier are neither flagged nor redacted again. The items at the indexes in
+    /// <paramref name="unscanned"/> are redacted but not scanned, see <see cref="HostRedactionRequest.UnscannedContent"/>.</summary>
     public static ValueTask<HostRedactionResult> RedactAndScanAsync(
         SentinelPipeline pipeline,
         PlaceholderStore placeholders,
         IReadOnlyList<ChatMessage> context,
         IReadOnlyList<HostContent> content,
-        IReadOnlyList<ChatMessage> unredactable,
         ChatRole contentRole,
         SessionId? sessionId,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlySet<int>? unscanned = null)
         => pipeline.RedactAndScanAsync(
             new HostRedactionRequest
             {
                 Context = context,
                 Content = content,
                 ContentRole = contentRole,
-                Unredactable = unredactable,
                 KnownPlaceholders = placeholders.KnownTokens(),
+                UnscannedContent = unscanned,
             },
             sessionId,
             ct);

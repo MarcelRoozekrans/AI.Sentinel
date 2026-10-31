@@ -59,7 +59,7 @@ public class McpAuditTests : McpAuditOffFixtureBase
         var forwarder = new RecordingAuditForwarder();
         var pipeline = McpPipelineFactory.Create(Config(), DetectorPreset.Security);
         var filter = ToolCallInterceptor.Create(
-            pipeline, maxScanBytes: 64 * 1024, stderr: TextWriter.Null,
+            pipeline, stderr: TextWriter.Null,
             guard: new DenyGuard(), audit: store, forwarders: [forwarder]);
         var handler = filter((_, _) => new ValueTask<CallToolResult>(new CallToolResult()));
 
@@ -82,10 +82,10 @@ public class McpAuditTests : McpAuditOffFixtureBase
             out _, out _, suppliedStore: store);
         var session = new AI.Sentinel.Domain.SessionId("proxy-run-1");
         var denyFilter = ToolCallInterceptor.Create(
-            pipeline, maxScanBytes: 64 * 1024, stderr: TextWriter.Null,
+            pipeline, stderr: TextWriter.Null,
             guard: new DenyGuard(), audit: store, sessionId: session);
         var scanFilter = ToolCallInterceptor.Create(
-            pipeline, maxScanBytes: 64 * 1024, stderr: TextWriter.Null, sessionId: session);
+            pipeline, stderr: TextWriter.Null, sessionId: session);
         var next = (McpRequestHandler<CallToolRequestParams, CallToolResult>)((_, _) => new ValueTask<CallToolResult>(new CallToolResult()));
 
         await Assert.ThrowsAsync<McpProtocolException>(async () =>
@@ -113,7 +113,7 @@ public class McpAuditTests : McpAuditOffFixtureBase
         var pipeline = McpPipelineFactory.Create(
             Config(), DetectorPreset.Security, DetectorExamples.Embedder(), out _, out _, suppliedStore: store);
         var filter = PromptGetInterceptor.Create(
-            pipeline, maxScanBytes: 64 * 1024, stderr: TextWriter.Null, sessionId: new AI.Sentinel.Domain.SessionId("prompt-run"));
+            pipeline, stderr: TextWriter.Null, sessionId: new AI.Sentinel.Domain.SessionId("prompt-run"));
         var handler = filter((_, _) => new ValueTask<GetPromptResult>(new GetPromptResult
         {
             Messages = [new PromptMessage { Role = Role.User, Content = new TextContentBlock { Text = DetectorExamples.PromptInjectionHigh } }],
@@ -134,7 +134,7 @@ public class McpAuditTests : McpAuditOffFixtureBase
         var store = new RingBufferAuditStore(capacity: 16);
         var pipeline = McpPipelineFactory.Create(
             Config(), DetectorPreset.Security, DetectorExamples.Embedder(), out _, out _, suppliedStore: store);
-        var filter = ResourceReadInterceptor.Create(pipeline, 262144, new AI.Sentinel.Domain.SessionId("resource-run"));
+        var filter = ResourceReadInterceptor.Create(pipeline, new AI.Sentinel.Domain.SessionId("resource-run"));
         var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult
         {
             Contents = [new TextResourceContents { Uri = "file:///x.txt", MimeType = "text/plain", Text = DetectorExamples.PromptInjectionHigh }],
@@ -217,7 +217,7 @@ public class McpAuditTests : McpAuditOffFixtureBase
         var forwarder = new RecordingAuditForwarder();
         var pipeline = McpPipelineFactory.Create(Config(), DetectorPreset.Security);
         var filter = ToolCallInterceptor.Create(
-            pipeline, maxScanBytes: 64 * 1024, stderr: TextWriter.Null,
+            pipeline, stderr: TextWriter.Null,
             guard: new ApprovalGuard(), audit: store, forwarders: [forwarder]);
         var handler = filter((_, _) => new ValueTask<CallToolResult>(new CallToolResult()));
 

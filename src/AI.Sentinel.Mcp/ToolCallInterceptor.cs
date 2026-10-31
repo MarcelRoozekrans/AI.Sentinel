@@ -43,7 +43,6 @@ internal static class ToolCallInterceptor
 
     public static McpRequestFilter<CallToolRequestParams, CallToolResult> Create(
         SentinelPipeline pipeline,
-        int maxScanBytes,
         TextWriter stderr,
         IToolCallGuard? guard = null,
         IAuditStore? audit = null,
@@ -56,7 +55,7 @@ internal static class ToolCallInterceptor
     {
         var forwarderSnapshot = AuditForwarding.Snapshot(forwarders);
         var redaction = placeholders is null ? null : new RedactionSetup(placeholders, ResourceReadInterceptor.ParseMimeAllowlist());
-        return next => (ctx, ct) => InvokeAsync(pipeline, maxScanBytes, stderr, guard, audit, forwarderSnapshot,
+        return next => (ctx, ct) => InvokeAsync(pipeline, stderr, guard, audit, forwarderSnapshot,
             callerResolver, approvalStore, approvalWait, sessionId, redaction, next, ctx, ct);
     }
 
@@ -65,7 +64,6 @@ internal static class ToolCallInterceptor
 
     private static async ValueTask<CallToolResult> InvokeAsync(
         SentinelPipeline pipeline,
-        int maxScanBytes,
         TextWriter stderr,
         IToolCallGuard? guard,
         IAuditStore? audit,
@@ -91,7 +89,7 @@ internal static class ToolCallInterceptor
             await AuthorizeAsync(guard, audit, forwarders, callerResolver, approvalStore, approvalWait, sessionId, forwarded, stderr, ct).ConfigureAwait(false);
         }
 
-        var requestMessages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes);
+        var requestMessages = MessageBuilder.BuildToolCallRequest(req);
         var preError = await ScanSafelyAsync(
             pipeline, requestMessages, stderr, phase: "request", sessionId, redaction?.Placeholders.KnownTokens(), newMessagesFrom: 0, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(preError, req.Name, stderr, phase: "request").ConfigureAwait(false);
@@ -101,10 +99,10 @@ internal static class ToolCallInterceptor
 
         if (redaction is not null)
         {
-            return await RedactResponseAsync(pipeline, maxScanBytes, stderr, sessionId, redaction, req, result, ct).ConfigureAwait(false);
+            return await RedactResponseAsync(pipeline, stderr, sessionId, redaction, req, result, ct).ConfigureAwait(false);
         }
 
-        var responseMessages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes);
+        var responseMessages = MessageBuilder.BuildToolCallResponse(req, result);
         var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", sessionId, exemptPlaceholders: null, newMessagesFrom: 1, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(postError, req.Name, stderr, phase: "response").ConfigureAwait(false);
 
@@ -146,7 +144,6 @@ internal static class ToolCallInterceptor
     /// </summary>
     private static async ValueTask<CallToolResult> RedactResponseAsync(
         SentinelPipeline pipeline,
-        int maxScanBytes,
         TextWriter stderr,
         SessionId? sessionId,
         RedactionSetup redaction,
@@ -155,14 +152,14 @@ internal static class ToolCallInterceptor
         CancellationToken ct)
     {
         // The result is deserialized fresh for this request, so it is rewritten in place.
-        var (content, apply, oversize) = MessageBuilder.CollectRedactable(result, maxScanBytes, redaction.AllowedMimes);
+        var (content, apply, unscanned) = MessageBuilder.CollectRedactable(result, redaction.AllowedMimes);
 
         HostRedactionResult scanned;
         try
         {
             scanned = await McpRedaction.RedactAndScanAsync(
-                pipeline, redaction.Placeholders, MessageBuilder.BuildToolCallRequest(req, maxScanBytes),
-                content, oversize, Microsoft.Extensions.AI.ChatRole.Assistant, sessionId, ct).ConfigureAwait(false);
+                pipeline, redaction.Placeholders, MessageBuilder.BuildToolCallRequest(req),
+                content, Microsoft.Extensions.AI.ChatRole.Assistant, sessionId, ct, unscanned).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

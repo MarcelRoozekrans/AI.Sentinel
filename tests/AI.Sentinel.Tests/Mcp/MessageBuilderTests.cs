@@ -22,7 +22,7 @@ public class MessageBuilderTests
             },
         };
 
-        var messages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes: 1024);
+        var messages = MessageBuilder.BuildToolCallRequest(req);
 
         var msg = Assert.Single(messages);
         Assert.Equal(ChatRole.User, msg.Role);
@@ -30,8 +30,9 @@ public class MessageBuilderTests
         Assert.Contains("/tmp/hello.txt", msg.Text, StringComparison.Ordinal);
     }
 
+    // #439: the builder passes the text whole; the pipeline cuts it to MaxScanBytes and reports SEC-00.
     [Fact]
-    public void BuildToolCallRequest_OversizeArguments_Truncates()
+    public void BuildToolCallRequest_LargeArguments_PassedWhole()
     {
         var longValue = new string('x', 4096);
         var req = new CallToolRequestParams
@@ -43,11 +44,11 @@ public class MessageBuilderTests
             },
         };
 
-        var messages = MessageBuilder.BuildToolCallRequest(req, maxScanBytes: 256);
+        var messages = MessageBuilder.BuildToolCallRequest(req);
 
         var msg = Assert.Single(messages);
-        Assert.Contains("[truncated", msg.Text, StringComparison.Ordinal);
-        Assert.True(msg.Text.Length < 4096);
+        Assert.DoesNotContain("[truncated", msg.Text, StringComparison.Ordinal);
+        Assert.Contains(longValue, msg.Text, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -68,7 +69,7 @@ public class MessageBuilderTests
             ],
         };
 
-        var messages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes: 1024);
+        var messages = MessageBuilder.BuildToolCallResponse(req, result);
 
         Assert.Equal(2, messages.Length);
         Assert.Equal(ChatRole.User, messages[0].Role);
@@ -94,14 +95,14 @@ public class MessageBuilderTests
             ],
         };
 
-        var messages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes: 1024);
+        var messages = MessageBuilder.BuildToolCallResponse(req, result);
 
         Assert.Single(messages);
         Assert.Equal(ChatRole.User, messages[0].Role);
     }
 
     [Fact]
-    public void BuildToolCallResponse_OversizeText_Truncates()
+    public void BuildToolCallResponse_LargeText_PassedWhole()
     {
         var req = new CallToolRequestParams { Name = "read_huge" };
         var longText = new string('x', 8192);
@@ -110,11 +111,102 @@ public class MessageBuilderTests
             Content = [new TextContentBlock { Text = longText }],
         };
 
-        var messages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes: 1024);
+        var messages = MessageBuilder.BuildToolCallResponse(req, result);
 
         Assert.Equal(2, messages.Length);
-        Assert.Contains("[truncated", messages[1].Text, StringComparison.Ordinal);
-        Assert.True(messages[1].Text.Length < 8192);
+        Assert.Equal(longText, messages[1].Text);
+    }
+
+    [Fact]
+    public void BuildPromptGetResponse_LargeText_PassedWhole()
+    {
+        var longText = new string('x', 8192);
+        var result = new GetPromptResult
+        {
+            Messages = [new PromptMessage { Role = Role.User, Content = new TextContentBlock { Text = longText } }],
+        };
+
+        var single = Assert.Single(MessageBuilder.BuildPromptGetResponse(result));
+
+        Assert.Equal(longText, single.Text);
+    }
+
+    [Fact]
+    public void CollectRedactable_LargeItems_AllCollected()
+    {
+        // 4.1 split items past the budget off as unredacted "oversize"; every allowlisted item is now redactable.
+        var blocks = new List<ContentBlock>
+        {
+            new TextContentBlock { Text = new string('a', 300_000) },
+            new TextContentBlock { Text = new string('b', 300_000) },
+        };
+
+        var (content, apply) = MessageBuilder.CollectRedactable(blocks, ResourceReadInterceptor.ParseMimeAllowlist());
+
+        Assert.Equal(2, content.Count);
+        Assert.Equal(2, apply.Count);
+        Assert.Equal(300_000, content[1].Text!.Length);
+    }
+
+    private static JsonElement ParseJson(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.Clone();
+    }
+
+    // #439: structured content that a text block mirrors exactly is redacted but not scanned a second time.
+    [Fact]
+    public void CollectRedactable_MirroredStructuredContent_IsCollectedButUnscanned()
+    {
+        const string json = """{"a":"b","n":1}""";
+        var result = new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = "first" }, new TextContentBlock { Text = json }],
+            StructuredContent = ParseJson(json),
+        };
+
+        var (content, apply, unscanned) = MessageBuilder.CollectRedactable(result, ResourceReadInterceptor.ParseMimeAllowlist());
+
+        Assert.Equal(3, content.Count);
+        Assert.Equal(3, apply.Count);
+        Assert.NotNull(content[2].Json);
+        Assert.Equal([2], unscanned);
+    }
+
+    // An escape in the JSON can hide what only the decoded text shows, so an escaped mirror is still scanned.
+    [Theory]
+    [InlineData("""{"a":"\u0062","n":1}""")]
+    [InlineData("""{"a":"x\ny","n":1}""")]
+    [InlineData("""{"a":"q\"q","n":1}""")]
+    public void CollectRedactable_EscapedMirror_IsScanned(string json)
+    {
+        var result = new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = ParseJson(json),
+        };
+
+        var (_, _, unscanned) = MessageBuilder.CollectRedactable(result, ResourceReadInterceptor.ParseMimeAllowlist());
+
+        Assert.Empty(unscanned);
+    }
+
+    [Theory]
+    [InlineData("""{"a": "b", "n": 1}""")]
+    [InlineData("""{"a":"c","n":1}""")]
+    [InlineData("")]
+    public void CollectRedactable_StructuredContentNotMirrored_IsScanned(string text)
+    {
+        var result = new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = text }],
+            StructuredContent = ParseJson("""{"a":"b","n":1}"""),
+        };
+
+        var (content, _, unscanned) = MessageBuilder.CollectRedactable(result, ResourceReadInterceptor.ParseMimeAllowlist());
+
+        Assert.NotNull(content[^1].Json);
+        Assert.Empty(unscanned);
     }
 
     [Fact]
@@ -137,7 +229,7 @@ public class MessageBuilderTests
             ],
         };
 
-        var messages = MessageBuilder.BuildPromptGetResponse(result, maxScanBytes: 1024);
+        var messages = MessageBuilder.BuildPromptGetResponse(result);
 
         var single = Assert.Single(messages);
         Assert.Equal(ChatRole.Assistant, single.Role);
@@ -146,29 +238,9 @@ public class MessageBuilderTests
     }
 
     [Fact]
-    public void BuildToolCallResponse_TextExactlyAtLimit_NotTruncated()
+    public void BuildToolCallResponse_MultiByteText_PassedWhole()
     {
-        var req = new CallToolRequestParams { Name = "read_exact" };
-        var exactText = new string('x', 1024);   // exactly maxScanBytes
-        var result = new CallToolResult
-        {
-            Content = [new TextContentBlock { Text = exactText }],
-        };
-
-        var messages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes: 1024);
-
-        Assert.Equal(2, messages.Length);
-        Assert.DoesNotContain("[truncated", messages[1].Text, StringComparison.Ordinal);
-        Assert.Contains(exactText, messages[1].Text, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void BuildToolCallResponse_OversizeMultiByteText_TruncatedByUtf8ByteCount()
-    {
-        // 80 unicorn emoji. Each is a UTF-16 surrogate pair (string.Length == 2 per emoji
-        // → 160 chars total) and 4 UTF-8 bytes (320 bytes total). With a 200-byte cap:
-        //   - char-count check (old): 160 <= 200 → NOT truncated (incorrect).
-        //   - UTF-8 byte count (new): 320 > 200 → truncated (correct).
+        // 80 unicorn emoji: surrogate pairs, 320 UTF-8 bytes. The builder no longer cuts anything, so none is split.
         var req = new CallToolRequestParams { Name = "read_emoji" };
         var emoji = new System.Text.StringBuilder(capacity: 160);
         for (var i = 0; i < 80; i++) emoji.Append("\U0001F984");  // 🦄
@@ -178,10 +250,9 @@ public class MessageBuilderTests
             Content = [new TextContentBlock { Text = oversize }],
         };
 
-        var messages = MessageBuilder.BuildToolCallResponse(req, result, maxScanBytes: 200);
+        var messages = MessageBuilder.BuildToolCallResponse(req, result);
 
         Assert.Equal(2, messages.Length);
-        Assert.Contains("[truncated", messages[1].Text, StringComparison.Ordinal);
-        Assert.True(System.Text.Encoding.UTF8.GetByteCount(messages[1].Text) < 320 + 64);
+        Assert.Equal(oversize, messages[1].Text);
     }
 }

@@ -103,6 +103,89 @@ public class HookCliTests : HookAuditOffFixtureBase
         Assert.Equal(reason, specific.GetProperty("additionalContext").GetString());
     }
 
+    // #439: a tool result over the default MaxScanBytes is blocked with SEC-00, not passed as clean and not an internal error.
+    [Fact]
+    public async Task Cli_PostToolUse_OversizeResult_BlockedWithSec00()
+    {
+        var content = new string('a', new SentinelOptions().MaxScanBytes + 1);
+        var stdin = new StringReader($$$"""{"session_id":"s","tool_name":"Read","tool_input":{"file_path":"/a/notes.txt"},"tool_response":{"content":"{{{content}}}"}}""");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
+
+        Assert.Equal(0, exit);
+        Assert.Empty(stderr.ToString());
+        using var wire = JsonDocument.Parse(stdout.ToString());
+        Assert.Equal("block", wire.RootElement.GetProperty("decision").GetString());
+        Assert.Contains("SEC-00", wire.RootElement.GetProperty("reason").GetString(), StringComparison.Ordinal);
+    }
+
+    // A tool input over the budget, such as a Write of a large file, is blocked before the tool runs.
+    [Fact]
+    public async Task Cli_PreToolUse_OversizeInput_BlockedWithSec00()
+    {
+        var content = new string('a', new SentinelOptions().MaxScanBytes + 1);
+        var stdin = new StringReader($$$"""{"session_id":"s","tool_name":"Write","tool_input":{"file_path":"/a/notes.txt","content":"{{{content}}}"}}""");
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+
+        var exit = await Program.RunAsync(["pre-tool-use"], stdin, stdout, stderr, new ExactMatchEmbeddingGenerator());
+
+        Assert.Equal(2, exit);
+        Assert.StartsWith("SEC-00", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    // SENTINEL_HOOK_MAX_SCAN_BYTES sets the scan budget, so a host can raise it past a block on a large tool result.
+    [Fact]
+    public async Task Cli_PostToolUse_MaxScanBytesFromEnvironment_BlocksOverBudgetWithSec00()
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", "100");
+        try
+        {
+            var content = new string('a', 200);
+            var stdin = new StringReader($$$"""{"session_id":"s","tool_name":"Read","tool_input":{"file_path":"/a/notes.txt"},"tool_response":{"content":"{{{content}}}"}}""");
+            var stdout = new StringWriter();
+
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, new StringWriter(), new ExactMatchEmbeddingGenerator());
+
+            Assert.Equal(0, exit);
+            using var wire = JsonDocument.Parse(stdout.ToString());
+            Assert.Equal("block", wire.RootElement.GetProperty("decision").GetString());
+            Assert.Contains("SEC-00", wire.RootElement.GetProperty("reason").GetString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", null);
+        }
+    }
+
+    // Anything but a positive integer keeps the 262144 default, as SENTINEL_MCP_MAX_SCAN_BYTES does.
+    [Theory]
+    [InlineData("0")]
+    [InlineData("-5")]
+    [InlineData("lots")]
+    public async Task Cli_PostToolUse_InvalidMaxScanBytes_KeepsTheDefault(string value)
+    {
+        Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", value);
+        try
+        {
+            var content = new string('a', 200);
+            var stdin = new StringReader($$$"""{"session_id":"s","tool_name":"Read","tool_input":{"file_path":"/a/notes.txt"},"tool_response":{"content":"{{{content}}}"}}""");
+            var stdout = new StringWriter();
+
+            var exit = await Program.RunAsync(["post-tool-use"], stdin, stdout, new StringWriter(), new ExactMatchEmbeddingGenerator());
+
+            Assert.Equal(0, exit);
+            Assert.DoesNotContain("SEC-00", stdout.ToString(), StringComparison.Ordinal);
+            Assert.DoesNotContain("\"decision\"", stdout.ToString(), StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SENTINEL_HOOK_MAX_SCAN_BYTES", null);
+        }
+    }
+
     [Fact]
     public async Task Cli_PostToolUse_RedactOff_Injection_ExitZero_Withheld()
     {

@@ -49,7 +49,9 @@ internal static class McpPipelineFactory
 
     /// <summary>As above, with a second-stage <paramref name="reviewer"/> and its limits, and the warning that semantic
     /// detections are capped at Medium because nothing reviews them. <paramref name="reviewLimits"/> defaults to the
-    /// library's 5 s.</summary>
+    /// library's 5 s. <paramref name="maxScanBytes"/> is <c>SENTINEL_MCP_MAX_SCAN_BYTES</c>, the pipeline's
+    /// <see cref="SentinelOptions.MaxScanBytes"/>: the pipeline cuts each scan to it and reports content over it as
+    /// <c>SEC-00</c>.</summary>
     public static SentinelPipeline Create(
         HookConfig config,
         DetectorPreset preset,
@@ -62,7 +64,8 @@ internal static class McpPipelineFactory
         IAuditStore? suppliedStore = null,
         IReadOnlyList<IAuditForwarder>? forwarders = null,
         IDetectionReviewer? reviewer = null,
-        ReviewLimits? reviewLimits = null)
+        ReviewLimits? reviewLimits = null,
+        int maxScanBytes = SentinelOptions.DefaultMaxScanBytes)
     {
         ArgumentNullException.ThrowIfNull(config);
 
@@ -76,6 +79,7 @@ internal static class McpPipelineFactory
             ExampleEmbeddingCache = exampleEmbeddingCache,
             OnDetectorFailure = detectorFailureSink,
             Reviewer = reviewer,
+            MaxScanBytes = maxScanBytes,
         };
         if (reviewLimits is { } limits)
         {

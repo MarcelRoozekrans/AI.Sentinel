@@ -205,8 +205,13 @@ public abstract class SemanticDetectorBase : IDetector
     /// <summary>The texts this scan scores, oldest first. By default, the text of each new message, from
     /// <see cref="SentinelContext.NewMessagesFrom"/> to the end: its <see cref="ChatMessage.Text"/> plus the tool calls
     /// and tool results it carries, as <see cref="SentinelContext.TextContent"/> describes.</summary>
-    /// <remarks>Override to score, for example, one role only. Blank texts and duplicates are skipped. At most
-    /// 16 texts are embedded: past that, the oldest are joined into one.</remarks>
+    /// <remarks>
+    /// The default texts are <see cref="SentinelContext.NewMessageTexts"/>, cut in message order to
+    /// <see cref="SentinelContext.MaxScanBytes"/>: a message past the budget is blank and not scored. An override
+    /// chooses its own texts, which are not cut; override to score, for example, one role only.
+    /// <para>Blank texts and duplicates are skipped. At most 16 texts are embedded: past that, the oldest are joined
+    /// into one.</para>
+    /// </remarks>
     protected virtual IEnumerable<string> GetTextsToScore(SentinelContext ctx)
     {
         ArgumentNullException.ThrowIfNull(ctx);
@@ -224,13 +229,12 @@ public abstract class SemanticDetectorBase : IDetector
 
     private static IEnumerable<string> NewMessageTexts(SentinelContext ctx)
     {
-        for (var i = ctx.NewMessagesFrom; i < ctx.Messages.Count; i++)
-        {
-            yield return SentinelContext.MessageText(ctx.Messages[i]);
-        }
+        foreach (var text in ctx.NewMessageTexts) yield return text;
     }
 
-    /// <summary>Text the rule layer examines: the newest message, and only when it is incoming input.</summary>
+    /// <summary>Text the rule layer examines: the newest message, and only when it is incoming input. When that message
+    /// is new in this scan, its <see cref="ChatMessage.Text"/> is cut to <see cref="SentinelContext.MaxScanBytes"/> as
+    /// <see cref="SentinelContext.NewMessageTexts"/> cuts the new messages' texts.</summary>
     /// <remarks>
     /// Deliberately not <see cref="SentinelContext.TextContent"/>, which joins the whole conversation.
     /// The pipeline receives the full history every turn, so a rule match on an early message would
@@ -247,10 +251,17 @@ public abstract class SemanticDetectorBase : IDetector
     /// </remarks>
     protected virtual string GetFastPathText(SentinelContext ctx)
     {
+        ArgumentNullException.ThrowIfNull(ctx);
         if (ctx.Messages.Count == 0) return string.Empty;
 
-        var newest = ctx.Messages[ctx.Messages.Count - 1];
-        return newest.Role == ChatRole.User ? newest.Text ?? string.Empty : string.Empty;
+        var index = ctx.Messages.Count - 1;
+        var newest = ctx.Messages[index];
+        if (newest.Role != ChatRole.User) return string.Empty;
+
+        // A new message is judged as far as the scan budget reaches, like every other view of it; history is not cut.
+        return index >= ctx.NewMessagesFrom
+            ? ctx.NewMessageProse[index - ctx.NewMessagesFrom]
+            : newest.Text ?? string.Empty;
     }
 
     public async ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
@@ -334,7 +345,7 @@ public abstract class SemanticDetectorBase : IDetector
         {
             for (var i = ctx.Messages.Count - 1; i >= ctx.NewMessagesFrom; i--)
             {
-                var messageText = SentinelContext.MessageText(ctx.Messages[i]);
+                var messageText = ctx.NewMessageTexts[i - ctx.NewMessagesFrom];
                 if (!string.IsNullOrWhiteSpace(messageText)
                     && string.Equals(PlaceholderFormat.Normalise(messageText), text, StringComparison.Ordinal))
                 {
@@ -515,7 +526,7 @@ public abstract class SemanticDetectorBase : IDetector
             // What the default GetTextsToScore yields, read straight from the messages so each one's role is at hand.
             for (var i = ctx.NewMessagesFrom; i < ctx.Messages.Count; i++)
             {
-                Add(SentinelContext.MessageText(ctx.Messages[i]), ctx.Messages[i].Role);
+                Add(ctx.NewMessageTexts[i - ctx.NewMessagesFrom], ctx.Messages[i].Role);
             }
         }
         else

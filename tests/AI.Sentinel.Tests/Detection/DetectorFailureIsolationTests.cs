@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
@@ -141,5 +142,145 @@ public class DetectorFailureIsolationTests
             await Task.Yield();
             throw new TaskCanceledException("The request was canceled due to the configured HttpClient.Timeout.");
         }
+    }
+
+    // A regex timeout is the one failure content can provoke, so it must not degrade to Clean (#439).
+    private sealed class RegexTimeoutDetector : IDetector
+    {
+        public DetectorId Id => new("TST-REGEX");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            throw new RegexMatchTimeoutException("x", "p", TimeSpan.FromSeconds(1));
+    }
+
+    private sealed class CatastrophicRegexDetector : IDetector
+    {
+        private static readonly Regex Pattern = new("^(?:a|aa)+$", RegexOptions.None, TimeSpan.FromMilliseconds(10));
+        public DetectorId Id => new("TST-CATASTROPHIC");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(Pattern.IsMatch(ctx.TextContent) ? DetectionResult.WithSeverity(Id, Severity.Low, "match") : DetectionResult.Clean(Id));
+    }
+
+    private sealed class RuleLayerTimeoutDetector(SentinelOptions options) : SemanticDetectorBase(options)
+    {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
+        public override DetectorId Id => new("TST-RULE-TIMEOUT");
+        public override DetectorCategory Category => DetectorCategory.Security;
+        protected override string[] HighExamples => ["high"];
+        protected override string[] MediumExamples => ["medium"];
+        protected override string[] LowExamples => ["low"];
+        protected override Regex? FastPathPattern => new("x", RegexOptions.None, TimeSpan.FromSeconds(1));
+        protected override string GetFastPathText(SentinelContext ctx) =>
+            throw new RegexMatchTimeoutException("x", "p", TimeSpan.FromSeconds(1));
+    }
+
+    private sealed class TextsTimeoutDetector(SentinelOptions options) : SemanticDetectorBase(options)
+    {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
+        public override DetectorId Id => new("TST-TEXTS-TIMEOUT");
+        public override DetectorCategory Category => DetectorCategory.Security;
+        protected override string[] HighExamples => ["high"];
+        protected override string[] MediumExamples => ["medium"];
+        protected override string[] LowExamples => ["low"];
+        protected override IEnumerable<string> GetTextsToScore(SentinelContext ctx) =>
+            throw new RegexMatchTimeoutException("x", "p", TimeSpan.FromSeconds(1));
+    }
+
+    // With an embedding scope the pipeline selects the texts itself and rethrows the failure in the detector's own
+    // slot, so a regex timeout there is Critical too, not Clean.
+    [Fact]
+    public async Task RegexTimeout_InTextSelection_WithEmbeddingScope_IsCritical()
+    {
+        var generator = new AI.Sentinel.Tests.Helpers.FakeEmbeddingGenerator();
+        var pipeline = new DetectionPipeline(
+            [new TextsTimeoutDetector(new SentinelOptions { EmbeddingGenerator = generator })],
+            configurations: null, reviewer: null,
+            embeddingScope: new EmbeddingScope(generator, new InMemoryLruEmbeddingCache(), null));
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        var detection = Assert.Single(result.Detections);
+        Assert.Equal("TST-TEXTS-TIMEOUT", detection.DetectorId.Value);
+        Assert.Equal(Severity.Critical, detection.Severity);
+    }
+
+    [Fact]
+    public async Task RegexTimeout_IsCriticalNotClean()
+    {
+        var pipeline = new DetectionPipeline([new RegexTimeoutDetector()], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        var detection = Assert.Single(result.Detections);
+        Assert.Equal("TST-REGEX", detection.DetectorId.Value);
+        Assert.Equal(Severity.Critical, detection.Severity);
+        Assert.Contains("timed out", detection.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RegexTimeout_SeverityCapApplies()
+    {
+        var configurations = new Dictionary<Type, DetectorConfiguration>
+        {
+            [typeof(RegexTimeoutDetector)] = new() { SeverityCap = Severity.Medium },
+        };
+        var pipeline = new DetectionPipeline([new RegexTimeoutDetector()], configurations, reviewer: null);
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(Severity.Medium, Assert.Single(result.Detections).Severity);
+    }
+
+    [Fact]
+    public async Task RegexTimeout_InSemanticRuleLayer_NotSemanticCapped()
+    {
+        var pipeline = new DetectionPipeline(
+            [new RuleLayerTimeoutDetector(new SentinelOptions())], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        var detection = Assert.Single(result.Detections);
+        Assert.Equal("TST-RULE-TIMEOUT", detection.DetectorId.Value);
+        Assert.Equal(Severity.Critical, detection.Severity);
+    }
+
+    [Fact]
+    public async Task RegexTimeout_ReportsTimedOutWording()
+    {
+        var reported = new List<string>();
+        var pipeline = new DetectionPipeline(
+            [new RegexTimeoutDetector()], configurations: null, reviewer: null, logger: null, onDetectorFailure: reported.Add);
+
+        await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            "AI.Sentinel: detector TST-REGEX timed out and was flagged Critical for this scan.", Assert.Single(reported));
+    }
+
+    [Fact]
+    public async Task OtherException_StillClean()
+    {
+        var pipeline = new DetectionPipeline([new ThrowingDetector()], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        Assert.Empty(result.Detections);
+    }
+
+    [Fact]
+    public async Task RealCatastrophicRegex_FailsClosed()
+    {
+        var ctx = new SentinelContext(
+            new AgentId("a"), new AgentId("b"), SessionId.New(),
+            new List<ChatMessage> { new(ChatRole.User, new string('a', 5000) + "!") },
+            new List<AuditEntry>());
+        var pipeline = new DetectionPipeline([new CatastrophicRegexDetector()], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(ctx, TestContext.Current.CancellationToken);
+
+        var detection = Assert.Single(result.Detections);
+        Assert.Equal("TST-CATASTROPHIC", detection.DetectorId.Value);
+        Assert.Equal(Severity.Critical, detection.Severity);
     }
 }

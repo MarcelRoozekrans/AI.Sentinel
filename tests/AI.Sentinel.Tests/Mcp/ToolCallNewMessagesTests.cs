@@ -59,7 +59,7 @@ public class ToolCallNewMessagesTests
     private static async Task<CapturingDetector> CallAsync(CallToolResult result, PlaceholderStore? placeholders = null)
     {
         var capture = new CapturingDetector();
-        var filter = ToolCallInterceptor.Create(Build(capture), 64 * 1024, TextWriter.Null, placeholders: placeholders);
+        var filter = ToolCallInterceptor.Create(Build(capture), TextWriter.Null, placeholders: placeholders);
         var handler = filter((_, _) => new ValueTask<CallToolResult>(result));
 
         _ = await handler(BuildRequestContext(new CallToolRequestParams { Name = "read" }), TestContext.Current.CancellationToken);

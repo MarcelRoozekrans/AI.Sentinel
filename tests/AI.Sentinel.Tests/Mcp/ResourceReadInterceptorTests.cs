@@ -130,11 +130,17 @@ public class ResourceReadInterceptorTests
         Assert.Contains("mime=application/octet-stream", stderr, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task OversizeText_Skipped_WithStderrLog()
+    // #439: an item over the budget is scanned and blocked as SEC-00. 4.1 skipped it, so it reached the agent unscanned.
+    // Both the redacting path and the plain scan block it under OnCritical = Block.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResourceReadOverBudget_Blocked(bool redact)
     {
         // The cap is the one the proxy was started with, not a second read of the environment.
-        await using var h = await StartHarnessAsync(maxScanBytes: 100);
+        await using var h = await StartHarnessAsync(
+            new ExactMatchEmbeddingGenerator(), maxScanBytes: 100,
+            config: DefaultConfig() with { OnCritical = HookDecision.Block, RedactToolResults = redact });
         // 80 unicorns (4 UTF-8 bytes each) = 320 bytes > 100.
         var oversized = string.Concat(Enumerable.Repeat("🦄", 80));
         h.Fake.EnqueueResourceResult(new ReadResourceResult
@@ -150,13 +156,19 @@ public class ResourceReadInterceptorTests
             ],
         });
 
-        var (_, stderr) = await CaptureStderrAsync(() =>
-            h.DriverClient.ReadResourceAsync("file:///big.txt", cancellationToken: h.Cts.Token));
+        McpException? blocked = null;
+        var (_, stderr) = await CaptureStderrAsync(async ValueTask<int> () =>
+        {
+            blocked = await Assert.ThrowsAnyAsync<McpException>(async () =>
+                await h.DriverClient.ReadResourceAsync("file:///big.txt", cancellationToken: h.Cts.Token));
+            return 0;
+        });
 
-        Assert.Contains("action=skipped", stderr, StringComparison.Ordinal);
-        Assert.Contains("reason=oversize", stderr, StringComparison.Ordinal);
-        Assert.Contains("bytes=320", stderr, StringComparison.Ordinal);
-        Assert.Contains("max=100", stderr, StringComparison.Ordinal);
+        Assert.Contains("SEC-00", blocked!.Message, StringComparison.Ordinal);
+        Assert.Contains("New content is 320 bytes; only the first 100 were scanned.", blocked.Message, StringComparison.Ordinal);
+        Assert.Contains("action=block", stderr, StringComparison.Ordinal);
+        Assert.Contains("detector=SEC-00", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("reason=oversize", stderr, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -176,7 +188,7 @@ public class ResourceReadInterceptorTests
                 h.DriverClient.ReadResourceAsync("file:///a.txt", cancellationToken: h.Cts.Token));
 
             Assert.Contains("action=allow", stderr, StringComparison.Ordinal);
-            Assert.DoesNotContain("reason=oversize", stderr, StringComparison.Ordinal);
+            Assert.DoesNotContain("action=block", stderr, StringComparison.Ordinal);
         }
         finally
         {
@@ -199,7 +211,7 @@ public class ResourceReadInterceptorTests
             h.DriverClient.ReadResourceAsync("file:///big.txt", cancellationToken: h.Cts.Token));
 
         Assert.Contains("action=allow", stderr, StringComparison.Ordinal);
-        Assert.DoesNotContain("reason=oversize", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain("action=block", stderr, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -340,7 +352,7 @@ public class ResourceReadInterceptorTests
         => StartHarnessAsync(new ExactMatchEmbeddingGenerator(), maxScanBytes);
 
     private static async Task<ProxyHarness> StartHarnessAsync(
-        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator, int maxScanBytes = 262144)
+        IEmbeddingGenerator<string, Embedding<float>> embeddingGenerator, int maxScanBytes = 262144, HookConfig? config = null)
     {
         var fake = new FakeMcpServer
         {
@@ -364,7 +376,7 @@ public class ResourceReadInterceptorTests
                 serverName: "proxy-server",
                 loggerFactory: NullLoggerFactory.Instance),
             targetTransport: targetTransport,
-            config: DefaultConfig(),
+            config: config ?? DefaultConfig(),
             preset: DetectorPreset.Security,
             maxScanBytes: maxScanBytes,
             stderr: TextWriter.Null,

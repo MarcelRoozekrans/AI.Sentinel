@@ -485,4 +485,20 @@ public class DetectorDocumentationTests
 
         Assert.Empty(missing);
     }
+
+    /// <summary>SEC-00 is added by the pipeline when new content is over MaxScanBytes (#439), so no IDetector
+    /// carries it and the guards that walk the registered detectors never see it. It must still be documented,
+    /// as a pipeline finding, or a reader meets an id in the audit log that no page explains.</summary>
+    [Fact]
+    public void ScanLimitId_IsDocumentedAsAPipelineFinding_AndBelongsToNoDetector()
+    {
+        var id = DetectionPipeline.ScanLimitId.Value;
+        var provider = new ServiceCollection().AddAISentinel().BuildServiceProvider();
+        Assert.DoesNotContain(provider.GetServices<IDetector>(), d => string.Equals(d.Id.Value, id, StringComparison.Ordinal));
+
+        var rows = DetectorReferenceRows().Where(r => r.IdCell.Contains(id, StringComparison.Ordinal)).ToList();
+        Assert.Contains(rows, r => string.Equals(r.File, "security.md", StringComparison.Ordinal));
+        Assert.Contains(rows, r => string.Equals(r.File, "README.md", StringComparison.Ordinal));
+        Assert.All(rows, r => Assert.Contains("Pipeline finding", r.TypeCell, StringComparison.Ordinal));
+    }
 }

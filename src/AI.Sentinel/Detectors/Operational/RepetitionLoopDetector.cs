@@ -15,7 +15,7 @@ public sealed class RepetitionLoopDetector : IDetector
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
         // Prose only: a tool polled until it is done repeats its result legitimately.
-        var text = ctx.ProseContent;
+        var text = ctx.NewProseContent;
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         int maxRepeat = 0;
 

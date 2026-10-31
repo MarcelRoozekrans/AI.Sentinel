@@ -123,7 +123,7 @@ public sealed partial class PiiLeakageDetector : ILlmEscalatingDetector, IRedact
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = ctx.TextContent;
+        var text = ctx.NewTextContent;
         var severity = Severity.None;
         var found = 0;
 

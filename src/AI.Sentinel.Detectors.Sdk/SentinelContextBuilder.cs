@@ -11,7 +11,7 @@ namespace AI.Sentinel.Detectors.Sdk;
 /// <remarks>
 /// Defaults: <c>SenderId</c> = <c>"user"</c>, <c>ReceiverId</c> = <c>"assistant"</c>,
 /// <c>SessionId</c> = a fresh <see cref="SessionId.New()"/>, empty <c>Messages</c>, empty <c>History</c>,
-/// <c>LlmId</c> = <c>null</c>, <c>NewMessagesFrom</c> = 0. Override any of these with the <c>WithXxx</c> methods.
+/// <c>LlmId</c> = <c>null</c>, <c>NewMessagesFrom</c> = 0, <c>MaxScanBytes</c> = <c>null</c>. Override any of these with the <c>WithXxx</c> methods.
 /// </remarks>
 public sealed class SentinelContextBuilder
 {
@@ -22,6 +22,7 @@ public sealed class SentinelContextBuilder
     private readonly List<AuditEntry> _history = new();
     private string? _llmId;
     private int _newMessagesFrom;
+    private int? _maxScanBytes;
 
     /// <summary>Appends a <see cref="ChatRole.User"/> message with the given text.</summary>
     public SentinelContextBuilder WithUserMessage(string text)
@@ -101,7 +102,16 @@ public sealed class SentinelContextBuilder
         return this;
     }
 
+    /// <summary>Sets <see cref="SentinelContext.MaxScanBytes"/>, the most UTF-8 bytes of the new messages' detection
+    /// text that a scan judges.</summary>
+    /// <param name="maxBytes">The budget, which must be positive, or null, the default, for no limit.</param>
+    public SentinelContextBuilder WithMaxScanBytes(int? maxBytes)
+    {
+        _maxScanBytes = maxBytes;
+        return this;
+    }
+
     /// <summary>Builds an immutable <see cref="SentinelContext"/> from the configured values.</summary>
     public SentinelContext Build()
-        => new(_sender, _receiver, _session, _messages.ToArray(), _history.ToArray()) { LlmId = _llmId, NewMessagesFrom = _newMessagesFrom };
+        => new(_sender, _receiver, _session, _messages.ToArray(), _history.ToArray()) { LlmId = _llmId, NewMessagesFrom = _newMessagesFrom, MaxScanBytes = _maxScanBytes };
 }

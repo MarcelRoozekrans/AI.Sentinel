@@ -14,7 +14,11 @@ public sealed class IncompleteCodeBlockDetector : IDetector
 
     public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct)
     {
-        var text = string.Join("\n", ctx.Messages.Select(m => m.Text ?? ""));
+        // Past the scan budget the view ends where the cut fell, not where the response did, so a split fence or
+        // sentence says nothing about the response; SEC-00 already reports the cut.
+        if (ctx.ExceedsScanBudget) return ValueTask.FromResult(_clean);
+
+        var text = string.Join("\n", ctx.NewMessageProse);
         var opens = text.Split("```").Length - 1;
         if (opens % 2 != 0)
             return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Medium,

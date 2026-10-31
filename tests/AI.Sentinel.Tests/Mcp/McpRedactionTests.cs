@@ -23,15 +23,17 @@ public class McpRedactionTests
     private const string Email = "jan@example.com";
     private const int MaxScanBytes = 64 * 1024;
 
-    private static (SentinelPipeline Pipeline, IAuditStore Store) Build(bool blockCritical = false)
+    private static (SentinelPipeline Pipeline, IAuditStore Store) Build(
+        bool blockCritical = false, int maxScanBytes = MaxScanBytes, params string[] recognised)
     {
         var options = new SentinelOptions
         {
+            MaxScanBytes = maxScanBytes,
             OnCritical = blockCritical ? SentinelAction.Quarantine : SentinelAction.Alert,
             OnHigh = SentinelAction.Alert,
             OnMedium = SentinelAction.Alert,
             OnLow = SentinelAction.Alert,
-            EmbeddingGenerator = new ExactMatchEmbeddingGenerator(),
+            EmbeddingGenerator = new ExactMatchEmbeddingGenerator(recognised),
         };
         // These tests are about redaction before a block, not the severity of an embedding hit: SEC-01 keeps its Critical.
         options.Configure<PromptInjectionDetector>(c => c.CapSemanticSeverity = false);
@@ -59,16 +61,19 @@ public class McpRedactionTests
 
     private static ValueTask<CallToolResult> CallAsync(
         SentinelPipeline pipeline, CallToolResult result, PlaceholderStore? placeholders,
-        int maxScanBytes = MaxScanBytes, SessionId? sessionId = null)
+        SessionId? sessionId = null)
     {
         var filter = ToolCallInterceptor.Create(
-            pipeline, maxScanBytes, TextWriter.Null, sessionId: sessionId, placeholders: placeholders);
+            pipeline, TextWriter.Null, sessionId: sessionId, placeholders: placeholders);
         var handler = filter((_, _) => new ValueTask<CallToolResult>(result));
         return handler(Context(new CallToolRequestParams { Name = "lookup" }), TestContext.Current.CancellationToken);
     }
 
     private static bool IsRedactedEntry(AuditEntry e) =>
         string.Equals(e.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal);
+
+    private static bool IsScanLimit(AuditEntry e) =>
+        string.Equals(e.DetectorId, DetectionPipeline.ScanLimitId.Value, StringComparison.Ordinal);
 
     [Fact]
     public async Task ToolResult_TextBlock_EmailBecomesPlaceholder()
@@ -168,21 +173,98 @@ public class McpRedactionTests
         Assert.Equal("[EMAIL_1]", Placeholders.Untag(((TextContentBlock)result.Content[3]).Text));
     }
 
+    // #439: a block over the budget is redacted whole, the email past the budget included, and the scan reports
+    // SEC-00. OnCritical alerts here, so the redacted result is delivered. 4.1 forwarded the block unredacted.
     [Fact]
-    public async Task ToolResult_OversizeBlock_NotRedacted_FallsBackWithNotRedactedSuffix()
+    public async Task ToolResult_BlockOverBudget_RedactedWhole_AndSec00Audited()
     {
-        var (pipeline, store) = Build();
-        var text = Email + " " + new string('x', 200 - Email.Length - 1);
+        var (pipeline, store) = Build(maxScanBytes: 64);
+        var padding = new string('x', 200) + " ";
 
         var result = await CallAsync(pipeline, new CallToolResult
         {
-            Content = [new TextContentBlock { Text = text }],
-        }, NewStore(), maxScanBytes: 64);
+            Content = [new TextContentBlock { Text = padding + Email }],
+        }, NewStore());
 
-        Assert.Equal(text, ((TextContentBlock)result.Content[0]).Text);
+        Assert.Equal(padding + "[EMAIL_1]", Placeholders.Untag(((TextContentBlock)result.Content[0]).Text));
         var entries = await RecordingAuditForwarder.ReadAllAsync(store);
-        Assert.Contains(entries, e => e.Summary.EndsWith("; not redacted", StringComparison.Ordinal));
-        Assert.DoesNotContain(entries, IsRedactedEntry);
+        Assert.Contains(entries, IsScanLimit);
+        Assert.Single(entries, IsRedactedEntry);
+    }
+
+    // #439: per the MCP specification a tool mirrors its structured content in a text block. The text block carries
+    // it to the scan, so the content counts against the budget once, as with SENTINEL_MCP_REDACT=off.
+    [Fact]
+    public async Task ToolResult_StructuredContentMirroredInATextBlock_CountedOnce()
+    {
+        const string json = """{"note":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mail":"jan@example.com"}""";
+        var (pipeline, store) = Build(maxScanBytes: json.Length + 10);
+
+        var result = await CallAsync(pipeline, new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = Json(json),
+        }, NewStore());
+
+        var entries = await RecordingAuditForwarder.ReadAllAsync(store);
+        Assert.DoesNotContain(entries, IsScanLimit);
+        // Both copies are still redacted.
+        Assert.Equal(
+            """{"note":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mail":"[EMAIL_1]"}""",
+            Placeholders.Untag(((TextContentBlock)result.Content[0]).Text));
+        Assert.Equal(
+            """{"note":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mail":"[EMAIL_1]"}""",
+            Placeholders.Untag(Assert.NotNull(result.StructuredContent).GetRawText()));
+    }
+
+    // A malicious server can mirror an escape-encoded payload: the raw text block hides it, and the structured
+    // content a host hands the model holds it decoded. Such a mirror is still scanned decoded, and blocks.
+    [Fact]
+    public async Task ToolResult_EscapedMirror_IsScannedDecoded_AndBlocks()
+    {
+        var injection = DetectorExamples.PromptInjectionHigh;
+        var escaped = $"\\u{(int)injection[0]:x4}{injection[1..]}";
+        var json = $$"""{"note":"{{escaped}}"}""";
+        Assert.DoesNotContain(injection, json, StringComparison.Ordinal);
+        var (pipeline, _) = Build(blockCritical: true, recognised: injection);
+
+        await Assert.ThrowsAsync<McpProtocolException>(async () => await CallAsync(pipeline, new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = Json(json),
+        }, NewStore()));
+    }
+
+    // The same payload unescaped is a plain mirror: the text block shows it, and blocks on its own.
+    [Fact]
+    public async Task ToolResult_UnescapedMirroredInjection_StillBlocks()
+    {
+        var injection = DetectorExamples.PromptInjectionHigh;
+        var json = $$"""{"note":{{JsonSerializer.Serialize(injection)}}}""";
+        Assert.DoesNotContain("\\", json, StringComparison.Ordinal);
+        var (pipeline, _) = Build(blockCritical: true, recognised: injection);
+
+        await Assert.ThrowsAsync<McpProtocolException>(async () => await CallAsync(pipeline, new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json }],
+            StructuredContent = Json(json),
+        }, NewStore()));
+    }
+
+    // Structured content that no text block mirrors is scanned on its own, so it counts against the budget.
+    [Fact]
+    public async Task ToolResult_StructuredContentNotMirrored_CountsAgainstTheBudget()
+    {
+        const string json = """{"note":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","mail":"jan@example.com"}""";
+        var (pipeline, store) = Build(maxScanBytes: json.Length + 10);
+
+        _ = await CallAsync(pipeline, new CallToolResult
+        {
+            Content = [new TextContentBlock { Text = json + " " }],
+            StructuredContent = Json(json),
+        }, NewStore());
+
+        Assert.Contains(await RecordingAuditForwarder.ReadAllAsync(store), IsScanLimit);
     }
 
     [Fact]
@@ -238,7 +320,7 @@ public class McpRedactionTests
                 new PromptMessage { Role = Role.User, Content = new EmbeddedResourceBlock { Resource = resource } },
             ],
         };
-        var filter = PromptGetInterceptor.Create(pipeline, MaxScanBytes, TextWriter.Null, placeholders: NewStore());
+        var filter = PromptGetInterceptor.Create(pipeline, TextWriter.Null, placeholders: NewStore());
         var handler = filter((_, _) => new ValueTask<GetPromptResult>(prompt));
 
         var result = await handler(Context(new GetPromptRequestParams { Name = "mail" }), TestContext.Current.CancellationToken);
@@ -254,7 +336,7 @@ public class McpRedactionTests
         var (pipeline, store) = Build();
         var allowed = new TextResourceContents { Uri = "file:///a.txt", MimeType = "text/plain", Text = $"a {Email}" };
         var other = new TextResourceContents { Uri = "file:///a.bin", MimeType = "application/x-custom", Text = $"b {Email}" };
-        var filter = ResourceReadInterceptor.Create(pipeline, MaxScanBytes, placeholders: NewStore());
+        var filter = ResourceReadInterceptor.Create(pipeline, placeholders: NewStore());
         var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult { Contents = [allowed, other] }));
 
         _ = await handler(Context(new ReadResourceRequestParams { Uri = "file:///a.txt" }), TestContext.Current.CancellationToken);
@@ -262,6 +344,25 @@ public class McpRedactionTests
         Assert.Equal("a [EMAIL_1]", Placeholders.Untag(allowed.Text));
         Assert.Equal($"b {Email}", other.Text);
         Assert.Single(await RecordingAuditForwarder.ReadAllAsync(store), IsRedactedEntry);
+    }
+
+    // #439: an item over the budget is redacted whole and scanned; the scan reports SEC-00. Here OnCritical alerts, so
+    // the redacted item is delivered. 4.1 skipped the item, so the email reached the agent.
+    [Fact]
+    public async Task ResourceRead_ItemOverBudget_RedactedWhole_AndSec00Audited()
+    {
+        var (pipeline, store) = Build(maxScanBytes: 64);
+        var padding = new string('x', 100) + " ";
+        var item = new TextResourceContents { Uri = "file:///big.txt", MimeType = "text/plain", Text = padding + Email };
+        var filter = ResourceReadInterceptor.Create(pipeline, placeholders: NewStore());
+        var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult { Contents = [item] }));
+
+        _ = await handler(Context(new ReadResourceRequestParams { Uri = "file:///big.txt" }), TestContext.Current.CancellationToken);
+
+        Assert.Equal(padding + "[EMAIL_1]", Placeholders.Untag(item.Text));
+        var entries = await RecordingAuditForwarder.ReadAllAsync(store);
+        Assert.Contains(entries, IsScanLimit);
+        Assert.Single(entries, IsRedactedEntry);
     }
 
     [Fact]
@@ -283,7 +384,7 @@ public class McpRedactionTests
         {
             items.Add(new TextResourceContents { Uri = $"file:///{i}.txt", MimeType = "text/plain", Text = $"line {i}" });
         }
-        var filter = ResourceReadInterceptor.Create(pipeline, MaxScanBytes, placeholders: NewStore());
+        var filter = ResourceReadInterceptor.Create(pipeline, placeholders: NewStore());
         var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult { Contents = items }));
 
         var result = await handler(Context(new ReadResourceRequestParams { Uri = "file:///dir" }), TestContext.Current.CancellationToken);
@@ -298,7 +399,7 @@ public class McpRedactionTests
         var (pipeline, store) = Build();
         var first = new TextResourceContents { Uri = "file:///a.txt", MimeType = "text/plain", Text = $"a {Email}" };
         var second = new TextResourceContents { Uri = "file:///b.txt", MimeType = "text/plain", Text = $"b {Email}" };
-        var filter = ResourceReadInterceptor.Create(pipeline, MaxScanBytes, placeholders: NewStore());
+        var filter = ResourceReadInterceptor.Create(pipeline, placeholders: NewStore());
         var handler = filter((_, _) => new ValueTask<ReadResourceResult>(new ReadResourceResult { Contents = [first, second] }));
 
         _ = await handler(Context(new ReadResourceRequestParams { Uri = "file:///dir" }), TestContext.Current.CancellationToken);
@@ -309,10 +410,11 @@ public class McpRedactionTests
     }
 
     [Fact]
-    public async Task ToolResult_BlocksPastTotalBudget_NotRedacted()
+    public async Task ToolResult_BlocksPastTotalBudget_AllRedacted_AndSec00Audited()
     {
-        // 30-byte blocks against a 64-byte cap: two fit, the third is truncated to what is left, the rest are not scanned.
-        var (pipeline, store) = Build();
+        // 30-byte blocks against a 64-byte cap: every block is redacted, and the scan of the 150 bytes reports SEC-00.
+        // 4.1 redacted two, truncated the third into the scan and left the rest unredacted and unscanned.
+        var (pipeline, store) = Build(maxScanBytes: 64);
         var padding = " " + new string('x', 29 - Email.Length);
         var text = Email + padding;
         var blocks = new List<ContentBlock>();
@@ -321,16 +423,16 @@ public class McpRedactionTests
             blocks.Add(new TextContentBlock { Text = text });
         }
 
-        var result = await CallAsync(pipeline, new CallToolResult { Content = blocks }, NewStore(), maxScanBytes: 64);
+        var result = await CallAsync(pipeline, new CallToolResult { Content = blocks }, NewStore());
 
-        Assert.Equal("[EMAIL_1]" + padding, Placeholders.Untag(((TextContentBlock)result.Content[0]).Text));
-        Assert.Equal("[EMAIL_1]" + padding, Placeholders.Untag(((TextContentBlock)result.Content[1]).Text));
-        for (var i = 2; i < 5; i++)
+        for (var i = 0; i < 5; i++)
         {
-            Assert.Equal(text, ((TextContentBlock)result.Content[i]).Text);
+            Assert.Equal("[EMAIL_1]" + padding, Placeholders.Untag(((TextContentBlock)result.Content[i]).Text));
         }
-        var redacted = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(store), IsRedactedEntry);
-        Assert.Equal("Redacted 2 EMAIL", redacted.Summary);
+        var entries = await RecordingAuditForwarder.ReadAllAsync(store);
+        Assert.Contains(entries, IsScanLimit);
+        var redacted = Assert.Single(entries, IsRedactedEntry);
+        Assert.Equal("Redacted 5 EMAIL", redacted.Summary);
     }
 
     [Fact]
@@ -341,7 +443,7 @@ public class McpRedactionTests
         var pipeline = McpPipelineFactory.Assemble(
             options, [new PiiLeakageDetector()], new RingBufferAuditStore(capacity: 16));
         var stderr = new StringWriter();
-        var filter = ToolCallInterceptor.Create(pipeline, MaxScanBytes, stderr, placeholders: NewStore());
+        var filter = ToolCallInterceptor.Create(pipeline, stderr, placeholders: NewStore());
         var handler = filter((_, _) => new ValueTask<CallToolResult>(new CallToolResult
         {
             Content = [new TextContentBlock { Text = "clean" }],
@@ -387,7 +489,7 @@ public class McpRedactionTests
         var guard = new RecordingGuard();
         CallToolRequestParams? forwarded = null;
         var filter = ToolCallInterceptor.Create(
-            pipeline, MaxScanBytes, TextWriter.Null, guard: guard, placeholders: StoreWithEmail());
+            pipeline, TextWriter.Null, guard: guard, placeholders: StoreWithEmail());
         var handler = filter((ctx, _) =>
         {
             forwarded = ctx.Params;
@@ -415,7 +517,7 @@ public class McpRedactionTests
         var pipeline = McpPipelineFactory.Assemble(
             options, [new PiiLeakageDetector(), new CredentialExposureDetector()], new RingBufferAuditStore(capacity: 16));
         string? forwardedTo = null;
-        var filter = ToolCallInterceptor.Create(pipeline, MaxScanBytes, TextWriter.Null, placeholders: StoreWithEmail());
+        var filter = ToolCallInterceptor.Create(pipeline, TextWriter.Null, placeholders: StoreWithEmail());
         var handler = filter((ctx, _) =>
         {
             forwardedTo = ctx.Params!.Arguments!["to"].GetString();

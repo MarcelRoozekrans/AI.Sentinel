@@ -4,6 +4,7 @@ using AI.Sentinel.Detectors.Security;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Intervention;
 using AI.Sentinel.Redaction;
+using AI.Sentinel.Tests.Helpers;
 using Microsoft.Extensions.AI;
 using Xunit;
 
@@ -231,6 +232,46 @@ public class SentinelPipelineNewMessagesTests
         var ctx = Assert.Single(capture.Seen);
         Assert.Equal(4, ctx.Messages.Count);
         Assert.Equal(2, ctx.NewMessagesFrom);
+    }
+
+    // #439, through the real tool loop. The model calls the tool twice; the first result carries a secret. Redaction is
+    // off and criticals only log, so the loop runs to its end. Round 2 judges the secret; round 3 sends the same
+    // history again and must not report it a second time.
+    [Fact]
+    public async Task ToolLoop_SecretInRound1Result_FlaggedOnceNotInRound2()
+    {
+        var model = new Redaction.RedactionPipelineTests.RecordingModel(messages =>
+        {
+            var results = messages.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Count();
+            return results >= 2
+                ? new ChatMessage(ChatRole.Assistant, "done")
+                : new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("c" + results, "Lookup", new Dictionary<string, object?>(StringComparer.Ordinal) { ["id"] = "42" })]);
+        });
+        var h = Redaction.RedactionPipelineTests.Build("F>S", model, o => { o.RedactByDefault = false; o.OnCritical = SentinelAction.Log; });
+        var calls = 0;
+        var options = new ChatOptions { Tools = [AIFunctionFactory.Create((string id) => ++calls == 1 ? "password=hunter2secretvalue" : "all clean here", "Lookup")] };
+
+        var response = await h.Client.GetResponseAsync([new ChatMessage(ChatRole.User, "look it up")], options, TestContext.Current.CancellationToken);
+
+        Assert.Equal("done", response.Text);
+        Assert.Equal(3, model.Calls);
+        var entries = await RecordingAuditForwarder.ReadAllAsync(h.Audit);
+        Assert.Single(entries, e => string.Equals(e.DetectorId, "SEC-02", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Oversize_CredentialPastCap_NotReportedButScanCritical()
+    {
+        var opts = new SentinelOptions { RedactByDefault = false, MaxScanBytes = 100 };
+        var detection = new DetectionPipeline([new CredentialExposureDetector()], configurations: null, reviewer: null, redactByDefault: false);
+        var pipeline = new SentinelPipeline(new RecordingClient(), detection, new RingBufferAuditStore(100), new InterventionEngine(opts, null), opts);
+        var text = new string('a', 200) + " password=hunter2secretvalue";
+
+        var result = await pipeline.GetResponseResultAsync([new ChatMessage(ChatRole.User, text)], null, TestContext.Current.CancellationToken);
+
+        var error = Assert.IsType<SentinelError.ThreatDetected>(result.Error);
+        Assert.Contains(error.Detections, d => string.Equals(d.DetectorId.Value, "SEC-00", StringComparison.Ordinal) && d.Severity == Severity.Critical);
+        Assert.DoesNotContain(error.Detections, d => string.Equals(d.DetectorId.Value, "SEC-02", StringComparison.Ordinal));
     }
 
     private sealed class RecordingClient : IChatClient
