@@ -224,7 +224,8 @@ public class DashboardApprovalPageTests
     {
         const string id = "a/b?c%d";
         var store = new SettableIdStore(id);
-        var builder = WebApplication.CreateSlimBuilder();
+        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+        builder.WebHost.UseKestrelCore();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddRouting();
         AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(builder.Services);
@@ -269,7 +270,8 @@ public class DashboardApprovalPageTests
     {
         const string id = "a/b?c%d";
         var store = new SettableIdStore(id);
-        var builder = WebApplication.CreateSlimBuilder();
+        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+        builder.WebHost.UseKestrelCore();
         builder.WebHost.UseUrls("http://127.0.0.1:0");
         builder.Services.AddRouting();
         AI.Sentinel.ServiceCollectionExtensions.AddAISentinel(builder.Services);

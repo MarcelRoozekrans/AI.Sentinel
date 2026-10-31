@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Cli;
 using AI.Sentinel.Detection;
@@ -62,7 +63,8 @@ public class DashboardHostIsolationTests : IDisposable
     public async Task Start_IgnoresKestrelEndpointsFromTheEnvironment()
     {
         const string name = "Kestrel__Endpoints__Evil__Url";
-        Environment.SetEnvironmentVariable(name, "http://0.0.0.0:0");
+        var evilPort = FreePort();
+        Environment.SetEnvironmentVariable(name, $"http://127.0.0.1:{evilPort}");
         try
         {
             var db = await SeedAsync();
@@ -70,15 +72,24 @@ public class DashboardHostIsolationTests : IDisposable
                 db, 0, new StringWriter(), new StringWriter(), TestContext.Current.CancellationToken);
 
             Assert.NotNull(dashboard);
-            Assert.True(IPAddress.IsLoopback(IPAddress.Parse(dashboard.Url.Host.Trim('[', ']'))));
             using var http = new HttpClient();
             var resp = await http.GetAsync(new Uri(dashboard.Url, "api/stats"), TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            using var probe = new TcpClient();
+            await Assert.ThrowsAsync<SocketException>(async () =>
+                await probe.ConnectAsync(IPAddress.Loopback, evilPort, TestContext.Current.CancellationToken));
         }
         finally
         {
             Environment.SetEnvironmentVariable(name, null);
         }
+    }
+
+    private static int FreePort()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        return ((IPEndPoint)listener.LocalEndpoint).Port;
     }
 
     private async Task<(WebApplication App, SqliteAuditStore Store)> BuildAsync()
