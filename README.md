@@ -57,6 +57,8 @@ dotnet add package AI.Sentinel.AspNetCore   # optional, for the dashboard
 
 ## Quick start
 
+> **Upgrading from 4.x?** 5.0 ships `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` as Native AOT builds. Installing them needs the .NET 10 SDK, or you use the release binaries. See [Migrating to 5.0](https://marcelroozekrans.github.io/AI.Sentinel/docs/configuration/migrating-to-5).
+
 > **Upgrading from 3.x?** 4.0 caps semantic detections at `Medium` until a reviewer confirms them, makes `ReviewCriterion` a required member for detector authors, and turns `EscalationClient` into shorthand for a reviewer that also judges semantic findings. See [Migrating to 4.0](https://marcelroozekrans.github.io/AI.Sentinel/docs/configuration/migrating-to-4).
 
 ```csharp
@@ -999,17 +1001,11 @@ Useful when wiring the hook for the first time ("did it run?") or when a block w
 
 An audit failure never changes a decision. `sentinel-hook` prints it to stderr with the prefix `[sentinel-hook] audit:` unless the decision is a Block that exits 2, `sentinel-copilot-hook` only on Allow, and both on any decision when `SENTINEL_HOOK_VERBOSE` is set; the MCP proxy logs it as the `audit_unavailable` event.
 
-### Native binary (optional, faster cold start)
+### Native binary
 
-The hook CLIs are Native-AOT ready. Both `.csproj` files gate `PackAsTool` behind `PublishAot`, so a single source tree produces either the `dotnet tool` NuGet package or a ~6.5 MB single-file native binary, depending on how you publish it.
+`sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` are .NET 10 RID-specific tools. `dotnet tool install` needs the .NET 10 SDK, and on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64 it installs the Native AOT build, which skips the ~190 ms JIT startup on every hook call. Other platforms get a framework-dependent build.
 
-```
-dotnet publish src/AI.Sentinel.ClaudeCode.Cli -c Release -f net10.0 -r win-x64 -p:PublishAot=true
-```
-
-Replace `win-x64` with `linux-x64`, `osx-arm64`, etc. The CLIs target `net8.0` and `net10.0`, so `-f` picks one. Output lands under `bin/Release/net10.0/<rid>/publish/sentinel-hook[.exe]`. Expect ~10× faster cold start than the dotnet-tool entry point — worth it if the hook fires on every tool call. Point the agent's hook `command` at the binary's full path instead of `sentinel-hook`.
-
-> **Prereqs on Windows:** the Visual Studio "Desktop development with C++" workload (for `link.exe` + Windows SDK). Linux needs `clang`/`libc` dev packages; macOS needs Xcode CLT.
+For hosts without the .NET SDK, every GitHub release carries `<command>-<version>-<rid>` archives with a `SHA256SUMS` file and GitHub build attestations. See [Native binary without the .NET SDK](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#native-binary-without-the-net-sdk) for download and verification steps.
 
 ### Programmatic use
 

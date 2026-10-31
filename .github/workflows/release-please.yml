@@ -75,10 +75,32 @@ jobs:
           git log "$last_tag"..HEAD --format='  %h %s' | grep -E '(feat|fix)' || true
           exit 1
 
-  publish:
+  native:
+    # Packs, smoke-tests, archives and attests the Native AOT builds of the three hook/MCP CLIs,
+    # one runner per RID. Nothing is pushed unless every leg succeeds.
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    uses: ./.github/workflows/native-cli.yml
+    with:
+      version: ${{ needs.release-please.outputs.version }}
+      attest: true
+
+  publish:
+    needs: [release-please, native]
+    if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    env:
+      VERSION: ${{ needs.release-please.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
@@ -89,12 +111,12 @@ jobs:
             10.0.x
 
       - name: Build
-        run: dotnet build AI.Sentinel.slnx -c Release -p:Version=${{ needs.release-please.outputs.version }}
+        run: dotnet build AI.Sentinel.slnx -c Release -p:Version=$VERSION
 
       - name: Test
         run: dotnet test AI.Sentinel.slnx -c Release --no-build
 
-      - name: Pack
+      - name: Pack libraries and the sentinel CLI
         run: |
           for proj in \
             src/AI.Sentinel/AI.Sentinel.csproj \
@@ -103,24 +125,87 @@ jobs:
             src/AI.Sentinel.AspNetCore/AI.Sentinel.AspNetCore.csproj \
             src/AI.Sentinel.AzureSentinel/AI.Sentinel.AzureSentinel.csproj \
             src/AI.Sentinel.ClaudeCode/AI.Sentinel.ClaudeCode.csproj \
-            src/AI.Sentinel.ClaudeCode.Cli/AI.Sentinel.ClaudeCode.Cli.csproj \
             src/AI.Sentinel.Cli/AI.Sentinel.Cli.csproj \
             src/AI.Sentinel.Copilot/AI.Sentinel.Copilot.csproj \
-            src/AI.Sentinel.Copilot.Cli/AI.Sentinel.Copilot.Cli.csproj \
             src/AI.Sentinel.Detectors.Sdk/AI.Sentinel.Detectors.Sdk.csproj \
             src/AI.Sentinel.Mcp/AI.Sentinel.Mcp.csproj \
-            src/AI.Sentinel.Mcp.Cli/AI.Sentinel.Mcp.Cli.csproj \
             src/AI.Sentinel.OpenTelemetry/AI.Sentinel.OpenTelemetry.csproj \
             src/AI.Sentinel.Sqlite/AI.Sentinel.Sqlite.csproj; do
             dotnet pack "$proj" -c Release --no-build \
-              -p:PackageVersion=${{ needs.release-please.outputs.version }} \
+              -p:PackageVersion=$VERSION \
               -o ./nupkg
           done
 
-      - name: Push to NuGet
-        run: dotnet nuget push ./nupkg/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+      # The three hook/MCP CLIs are RID-specific tools (eng/NativeTool.props): a pointer package,
+      # one Native AOT package per RID from the native job, and a framework-dependent any fallback.
+      - name: Pack the CLI pointer and any packages
+        run: |
+          for cli in ClaudeCode.Cli Copilot.Cli Mcp.Cli; do
+            proj=src/AI.Sentinel.$cli/AI.Sentinel.$cli.csproj
+            dotnet pack "$proj" -c Release --no-build -p:PackageVersion=$VERSION -o ./nupkg-pointer
+            dotnet pack "$proj" -c Release -r any -p:PublishAot=false \
+              -p:PackageVersion=$VERSION -p:Version=$VERSION -o ./nupkg-rid
+          done
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: ./native
+          merge-multiple: true
+
+      - name: Collect the RID packages
+        run: mv ./native/*.nupkg ./nupkg-rid/
+
+      # A pointer package names its RID packages, and `dotnet tool install` fails outright on a RID
+      # whose package is missing. Check that every named package was built, push them all, wait
+      # until NuGet serves each one, and push the pointers last.
+      - name: Check every RID package a pointer names was built
+        run: |
+          for ptr in ./nupkg-pointer/*.nupkg; do
+            ids=$(unzip -p "$ptr" tools/any/any/DotnetToolSettings.xml | grep -o 'Id="[^"]*"' | cut -d'"' -f2)
+            [ -n "$ids" ] || { echo "::error::$(basename "$ptr") names no RID packages"; exit 1; }
+            for id in $ids; do
+              [ -f "./nupkg-rid/$id.$VERSION.nupkg" ] || { echo "::error::$(basename "$ptr") names $id, but $id.$VERSION.nupkg was not built"; exit 1; }
+            done
+          done
+
+      - name: Push the RID packages to NuGet
+        run: dotnet nuget push "./nupkg-rid/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      # NuGet validates and indexes each package on its own schedule, so push order alone does not
+      # make a large RID package available before the small pointer that names it.
+      - name: Wait until NuGet serves every RID package
+        run: |
+          for f in ./nupkg-rid/*.nupkg; do
+            id=$(basename "$f" ".$VERSION.nupkg" | tr '[:upper:]' '[:lower:]')
+            for attempt in $(seq 1 60); do
+              if curl -fsS "https://api.nuget.org/v3-flatcontainer/$id/index.json" 2>/dev/null | grep -q "\"$VERSION\""; then
+                continue 2
+              fi
+              sleep 30
+            done
+            echo "::error::$id $VERSION is not available on NuGet after 30 minutes; the pointer packages were not pushed"
+            exit 1
+          done
+
+      - name: Push the libraries and the CLI pointer packages to NuGet
+        run: |
+          dotnet nuget push "./nupkg/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push "./nupkg-pointer/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Write SHA256SUMS
+        working-directory: ./native
+        run: sha256sum *.tar.gz *.zip > SHA256SUMS
+
+      - name: Attest SHA256SUMS
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: ./native/SHA256SUMS
 
       - name: Upload to GitHub Release
-        run: gh release upload ${{ needs.release-please.outputs.tag_name }} ./nupkg/*.nupkg
+        run: |
+          gh release upload ${{ needs.release-please.outputs.tag_name }} --clobber \
+            ./native/*.tar.gz ./native/*.zip ./native/SHA256SUMS \
+            ./nupkg/*.nupkg ./nupkg-pointer/*.nupkg ./nupkg-rid/*.nupkg
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

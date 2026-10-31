@@ -55,6 +55,7 @@ const sidebars = {
         'configuration/fluent-config',
         'configuration/embedding-cache',
         'configuration/migrating-to-4',
+        'configuration/migrating-to-5',
       ],
     },
     {

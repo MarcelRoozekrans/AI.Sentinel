@@ -13,7 +13,7 @@ title: GitHub Copilot
 dotnet tool install -g AI.Sentinel.Copilot.Cli
 ```
 
-The CLI installs as `sentinel-copilot-hook` on your `PATH`.
+The CLI installs as `sentinel-copilot-hook` on your `PATH`. As with the Claude Code adapter, installing needs the .NET 10 SDK, and the Native AOT build is picked on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64.
 
 ## Wire it into Copilot
 
@@ -149,29 +149,20 @@ Same as the Claude Code adapter: the hook records findings, authorization denial
 
 An audit failure never changes a decision, and on Block and Warn it is not printed to stderr unless `SENTINEL_HOOK_VERBOSE` is set; on Allow it is printed with the prefix `[sentinel-copilot-hook] audit:`. See [Claude Code → Audit destination](./claude-code#audit-destination) for the full details, including `sentinel dashboard` to browse the file.
 
-## Native binary (faster cold start)
+## Native binary without the .NET SDK
 
-Same AOT story as Claude Code:
-
-```bash
-dotnet publish src/AI.Sentinel.Copilot.Cli -c Release -f net10.0 -r linux-x64 -p:PublishAot=true
-# Output: bin/Release/net10.0/linux-x64/publish/sentinel-copilot-hook
-```
-
-Point Copilot at the full binary path:
+Each GitHub release carries `sentinel-copilot-hook-<version>-<rid>` archives. Download and verify them as described in [Claude Code → Native binary without the .NET SDK](./claude-code#native-binary-without-the-net-sdk), then point Copilot at the full binary path:
 
 ```json
 {
   "version": 1,
   "hooks": {
     "userPromptSubmitted": [
-      { "type": "command", "bash": "/usr/local/bin/sentinel-copilot-hook user-prompt-submitted", "timeoutSec": 10 }
+      { "type": "command", "bash": "/opt/sentinel-copilot-hook/sentinel-copilot-hook user-prompt-submitted", "timeoutSec": 10 }
     ]
   }
 }
 ```
-
-10× faster cold start than the `dotnet tool` entry point. Recommended for repos where Copilot fires hooks on every keystroke or every tool invocation.
 
 ## Difference from Claude Code
 
