@@ -3,6 +3,7 @@ using System.CommandLine.Parsing;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Audit;
 using AI.Sentinel.AspNetCore;
 using AI.Sentinel.Sqlite;
@@ -331,27 +332,34 @@ public static class DashboardCommand
             return null;
         }
 
+        var plan = await DashboardApprovalPlan.LoadAsync(settings, stderr).ConfigureAwait(false);
+        if (plan is null)
+        {
+            return null;
+        }
+
         SqliteAuditStore? store = null;
         WebApplication? app = null;
+        IAsyncDisposable? approvalStore = null;
         var started = false;
         try
         {
-            store = SqliteAuditStore.OpenReadOnly(dbPath);
+            store = await OpenAuditStoreAsync(dbPath, plan).ConfigureAwait(false);
 
             var verification = await AuditHashChain.VerifyAsync(
                 store.QueryAsync(new AuditQuery { PageSize = int.MaxValue }, ct), ct).ConfigureAwait(false);
 
-            app = BuildApp(store, settings);
+            app = BuildApp(store, settings, plan);
+            approvalStore = app.Services.GetService<SqliteApprovalStore>();
 
             await app.StartAsync(ct).ConfigureAwait(false);
 
-            var bound = new Uri(app.Urls.First());
-            var url = new Uri($"http://{HostLiteral(BrowsableAddress(settings.Bind))}:{bound.Port.ToString(CultureInfo.InvariantCulture)}{PathPrefix}/");
+            var url = BrowsableUrl(app, settings);
 
-            await WriteStartupAsync(stdout, verification, url).ConfigureAwait(false);
+            await WriteStartupAsync(stdout, verification, url, plan.Describe(settings)).ConfigureAwait(false);
 
             started = true;
-            return new RunningDashboard(app, store, url);
+            return new RunningDashboard(app, store, approvalStore, url);
         }
         catch (IOException ex)
         {
@@ -366,26 +374,55 @@ public static class DashboardCommand
         {
             if (!started)
             {
-                if (app is not null)
-                {
-                    await app.DisposeAsync().ConfigureAwait(false);
-                }
-                if (store is not null)
-                {
-                    await store.DisposeAsync().ConfigureAwait(false);
-                }
+                await DisposeAllAsync(app, approvalStore, store).ConfigureAwait(false);
             }
         }
 
         return null;
     }
 
-    private static async Task WriteStartupAsync(TextWriter stdout, AuditChainVerification verification, Uri url)
+    private static Uri BrowsableUrl(WebApplication app, DashboardSettings settings)
+    {
+        var bound = new Uri(app.Urls.First());
+        return new Uri($"http://{HostLiteral(BrowsableAddress(settings.Bind))}:{bound.Port.ToString(CultureInfo.InvariantCulture)}{PathPrefix}/");
+    }
+
+    private static async Task<SqliteAuditStore> OpenAuditStoreAsync(string dbPath, DashboardApprovalPlan plan)
+    {
+        var readOnly = SqliteAuditStore.OpenReadOnly(dbPath);
+        if (!plan.NeedsWritableAudit)
+        {
+            return readOnly;
+        }
+
+        // The read-only open is what refuses an older schema, so approvals keep that check before the writable open.
+        await readOnly.DisposeAsync().ConfigureAwait(false);
+        return new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = dbPath });
+    }
+
+    private static async Task DisposeAllAsync(WebApplication? app, IAsyncDisposable? approvalStore, SqliteAuditStore? store)
+    {
+        if (app is not null)
+        {
+            await app.DisposeAsync().ConfigureAwait(false);
+        }
+        if (approvalStore is not null)
+        {
+            await approvalStore.DisposeAsync().ConfigureAwait(false);
+        }
+        if (store is not null)
+        {
+            await store.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    private static async Task WriteStartupAsync(TextWriter stdout, AuditChainVerification verification, Uri url, string approvalsLine)
     {
         await stdout.WriteLineAsync(verification.IsIntact
             ? $"Audit chain intact: {verification.EntriesChecked} entries"
             : $"Audit chain broken at entry {verification.FirstBrokenEntryId}").ConfigureAwait(false);
         await stdout.WriteLineAsync($"Dashboard: {url}").ConfigureAwait(false);
+        await stdout.WriteLineAsync(approvalsLine).ConfigureAwait(false);
     }
 
     private static IPAddress BrowsableAddress(IPAddress bind) =>
@@ -396,17 +433,35 @@ public static class DashboardCommand
     private static string HostLiteral(IPAddress address) =>
         address.AddressFamily == AddressFamily.InterNetworkV6 ? $"[{address.ToString().Split('%')[0]}]" : address.ToString();
 
-    private static WebApplication BuildApp(SqliteAuditStore store, DashboardSettings settings)
+    // Kestrel leaves an encoded slash in the route value, so the id is read from the raw target and escaped once.
+    private static IResult RedirectApprovalLink(HttpContext ctx)
+    {
+        var raw = ctx.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpRequestFeature>()?.RawTarget ?? ctx.Request.Path.Value ?? "";
+        var end = raw.IndexOf('?', StringComparison.Ordinal);
+        var segment = (end >= 0 ? raw[..end] : raw).Split('/')[^1];
+        return Results.Redirect($"{PathPrefix}/approvals/{Uri.EscapeDataString(Uri.UnescapeDataString(segment))}");
+    }
+
+    private static WebApplication BuildApp(SqliteAuditStore store, DashboardSettings settings, DashboardApprovalPlan plan)
     {
         var builder = WebApplication.CreateSlimBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls(string.Create(CultureInfo.InvariantCulture, $"http://{HostLiteral(settings.Bind)}:{settings.Port}"));
         builder.Services.AddRouting();
         builder.Services.AddSingleton<IAuditStore>(store);
+        plan.Register(builder.Services);
 
         var app = builder.Build();
+
+        // The identity middleware must stay first: its non-loopback gate has to cover every route below,
+        // including the root redirects and everything MapAISentinel maps.
+        app.UseApproverIdentity(settings);
         app.MapAISentinel(PathPrefix);
         app.MapGet("/", () => Results.Redirect(PathPrefix + "/"));
+        if (plan.ServesApprovals)
+        {
+            app.MapGet("/approvals/{id}", RedirectApprovalLink);
+        }
         return app;
     }
 }

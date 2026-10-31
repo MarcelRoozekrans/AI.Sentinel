@@ -3,16 +3,18 @@ using Microsoft.AspNetCore.Builder;
 
 namespace AI.Sentinel.Cli;
 
-/// <summary>A started dashboard. Disposing stops the server and closes the audit file.</summary>
+/// <summary>A started dashboard. Disposing stops the server and closes the approval and audit files.</summary>
 public sealed class RunningDashboard : IAsyncDisposable
 {
     private readonly WebApplication _app;
+    private readonly IAsyncDisposable? _approvalStore;
     private readonly SqliteAuditStore _store;
 
-    internal RunningDashboard(WebApplication app, SqliteAuditStore store, Uri url)
+    internal RunningDashboard(WebApplication app, SqliteAuditStore store, IAsyncDisposable? approvalStore, Uri url)
     {
         _app = app;
         _store = store;
+        _approvalStore = approvalStore;
         Url = url;
     }
 
@@ -41,7 +43,17 @@ public sealed class RunningDashboard : IAsyncDisposable
         }
         finally
         {
-            await _store.DisposeAsync().ConfigureAwait(false);
+            try
+            {
+                if (_approvalStore is not null)
+                {
+                    await _approvalStore.DisposeAsync().ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await _store.DisposeAsync().ConfigureAwait(false);
+            }
         }
     }
 }
