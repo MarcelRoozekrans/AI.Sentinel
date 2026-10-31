@@ -906,26 +906,19 @@ public sealed partial class SentinelPipeline
         ValueTask<int> EarlierHits(DetectorId id, CancellationToken t) => SessionHistory.CountEarlierHitsAsync(
             auditStore, session, id.Value, _timeProvider.GetUtcNow(), options.OnDetectorFailure, t);
 
-        return exemptions.Minted is null
-            ? new SentinelContext(sender, receiver, sessionId, msgs, history)
-            {
-                EarlierHits = EarlierHits,
-                SystemPrompt = systemPrompt,
-                LlmId = llmId,
-                NewMessagesFrom = newMessagesFrom,
-                MaxScanBytes = options.MaxScanBytes,
-            }
-            : new SentinelContext(sender, receiver, sessionId, msgs, history)
-            {
-                EarlierHits = EarlierHits,
-                SystemPrompt = systemPrompt,
-                LlmId = llmId,
-                NewMessagesFrom = newMessagesFrom,
-                MaxScanBytes = options.MaxScanBytes,
-                RedactionPlaceholders = exemptions.Minted,
-                RequestPlaceholders = exemptions.Request ?? NoStrings,
-                RedactingDetectorIds = exemptions.RedactorIds ?? NoStrings,
-            };
+        // Without minted placeholders nothing was redacted: the exemption sets stay empty, whatever else is set.
+        var redacted = exemptions.Minted is not null;
+        return new SentinelContext(sender, receiver, sessionId, msgs, history)
+        {
+            EarlierHits = EarlierHits,
+            SystemPrompt = systemPrompt,
+            LlmId = llmId,
+            NewMessagesFrom = newMessagesFrom,
+            MaxScanBytes = options.MaxScanBytes,
+            RedactionPlaceholders = exemptions.Minted ?? NoStrings,
+            RequestPlaceholders = redacted ? exemptions.Request ?? NoStrings : NoStrings,
+            RedactingDetectorIds = redacted ? exemptions.RedactorIds ?? NoStrings : NoStrings,
+        };
     }
 
     /// <summary>The detection that drove <paramref name="action"/>: highest severity among those whose
