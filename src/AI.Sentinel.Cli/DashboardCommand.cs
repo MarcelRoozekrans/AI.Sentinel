@@ -519,10 +519,12 @@ public static class DashboardCommand
     private static IResult RedirectApprovalLink(HttpContext ctx) =>
         Results.Redirect($"{PathPrefix}/approvals/{Uri.EscapeDataString(ApprovalRequestTarget.IdOf(ctx, trailingSegments: 0))}");
 
-    private static WebApplication BuildApp(SqliteAuditStore store, DashboardSettings settings, DashboardApprovalPlan plan)
+    internal static WebApplication BuildApp(SqliteAuditStore store, DashboardSettings settings, DashboardApprovalPlan plan)
     {
-        var builder = WebApplication.CreateSlimBuilder();
-        builder.Logging.ClearProviders();
+        // An empty builder reads no appsettings files and no environment variables, so nothing can add Kestrel:Endpoints
+        // that would override the address below, and no file watchers are created.
+        var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions());
+        builder.WebHost.UseKestrelCore();
         builder.WebHost.UseUrls(string.Create(CultureInfo.InvariantCulture, $"http://{HostLiteral(settings.Bind)}:{settings.Port}"));
         builder.Services.AddRouting();
         builder.Services.AddSingleton<IAuditStore>(store);
