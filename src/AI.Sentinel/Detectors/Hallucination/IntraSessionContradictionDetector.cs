@@ -5,7 +5,7 @@ using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Hallucination;
 
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
-public sealed class IntraSessionContradictionDetector(SentinelOptions options) : SemanticDetectorBase(options)
+public sealed class IntraSessionContradictionDetector(SentinelOptions options) : SemanticDetectorBase(options), ISessionEscalatingDetector
 {
     private static readonly DetectorId _id = new("HAL-07");
     public override DetectorId Id => _id;

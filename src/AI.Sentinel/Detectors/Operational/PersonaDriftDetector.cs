@@ -5,7 +5,7 @@ using ZeroAlloc.Inject;
 namespace AI.Sentinel.Detectors.Operational;
 
 [Singleton(As = typeof(IDetector), AllowMultiple = true)]
-public sealed class PersonaDriftDetector(SentinelOptions options) : SemanticDetectorBase(options)
+public sealed class PersonaDriftDetector(SentinelOptions options) : SemanticDetectorBase(options), ISessionEscalatingDetector
 {
     private static readonly DetectorId _id = new("OPS-13");
     public override DetectorId Id => _id;
