@@ -24,23 +24,23 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Meziantou.Analyzer" Version="3.0.317">
+    <PackageReference Include="Meziantou.Analyzer" Version="[3.0.318]">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Roslynator.Analyzers" Version="5.0.1">
+    <PackageReference Include="Roslynator.Analyzers" Version="[5.0.1]">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="ErrorProne.NET.CoreAnalyzers" Version="0.1.2">
+    <PackageReference Include="ErrorProne.NET.CoreAnalyzers" Version="[0.1.2]">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="ErrorProne.NET.Structs" Version="0.1.2">
+    <PackageReference Include="ErrorProne.NET.Structs" Version="[0.1.2]">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="ZeroAlloc.Analyzers" Version="1.11.3">
+    <PackageReference Include="ZeroAlloc.Analyzers" Version="[1.12.0]">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers</IncludeAssets>
     </PackageReference>
