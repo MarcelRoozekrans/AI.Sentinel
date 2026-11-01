@@ -45,7 +45,7 @@ If the env var is unset (or empty), approvals are disabled — the CLI behaves e
 | `notifyUrl` | string | no | none | Absolute `http` or `https` URL that receives a POST for each new request. No value turns the webhook off. See [Notify on new requests](#notify-on-new-requests). |
 | `notifyHeaders` | object | no | empty | Extra request headers, name to string value. Needs `notifyUrl`. |
 | `notifyIncludeArgs` | bool | no | `false` | Send the redacted tool arguments. Needs `notifyUrl`. |
-| `dashboardUrl` | string | no | none | Absolute `http` or `https` URL of your dashboard. The message text links to it. |
+| `dashboardUrl` | string | no | none | Absolute `http` or `https` URL of your dashboard, including the path prefix, for example `https://dash.example.com/ai-sentinel/`. The message text links to it. |
 
 ### Per-tool fields
 
@@ -222,7 +222,7 @@ Set `notifyUrl` and the CLI POSTs a JSON body to it when a call creates an appro
   "backend": "sqlite",
   "databasePath": "/var/lib/ai-sentinel/approvals.db",
   "notifyUrl": "https://hooks.slack.com/services/T000/B000/XXXX",
-  "dashboardUrl": "https://dash.example.com",
+  "dashboardUrl": "https://dash.example.com/ai-sentinel/",
   "tools": { "delete_database": { "role": "DBA" } }
 }
 ```
@@ -236,7 +236,7 @@ The webhook belongs to the CLIs: `sentinel-hook`, `sentinel-copilot-hook` and `s
 | `notifyUrl` | string | none | Absolute `http` or `https` URL. |
 | `notifyHeaders` | object | empty | Header name to string value. Needs `notifyUrl`. `Content-Type` and `Content-Length` are rejected, because the notifier sets them. |
 | `notifyIncludeArgs` | bool | `false` | Adds `args` to the body. Needs `notifyUrl`. |
-| `dashboardUrl` | string | none | Absolute `http` or `https` URL. Valid on its own, but only the webhook reads it. |
+| `dashboardUrl` | string | none | Absolute `http` or `https` URL of your dashboard, including the path prefix, for example `https://dash.example.com/ai-sentinel/`. Valid on its own, but only the webhook reads it. |
 
 `notifyHeaders` or `notifyIncludeArgs` without `notifyUrl` fails the load.
 
@@ -255,21 +255,21 @@ A value that is only partly empty is not caught. `"Bearer ${NTFY_TOKEN}"` with t
 
 ```json
 {
-  "text": "Approval needed: Bash for alice (approval:Bash). https://dash.example.com/",
+  "text": "Approval needed: Bash for alice (approval:Bash). https://dash.example.com/ai-sentinel/approvals/req-1234",
   "requestId": "req-1234",
   "tool": "Bash",
   "callerId": "alice",
   "policy": "approval:Bash",
   "requestedAt": "2026-10-31T12:00:00+00:00",
   "approvalUrl": "sentinel://approve/req-1234",
-  "dashboardUrl": "https://dash.example.com/",
+  "dashboardUrl": "https://dash.example.com/ai-sentinel/",
   "args": { "command": "curl -H 'Authorization: [SECRET_1_k3f9x2]' https://api.example.com" }
 }
 ```
 
 | Field | Notes |
 |---|---|
-| `text` | One line for chat tools. The link at the end is `dashboardUrl` when set, otherwise `approvalUrl` when that is an `http` or `https` URL, such as the Entra PIM portal URL. Otherwise there is no link. |
+| `text` | One line for chat tools. With the `sqlite` backend and `dashboardUrl` set, the link at the end is the page of this request, `dashboardUrl` plus `approvals/{requestId}`, served by [`sentinel dashboard`](/docs/approvals/dashboard#the-cli-dashboard-as-an-approval-host). With another backend it is `dashboardUrl` as is when set, otherwise `approvalUrl` when that is an `http` or `https` URL, such as the Entra PIM portal URL. Otherwise there is no link. |
 | `requestId`, `tool`, `callerId`, `policy`, `requestedAt` | The request, as the store holds it. `policy` is the [policy name](#policy-names). |
 | `approvalUrl` | The URL the store reports for the request, sent as is. |
 | `dashboardUrl` | The config value. Omitted when not set. |
@@ -277,7 +277,7 @@ A value that is only partly empty is not caught. `"Bearer ${NTFY_TOKEN}"` with t
 
 With `entra-pim`, `callerId` is the caller's Entra object id and `approvalUrl` is the PIM portal URL of the request. `dashboardUrl` is sent in its normalized form, so a bare host gains a trailing slash.
 
-The link in `text` is the dashboard base URL, not a page for the request. Per-request pages are tracked in [#453](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/453).
+The per-request link needs `sentinel dashboard` running over the same approval config. With `entra-pim` the link stays the base URL, because approvers decide in the Azure portal.
 
 The webhook fires once per request, when a call creates it. A later call that finds the request still pending sends nothing.
 

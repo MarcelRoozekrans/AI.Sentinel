@@ -774,7 +774,9 @@ The Claude Code hook, the Copilot hook and the MCP proxy record every finding, a
 sentinel dashboard [--db <path>] [--port <port>]   # default: http://127.0.0.1:5170/ai-sentinel/
 ```
 
-It listens on loopback only and does not open a browser. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a missing file and shows no approvals panel. It opens the file read-only: it never creates the file, never upgrades an older schema (run a hook or the MCP proxy once to upgrade it), and never appends. SQLite may create `-wal` and `-shm` files next to it. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Audit recording in the CLIs](#audit-recording-in-the-clis) for the settings.
+The other options (`--bind`, `--approval-config`, `--trusted-proxy`, `--user-header`, `--local-approver`) are in the [options table](https://marcelroozekrans.github.io/AI.Sentinel/docs/getting-started/dashboard#options).
+
+It listens on loopback unless `--bind` says otherwise, and does not open a browser. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a missing file. Without an approval config it opens the file read-only and shows no approvals to act on: it never creates the file, never upgrades an older schema (run a hook or the MCP proxy once to upgrade it), and never appends. With a `sqlite` approval config (`--approval-config`, or `SENTINEL_APPROVAL_CONFIG`) it lists pending requests, serves a page per request and lets an approver approve or deny; it then opens the file writable so each decision is appended to the hash chain. See [Approvals in the CLI dashboard](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/dashboard#the-cli-dashboard-as-an-approval-host). SQLite may create `-wal` and `-shm` files next to it. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Audit recording in the CLIs](#audit-recording-in-the-clis) for the settings.
 
 ### `sentinel report` (compliance report from the audit file)
 

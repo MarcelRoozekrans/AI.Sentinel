@@ -3,7 +3,10 @@ using Microsoft.AspNetCore.Builder;
 
 namespace AI.Sentinel.Cli;
 
-/// <summary>A started dashboard. Disposing stops the server and closes the audit file.</summary>
+/// <summary>
+/// A started dashboard. Disposing stops the server, which disposes its container and with it the approval store,
+/// and then closes the audit file.
+/// </summary>
 public sealed class RunningDashboard : IAsyncDisposable
 {
     private readonly WebApplication _app;

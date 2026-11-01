@@ -7,11 +7,13 @@ namespace AI.Sentinel.Approvals.Notifications;
 /// <param name="Headers">Extra request headers, such as <c>Authorization</c>.</param>
 /// <param name="IncludeArgs">Whether the redacted tool arguments are part of the payload.</param>
 /// <param name="DashboardUrl">The dashboard base URL the message text links to, or <see langword="null"/>.</param>
+/// <param name="LinkToRequestPage">Whether the text links to the request page below <paramref name="DashboardUrl"/>.</param>
 internal sealed record ApprovalNotifierSettings(
     Uri Url,
     IReadOnlyDictionary<string, string> Headers,
     bool IncludeArgs,
-    Uri? DashboardUrl)
+    Uri? DashboardUrl,
+    bool LinkToRequestPage)
 {
     /// <summary>The settings of <paramref name="config"/>, or <see langword="null"/> when it has no <c>notifyUrl</c>.</summary>
     /// <param name="config">The loaded approval config.</param>
@@ -20,6 +22,7 @@ internal sealed record ApprovalNotifierSettings(
         ArgumentNullException.ThrowIfNull(config);
         return config.NotifyUrl is null
             ? null
-            : new ApprovalNotifierSettings(config.NotifyUrl, config.NotifyHeaders, config.NotifyIncludeArgs, config.DashboardUrl);
+            : new ApprovalNotifierSettings(config.NotifyUrl, config.NotifyHeaders, config.NotifyIncludeArgs, config.DashboardUrl,
+                ApprovalBackendSelector.GetBackend(config) == ApprovalBackendKind.Sqlite);
     }
 }

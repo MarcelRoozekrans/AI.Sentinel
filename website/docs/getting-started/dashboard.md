@@ -39,10 +39,25 @@ The Claude Code hook, the Copilot hook and the MCP proxy record to a local SQLit
 
 ```bash
 dotnet tool install -g AI.Sentinel.Cli
-sentinel dashboard [--db <path>] [--port <port>]
+sentinel dashboard [--db <path>] [--port <port>]   # more options below
 ```
 
-It serves `http://127.0.0.1:5170/ai-sentinel/` by default, listens on loopback only and does not open a browser. Without `--db` it reads the file the CLIs write, `ai-sentinel/audit.db` under your per-user data folder. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a file that does not exist and shows no approvals panel. It opens the file read-only: it never creates the file, never upgrades an older schema (run a hook or the MCP proxy once to upgrade it), and never appends. SQLite may create `-wal` and `-shm` files next to it. It needs the ASP.NET Core runtime, which the .NET SDK includes. See [Claude Code → Audit destination](../integrations/claude-code#audit-destination) for what is recorded.
+It serves `http://127.0.0.1:5170/ai-sentinel/` by default, listens on loopback unless `--bind` says otherwise, and does not open a browser. Without `--db` it reads the file the CLIs write, `ai-sentinel/audit.db` under your per-user data folder. On start it prints `Audit chain intact: N entries` or `Audit chain broken at entry {id}`. It refuses a file that does not exist. Without an approval config it opens the file read-only and shows no approvals to act on: it never creates the file, never upgrades an older schema (run a hook or the MCP proxy once to upgrade it), and never appends. SQLite may create `-wal` and `-shm` files next to it. It needs the ASP.NET Core runtime, which the .NET SDK includes.
+
+### Options
+
+| Option | Default | Notes |
+|---|---|---|
+| `--db <path>` | the file the CLIs write | The audit SQLite file. |
+| `--port <port>` | `5170` | `0` picks a free port. |
+| `--bind <ip>` | `127.0.0.1` | The address to listen on. A non-loopback address needs `--trusted-proxy`. A scoped IPv6 address (with a `%` zone) is refused. |
+| `--approval-config <path>` | `SENTINEL_APPROVAL_CONFIG` | The [approval config](../approvals/cli-config). With a `sqlite` backend the dashboard lists pending requests and records approve and deny. |
+| `--trusted-proxy <cidr or ip>` | none | A reverse proxy whose user header is trusted. Repeatable. |
+| `--user-header <name>` | `X-Auth-Request-User` | The header the proxy sets to the user name. Only valid together with `--trusted-proxy`. |
+| `--public-host <name>` | none | A host name or IP address, without port, scheme or path, that the trusted proxy forwards in the `Host` header. Repeatable. Only valid together with `--trusted-proxy`. `localhost`, `127.0.0.1` and `[::1]` are always accepted, and so is the `--bind` address when it is not a wildcard. |
+| `--local-approver` | off | Approve and deny as the current OS user. Needs a loopback `--bind` and cannot be combined with `--trusted-proxy`. |
+
+Approving from the CLI dashboard, who counts as an approver and the forward-auth setup are described in [the CLI dashboard as an approval host](../approvals/dashboard#the-cli-dashboard-as-an-approval-host). See [Claude Code → Audit destination](../integrations/claude-code#audit-destination) for what is recorded.
 
 ## Protect it
 

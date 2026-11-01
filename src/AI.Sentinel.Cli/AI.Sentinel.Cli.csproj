@@ -27,6 +27,7 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
     <ProjectReference Include="..\AI.Sentinel.AspNetCore\AI.Sentinel.AspNetCore.csproj" />
+    <ProjectReference Include="..\AI.Sentinel.Approvals.Sqlite\AI.Sentinel.Approvals.Sqlite.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Sqlite\AI.Sentinel.Sqlite.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.14" />
     <PackageReference Include="System.CommandLine" Version="2.0.14" />

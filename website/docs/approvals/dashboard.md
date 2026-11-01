@@ -52,6 +52,100 @@ User-provided fields (`callerId`, `toolName`, justification text) flow through `
 
 Below 600px viewport width, the panel collapses to single-column with horizontal table scroll; below 480px, the (diagnostic-only) hash column is hidden — operators triage on Time / Caller / Tool / Actions.
 
+## The CLI dashboard as an approval host
+
+`sentinel dashboard` from the `AI.Sentinel.Cli` tool serves the same panel over the local audit file, so an approver can decide requests that the CLIs (`sentinel-hook`, `sentinel-copilot-hook`, `sentinel-mcp`) hold, without an ASP.NET app. See [Browse the local audit file](/docs/getting-started/dashboard#browse-the-local-audit-file) for the other options.
+
+```bash
+sentinel dashboard --approval-config ./approvals.json --local-approver
+```
+
+What the command does depends on the [approval config](/docs/approvals/cli-config). Pass it with `--approval-config <path>`, or set `SENTINEL_APPROVAL_CONFIG`.
+
+| Config | Result |
+|---|---|
+| `backend: "sqlite"` | The panel lists pending requests, each links to its own page, and Approve and Deny work. The audit file is opened writable, so each decision is appended to the hash chain. |
+| `backend: "entra-pim"` | The panel shows the [external approvals message](#when-the-store-doesnt-implement-iapprovaladmin). Approvers decide in the Azure portal. The audit file stays read-only. |
+| No config, `backend: "none"` or an in-memory backend | No approvals. The audit file stays read-only. Startup prints `Approvals: off`, with the reason when there is one. An in-memory backend passed explicitly with `--approval-config` is an error, because it keeps nothing between processes. |
+
+Startup prints an `Approvals:` line next to the audit-chain line. It names the backend and the identity mode, for example `Approvals: sqlite /var/lib/ai-sentinel/approvals.db, approver from X-Auth-Request-User via 10.0.0.0/8`. It never prints a header value.
+
+### Who may approve
+
+Without an identity, approve and deny return `401`, as for any unauthenticated dashboard. There are two ways to give the dashboard one. Both look at the socket peer address only and never at `X-Forwarded-For`.
+
+**Local approver.** `--local-approver` treats every loopback request as the current OS user, and records that user name as the approver. It needs a loopback `--bind` and cannot be combined with `--trusted-proxy`. Every process and every OS user that can reach loopback on that machine counts as that user, so use it only on a single-user machine.
+
+**Trusted proxy.** Put the dashboard behind a reverse proxy that authenticates the user and passes the name in a header:
+
+```bash
+sentinel dashboard \
+  --approval-config ./approvals.json \
+  --bind 0.0.0.0 --port 5170 \
+  --trusted-proxy 10.0.0.0/8 \
+  --public-host 192.0.2.10 \
+  --user-header X-Auth-Request-User
+```
+
+Here `192.0.2.10` is the name or address the proxy sends in the `Host` header, see [Host check](#host-check-and---public-host). A wildcard bind does not accept its own address as a host name.
+
+- `--trusted-proxy` takes a CIDR range or one address, and can be repeated. IPv4-mapped IPv6 entries are treated as IPv4.
+- `--user-header` defaults to `X-Auth-Request-User`, which oauth2-proxy sets. Use `Remote-User` for Authelia.
+- The header is read only when the peer address is inside a trusted range. From anywhere else it is ignored.
+- The value must be a single header value of at most 256 characters, with no control or Unicode format characters. Otherwise the request counts as anonymous and approve and deny return `401`.
+
+A `--bind` that is not loopback needs at least one `--trusted-proxy`. With such a bind the dashboard refuses every request whose peer is neither loopback nor inside a trusted range, with `403`, so the audit data is not served to clients that bypass the proxy. A wildcard bind such as `0.0.0.0` prints a loopback URL on startup.
+
+Whoever the proxy lets in can approve. Restrict the dashboard route in the proxy to the people allowed to approve.
+
+A proxy on the same host is the common setup, so loopback stays allowed: `--trusted-proxy 127.0.0.1/32` works. Then any local process can also connect to the dashboard and send the user header itself, so the header is only as trustworthy as the machine. Do not use that setup on a machine with other users or untrusted processes.
+
+#### Host check and `--public-host`
+
+Every request must carry a `Host` the dashboard answers to, or it gets `403`. This stops DNS rebinding: a web page can point its own host name at `127.0.0.1`, which makes the dashboard same-origin for the browser. With a same-host proxy the peer is then a trusted proxy, so the page would also pass the user header check.
+
+- A peer outside every trusted range must send `localhost`, `127.0.0.1` or `[::1]`, with any port. Otherwise the answer is `This dashboard only accepts requests addressed to localhost.`
+- A trusted proxy must send one of those, one of the names given with `--public-host`, or the `--bind` address itself when it is not a wildcard such as `0.0.0.0`, compared without case and ignoring the port. Otherwise the answer is `This dashboard only accepts requests for its configured host names.`
+- `--public-host <name>` is repeatable and only valid together with `--trusted-proxy`. The value is a host name or IP address, without port, scheme or path, for example `dash.example.com` or `192.0.2.10`.
+- Startup lists the names on the `Approvals:` line.
+
+nginx `proxy_pass http://192.0.2.10:5170;` sends the upstream address as `Host` by default, which needs no flag when the dashboard is bound to that specific address. With a wildcard bind such as `0.0.0.0`, pass `--public-host` with the address the proxy sends. If you set `proxy_set_header Host $host;`, nginx forwards the public name, so pass `--public-host` with that name.
+
+#### Forward-auth example
+
+With oauth2-proxy in front of nginx, the proxy authenticates the user and nginx passes the name on:
+
+```nginx
+location /ai-sentinel/ {
+    auth_request /oauth2/auth;
+    auth_request_set $user $upstream_http_x_auth_request_user;
+    proxy_set_header X-Auth-Request-User $user;
+    proxy_pass http://192.0.2.10:5170;
+}
+```
+
+Run `sentinel dashboard --bind 192.0.2.10 --trusted-proxy 192.0.2.20`, where `192.0.2.20` is the nginx host. For Authelia, use `auth_request_set $user $upstream_http_remote_user;` and `proxy_set_header Remote-User $user;`, and pass `--user-header Remote-User`.
+
+nginx replaces any `X-Auth-Request-User` the client sent, which is what keeps the name trustworthy. Make sure your proxy does the same.
+
+### Cross-site requests
+
+Cookie-based forward auth sends its session cookie on a cross-site `POST`, so authentication alone does not show that the approver meant the click. The approve and deny endpoints therefore refuse a browser request marked cross-site with `403`:
+
+- When the browser sends `Sec-Fetch-Site`, only `same-origin` and `none` pass.
+- Otherwise a request with an `Origin` header passes only when its scheme, host and port match the request. A `null` or malformed origin is refused.
+- A request with neither header, such as `curl`, passes. It is not browser-driven.
+
+Behind a proxy that terminates TLS and forwards plain `http` without forwarded-header handling, the request scheme is `http`. A browser that then sends an `https` `Origin` but no `Sec-Fetch-Site` is refused. Current browsers send `Sec-Fetch-Site` and are not affected.
+
+### The request page
+
+`/ai-sentinel/approvals/{id}` shows one pending request: tool, caller, policy, request time, justification and the arguments, with Approve and Deny buttons and an optional deny reason. The arguments pass through the same redaction as the [webhook](/docs/approvals/cli-config#arguments): credentials and PII are replaced by placeholders. The page is sent with `Cache-Control: no-store` and cannot be framed. A request that is already decided or expired shows a short note instead.
+
+`/approvals/{id}` at the root redirects to that page, so a `dashboardUrl` without the path prefix still works. With `sqlite`, the [notification](/docs/approvals/cli-config#payload) links to this page.
+
+Deny without a reason records `denied via dashboard`.
+
 ## Programmatic access
 
 If you'd rather drive approvals from your own UI:
