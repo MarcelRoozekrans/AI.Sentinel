@@ -19,18 +19,18 @@
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
-    <PackageReference Include="Microsoft.Extensions.AI" Version="10.11.0" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.14" />
-    <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.14" />
-    <PackageReference Include="ZeroAlloc.AsyncEvents" Version="1.1.11" />
-    <PackageReference Include="ZeroAlloc.Results" Version="1.4.5" />
+    <PackageReference Include="Microsoft.Extensions.AI.Abstractions" Version="[10.11.0]" />
+    <PackageReference Include="Microsoft.Extensions.AI" Version="[10.11.0]" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="[10.0.14]" />
+    <PackageReference Include="Microsoft.Extensions.Options" Version="[10.0.14]" />
+    <PackageReference Include="ZeroAlloc.AsyncEvents" Version="[1.1.12]" />
+    <PackageReference Include="ZeroAlloc.Results" Version="[1.4.5]" />
     <PackageReference Include="ZeroAlloc.ValueObjects" Version="[2.3.1]" />
     <PackageReference Include="ZeroAlloc.Validation" Version="[2.5.0]" />
     <PackageReference Include="ZeroAlloc.Mediator" Version="[6.6.5]" />
     <PackageReference Include="ZeroAlloc.Inject" Version="[1.11.6]" />
     <PackageReference Include="ZeroAlloc.Inject.Generator" Version="[1.11.6]" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-    <PackageReference Include="ZeroAlloc.Resilience" Version="3.4.0" />
+    <PackageReference Include="ZeroAlloc.Resilience" Version="[3.4.0]" />
     <PackageReference Include="ZeroAlloc.Serialisation" Version="[2.10.0]" />
     <PackageReference Include="ZeroAlloc.Telemetry" Version="[1.12.7]" />
     <PackageReference Include="ZeroAlloc.Authorization" Version="[2.2.1]" />
