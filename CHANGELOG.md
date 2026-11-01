@@ -9,6 +9,24 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [5.0.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v4.2.0...v5.0.0) (2026-11-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* AI.Sentinel.ClaudeCode.Cli, AI.Sentinel.Copilot.Cli and AI.Sentinel.Mcp.Cli target net10.0 only and need the .NET 10 SDK to install.
+
+### Features
+
+* **approvals:** post a webhook when an approval request is created ([#556](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/556)) ([99548df](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/99548df704a1c370e113990965b1ef1b8c2b8003))
+* **cli:** approve and deny from sentinel dashboard ([#558](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/558)) ([d9bc1c5](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/d9bc1c5dfc0abf359e9ead0e1dd5e8b7552b035a))
+* native AOT builds of sentinel-hook, sentinel-copilot-hook and sentinel-mcp ([#553](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/553)) ([9f1a486](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/9f1a486adcf6f3e29d11f24ff7bbd149153f32e9))
+
+
+### Bug Fixes
+
+* keep the net8.0 TestHost line out of the Renovate pin ([#560](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/560)) ([e480040](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/e480040442253c735a0c8e247c31fa91008d4e53))
+
 ## [4.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v4.1.1...v4.2.0) (2026-10-31)
 
 
