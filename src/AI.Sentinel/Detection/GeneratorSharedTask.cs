@@ -29,8 +29,14 @@ internal sealed class GeneratorSharedTask<T> where T : class
     /// this caller retries for as long as its own token is live: it joins the next shared task or owns one on
     /// its own token, which only that token can cancel. An <see cref="OperationCanceledException"/> while the
     /// owner's token is live, such as an HttpClient timeout, is a fault: every waiter gets it and none retries.</remarks>
-    public async Task<T> GetAsync(
-        IEmbeddingGenerator<string, Embedding<float>> generator, Func<CancellationToken, Task<T>> factory, CancellationToken ct)
+    public Task<T> GetAsync(
+        IEmbeddingGenerator<string, Embedding<float>> generator, Func<CancellationToken, Task<T>> factory, CancellationToken ct) =>
+        GetAsync(generator, factory, static (f, token) => f(token), ct);
+
+    /// <summary>As <see cref="GetAsync(IEmbeddingGenerator{string, Embedding{float}}, Func{CancellationToken, Task{T}}, CancellationToken)"/>,
+    /// but <paramref name="factory"/> receives <paramref name="state"/>, so a static factory allocates nothing on a warm call.</summary>
+    public async Task<T> GetAsync<TState>(
+        IEmbeddingGenerator<string, Embedding<float>> generator, TState state, Func<TState, CancellationToken, Task<T>> factory, CancellationToken ct)
     {
         var slot = _slots.GetValue(generator, static _ => new Slot());
         while (true)
@@ -50,7 +56,7 @@ internal sealed class GeneratorSharedTask<T> where T : class
             }
 
             // Started outside the lock: the example cache lookups and a generator's synchronous prefix run here.
-            if (owned is not null) _ = RunAsync(owned, factory, ct);
+            if (owned is not null) _ = RunAsync(owned, state, factory, ct);
 
             try
             {
@@ -75,11 +81,11 @@ internal sealed class GeneratorSharedTask<T> where T : class
         return task is not null;
     }
 
-    private static async Task RunAsync(TaskCompletionSource<T> target, Func<CancellationToken, Task<T>> factory, CancellationToken ct)
+    private static async Task RunAsync<TState>(TaskCompletionSource<T> target, TState state, Func<TState, CancellationToken, Task<T>> factory, CancellationToken ct)
     {
         try
         {
-            target.TrySetResult(await factory(ct).ConfigureAwait(false));
+            target.TrySetResult(await factory(state, ct).ConfigureAwait(false));
         }
         catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
         {

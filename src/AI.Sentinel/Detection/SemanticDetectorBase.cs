@@ -611,7 +611,9 @@ public abstract class SemanticDetectorBase : IDetector
     /// later and concurrent caller with the same generator instance. See <see cref="GeneratorSharedTask{T}"/>.</summary>
     internal Task<ExampleVectors> GetExampleVectorsAsync(
         IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct) =>
-        _exampleTask.GetAsync(generator, token => EmbedAllExamplesAsync(generator, exampleCache, token), ct);
+        _exampleTask.GetAsync(
+            generator, (Detector: this, Generator: generator, Cache: exampleCache),
+            static (s, token) => s.Detector.EmbedAllExamplesAsync(s.Generator, s.Cache, token), ct);
 
     /// <summary>The shared embedding task currently held for <paramref name="generator"/>. For tests.</summary>
     internal bool TryPeekExampleTask(

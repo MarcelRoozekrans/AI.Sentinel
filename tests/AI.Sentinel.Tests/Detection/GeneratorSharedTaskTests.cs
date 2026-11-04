@@ -111,4 +111,29 @@ public class GeneratorSharedTaskTests
         Assert.NotSame(a, b);
         Assert.Equal(2, calls);
     }
+
+    [Fact]
+    public async Task CancellationOnLiveOwnerToken_FaultsOwnerAndWaiterWithoutRetry()
+    {
+        var shared = new GeneratorSharedTask<Box>();
+        var generator = new FakeEmbeddingGenerator();
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        async Task<Box> Factory(CancellationToken _)
+        {
+            Interlocked.Increment(ref calls);
+            await gate.Task;
+            throw new OperationCanceledException("timeout");
+        }
+
+        var owner = shared.GetAsync(generator, Factory, CancellationToken.None);
+        var waiter = shared.GetAsync(generator, Factory, CancellationToken.None);
+        gate.SetResult();
+
+        var ownerEx = await Assert.ThrowsAsync<OperationCanceledException>(() => owner);
+        var waiterEx = await Assert.ThrowsAsync<OperationCanceledException>(() => waiter);
+        Assert.Equal("timeout", ownerEx.Message);
+        Assert.Equal("timeout", waiterEx.Message);
+        Assert.Equal(1, calls);
+    }
 }
