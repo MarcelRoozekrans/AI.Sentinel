@@ -34,7 +34,6 @@ internal static class SemanticApprovalExamples
         // Files
         "rm -rf /",
         "rm -rf ~/*",
-        "rm -rf /home/app/data",
         "sudo rm -rf /opt/app",
         "rm -fr /srv/data",
         "rm -rf /var/lib/postgresql/data",
