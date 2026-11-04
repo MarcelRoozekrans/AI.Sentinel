@@ -20,7 +20,18 @@ public abstract record ScreeningOutcome
         string RedactedText,
         IReadOnlyList<DetectionResult> Detections,
         IReadOnlyList<RedactionFinding> Redactions,
-        SessionId Session) : ScreeningOutcome;
+        SessionId Session) : ScreeningOutcome
+    {
+        /// <summary>The detectors that did not run to completion in this scan, one entry each. Empty for a complete
+        /// scan. Without this, a text a detector could not check looks the same as a text it checked and found clean.</summary>
+        /// <remarks>An <see langword="init"/> property rather than a constructor parameter, so the public constructor
+        /// and <c>Deconstruct</c> stay as they were.</remarks>
+        public IReadOnlyList<DetectorFailure> Failures { get; init; } = [];
+
+        /// <summary>Whether every detector ran to completion. A <see cref="Passed"/> that is not complete means
+        /// nothing was found by the detectors that did run, not that the text is safe.</summary>
+        public bool Complete => Failures.Count == 0;
+    }
 
     /// <summary>The scan quarantined the text. <see cref="RedactedText"/> is still masked.</summary>
     /// <param name="Action">Always <see cref="SentinelAction.Quarantine"/>.</param>
@@ -33,7 +44,18 @@ public abstract record ScreeningOutcome
         string RedactedText,
         IReadOnlyList<DetectionResult> Detections,
         IReadOnlyList<RedactionFinding> Redactions,
-        SessionId Session) : ScreeningOutcome;
+        SessionId Session) : ScreeningOutcome
+    {
+        /// <summary>The detectors that did not run to completion in this scan, one entry each. Empty for a complete
+        /// scan. Without this, a text a detector could not check looks the same as a text it checked and found clean.</summary>
+        /// <remarks>An <see langword="init"/> property rather than a constructor parameter, so the public constructor
+        /// and <c>Deconstruct</c> stay as they were.</remarks>
+        public IReadOnlyList<DetectorFailure> Failures { get; init; } = [];
+
+        /// <summary>Whether every detector ran to completion. The scan quarantined the text on what the
+        /// other detectors found; a failed detector may have found more.</summary>
+        public bool Complete => Failures.Count == 0;
+    }
 
     /// <summary>The rate limit refused the call; nothing was masked or scanned.</summary>
     /// <param name="SessionKey">The rate-limit key that ran out: the caller's session, or <c>__global__</c>.</param>

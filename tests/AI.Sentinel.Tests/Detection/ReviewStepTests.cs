@@ -339,7 +339,8 @@ public class ReviewStepTests
 
         var result = await RunAsync(detectors, reviewer, limits: new ReviewLimits(1, Generous));
 
-        Assert.Single(reviewer.Requests);
+        // The budget goes to the higher-ranked candidate.
+        Assert.Equal(new DetectorId("OVER-CRITICAL"), Assert.Single(reviewer.Requests).DetectorId);
         Assert.True(result.Complete);
         Assert.Empty(result.Failures);
     }

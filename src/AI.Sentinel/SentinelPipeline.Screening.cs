@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.AI;
+using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Redaction;
 using AI.Sentinel.Screening;
@@ -57,11 +58,12 @@ public sealed partial class SentinelPipeline
         }
 
         var findings = new List<ScanFinding>();
+        var failures = new List<DetectorFailure>();
         SentinelError? error;
         try
         {
             error = await ScanCollectingAsync([new ChatMessage(ChatRole.User, masked)], sessionId, findings,
-                RedactionScope.ExemptPlaceholders(session, parent: null), newMessagesFrom: 0, ct).ConfigureAwait(false);
+                RedactionScope.ExemptPlaceholders(session, parent: null), newMessagesFrom: 0, ct, failures).ConfigureAwait(false);
 
             // The masked text is returned on both verdicts, so its redactions are recorded on both.
             await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
@@ -76,9 +78,15 @@ public sealed partial class SentinelPipeline
         var detections = findings.ConvertAll(f => f.Detection);
         return error is SentinelError.ThreatDetected threat
             ? new ScreeningOutcome.Quarantined(threat.Action, redactedText, detections, redactions, sessionId)
+            {
+                Failures = failures,
+            }
             : new ScreeningOutcome.Passed(
                 SentinelActionRanking.MostRestrictive(findings.Select(f => f.Action)),
-                redactedText, detections, redactions, sessionId);
+                redactedText, detections, redactions, sessionId)
+            {
+                Failures = failures,
+            };
     }
 
     /// <summary>

@@ -60,6 +60,22 @@ public class ScreenAsyncTests
             throw new RegexMatchTimeoutException(text, "pattern", TimeSpan.FromSeconds(1));
     }
 
+    private sealed class ThrowingDetector : IDetector
+    {
+        public DetectorId Id { get; } = new("TST-FAIL");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            throw new InvalidOperationException("boom");
+    }
+
+    private sealed class CriticalDetector : IDetector
+    {
+        public DetectorId Id { get; } = new("TST-CRIT");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            ValueTask.FromResult(DetectionResult.WithSeverity(Id, Severity.Critical, "fake threat"));
+    }
+
     /// <summary>A ring-buffer store whose <see cref="AppendAsync"/> throws what <paramref name="fail"/> returns for an entry.</summary>
     private sealed class FailingAuditStore(Func<AuditEntry, Exception?> fail) : IAuditStore
     {
@@ -104,6 +120,43 @@ public class ScreenAsyncTests
         Assert.Equal(Normal, passed.RedactedText);
         Assert.Empty(passed.Detections);
         Assert.Empty(passed.Redactions);
+    }
+
+    [Fact]
+    public async Task Clean_text_is_complete()
+    {
+        var (pipeline, _) = Build();
+
+        var passed = Assert.IsType<ScreeningOutcome.Passed>(await pipeline.ScreenAsync(Normal, ct: Ct));
+
+        Assert.True(passed.Complete);
+        Assert.Empty(passed.Failures);
+    }
+
+    [Fact]
+    public async Task Clean_but_incomplete_text_passes_with_failures()
+    {
+        var (pipeline, _) = Build(o => o.AddDetector<ThrowingDetector>());
+
+        var passed = Assert.IsType<ScreeningOutcome.Passed>(await pipeline.ScreenAsync(Normal, ct: Ct));
+
+        Assert.False(passed.Complete);
+        Assert.Equal([new DetectorFailure(new("TST-FAIL"), DetectorFailureKind.Threw)], passed.Failures);
+    }
+
+    [Fact]
+    public async Task Quarantined_outcome_carries_failures()
+    {
+        var (pipeline, _) = Build(o =>
+        {
+            o.AddDetector<ThrowingDetector>();
+            o.AddDetector<CriticalDetector>();
+        });
+
+        var quarantined = Assert.IsType<ScreeningOutcome.Quarantined>(await pipeline.ScreenAsync(Normal, ct: Ct));
+
+        Assert.False(quarantined.Complete);
+        Assert.Equal([new DetectorFailure(new("TST-FAIL"), DetectorFailureKind.Threw)], quarantined.Failures);
     }
 
     [Fact]

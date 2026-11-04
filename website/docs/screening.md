@@ -53,8 +53,34 @@ A verdict is a value, never an exception.
 - `Detections`: every non-clean detection of the scan, empty for a clean text.
 - `Redactions`: every masked occurrence, in input order.
 - `Session`: the session the audit entries were written for.
+- `Failures` and `Complete`: see [Incomplete scans](#incomplete-scans).
 
 `Failed.Inner` holds the underlying exception when the scan or its audit threw. A masking failure keeps none, because its message can carry the value.
+
+## Incomplete scans
+
+A detector that fails does not stop the scan. Most failures leave its result Clean, so a `Passed` outcome cannot tell "nothing found" from "could not look". `Passed` and `Quarantined` carry that difference:
+
+- `Failures`: one `DetectorFailure` per detector that did not run to completion, with the detector id and a `Kind`. Empty for a complete scan.
+- `Complete`: `true` when `Failures` is empty.
+
+A detector gets one entry per scan. When it hits more than one kind, the earliest stage wins: embedding, then analysis, then review.
+
+| Kind | Meaning |
+|------|---------|
+| `Threw` | The detector threw, other than a regex timeout or your own cancellation. Its result is Clean. |
+| `RegexTimeout` | The detector raised a `RegexMatchTimeoutException`. The content can provoke this, so its result is Critical. |
+| `TextsNotEmbedded` | A semantic detector needed a text that could not be embedded, or its text selection threw. It is scored on the texts that did embed, or on its rule layer only. |
+| `ExamplesNotEmbedded` | A semantic detector's example phrases could not be embedded. Only its rule layer ran. |
+| `ReviewFailed` | The reviewer failed or timed out on one of the detector's results, which keeps its capped severity. A review skipped because `MaxReviewsPerScan` ran out is not a failure. |
+
+A gate that must not trust an incomplete scan refuses on `!Complete`:
+
+```csharp
+if (outcome is ScreeningOutcome.Passed { Complete: true } passed) Persist(passed.RedactedText);
+```
+
+The same list is on `PipelineResult.Failures`. Live chat, the hooks and MCP keep their behaviour: a failed detector does not block them.
 
 ## Redactions
 
