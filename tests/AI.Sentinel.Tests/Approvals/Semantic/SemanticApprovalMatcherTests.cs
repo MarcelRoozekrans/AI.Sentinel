@@ -356,6 +356,18 @@ public class SemanticApprovalMatcherTests
     }
 
     [Theory]
+    [InlineData(1e20f)]
+    [InlineData(1e-25f)]
+    public async Task ExtremeFiniteVectors_ScoredNotDropped(float scale)
+    {
+        var generator = new VectorEmbeddingGenerator(_ => [scale, 0f]);
+
+        var match = await Matcher(generator).MatchAsync("Bash", Command("rm -rf /tmp/x"), CancellationToken.None);
+
+        Assert.Equal(1f, Assert.IsType<SemanticMatch.Flagged>(match).Score, 5);
+    }
+
+    [Theory]
     [InlineData("empty", "empty vector")]
     [InlineData("zero", "invalid vector")]
     [InlineData("infinite", "invalid vector")]

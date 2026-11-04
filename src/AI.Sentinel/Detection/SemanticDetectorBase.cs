@@ -697,17 +697,20 @@ public abstract class SemanticDetectorBase : IDetector
         return index;
     }
 
+    // In double, as InvalidEmbeddingException.Problem checks the norm: a float sum of squares overflows to
+    // infinity near 1e19 and underflows to 0 near 1e-23, which would score a vector that passed the check as 0.
     private static float CosineSimilarity(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
         if (a.Length != b.Length) return 0f;
-        float dot = 0f, na = 0f, nb = 0f;
+        double dot = 0d, na = 0d, nb = 0d;
         for (var i = 0; i < a.Length; i++)
         {
-            dot += a[i] * b[i];
-            na += a[i] * a[i];
-            nb += b[i] * b[i];
+            double x = a[i], y = b[i];
+            dot += x * y;
+            na += x * x;
+            nb += y * y;
         }
-        var denom = MathF.Sqrt(na) * MathF.Sqrt(nb);
-        return denom > 0f ? dot / denom : 0f;
+        var denom = Math.Sqrt(na) * Math.Sqrt(nb);
+        return denom > 0d ? (float)(dot / denom) : 0f;
     }
 }
