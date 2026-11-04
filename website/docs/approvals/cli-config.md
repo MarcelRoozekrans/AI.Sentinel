@@ -264,6 +264,8 @@ To get more out of it:
 
 Lowering the threshold catches more and also flags more harmless calls. At 0.78 the held-out `git pull --rebase origin main` would already ask for approval.
 
+With `bge-base-en-v1.5`, set `threshold` to 0.86. On the same sets with the same examples, the highest held-out benign score is 0.8592 (0.86 is the lowest 0.01 step above it), and 3 of the 35 held-out destructive calls are flagged (9 %). `kubectl -n prod delete ns billing` scores 0.872 and is one of the three. Benign scores rise along with destructive ones on that model, so it is only slightly better than `all-MiniLM-L6-v2`. The 0.80 default stays tuned for `all-MiniLM-L6-v2`.
+
 ### Worked example
 
 The agent runs `kubectl -n prod delete ns billing`.
