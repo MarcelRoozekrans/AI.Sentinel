@@ -18,14 +18,16 @@ internal sealed class InvalidEmbeddingException(string kind)
         if (vector.IsEmpty)
             return EmptyVector;
 
-        var norm = 0f;
+        // In double: a float sum of squares overflows near 1e19 and underflows near 1e-23, which would reject
+        // valid vectors with extreme components.
+        var norm = 0d;
         foreach (var v in vector)
         {
             if (!float.IsFinite(v))
                 return InvalidVector;
-            norm += v * v;
+            norm += (double)v * v;
         }
 
-        return norm > 0f && float.IsFinite(norm) ? null : InvalidVector;
+        return norm > 0d ? null : InvalidVector;
     }
 }

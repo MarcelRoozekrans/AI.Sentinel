@@ -123,4 +123,26 @@ public class ExampleEmbedderTests
         Assert.True(cache.TryGet("a", out var fixedUp));
         Assert.Equal([1f, 0f], fixedUp.Vector.ToArray());
     }
+
+    [Theory]
+    [InlineData(1e20f)]
+    [InlineData(1e-30f)]
+    public void Problem_ExtremeFiniteComponents_NotRejected(float component)
+    {
+        var vector = Enumerable.Repeat(component, 8).ToArray();
+
+        Assert.Null(InvalidEmbeddingException.Problem(vector));
+    }
+
+    [Fact]
+    public async Task EmbedAsync_LargeMagnitudeVector_Accepted()
+    {
+        var cache = new InMemoryLruEmbeddingCache();
+        var generator = new VectorGenerator(_ => [1e20f, 1e20f, 1e20f]);
+
+        var vectors = await ExampleEmbedder.EmbedAsync(generator, cache, ["a"], TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, vectors[0].Length);
+        Assert.True(cache.TryGet("a", out _));
+    }
 }
