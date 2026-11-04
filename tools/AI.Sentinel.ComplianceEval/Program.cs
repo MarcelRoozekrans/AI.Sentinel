@@ -4,6 +4,11 @@
 //   dotnet run --project tools/AI.Sentinel.ComplianceEval -- [--model all-MiniLM-L6-v2|bge-base-en-v1.5]
 //       [--model-dir <dir>] [--phrases <compliance-phrases.json>] [--everyday <everyday-prompts.json>]
 //       [--security-phrases <security-phrases.json>] [--judge-model <id>] [--tuning] [--out <results.md>]
+//       [--approvals [<approval-phrases.json>]]
+//
+// --approvals runs only the semantic approval evaluation: it scores destructive and benign tool-argument texts
+// against the built-in semantic approval examples and reports the default threshold, the lowest value at 0.01 steps
+// above every held-out benign score, with held-out destructive recall at it. With --tuning only fit texts are scored.
 //
 // Positives are scored against the detector they were written for; near-misses and everyday prompts against all
 // four, because a legitimate request must not trip any of them. Each compliance phrase is scored a second time as
@@ -38,6 +43,7 @@ using Microsoft.Extensions.AI;
 
 ReviewEvaluation.SelfCheck();
 ThresholdRule.SelfCheck();
+ApprovalEvaluation.SelfCheck();
 var ct = CancellationToken.None;
 var modelName = Option(args, "--model") ?? EmbeddingModel.Known[0].Name;
 var model = Array.Find(EmbeddingModel.Known, m => string.Equals(m.Name, modelName, StringComparison.OrdinalIgnoreCase));
@@ -60,6 +66,24 @@ var judgeModel = Option(args, "--judge-model") ?? "claude-sonnet-5-5";
 
 var directory = await model.EnsureAsync(Option(args, "--model-dir"), ct).ConfigureAwait(false);
 using var generator = new OnnxSentenceEmbeddingGenerator(model, directory);
+
+if (args.Contains("--approvals", StringComparer.Ordinal))
+{
+    var approvalsPath = Option(args, "--approvals") is { } given && !given.StartsWith("--", StringComparison.Ordinal)
+        ? given
+        : Path.Combine(RepositoryRoot(), "tools", "AI.Sentinel.ComplianceEval", "approval-phrases.json");
+    var approvals = new StringBuilder();
+    approvals.AppendLine(CultureInfo.InvariantCulture, $"## Semantic approvals: {model.Name}");
+    approvals.AppendLine();
+    approvals.AppendLine(CultureInfo.InvariantCulture,
+        $"Model `{model.Repository}`, ONNX export, {model.Pooling} pooling, L2-normalised. Run {DateTime.UtcNow:yyyy-MM-dd}.");
+    approvals.AppendLine();
+    approvals.Append(await new ApprovalEvaluation(generator, ct).EvaluateAsync(approvalsPath, tuning).ConfigureAwait(false));
+    if (outPath is null) Console.Write(approvals.ToString());
+    else await File.WriteAllTextAsync(outPath, approvals.ToString(), ct).ConfigureAwait(false);
+    return 0;
+}
+
 var evaluator = new Evaluator(generator, ct);
 
 var report = new StringBuilder();

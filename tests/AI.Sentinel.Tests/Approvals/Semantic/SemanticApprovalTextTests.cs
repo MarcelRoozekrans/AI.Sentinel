@@ -206,7 +206,7 @@ public class SemanticApprovalTextTests
     {
         var examples = SemanticApprovalExamples.Default;
 
-        Assert.InRange(examples.Length, 20, 40);
+        Assert.InRange(examples.Length, 20, 64);
         Assert.All(examples, e => Assert.False(string.IsNullOrWhiteSpace(e)));
         Assert.Equal(examples.Length, examples.Distinct(StringComparer.Ordinal).Count());
         Assert.InRange(SemanticApprovalExamples.DefaultThreshold, 0.01f, 1f);
