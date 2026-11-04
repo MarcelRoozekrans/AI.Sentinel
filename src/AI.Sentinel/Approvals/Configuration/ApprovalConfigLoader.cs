@@ -172,9 +172,11 @@ internal static class ApprovalConfigLoader
     private static float? ParseThreshold(JsonElement el, string location)
     {
         if (!el.TryGetProperty("threshold", out var t)) return null;
-        if (t.ValueKind != JsonValueKind.Number || !t.TryGetDouble(out var d) || !(d > 0d && d <= 1d))
+        // Check the stored float, not the double: 1e-50 is above 0 as a double but is 0 once cast.
+        if (t.ValueKind != JsonValueKind.Number || !t.TryGetDouble(out var d)
+            || (float)d is not (var f and > 0f and <= 1f))
             throw new InvalidOperationException($"{location}.threshold must be a number above 0 and at most 1. Got: {t.GetRawText()}");
-        return (float)d;
+        return f;
     }
 
     /// <summary>Rejects every key not in <paramref name="known"/>, and any key that appears twice. Stricter than the rule

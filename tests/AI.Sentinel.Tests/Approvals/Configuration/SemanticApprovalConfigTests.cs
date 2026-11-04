@@ -61,35 +61,36 @@ public class SemanticApprovalConfigTests
     public void NoSemanticBlock_IsNull() =>
         Assert.Null(Parse("""{ "backend": "in-memory", "tools": { "t": { "role": "r" } } }""").Semantic);
 
-    public static TheoryData<string, string, string> BadBlocks => new()
+    public static TheoryData<string, string, string, string> BadBlocks => new()
     {
-        { """{ "tools": { "Bash": { "role": "Op" } }, "bogus": 1 }""", "semantic", "bogus" },
-        { """{ "tools": { "Bash": { "role": "Op", "grantScope": "call" } } }""", "semantic.tools.Bash", "grantScope" },
-        { """{ "tools": { "Bash": { "role": "Op", "colour": 1 } } }""", "semantic.tools.Bash", "colour" },
-        { """{ }""", "semantic", "tools" },
-        { """{ "tools": { } }""", "semantic", "tools" },
-        { """{ "tools": { "Bash": { } } }""", "semantic.tools.Bash", "role" },
-        { """{ "tools": { "Bash": { "role": "Op", "paths": [] } } }""", "semantic.tools.Bash", "paths" },
-        { """{ "tools": { "Bash": { "role": "Op", "paths": ["command"] } } }""", "semantic.tools.Bash", "paths[0]" },
-        { """{ "examples": ["ok", "  "], "tools": { "Bash": { "role": "Op" } } }""", "semantic", "examples[1]" },
-        { """{ "replaceExamples": true, "tools": { "Bash": { "role": "Op" } } }""", "semantic", "replaceExamples" },
-        { """{ "replaceExamples": true, "examples": [], "tools": { "Bash": { "role": "Op" } } }""", "semantic", "replaceExamples" },
-        { """{ "threshold": 0, "tools": { "Bash": { "role": "Op" } } }""", "semantic", "threshold" },
-        { """{ "threshold": 1.5, "tools": { "Bash": { "role": "Op" } } }""", "semantic", "threshold" },
-        { """{ "tools": { "Bash": { "role": "Op", "threshold": 0 } } }""", "semantic.tools.Bash", "threshold" },
-        { """{ "tools": { "Bash": { "role": "Op", "threshold": 2 } } }""", "semantic.tools.Bash", "threshold" },
-        { """{ "tools": { "Bash": { "role": "Op", "grantMinutes": 0 } } }""", "semantic.tools.Bash", "grantMinutes" },
-        { """{ "tools": { "Bash": { "role": "Op" }, "Bash": { "role": "Op" } } }""", "semantic", "Bash" },
+        { """{ "tools": { "Bash": { "role": "Op" } }, "bogus": 1 }""", "semantic", "bogus", "not a recognised key" },
+        { """{ "tools": { "Bash": { "role": "Op", "grantScope": "call" } } }""", "semantic.tools.Bash", "grantScope", "not a recognised key" },
+        { """{ "tools": { "Bash": { "role": "Op", "colour": 1 } } }""", "semantic.tools.Bash", "colour", "not a recognised key" },
+        { """{ }""", "semantic", "tools", "is required" },
+        { """{ "tools": { } }""", "semantic", "tools", "must not be empty" },
+        { """{ "tools": { "Bash": { } } }""", "semantic.tools.Bash", "role", "Required string field missing" },
+        { """{ "tools": { "Bash": { "role": "Op", "paths": [] } } }""", "semantic.tools.Bash", "paths", "must not be empty" },
+        { """{ "tools": { "Bash": { "role": "Op", "paths": ["command"] } } }""", "semantic.tools.Bash", "paths[0]", "is invalid" },
+        { """{ "tools": { "Bash": { "role": "Op", "paths": "$.a" } } }""", "semantic.tools.Bash", "paths", "must be an array" },
+        { """{ "tools": { "Bash": { "role": "Op", "paths": [1] } } }""", "semantic.tools.Bash", "paths[0]", "must be a string" },
+        { """{ "examples": ["ok", "  "], "tools": { "Bash": { "role": "Op" } } }""", "semantic", "examples[1]", "non-blank string" },
+        { """{ "examples": "x", "tools": { "Bash": { "role": "Op" } } }""", "semantic", "examples", "must be an array" },
+        { """{ "examples": [1], "tools": { "Bash": { "role": "Op" } } }""", "semantic", "examples[0]", "non-blank string" },
+        { """{ "replaceExamples": true, "tools": { "Bash": { "role": "Op" } } }""", "semantic", "replaceExamples", "examples is empty" },
+        { """{ "replaceExamples": true, "examples": [], "tools": { "Bash": { "role": "Op" } } }""", "semantic", "replaceExamples", "examples is empty" },
+        { """{ "replaceExamples": "yes", "tools": { "Bash": { "role": "Op" } } }""", "semantic", "replaceExamples", "true or false" },
+        { """{ "threshold": 0, "tools": { "Bash": { "role": "Op" } } }""", "semantic", "threshold", "above 0 and at most 1" },
+        { """{ "threshold": 1.5, "tools": { "Bash": { "role": "Op" } } }""", "semantic", "threshold", "above 0 and at most 1" },
+        { """{ "threshold": 1e-50, "tools": { "Bash": { "role": "Op" } } }""", "semantic", "threshold", "above 0 and at most 1" },
+        { """{ "threshold": "0.5", "tools": { "Bash": { "role": "Op" } } }""", "semantic", "threshold", "above 0 and at most 1" },
+        { """{ "tools": { "Bash": { "role": "Op", "threshold": 0 } } }""", "semantic.tools.Bash", "threshold", "above 0 and at most 1" },
+        { """{ "tools": { "Bash": { "role": "Op", "threshold": 2 } } }""", "semantic.tools.Bash", "threshold", "above 0 and at most 1" },
+        { """{ "tools": { "Bash": { "role": "Op", "grantMinutes": 0 } } }""", "semantic.tools.Bash", "grantMinutes", "whole number above 0" },
+        { """{ "tools": { "Bash": { "role": "Op", "grantMinutes": 1.5 } } }""", "semantic.tools.Bash", "grantMinutes", "whole number above 0" },
+        { """{ "tools": { "Bash": { "role": "Op", "requireJustification": "no" } } }""", "semantic.tools.Bash", "requireJustification", "true or false" },
+        { """{ "tools": { "Bash": { "role": "Op" }, "Bash": { "role": "Op" } } }""", "semantic", "Bash", "duplicate key" },
+        { """5""", "semantic", "semantic", "must be an object" },
     };
-
-    [Theory]
-    [MemberData(nameof(BadBlocks))]
-    public void BadBlock_FailsAtLoad(string block, string location, string field)
-    {
-        var ex = Assert.Throws<InvalidOperationException>(() => Parse(Config(block)));
-        Assert.Contains(location, ex.Message);
-        Assert.Contains(field, ex.Message);
-    }
 
     [Theory]
     [InlineData("entra-pim")]
