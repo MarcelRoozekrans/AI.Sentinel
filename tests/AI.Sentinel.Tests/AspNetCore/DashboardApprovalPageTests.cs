@@ -53,10 +53,16 @@ public class DashboardApprovalPageTests
         Assert.True(html.IndexOf("Why approval is needed", StringComparison.Ordinal) < html.IndexOf("<dt>Justification</dt>", StringComparison.Ordinal));
     }
 
-    [Fact]
-    public async Task RequestPage_NoReasonRow_WhenNull()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RequestPage_NoReasonRow_WhenNull(string? reason)
     {
-        var (store, pending) = await PendingAsync();
+        var store = new InMemoryApprovalStore();
+        var ctx = new ApprovalContext("delete_database", default, "j") { Reason = reason };
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
+            new DashboardApprovalsTests.TestSec("alice"), DashboardApprovalsTests.MakeSpec(), ctx, TestContext.Current.CancellationToken);
         using var host = await DashboardApprovalsTests.BuildHostAsync(store, "ops-bob");
         var html = await (await GetAsync(host, "/sentinel/approvals/" + Uri.EscapeDataString(pending.RequestId)))
             .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
