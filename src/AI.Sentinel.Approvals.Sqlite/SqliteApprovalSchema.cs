@@ -4,7 +4,7 @@ namespace AI.Sentinel.Approvals.Sqlite;
 
 internal static class SqliteApprovalSchema
 {
-    internal const int CurrentVersion = 1;
+    internal const int CurrentVersion = 2;
 
     internal static async Task InitializeAsync(SqliteConnection conn, CancellationToken ct)
     {
@@ -55,5 +55,49 @@ internal static class SqliteApprovalSchema
                 """;
             await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
+
+        if (current < 2)
+        {
+            await MigrateToV2Async(conn, ct).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task MigrateToV2Async(SqliteConnection conn, CancellationToken ct)
+    {
+        // v2 adds the reason a request was raised. ALTER TABLE ADD COLUMN is not idempotent, so
+        // the version re-check, the column check, the ALTER and the version bump run under
+        // BEGIN IMMEDIATE: a second process opening the same file waits for the write lock and
+        // then sees user_version 2.
+        await ExecAsync(conn, "BEGIN IMMEDIATE;", ct).ConfigureAwait(false);
+        try
+        {
+            using var versionCmd = conn.CreateCommand();
+            versionCmd.CommandText = "PRAGMA user_version;";
+            var raw = await versionCmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+            if ((raw is null ? 0L : (long)raw) < 2)
+            {
+                using var info = conn.CreateCommand();
+                info.CommandText = "SELECT COUNT(*) FROM pragma_table_info('approval_requests') WHERE name = 'reason';";
+                var hasReason = Convert.ToInt64(await info.ExecuteScalarAsync(ct).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) > 0;
+                if (!hasReason)
+                {
+                    await ExecAsync(conn, "ALTER TABLE approval_requests ADD COLUMN reason TEXT;", ct).ConfigureAwait(false);
+                }
+                await ExecAsync(conn, "PRAGMA user_version = 2;", ct).ConfigureAwait(false);
+            }
+            await ExecAsync(conn, "COMMIT;", ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            await ExecAsync(conn, "ROLLBACK;", CancellationToken.None).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private static async Task ExecAsync(SqliteConnection conn, string sql, CancellationToken ct)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 }

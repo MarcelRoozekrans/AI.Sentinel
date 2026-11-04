@@ -66,6 +66,10 @@ internal class AuditingApprovalStore : IApprovalStore, IApprovalStoreDecorator
             case ApprovalState.Pending p:
                 Memory.Requests[p.RequestId] = new ApprovalAuditMemory.RequestInfo(spec.PolicyName, context.ToolName, spec.GrantDuration);
                 Remember(key, p.RequestId);
+                if (p.IsNew && context.Reason is not null)
+                {
+                    await WriteRequestAsync(spec.PolicyName, context.ToolName, context.Reason, p.RequestId).ConfigureAwait(false);
+                }
                 break;
 
             case ApprovalState.Active a when Admin is null:
@@ -332,6 +336,22 @@ internal class AuditingApprovalStore : IApprovalStore, IApprovalStoreDecorator
                 ex, "Could not look for an earlier APPROVED audit entry of approval request {RequestId}; recording it.", requestId);
         }
         return false;
+    }
+
+    /// <summary>Records a new request that carries a reason. Failure handling is that of <see cref="WriteAsync"/>.</summary>
+    private async ValueTask WriteRequestAsync(string policyName, string toolName, string reason, string requestId)
+    {
+        try
+        {
+            var entry = ApprovalStoreAuditing.Request(policyName, toolName, reason, requestId);
+            await _audit.AppendAndForwardAsync(entry, _forwarders, CancellationToken.None).ConfigureAwait(false);
+        }
+#pragma warning disable CA1031 // Auditing must never fail the decision; the failure is logged.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            _logger?.LogError(ex, "Could not write the request audit entry for approval request {RequestId}.", requestId);
+        }
     }
 
     /// <summary>

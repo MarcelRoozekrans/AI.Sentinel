@@ -20,13 +20,16 @@
     <Compile Remove="Mcp\McpCliTests.cs" />
     <Compile Remove="Mcp\ResourceReadInterceptorTests.cs" />
     <Compile Remove="Mcp\CliSeverityFlagsTests.cs" />
+    <Compile Remove="Mcp\McpCliSemanticApprovalTests.cs" />
     <Compile Remove="Copilot\CopilotHookCliTests.cs" />
     <Compile Remove="Copilot\CopilotHookCliFailClosedTests.cs" />
     <Compile Remove="Copilot\CopilotHookCliAuditTests.cs" />
+    <Compile Remove="Copilot\CopilotHookCliSemanticApprovalTests.cs" />
     <Compile Remove="ClaudeCode\HookCliTests.cs" />
     <Compile Remove="ClaudeCode\HookCliFailClosedTests.cs" />
     <Compile Remove="ClaudeCode\HookWireFormatTests.cs" />
     <Compile Remove="ClaudeCode\HookCliAuditTests.cs" />
+    <Compile Remove="ClaudeCode\HookCliSemanticApprovalTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\AI.Sentinel\AI.Sentinel.csproj" />

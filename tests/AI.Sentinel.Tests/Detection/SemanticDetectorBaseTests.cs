@@ -647,4 +647,22 @@ public class SemanticDetectorBaseTests
 
         Assert.Equal("Semantic match — high-severity threat pattern", r.Reason);
     }
+
+    [Theory]
+    [InlineData(1e20f)]
+    [InlineData(1e-25f)]
+    public void MaxSimilarity_ExtremeFiniteComponents_ScoresAsUnitVectors(float scale)
+    {
+        // These vectors pass InvalidEmbeddingException.Problem, whose norm is in double; a float dot product
+        // overflows to NaN for the large scale and underflows to 0 for the small one.
+        float[] query = [scale, scale];
+        ReadOnlyMemory<float>[] references = [new float[] { scale, 0f }, new float[] { scale, scale }];
+
+        Assert.Null(InvalidEmbeddingException.Problem(query));
+        var index = SemanticDetectorBase.MaxSimilarityIndex(query, references, out var similarity);
+
+        Assert.Equal(1, index);
+        Assert.Equal(1f, similarity, 5);
+        Assert.Equal(MathF.Sqrt(0.5f), SemanticDetectorBase.MaxSimilarity(query, [references[0]]), 5);
+    }
 }

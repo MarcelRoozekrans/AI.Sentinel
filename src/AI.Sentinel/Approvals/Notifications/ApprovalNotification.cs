@@ -25,6 +25,9 @@ internal sealed record ApprovalNotification(
     string? DashboardUrl,
     JsonElement? Args)
 {
+    /// <summary>Why the call needs approval, or <see langword="null"/> for a rule-based request.</summary>
+    public string? Reason { get; init; }
+
     /// <summary>Builds the payload for a request the store just created.</summary>
     /// <param name="pending">The new request.</param>
     /// <param name="callerId">The caller the request is for.</param>
@@ -53,7 +56,10 @@ internal sealed record ApprovalNotification(
 
         return new ApprovalNotification(
             text, pending.RequestId, context.ToolName, callerId, policy, pending.RequestedAt,
-            pending.ApprovalUrl, settings.DashboardUrl?.AbsoluteUri, args);
+            pending.ApprovalUrl, settings.DashboardUrl?.AbsoluteUri, args)
+        {
+            Reason = context.Reason,
+        };
     }
 
     private static string RequestPageLink(Uri dashboard, string requestId)

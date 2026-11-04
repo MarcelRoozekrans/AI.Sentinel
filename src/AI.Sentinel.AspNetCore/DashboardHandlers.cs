@@ -594,6 +594,10 @@ internal static class DashboardHandlers
           .AppendLine("</dd>");
         // Same redaction as the approval notifications: credentials and PII never reach the page.
         var session = new RedactionSession([new CredentialExposureDetector(), new PiiLeakageDetector()]);
+        if (!string.IsNullOrWhiteSpace(found.Reason))
+        {
+            sb.Append("<dt>Why approval is needed</dt><dd>").Append(HtmlEncode(session.Redact(found.Reason))).AppendLine("</dd>");
+        }
         if (!string.IsNullOrWhiteSpace(found.Justification))
         {
             sb.Append("<dt>Justification</dt><dd>").Append(HtmlEncode(session.Redact(found.Justification))).AppendLine("</dd>");

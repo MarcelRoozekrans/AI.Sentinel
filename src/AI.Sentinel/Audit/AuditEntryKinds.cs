@@ -24,6 +24,12 @@ public static class AuditEntryKinds
     /// <summary><see cref="AuditEntry.PolicyCode"/> of a timed-out approval decision.</summary>
     public const string TimedOutPolicyCode = "TIMED_OUT";
 
+    /// <summary>
+    /// <see cref="AuditEntry.PolicyCode"/> of the entry written when an approval request with a reason is created.
+    /// It is informational evidence, not a decision, and <see cref="IsApproval"/> does not count it.
+    /// </summary>
+    public const string RequestedPolicyCode = "REQUESTED";
+
     /// <summary><see cref="AuditEntry.DetectorId"/> of disclosure entries.</summary>
     public const string TransparencyDetectorId = "TRANSPARENCY";
 

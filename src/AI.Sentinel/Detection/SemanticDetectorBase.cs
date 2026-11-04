@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 using AI.Sentinel.Domain;
@@ -41,9 +40,7 @@ public abstract class SemanticDetectorBase : IDetector
     private readonly IEmbeddingGenerator<string, Embedding<float>>? _generator;
     private readonly IEmbeddingCache _cache;
     private readonly IEmbeddingCache? _exampleCache;
-    // Keyed by generator instance, never by value: vectors from one generator must not be compared with another's,
-    // and once nothing references a generator, the table releases its vectors.
-    private readonly ConditionalWeakTable<IEmbeddingGenerator<string, Embedding<float>>, ExampleSlot> _exampleSlots = new();
+    private readonly GeneratorSharedTask<ExampleVectors> _exampleTask = new();
     private readonly bool _overridesGetText;
     // True when neither GetTextsToScore nor the legacy GetText is overridden: then each scored text comes from known
     // messages, and a review candidate can carry the role of the message it came from.
@@ -610,147 +607,26 @@ public abstract class SemanticDetectorBase : IDetector
         ReadOnlyMemory<float>[] Medium,
         ReadOnlyMemory<float>[] Low);
 
-    private sealed class ExampleSlot
-    {
-#if NET9_0_OR_GREATER
-        public readonly System.Threading.Lock Lock = new();
-#else
-        public readonly object Lock = new();
-#endif
-        public Task<ExampleVectors>? Task;
-    }
-
     /// <summary>The example vectors for <paramref name="generator"/>, embedded on first use and shared by every
-    /// later and concurrent caller with the same generator instance.</summary>
-    /// <remarks>The first caller starts the embedding on its own token and the others await that task. A task
-    /// that fails or is cancelled is dropped, so the next call retries. A waiter whose own token is cancelled
-    /// stops waiting without touching the shared task. If the shared task was cancelled by its owner's token,
-    /// this caller retries for as long as its own token is live: it joins the next shared task or owns one on
-    /// its own token, which only that token can cancel. An <see cref="OperationCanceledException"/> while the
-    /// owner's token is live, such as an HttpClient timeout, is a fault: every waiter gets it and none retries.</remarks>
-    internal async Task<ExampleVectors> GetExampleVectorsAsync(
-        IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct)
-    {
-        var slot = _exampleSlots.GetValue(generator, static _ => new ExampleSlot());
-        while (true)
-        {
-            Task<ExampleVectors> task;
-            TaskCompletionSource<ExampleVectors>? owned = null;
-            lock (slot.Lock)
-            {
-                // A task that failed while every caller had already stopped waiting was never evicted by one.
-                if (slot.Task is { IsCompleted: true, IsCompletedSuccessfully: false }) slot.Task = null;
-                if (slot.Task is null)
-                {
-                    owned = new TaskCompletionSource<ExampleVectors>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    slot.Task = owned.Task;
-                }
-                task = slot.Task;
-            }
-
-            // Started outside the lock: the example cache lookups and a generator's synchronous prefix run here.
-            if (owned is not null) _ = RunEmbeddingAsync(owned, generator, exampleCache, ct);
-
-            try
-            {
-                return await task.WaitAsync(ct).ConfigureAwait(false);
-            }
-            catch (Exception) when (task.IsCompleted && !task.IsCompletedSuccessfully)
-            {
-                lock (slot.Lock)
-                {
-                    if (ReferenceEquals(slot.Task, task)) slot.Task = null;
-                }
-
-                if (!task.IsCanceled || ct.IsCancellationRequested) throw;
-            }
-        }
-    }
+    /// later and concurrent caller with the same generator instance. See <see cref="GeneratorSharedTask{T}"/>.</summary>
+    internal Task<ExampleVectors> GetExampleVectorsAsync(
+        IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct) =>
+        _exampleTask.GetAsync(
+            generator, (Detector: this, Generator: generator, Cache: exampleCache),
+            static (s, token) => s.Detector.EmbedAllExamplesAsync(s.Generator, s.Cache, token), ct);
 
     /// <summary>The shared embedding task currently held for <paramref name="generator"/>. For tests.</summary>
     internal bool TryPeekExampleTask(
-        IEmbeddingGenerator<string, Embedding<float>> generator, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Task<ExampleVectors>? task)
-    {
-        task = _exampleSlots.TryGetValue(generator, out var slot) ? slot.Task : null;
-        return task is not null;
-    }
-
-    private async Task RunEmbeddingAsync(
-        TaskCompletionSource<ExampleVectors> target,
-        IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct)
-    {
-        try
-        {
-            target.TrySetResult(await EmbedAllExamplesAsync(generator, exampleCache, ct).ConfigureAwait(false));
-        }
-        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
-        {
-            target.TrySetCanceled(ex.CancellationToken);
-        }
-        catch (Exception ex)
-        {
-            target.TrySetException(ex);
-        }
-    }
+        IEmbeddingGenerator<string, Embedding<float>> generator, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Task<ExampleVectors>? task) =>
+        _exampleTask.TryPeek(generator, out task);
 
     private async Task<ExampleVectors> EmbedAllExamplesAsync(
         IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, CancellationToken ct)
     {
-        var high = await EmbedExamplesAsync(generator, exampleCache, HighExamples, ct).ConfigureAwait(false);
-        var medium = await EmbedExamplesAsync(generator, exampleCache, MediumExamples, ct).ConfigureAwait(false);
-        var low = await EmbedExamplesAsync(generator, exampleCache, LowExamples, ct).ConfigureAwait(false);
+        var high = await ExampleEmbedder.EmbedAsync(generator, exampleCache, HighExamples, ct).ConfigureAwait(false);
+        var medium = await ExampleEmbedder.EmbedAsync(generator, exampleCache, MediumExamples, ct).ConfigureAwait(false);
+        var low = await ExampleEmbedder.EmbedAsync(generator, exampleCache, LowExamples, ct).ConfigureAwait(false);
         return new ExampleVectors(high, medium, low);
-    }
-
-    private static async Task<ReadOnlyMemory<float>[]> EmbedExamplesAsync(
-        IEmbeddingGenerator<string, Embedding<float>> generator, IEmbeddingCache? exampleCache, string[] examples, CancellationToken ct)
-    {
-        if (examples.Length == 0) return [];
-
-        if (exampleCache is null)
-        {
-            var direct = await generator.GenerateAsync(examples, cancellationToken: ct).ConfigureAwait(false);
-            return [.. direct.Select(e => e.Vector)];
-        }
-
-        // Embed only what the cache is missing. A warm persistent cache turns this whole method into
-        // lookups, which is what makes semantic detection affordable in a per-invocation host.
-        var vectors = new ReadOnlyMemory<float>[examples.Length];
-        var missingText = new List<string>();
-        var missingIndex = new List<int>();
-
-        for (var i = 0; i < examples.Length; i++)
-        {
-            if (exampleCache.TryGet(examples[i], out var hit))
-            {
-                vectors[i] = hit.Vector;
-            }
-            else
-            {
-                missingText.Add(examples[i]);
-                missingIndex.Add(i);
-            }
-        }
-
-        if (missingText.Count > 0)
-        {
-            var fresh = await generator.GenerateAsync(missingText, cancellationToken: ct).ConfigureAwait(false);
-            if (fresh.Count != missingText.Count)
-            {
-                // A provider that batches, dedupes or drops inputs would otherwise pair vectors with
-                // the wrong phrases and persist them under the wrong keys.
-                throw new InvalidOperationException(
-                    $"Embedding generator returned {fresh.Count} vectors for {missingText.Count} inputs; results must correspond one-to-one and in order.");
-            }
-
-            for (var i = 0; i < missingIndex.Count; i++)
-            {
-                exampleCache.Set(missingText[i], fresh[i]);
-                vectors[missingIndex[i]] = fresh[i].Vector;
-            }
-        }
-
-        return vectors;
     }
 
     /// <summary>The vector of each of <paramref name="texts"/>, in order: cached ones from the scan cache, and all
@@ -798,26 +674,43 @@ public abstract class SemanticDetectorBase : IDetector
     /// Internal so the offline threshold evaluation scores with exactly this math.</summary>
     internal static float MaxSimilarity(ReadOnlySpan<float> query, ReadOnlyMemory<float>[] references)
     {
-        var max = 0f;
-        foreach (var r in references)
-        {
-            var sim = CosineSimilarity(query, r.Span);
-            if (sim > max) max = sim;
-        }
+        MaxSimilarityIndex(query, references, out var max);
         return max;
     }
 
+    /// <summary>The index of the first reference vector with the highest cosine similarity to <paramref name="query"/>,
+    /// or -1 when none is above 0; <paramref name="similarity"/> is that similarity, as <see cref="MaxSimilarity"/> returns it.</summary>
+    internal static int MaxSimilarityIndex(ReadOnlySpan<float> query, ReadOnlyMemory<float>[] references, out float similarity)
+    {
+        var max = 0f;
+        var index = -1;
+        for (var i = 0; i < references.Length; i++)
+        {
+            var sim = CosineSimilarity(query, references[i].Span);
+            if (sim > max)
+            {
+                max = sim;
+                index = i;
+            }
+        }
+        similarity = max;
+        return index;
+    }
+
+    // In double, as InvalidEmbeddingException.Problem checks the norm: a float sum of squares overflows to
+    // infinity near 1e19 and underflows to 0 near 1e-23, which would score a vector that passed the check as 0.
     private static float CosineSimilarity(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
     {
         if (a.Length != b.Length) return 0f;
-        float dot = 0f, na = 0f, nb = 0f;
+        double dot = 0d, na = 0d, nb = 0d;
         for (var i = 0; i < a.Length; i++)
         {
-            dot += a[i] * b[i];
-            na += a[i] * a[i];
-            nb += b[i] * b[i];
+            double x = a[i], y = b[i];
+            dot += x * y;
+            na += x * x;
+            nb += y * y;
         }
-        var denom = MathF.Sqrt(na) * MathF.Sqrt(nb);
-        return denom > 0f ? dot / denom : 0f;
+        var denom = Math.Sqrt(na) * Math.Sqrt(nb);
+        return denom > 0d ? (float)(dot / denom) : 0f;
     }
 }

@@ -8,9 +8,12 @@ using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.Detection;
+using AI.Sentinel.Embeddings;
 using AI.Sentinel.Mcp;
 using AI.Sentinel.Mcp.Logging;
 using AI.Sentinel.Sqlite.Local;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using ModelContextProtocol.Client;
@@ -28,9 +31,12 @@ internal static class ProxyCommand
 
     /// <param name="transportFactory">Test seam: supplies the host and target transports instead of
     /// the process stdio and the <c>--target</c> command.</param>
+    /// <param name="embeddingGenerator">Test seam: the embedding generator, instead of the one
+    /// <c>SENTINEL_EMBEDDING_*</c> configures.</param>
     internal static async Task<int> RunAsync(
         string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr, CancellationToken ct,
-        Func<(ITransport Host, IClientTransport Target)>? transportFactory)
+        Func<(ITransport Host, IClientTransport Target)>? transportFactory,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null)
     {
         // args[0] is "proxy" (already matched by Program)
         if (args.Length < 3 || !string.Equals(args[1], "--target", StringComparison.Ordinal))
@@ -56,37 +62,55 @@ internal static class ProxyCommand
         var settings = LocalAudit.ReadSettings(envVars, "SENTINEL_MCP_", LocalAudit.DefaultDatabasePath(), settingsProblems);
         // Later problems are reported the moment they are recorded, so a killed proxy still reports them.
         var audit = LocalAudit.Open(settings, AuditSources.Mcp, problem => ReportProblem(problem, stderr));
-        ServiceProvider? provider = null;
         try
         {
             await ReportProblemsAsync(settingsProblems, stderr).ConfigureAwait(false);
+            return await RunAuthorizedAsync(
+                targetCommand, targetArgs, config, preset, maxScanBytes, placeholderIdleExpiry,
+                stderr, ct, audit, transportFactory, embeddingGenerator).ConfigureAwait(false);
+        }
+        finally
+        {
+            await CloseAuditAsync(audit, stderr).ConfigureAwait(false);
+        }
+    }
 
-            // Optional approval-config wiring. When SENTINEL_APPROVAL_CONFIG is set, build a guard +
-            // approval store so the MCP proxy can gate tool calls behind PIM-style approvals. The
-            // SENTINEL_MCP_APPROVAL_WAIT_SEC env var (positive integer) opts into wait-and-block; without
-            // it the proxy fails fast with the receipt embedded in the JSON-RPC error. Provider owns
-            // the SqliteApprovalStore connection / EntraPim Graph client and must be disposed on
-            // shutdown so SQLite WAL/SHM are flushed cleanly. The stack writes approval decisions to
-            // the same audit file as the proxy, so the audit session is opened first.
-            var (stackProvider, guard, approvalStore, approvalWait, configError) =
-                await BuildAuthorizationStackAsync(stderr, audit.Store, audit.Forwarders).ConfigureAwait(false);
-            provider = stackProvider;
+    /// <summary>Builds the authorization stack and runs the proxy behind it. The stack writes approval decisions to
+    /// the same audit file as the proxy, so the caller opens the audit session first.</summary>
+    private static async Task<int> RunAuthorizedAsync(
+        string targetCommand, string[] targetArgs, HookConfig config, DetectorPreset preset,
+        int maxScanBytes, TimeSpan placeholderIdleExpiry, TextWriter stderr, CancellationToken ct,
+        LocalAuditSession audit, Func<(ITransport Host, IClientTransport Target)>? transportFactory,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator)
+    {
+        // One generator for the guard's semantic approvals and the proxy's detectors. A configuration error is not
+        // reported here: McpProxy reads the same settings when it gets no generator, and reports it there.
+        using var embeddings = embeddingGenerator is null
+            ? SentinelEmbeddingSetup.TryCreateFromEnvironment(McpProxy.ReadEnvironment(), out _)
+            : null;
+        embeddingGenerator ??= embeddings?.Generator;
+
+        // Optional approval-config wiring. When SENTINEL_APPROVAL_CONFIG is set, build a guard +
+        // approval store so the MCP proxy can gate tool calls behind PIM-style approvals. The
+        // SENTINEL_MCP_APPROVAL_WAIT_SEC env var (positive integer) opts into wait-and-block; without
+        // it the proxy fails fast with the receipt embedded in the JSON-RPC error. Provider owns
+        // the SqliteApprovalStore connection / EntraPim Graph client and must be disposed on
+        // shutdown so SQLite WAL/SHM are flushed cleanly.
+        var (provider, guard, approvalStore, approvalWait, configError) =
+            await BuildAuthorizationStackAsync(
+                stderr, audit.Store, audit.Forwarders, embeddingGenerator, embeddings?.ExampleCache).ConfigureAwait(false);
+        try
+        {
             if (configError) return 1;
 
             return await RunProxyAsync(
                 targetCommand, targetArgs, config, preset, maxScanBytes, placeholderIdleExpiry,
-                stderr, ct, guard, approvalStore, approvalWait, audit, transportFactory).ConfigureAwait(false);
+                stderr, ct, guard, approvalStore, approvalWait, audit, transportFactory, embeddingGenerator,
+                embeddings?.ExampleCache).ConfigureAwait(false);
         }
         finally
         {
-            try
-            {
-                await CloseAuditAsync(audit, stderr).ConfigureAwait(false);
-            }
-            finally
-            {
-                if (provider is not null) await provider.DisposeAsync().ConfigureAwait(false);
-            }
+            if (provider is not null) await provider.DisposeAsync().ConfigureAwait(false);
         }
     }
 
@@ -118,6 +142,14 @@ internal static class ProxyCommand
             ["detail"] = warning,
         });
 
+    /// <summary>No logging provider here, so the guard's own warning would go nowhere; this puts it on stderr.</summary>
+    private static string FormatInertSemanticApprovals(string warning) =>
+        StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["event"] = "semantic_approval_inert",
+            ["detail"] = warning,
+        });
+
     private static string FormatProblem(string problem) =>
         StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -129,7 +161,8 @@ internal static class ProxyCommand
         string targetCommand, string[] targetArgs, HookConfig config, DetectorPreset preset,
         int maxScanBytes, TimeSpan placeholderIdleExpiry, TextWriter stderr, CancellationToken ct,
         IToolCallGuard? guard, IApprovalStore? approvalStore, TimeSpan? approvalWait,
-        LocalAuditSession audit, Func<(ITransport Host, IClientTransport Target)>? transportFactory)
+        LocalAuditSession audit, Func<(ITransport Host, IClientTransport Target)>? transportFactory,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator, IEmbeddingCache? exampleEmbeddingCache)
     {
         var (hostTransport, targetTransport) = transportFactory?.Invoke() ?? (
             // StdioServerTransport(string serverName, ILoggerFactory?) uses Console.In/Out internally.
@@ -146,6 +179,8 @@ internal static class ProxyCommand
                 maxScanBytes: maxScanBytes,
                 stderr: stderr,
                 ct: ct,
+                embeddingGenerator: embeddingGenerator,
+                exampleEmbeddingCache: exampleEmbeddingCache,
                 guard: guard,
                 approvalStore: approvalStore,
                 approvalWait: approvalWait,
@@ -269,8 +304,12 @@ internal static class ProxyCommand
     /// <param name="stderr">Receives config load errors.</param>
     /// <param name="auditStore">The proxy's audit store; null keeps AddAISentinel's in-memory audit store.</param>
     /// <param name="forwarders">The proxy's audit forwarders, registered with <paramref name="auditStore"/>.</param>
+    /// <param name="embeddingGenerator">The embedding generator the guard's semantic approvals score with; without one
+    /// that layer is inert.</param>
+    /// <param name="exampleEmbeddingCache">Where the example vectors of <paramref name="embeddingGenerator"/> are cached.</param>
     internal static async Task<(ServiceProvider? Provider, IToolCallGuard? Guard, IApprovalStore? Store, TimeSpan? Wait, bool ConfigError)> BuildAuthorizationStackAsync(
-        TextWriter stderr, IAuditStore? auditStore = null, IReadOnlyList<IAuditForwarder>? forwarders = null)
+        TextWriter stderr, IAuditStore? auditStore = null, IReadOnlyList<IAuditForwarder>? forwarders = null,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null, IEmbeddingCache? exampleEmbeddingCache = null)
     {
         var path = Environment.GetEnvironmentVariable("SENTINEL_APPROVAL_CONFIG");
         if (string.IsNullOrWhiteSpace(path)) return (null, null, null, null, false);
@@ -294,7 +333,12 @@ internal static class ProxyCommand
         var services = new ServiceCollection();
         RegisterApprovalBackend(services, approvalConfig, stderr);
 
-        services.AddAISentinel(opts => ApprovalBackendSelector.Configure(opts, approvalConfig));
+        services.AddAISentinel(opts =>
+        {
+            opts.EmbeddingGenerator = embeddingGenerator;
+            opts.ExampleEmbeddingCache = exampleEmbeddingCache;
+            ApprovalBackendSelector.Configure(opts, approvalConfig);
+        });
 
         // Last registration wins for IAuditStore, so these go after AddAISentinel's in-memory default.
         // Without them the approval decisions the stack observes would land in that throwaway store.
@@ -307,6 +351,10 @@ internal static class ProxyCommand
 
         var provider = services.BuildServiceProvider();
         var guard = provider.GetService<IToolCallGuard>();
+        // The stack is built once per proxy process, so this is reported once.
+        if (provider.DescribeInertSemanticApprovals() is { } inertApprovals)
+            await stderr.WriteLineAsync(FormatInertSemanticApprovals(inertApprovals)).ConfigureAwait(false);
+
         var store = ApprovalStoreAuditing.Resolve(provider);
 
         TimeSpan? wait = null;

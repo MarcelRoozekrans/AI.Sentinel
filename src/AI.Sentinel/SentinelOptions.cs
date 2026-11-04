@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.AI;
 using ZeroAlloc.Validation;
+using AI.Sentinel.Approvals.Semantic;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
@@ -14,6 +15,8 @@ public sealed class SentinelOptions
 {
     private readonly List<ToolCallPolicyBinding> _authorizationBindings = new();
     private readonly List<DetectorRegistration> _detectorRegistrations = new();
+    private readonly SemanticApprovalSettings _semanticApprovalSettings = new();
+    private readonly List<(string Pattern, SemanticApprovalSpec Spec)> _semanticApprovalTools = new();
 
     /// <summary>Behaviour when a tool call has no matching policy binding. Defaults to <see cref="ToolPolicyDefault.Allow"/>.</summary>
     public ToolPolicyDefault DefaultToolPolicy { get; set; } = ToolPolicyDefault.Allow;
@@ -23,6 +26,13 @@ public sealed class SentinelOptions
 
     /// <summary>Internal hook for the <c>RequireToolPolicy</c> extension.</summary>
     internal void AddAuthorizationBinding(ToolCallPolicyBinding binding) => _authorizationBindings.Add(binding);
+
+    /// <summary>Internal access to the semantic approval settings and tool bindings, in registration order.</summary>
+    internal (SemanticApprovalSettings Settings, IReadOnlyList<(string Pattern, SemanticApprovalSpec Spec)> Tools) GetSemanticApprovals()
+        => (_semanticApprovalSettings, _semanticApprovalTools);
+
+    /// <summary>Internal hook for the <c>RequireSemanticApproval</c> extension.</summary>
+    internal void AddSemanticApproval(string pattern, SemanticApprovalSpec spec) => _semanticApprovalTools.Add((pattern, spec));
 
     /// <summary>Internal access for <see cref="ServiceCollectionExtensions.AddAISentinel"/> to read user-registered detectors.</summary>
     internal IReadOnlyList<DetectorRegistration> GetDetectorRegistrations() => _detectorRegistrations;

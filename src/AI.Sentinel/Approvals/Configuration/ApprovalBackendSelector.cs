@@ -1,5 +1,6 @@
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Notifications;
+using AI.Sentinel.Approvals.Semantic;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -45,6 +46,30 @@ internal static class ApprovalBackendSelector
                     spec.BackendBinding = toolConfig.Role;
                     spec.GrantScope = toolConfig.GrantScope;
                     foreach (var (path, pattern) in toolConfig.When) spec.WhenArgument(path, pattern);
+                });
+            }
+        }
+
+        if (config.Semantic is { } semantic)
+        {
+            opts.ConfigureSemanticApprovals(s =>
+            {
+                s.Threshold = semantic.Threshold;
+                s.ReplaceExamples = semantic.ReplaceExamples;
+                if (semantic.Examples.Count > 0) s.AddExamples(semantic.Examples.ToArray());
+            });
+            // Same file defaults as a rule entry; every other spec field keeps the spec's own default, as for rules.
+            foreach (var (toolPattern, tool) in semantic.Tools)
+            {
+                var grantMinutes = tool.GrantMinutes ?? config.DefaultGrantMinutes;
+                var requireJustification = tool.RequireJustification ?? true;
+                opts.RequireSemanticApproval(toolPattern, spec =>
+                {
+                    spec.BackendBinding = tool.Role;
+                    spec.GrantDuration = TimeSpan.FromMinutes(grantMinutes);
+                    spec.RequireJustification = requireJustification;
+                    spec.Threshold = tool.Threshold;
+                    if (tool.Paths is { } paths) spec.Paths(paths.ToArray());
                 });
             }
         }

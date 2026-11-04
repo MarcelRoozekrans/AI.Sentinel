@@ -113,9 +113,39 @@ internal static class ApprovalStoreAuditing
     }
 
     /// <summary>
+    /// Builds the informational entry of a new approval request that carries a reason. The summary reads
+    /// <c>Requested: policy p, tool t, reason r, request id</c>, so <see cref="RequestIdOf"/> reads the id as it does
+    /// for a decision.
+    /// </summary>
+    /// <param name="policyName">The approval policy.</param>
+    /// <param name="toolName">The gated tool.</param>
+    /// <param name="reason">Why the call needs approval.</param>
+    /// <param name="requestId">The approval request.</param>
+    internal static AuditEntry Request(string policyName, string toolName, string reason, string requestId)
+    {
+        ArgumentNullException.ThrowIfNull(policyName);
+        ArgumentNullException.ThrowIfNull(toolName);
+        ArgumentNullException.ThrowIfNull(reason);
+        ArgumentNullException.ThrowIfNull(requestId);
+
+        return new AuditEntry(
+            Id: Guid.NewGuid().ToString("N"),
+            Timestamp: DateTimeOffset.UtcNow,
+            Hash: string.Empty,
+            PreviousHash: null,
+            Severity: Severity.None,
+            DetectorId: AuditEntryKinds.ApprovalDetectorId,
+            Summary: $"Requested: policy {policyName}, tool {toolName}, reason {reason}{AuditEntryKinds.ApprovalRequestMarker}{requestId}")
+        {
+            PolicyCode = AuditEntryKinds.RequestedPolicyCode,
+        };
+    }
+
+    /// <summary>
     /// Builds the informational audit entry of one approval decision: <see cref="Severity.None"/>, the
     /// <see cref="AuditEntryKinds.ApprovalDetectorId"/> detector id and <paramref name="policyCode"/>. The summary reads
-    /// <c>Approved: policy p, tool t, request r</c> and never carries the arguments, a note, a reason or an identity.
+    /// <c>Approved: policy p, tool t, request r</c> and never carries the arguments, a note, a denial reason or an identity. The one exception is the entry
+    /// of a new request that has a reason, see <see cref="Request"/>.
     /// </summary>
     /// <param name="policyCode">One of the four approval policy codes in <see cref="AuditEntryKinds"/>.</param>
     /// <param name="policyName">The approval policy.</param>

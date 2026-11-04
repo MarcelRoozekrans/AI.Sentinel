@@ -186,6 +186,12 @@ public static class Program
             enableComplianceDetectors: config.EnableComplianceDetectors, detectors: DetectorPresets.Parse(hookEnv.GetValueOrDefault("SENTINEL_HOOK_DETECTORS")),
             maxScanBytes: HookConfig.ParseMaxScanBytes(hookEnv, "SENTINEL_HOOK_MAX_SCAN_BYTES"));
         await using var _ = provider.ConfigureAwait(false);
+        // Semantic approvals only act on a tool call, so only PreToolUse says they are inert. It goes with the
+        // approval warnings: kept off the stderr that carries a block reason, unless verbose.
+        if (evt == HookEvent.PreToolUse && provider.DescribeInertSemanticApprovals() is { } inertApprovals)
+        {
+            approvalWarnings.Add($"[sentinel-hook] {inertApprovals}");
+        }
 
         var adapter = new HookAdapter(provider, config);
         var output = await adapter.HandleAsync(evt, input, default).ConfigureAwait(false);

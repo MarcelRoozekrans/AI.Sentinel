@@ -47,13 +47,16 @@ internal static class McpProxy
     /// over it is reported as <c>SEC-00</c>.</param>
     /// <param name="stderr">Writer used for structured proxy log lines.</param>
     /// <param name="ct">Cancellation token observed by the running server.</param>
-    /// <param name="embeddingGenerator">Optional embedding generator for embedding-aware detectors.</param>
+    /// <param name="embeddingGenerator">Optional embedding generator for embedding-aware detectors. Without one the proxy
+    /// reads <c>SENTINEL_EMBEDDING_*</c> itself.</param>
     /// <param name="guard">Optional authorization guard. When supplied, runs before detection on <c>tools/call</c>.</param>
     /// <param name="callerResolver">Optional resolver mapping the inbound request to an <see cref="ISecurityContext"/>. Defaults to <see cref="EnvironmentSecurityContext.FromEnvironment"/>.</param>
     /// <param name="auditStore">Optional store for audit entries; defaults to an in-memory ring buffer. The caller owns and disposes it.</param>
     /// <param name="forwarders">Optional forwarders that mirror every audit entry. The caller owns them.</param>
     /// <param name="placeholderIdleExpiry">How long a placeholder the proxy minted stays known when unused; defaults to
     /// <see cref="PlaceholderStore.DefaultIdleExpiry"/>. Used only when <see cref="HookConfig.RedactToolResults"/> is set.</param>
+    /// <param name="exampleEmbeddingCache">Where <paramref name="embeddingGenerator"/>'s example vectors are cached, or
+    /// <see langword="null"/> for none.</param>
     internal static Task RunAsync(
         ITransport hostTransport,
         IClientTransport targetTransport,
@@ -70,7 +73,8 @@ internal static class McpProxy
         IAuditStore? auditStore = null,
         IReadOnlyList<IAuditForwarder>? forwarders = null,
         TimeSpan? placeholderIdleExpiry = null,
-        IDetectionReviewer? reviewer = null)
+        IDetectionReviewer? reviewer = null,
+        IEmbeddingCache? exampleEmbeddingCache = null)
         => RunWithSessionAsync(
             hostTransport: hostTransport,
             targetTransport: targetTransport,
@@ -88,7 +92,8 @@ internal static class McpProxy
             forwarders: forwarders,
             sessionId: null,
             placeholderIdleExpiry: placeholderIdleExpiry,
-            reviewer: reviewer);
+            reviewer: reviewer,
+            exampleEmbeddingCache: exampleEmbeddingCache);
 
     /// <summary>Same as <see cref="RunAsync"/> but lets tests fix the per-run session id.</summary>
     internal static async Task RunWithSessionAsync(
@@ -108,7 +113,8 @@ internal static class McpProxy
         IReadOnlyList<IAuditForwarder>? forwarders = null,
         SessionId? sessionId = null,
         TimeSpan? placeholderIdleExpiry = null,
-        IDetectionReviewer? reviewer = null)
+        IDetectionReviewer? reviewer = null,
+        IEmbeddingCache? exampleEmbeddingCache = null)
     {
         ArgumentNullException.ThrowIfNull(hostTransport);
         ArgumentNullException.ThrowIfNull(targetTransport);
@@ -138,7 +144,8 @@ internal static class McpProxy
             var reviewLimits = ReviewLimitsFor(review);
             var pipeline = McpPipelineFactory.Create(
                 config, preset, embeddingGenerator ?? embeddings?.Generator,
-                out var pipelineStore, out var inertSemanticWarning, out var unreviewedSemanticWarning, embeddings?.ExampleCache,
+                out var pipelineStore, out var inertSemanticWarning, out var unreviewedSemanticWarning,
+                embeddings?.ExampleCache ?? exampleEmbeddingCache,
                 ReportDetectorFailure, auditStore, forwarders, reviewer ?? review?.Reviewer, reviewLimits, maxScanBytes);
 
             await WriteSemanticWarningAsync(config, "semantic_detection_inert", inertSemanticWarning, stderr).ConfigureAwait(false);
@@ -267,7 +274,7 @@ internal static class McpProxy
         });
 
     /// <summary>Embedding and review settings, read directly because they carry no host-specific prefix.</summary>
-    private static Dictionary<string, string?> ReadEnvironment()
+    internal static Dictionary<string, string?> ReadEnvironment()
     {
         var env = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables())

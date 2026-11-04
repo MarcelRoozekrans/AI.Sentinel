@@ -37,6 +37,39 @@ public class DashboardApprovalPageTests
     }
 
     [Fact]
+    public async Task RequestPage_ShowsReason_HtmlEncoded()
+    {
+        var store = new InMemoryApprovalStore();
+        var ctx = new ApprovalContext("delete_database", default, "j") { Reason = "<script>alert(1)</script> apiKey: " + Secret };
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
+            new DashboardApprovalsTests.TestSec("alice"), DashboardApprovalsTests.MakeSpec(), ctx, TestContext.Current.CancellationToken);
+        using var host = await DashboardApprovalsTests.BuildHostAsync(store, "ops-bob");
+        var html = await (await GetAsync(host, "/sentinel/approvals/" + Uri.EscapeDataString(pending.RequestId)))
+            .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("<dt>Why approval is needed</dt>", html, StringComparison.Ordinal);
+        Assert.Contains("&lt;script&gt;alert(1)&lt;/script&gt;", html, StringComparison.Ordinal);
+        Assert.DoesNotContain("<script>alert(1)", html, StringComparison.Ordinal);
+        Assert.DoesNotContain(Secret, html, StringComparison.Ordinal);
+        Assert.True(html.IndexOf("Why approval is needed", StringComparison.Ordinal) < html.IndexOf("<dt>Justification</dt>", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RequestPage_NoReasonRow_WhenNull(string? reason)
+    {
+        var store = new InMemoryApprovalStore();
+        var ctx = new ApprovalContext("delete_database", default, "j") { Reason = reason };
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(
+            new DashboardApprovalsTests.TestSec("alice"), DashboardApprovalsTests.MakeSpec(), ctx, TestContext.Current.CancellationToken);
+        using var host = await DashboardApprovalsTests.BuildHostAsync(store, "ops-bob");
+        var html = await (await GetAsync(host, "/sentinel/approvals/" + Uri.EscapeDataString(pending.RequestId)))
+            .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain("Why approval is needed", html, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Page_ClearsAStaleErrorOnSuccessAndShowsTheConflictMessage()
     {
         var (store, pending) = await PendingAsync();

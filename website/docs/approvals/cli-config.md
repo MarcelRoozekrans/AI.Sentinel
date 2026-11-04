@@ -46,6 +46,7 @@ If the env var is unset (or empty), approvals are disabled — the CLI behaves e
 | `notifyHeaders` | object | no | empty | Extra request headers, name to string value. Needs `notifyUrl`. |
 | `notifyIncludeArgs` | bool | no | `false` | Send the redacted tool arguments. Needs `notifyUrl`. |
 | `dashboardUrl` | string | no | none | Absolute `http` or `https` URL of your dashboard, including the path prefix, for example `https://dash.example.com/ai-sentinel/`. The message text links to it. |
+| `semantic` | object | no | none | Asks for approval when a tool call is close in meaning to an example of a destructive call. See [Semantic approvals](#semantic-approvals). |
 
 ### Per-tool fields
 
@@ -181,6 +182,111 @@ k=kubectl; $k delete ns prod
 
 For `Bash`, treat the rule as a speed bump for the agent that behaves, and keep real isolation in credentials and permissions of the account the commands run as.
 
+## Semantic approvals
+
+Regex rules miss rephrased calls. `\bkubectl\s+delete\b` does not match `kubectl -n prod delete ns billing`, and the config can only list the spellings you thought of. The `semantic` block adds a second layer: it compares the text of a tool call with examples of destructive calls by embedding both, and asks for approval when the call is close in meaning to an example. It can only add approvals. It never allows a call that a rule or a policy denies.
+
+```json
+{
+  "backend": "sqlite",
+  "databasePath": "/var/lib/ai-sentinel/approvals.db",
+  "tools": {
+    "Bash": { "role": "ProdOps", "when": { "$.command": "\\bkubectl\\s+delete\\b" } }
+  },
+  "semantic": {
+    "threshold": 0.80,
+    "examples": ["kubectl delete namespace", "decommission a tenant"],
+    "replaceExamples": false,
+    "tools": {
+      "Bash": { "role": "Operator" },
+      "mcp__api__http_request": { "role": "Operator", "grantMinutes": 30 }
+    }
+  }
+}
+```
+
+It needs an embedding generator. The CLIs read it from the `SENTINEL_EMBEDDING_*` variables, see [Claude Code](/docs/integrations/claude-code). Without one the layer is inert: nothing is scored and a warning says so. The hooks print `Semantic approvals are configured but no embedding generator is; the semantic layer is inert.` on stderr. `sentinel-mcp` writes it as a log line with `event=semantic_approval_inert`. A host that calls `AddAISentinel` in code gets the same warning in its log.
+
+### Block fields
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `tools` | object | yes | none | Tool pattern to binding, same pattern syntax as the top-level `tools`. The first matching key in file order covers the call. Must not be empty. |
+| `threshold` | number | no | `0.80` | Cosine similarity needed for a match, above 0 and at most 1. |
+| `examples` | string[] | no | none | Added to the built-in examples. A blank entry is a config error. |
+| `replaceExamples` | bool | no | `false` | `true` drops the built-in examples and uses only `examples`, which must then not be empty. |
+
+### Semantic per-tool fields
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `role` | string | yes | none | Backend binding, as for a rule. |
+| `grantMinutes` | int | no | `defaultGrantMinutes` | Must be above 0. |
+| `requireJustification` | bool | no | `true` | |
+| `paths` | string[] | no | see below | The text to score, as [paths](#path-syntax). Must not be empty. |
+| `threshold` | number | no | the block's | Overrides the block threshold for this tool. |
+
+`grantScope` is not accepted, because a semantic grant is always tied to the approved call. Unknown keys in the block or in a binding are config errors, with the key named. `semantic` with `backend: entra-pim` or `backend: none` is a config error: a PIM grant cannot be tied to arguments, and `none` has no store to ask. Listing a tool under `semantic` does not make it governed: under `DefaultToolPolicy = Deny` an unbound tool is still denied.
+
+### Which text is scored
+
+With `paths`, each path is scored on its own, using the same [value table](#what-the-regex-sees) as `when`. A missing or `null` value gives no text. Without `paths`:
+
+| Tool | Scored text |
+|---|---|
+| `Bash`, `bash`, `powershell` | `$.command` |
+| any other tool | the whole arguments as compact JSON |
+
+Tool names are matched ordinally. `"Bash"` is Claude Code's shell tool and `"bash"` is Copilot's, and a key for one does not cover the other. The `powershell` default follows the Copilot tool schema, which passes the command as `command` for its shell tools; unlike `bash`, no Copilot test in this repository confirms that field for `powershell`. If your Copilot sends it under another name, the default finds no text and the call is not scored, so check the field your Copilot sends and set `paths` to it. List both when both CLIs use the config. Arguments that are not a JSON object or array are scored as their raw text. A call with no text to score is not flagged. Each text is cut to `MaxScanBytes` at a UTF-8 boundary, and the reason says so.
+
+Each path is scored separately. `"paths": ["$.method", "$.url"]` scores `DELETE` and the URL as two texts and can never match an example such as `DELETE https://api.example.com/v1/users`. For HTTP tools keep the default, which scores the whole JSON, or write examples per field.
+
+### Where it runs
+
+The semantic layer runs last. If a rule or a policy already decides the call (approval needed, deny), that decision stands and nothing is scored. If a rule applied to the call and its grant is active, the call is allowed without a semantic check, because the approver already approved a rule that covers it. Otherwise the call is scored, and a match asks for approval under the policy name `semantic:<key>#<fingerprint>`, where `<key>` is the `semantic.tools` key and the fingerprint is the one described under [Policy names](#policy-names). Approving covers only that tool and those exact arguments, for `grantMinutes`.
+
+### What the approver sees
+
+A semantic request carries a `Reason`, for example `Semantic match 0.87 ≥ 0.80 on $.command: "kubectl delete namespace production"`: the score, the threshold, the path of the text and the closest example. It shows as "Why approval is needed" on the [dashboard](/docs/approvals/dashboard) request page, as a `Reason:` line in the receipt, and as `reason` in the [webhook](#payload) body. Rule-based requests have no reason. Like the arguments, the reason is redacted on the dashboard page.
+
+### Semantic fail closed
+
+When the call cannot be scored, it asks for approval instead of passing. The cases are an error from the embedding generator, a timeout, a wrong number of vectors, an empty or invalid vector, and a vector of the wrong size. Arguments whose text cannot be read ask too. A string with an escape that does not decode, such as a lone surrogate, gives the kind `unreadable arguments`. A scored path that meets the same property name twice, such as `{"command":"ls","command":"rm -rf /"}`, gives `duplicate key`, because a parser that keeps the last value runs the second command. The request has the reason `Semantic check failed: <kind>; approval required (fail closed)`. It has the same policy name as a match, so after the provider recovers a retry of the same call is covered by the grant. There is no switch to fail open. The timeout is the embedding provider's own.
+
+### How well it works
+
+Read this before you rely on the defaults. The built-in examples and the default threshold were tuned with `all-MiniLM-L6-v2`. On a held-out set of 35 destructive calls written as paraphrases of the examples, through other tools, flag spellings, shell wrappers and API calls, the default flags 2 (6 %). The highest of 33 held-out benign scores was 0.7916 (`git pull --rebase origin main`), and the threshold of 0.80 was set just above it. So this set does not measure the false-positive rate: none of its benign calls can be flagged by construction. Expect some harmless calls near 0.80 to ask. The layer catches close variants of the built-in commands, such as the held-out `k=kubectl; $k delete namespace --all` (0.883) and `echo 'FLUSHDB' | redis-cli` (0.844), the only two flagged. Even a text the examples were tuned on can miss: `kubectl delete namespace payments-prod --wait=false`, from the tuning set rather than the held-out one, scores 0.754 and passes. Embeddings judge topic more than intent, so a paraphrase through another tool scores low. A different embedding model needs its own run.
+
+To get more out of it:
+
+- Add examples phrased the way your team's destructive calls look, in `examples`.
+- Tune the threshold on your own texts. Put destructive and benign samples in a copy of `tools/AI.Sentinel.ComplianceEval/approval-phrases.json` and run `dotnet run --project tools/AI.Sentinel.ComplianceEval -- --approvals path/to/approval-phrases.json --model all-MiniLM-L6-v2`. Without a path it uses the bundled file. The report shows the score distribution, the lowest threshold above every held-out benign score, and the recall at it.
+
+Lowering the threshold catches more and also flags more harmless calls. At 0.78 the held-out `git pull --rebase origin main` would already ask for approval.
+
+With `bge-base-en-v1.5`, set `threshold` to 0.86. On the same sets with the same examples, the highest held-out benign score is 0.8592 (0.86 is the lowest 0.01 step above it), and 3 of the 35 held-out destructive calls are flagged (9 %). `kubectl -n prod delete ns billing` scores 0.872 and is one of the three. Benign scores rise along with destructive ones on that model, so it is only slightly better than `all-MiniLM-L6-v2`. The 0.80 default stays tuned for `all-MiniLM-L6-v2`.
+
+### Worked example
+
+The agent runs `kubectl -n prod delete ns billing`.
+
+1. The regex rule `\bkubectl\s+delete\b` does not match, because `-n prod` sits between `kubectl` and `delete`. The call passes.
+2. With the default semantic layer the call is scored. The closest example is `kubectl delete ns prod --all --force`, and the score is 0.784. That is below 0.80, so the call still passes.
+3. Add an example close to how your team writes the command, and the semantic layer may ask. Check the score with `--approvals` before you rely on it:
+
+```json
+"semantic": {
+  "examples": ["kubectl delete namespace"],
+  "tools": { "Bash": { "role": "Operator" } }
+}
+```
+
+Lowering `threshold` for `Bash`, for example to `0.75`, makes it ask, since 0.784 is above 0.75. Do it on the strength of your own benign samples: it moves the benign commands towards the line too. When it asks, the request carries the reason with the score, the path `$.command` and the closest example.
+
+### Semantic approvals are not a sandbox
+
+As with a `when` rule, the semantic layer reduces approval noise for cooperative agents. It is not a security boundary. A model scores similarity, so a command the examples do not resemble, or one that is obfuscated, passes. Keep real isolation in the credentials and permissions of the account the commands run as.
+
 ## Grant scope
 
 An approved request grants access for `grantMinutes`. By default (`"grantScope": "rule"`) the grant covers every call that matches the same rule in that time, whatever its arguments.
@@ -273,6 +379,7 @@ A value that is only partly empty is not caught. `"Bearer ${NTFY_TOKEN}"` with t
 | `requestId`, `tool`, `callerId`, `policy`, `requestedAt` | The request, as the store holds it. `policy` is the [policy name](#policy-names). |
 | `approvalUrl` | The URL the store reports for the request, sent as is. |
 | `dashboardUrl` | The config value. Omitted when not set. |
+| `reason` | Why approval is needed, for a [semantic](#what-the-approver-sees) request. Omitted for a rule-based one. |
 | `args` | Only with `notifyIncludeArgs: true`. See [Arguments](#arguments). |
 
 With `entra-pim`, `callerId` is the caller's Entra object id and `approvalUrl` is the PIM portal URL of the request. `dashboardUrl` is sent in its normalized form, so a bare host gains a trailing slash.
@@ -342,6 +449,7 @@ The config loader validates required fields at startup:
 - A tool entry key that is a known key spelled differently, such as `grant_scope`, `grantscope` or `When` → fail, naming the key and the expected spelling. Other unknown keys, such as `description`, are ignored.
 - A duplicate key inside `tools`, inside a tool entry or inside a `when` → fail.
 - `grantScope: "call"` with `backend=entra-pim` → fail.
+- A `semantic` block with `backend=entra-pim` or `backend=none`, without `tools`, with an empty `tools`, with `replaceExamples: true` and no `examples`, with a blank example, a `threshold` outside (0, 1], a bad `paths` entry, a `grantScope` or another unknown key → fail. See [Semantic approvals](#semantic-approvals).
 - `notifyUrl` or `dashboardUrl` that is not an absolute `http` or `https` URL → fail.
 - `notifyHeaders` or `notifyIncludeArgs` without `notifyUrl` → fail.
 - A `notifyHeaders` value that is not a string, is empty after expansion, or is not a valid header, a duplicate name in any case, or `Content-Type` or `Content-Length` → fail.

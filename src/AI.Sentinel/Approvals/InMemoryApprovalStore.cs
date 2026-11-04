@@ -70,6 +70,7 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
                 ToolName = context.ToolName,
                 Args = context.Args,
                 Justification = context.Justification,
+                Reason = context.Reason,
                 RequestedAt = now,
                 GrantDuration = spec.GrantDuration,
                 Status = EntryStatus.Pending,
@@ -134,7 +135,10 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
             ct.ThrowIfCancellationRequested();
             if (entry.Status == EntryStatus.Pending)
                 yield return new PendingRequest(entry.RequestId, entry.CallerId, entry.PolicyName,
-                    entry.ToolName, entry.Args, entry.RequestedAt, entry.Justification);
+                    entry.ToolName, entry.Args, entry.RequestedAt, entry.Justification)
+                {
+                    Reason = entry.Reason,
+                };
         }
     }
 
@@ -149,7 +153,7 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
                 => new ApprovalState.Denied("expired", now) { RequestId = e.RequestId },
             EntryStatus.Denied
                 => new ApprovalState.Denied(e.DenyReason ?? "denied", e.DeniedAt ?? now) { RequestId = e.RequestId },
-            _ => new ApprovalState.Pending(e.RequestId, $"sentinel://approve/{e.RequestId}", e.RequestedAt),
+            _ => new ApprovalState.Pending(e.RequestId, $"sentinel://approve/{e.RequestId}", e.RequestedAt) { Reason = e.Reason },
         };
     }
 
@@ -177,6 +181,7 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
         public required string ToolName { get; init; }
         public System.Text.Json.JsonElement Args { get; init; }
         public string? Justification { get; init; }
+        public string? Reason { get; init; }
         public DateTimeOffset RequestedAt { get; init; }
         public TimeSpan GrantDuration { get; init; }
         public EntryStatus Status { get; set; }
