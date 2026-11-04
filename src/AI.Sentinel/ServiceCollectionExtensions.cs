@@ -344,6 +344,20 @@ public static class ServiceCollectionExtensions
         return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, approvalStore, logger, semantic);
     }
 
+    private const string InertSemanticApprovalsMessage =
+        "Semantic approvals are configured but no embedding generator is; the semantic layer is inert.";
+
+    /// <summary>Returns a warning when the default pipeline's guard has semantic approvals but no embedding generator,
+    /// so that layer is inert, or <see langword="null"/> otherwise. The guard logs the same warning; the CLI tools
+    /// register no logging provider, so they call this and write the result to their own warning channel.</summary>
+    internal static string? DescribeInertSemanticApprovals(this IServiceProvider sp)
+    {
+        ArgumentNullException.ThrowIfNull(sp);
+        var opts = sp.GetService<SentinelOptions>();
+        if (opts is null || opts.GetSemanticApprovals().Tools.Count == 0) return null;
+        return sp.GetService<DefaultEmbeddingScope>()?.Scope is null ? InertSemanticApprovalsMessage : null;
+    }
+
     /// <summary>The semantic approval stage of the default pipeline's guard, or <see langword="null"/> when no tool
     /// is covered or no embedding generator is configured; the latter logs a warning, as the layer is inert.</summary>
     private static SemanticApprovalMatcher? BuildSemanticApprovalMatcher(
@@ -365,7 +379,7 @@ public static class ServiceCollectionExtensions
 
         if (scope is null)
         {
-            logger?.LogWarning("Semantic approvals are configured but no embedding generator is; the semantic layer is inert.");
+            logger?.LogWarning(InertSemanticApprovalsMessage);
             return null;
         }
 

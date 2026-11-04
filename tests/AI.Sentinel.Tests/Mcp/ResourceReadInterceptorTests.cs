@@ -394,25 +394,4 @@ public class ResourceReadInterceptorTests
 
         return new ProxyHarness(fake, driverClient, runTask, cts);
     }
-
-    /// <summary>
-    /// Test-only embedding generator that throws on every call. Used to force
-    /// SentinelPipeline.ScanMessagesAsync to throw, exercising the interceptor's
-    /// fail-open try/catch. The thrown <see cref="InvalidOperationException"/> propagates
-    /// from each <see cref="Detection.SemanticDetectorBase"/> through
-    /// <see cref="Detection.DetectionPipeline"/>'s Task.WhenAll.
-    /// </summary>
-    private sealed class ThrowingEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
-    {
-        public EmbeddingGeneratorMetadata Metadata { get; } = new("throwing", null, null, 256);
-
-        public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
-            IEnumerable<string> values,
-            EmbeddingGenerationOptions? options = null,
-            CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("intentional test failure");
-
-        public object? GetService(Type serviceType, object? key = null) => null;
-        public void Dispose() { }
-    }
 }

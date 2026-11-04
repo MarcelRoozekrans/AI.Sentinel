@@ -13,6 +13,8 @@ public class CopilotHookCliSemanticApprovalTests : IDisposable
     // A verbatim built-in example, so ExactMatchEmbeddingGenerator scores it 1.0.
     private const string Destructive = "kubectl delete namespace production";
 
+    private const string InertWarning = "the semantic layer is inert";
+
     private const string SemanticOnlyConfig = """
         { "backend": "in-memory", "semantic": { "tools": { "bash": { "role": "Ops" } } } }
         """;
@@ -38,7 +40,7 @@ public class CopilotHookCliSemanticApprovalTests : IDisposable
     }
 
     private static async Task<(int Exit, string Stderr)> PreToolUseAsync(
-        string command, IEmbeddingGenerator<string, Embedding<float>> generator)
+        string command, IEmbeddingGenerator<string, Embedding<float>>? generator)
     {
         var stdin = new StringReader($$$"""{"sessionId":"s","toolName":"bash","toolArgs":{"command":"{{{command}}}"}}""");
         var stderr = new StringWriter();
@@ -73,19 +75,17 @@ public class CopilotHookCliSemanticApprovalTests : IDisposable
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("semantic:", stderr, StringComparison.Ordinal);
+        Assert.DoesNotContain(InertWarning, stderr, StringComparison.Ordinal);
     }
 
-    private sealed class ThrowingEmbeddingGenerator : IEmbeddingGenerator<string, Embedding<float>>
+    // No logging provider in the hook, so the guard's warning that the layer is inert goes to stderr, once.
+    [Fact]
+    public async Task Semantic_NoEmbeddingGenerator_WarnsOnceThatTheLayerIsInert()
     {
-        public EmbeddingGeneratorMetadata Metadata { get; } = new("throwing", null, null, 256);
+        var (exit, stderr) = await PreToolUseAsync("ls -la", generator: null);
 
-        public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
-            IEnumerable<string> values,
-            EmbeddingGenerationOptions? options = null,
-            CancellationToken cancellationToken = default)
-            => throw new InvalidOperationException("intentional test failure");
-
-        public object? GetService(Type serviceType, object? key = null) => null;
-        public void Dispose() { }
+        Assert.Equal(0, exit);
+        var line = Assert.Single(stderr.Split('\n'), l => l.Contains(InertWarning, StringComparison.Ordinal));
+        Assert.StartsWith("[sentinel-copilot-hook] ", line, StringComparison.Ordinal);
     }
 }

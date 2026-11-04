@@ -142,6 +142,14 @@ internal static class ProxyCommand
             ["detail"] = warning,
         });
 
+    /// <summary>No logging provider here, so the guard's own warning would go nowhere; this puts it on stderr.</summary>
+    private static string FormatInertSemanticApprovals(string warning) =>
+        StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["event"] = "semantic_approval_inert",
+            ["detail"] = warning,
+        });
+
     private static string FormatProblem(string problem) =>
         StderrLogger.Format(new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -343,6 +351,10 @@ internal static class ProxyCommand
 
         var provider = services.BuildServiceProvider();
         var guard = provider.GetService<IToolCallGuard>();
+        // The stack is built once per proxy process, so this is reported once.
+        if (provider.DescribeInertSemanticApprovals() is { } inertApprovals)
+            await stderr.WriteLineAsync(FormatInertSemanticApprovals(inertApprovals)).ConfigureAwait(false);
+
         var store = ApprovalStoreAuditing.Resolve(provider);
 
         TimeSpan? wait = null;
