@@ -91,7 +91,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
             var now = _time.GetUtcNow();
             await InsertPendingAsync(tx, requestId, caller, spec, context, now, ct).ConfigureAwait(false);
             tx.Commit();
-            return new ApprovalState.Pending(requestId, $"sentinel://approve/{requestId}", now) { IsNew = true };
+            return new ApprovalState.Pending(requestId, $"sentinel://approve/{requestId}", now) { IsNew = true, Reason = context.Reason };
         }
         finally
         {
@@ -105,7 +105,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         using var sel = _connection.CreateCommand();
         sel.Transaction = tx;
         sel.CommandText = """
-            SELECT id, status, requested_at, approved_at, denied_at, deny_reason, grant_duration_ticks
+            SELECT id, status, requested_at, approved_at, denied_at, deny_reason, grant_duration_ticks, reason
             FROM approval_requests
             WHERE caller_id = $caller AND policy_name = $policy
             LIMIT 1;
@@ -127,7 +127,8 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
             hasDeniedAt: !reader.IsDBNull(4),
             deniedAtTicks: reader.IsDBNull(4) ? 0L : reader.GetInt64(4),
             denyReason: reader.IsDBNull(5) ? null : reader.GetString(5),
-            grantDurationTicks: reader.GetInt64(6));
+            grantDurationTicks: reader.GetInt64(6),
+            reason: reader.IsDBNull(7) ? null : reader.GetString(7));
         return (id, state);
     }
 
@@ -149,9 +150,9 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         ins.CommandText = """
             INSERT INTO approval_requests
                 (id, caller_id, policy_name, tool_name, args_json, justification,
-                 requested_at, grant_duration_ticks, status)
+                 requested_at, grant_duration_ticks, status, reason)
             VALUES
-                ($id, $caller, $policy, $tool, $args, $just, $req, $dur, 'Pending');
+                ($id, $caller, $policy, $tool, $args, $just, $req, $dur, 'Pending', $reason);
             """;
         ins.Parameters.AddWithValue("$id", requestId);
         ins.Parameters.AddWithValue("$caller", caller.Id);
@@ -161,6 +162,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         ins.Parameters.AddWithValue("$just", (object?)context.Justification ?? DBNull.Value);
         ins.Parameters.AddWithValue("$req", now.UtcTicks);
         ins.Parameters.AddWithValue("$dur", spec.GrantDuration.Ticks);
+        ins.Parameters.AddWithValue("$reason", (object?)context.Reason ?? DBNull.Value);
         await ins.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 
@@ -275,7 +277,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         {
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = """
-                SELECT id, caller_id, policy_name, tool_name, args_json, justification, requested_at
+                SELECT id, caller_id, policy_name, tool_name, args_json, justification, requested_at, reason
                 FROM approval_requests
                 WHERE status = 'Pending'
                 ORDER BY requested_at ASC;
@@ -290,10 +292,11 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
                 var argsJson = reader.GetString(4);
                 var justification = reader.IsDBNull(5) ? null : reader.GetString(5);
                 var requestedAtTicks = reader.GetInt64(6);
+                var reason = reader.IsDBNull(7) ? null : reader.GetString(7);
 
                 var args = DeserializeArgs(argsJson);
                 var requestedAt = new DateTimeOffset(requestedAtTicks, TimeSpan.Zero);
-                yield return new PendingRequest(id, callerId, policyName, toolName, args, requestedAt, justification);
+                yield return new PendingRequest(id, callerId, policyName, toolName, args, requestedAt, justification) { Reason = reason };
             }
         }
         finally
@@ -309,7 +312,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         {
             using var cmd = _connection.CreateCommand();
             cmd.CommandText = """
-                SELECT status, requested_at, approved_at, denied_at, deny_reason, grant_duration_ticks
+                SELECT status, requested_at, approved_at, denied_at, deny_reason, grant_duration_ticks, reason
                 FROM approval_requests
                 WHERE id = $id;
                 """;
@@ -328,7 +331,8 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
                 hasDeniedAt: !reader.IsDBNull(3),
                 deniedAtTicks: reader.IsDBNull(3) ? 0L : reader.GetInt64(3),
                 denyReason: reader.IsDBNull(4) ? null : reader.GetString(4),
-                grantDurationTicks: reader.GetInt64(5));
+                grantDurationTicks: reader.GetInt64(5),
+                reason: reader.IsDBNull(6) ? null : reader.GetString(6));
         }
         finally
         {
@@ -345,7 +349,8 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         bool hasDeniedAt,
         long deniedAtTicks,
         string? denyReason,
-        long grantDurationTicks)
+        long grantDurationTicks,
+        string? reason = null)
     {
         var now = _time.GetUtcNow();
         var requestedAt = new DateTimeOffset(requestedAtTicks, TimeSpan.Zero);
@@ -370,7 +375,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
                 : now;
             return new ApprovalState.Denied(denyReason ?? "denied", deniedAt) { RequestId = id };
         }
-        return new ApprovalState.Pending(id, $"sentinel://approve/{id}", requestedAt);
+        return new ApprovalState.Pending(id, $"sentinel://approve/{id}", requestedAt) { Reason = reason };
     }
 
     private static string SerializeArgs(JsonElement args)

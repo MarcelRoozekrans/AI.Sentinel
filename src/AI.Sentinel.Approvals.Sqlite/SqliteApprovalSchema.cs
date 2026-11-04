@@ -4,7 +4,7 @@ namespace AI.Sentinel.Approvals.Sqlite;
 
 internal static class SqliteApprovalSchema
 {
-    internal const int CurrentVersion = 1;
+    internal const int CurrentVersion = 2;
 
     internal static async Task InitializeAsync(SqliteConnection conn, CancellationToken ct)
     {
@@ -55,5 +55,27 @@ internal static class SqliteApprovalSchema
                 """;
             await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
         }
+
+        if (current < 2)
+        {
+            await MigrateToV2Async(conn, ct).ConfigureAwait(false);
+        }
+    }
+
+    private static async Task MigrateToV2Async(SqliteConnection conn, CancellationToken ct)
+    {
+        // v2 adds the reason a request was raised. Two processes can both see version 1;
+        // ALTER TABLE is not idempotent, so check the column before adding it.
+        bool hasReason;
+        using (var info = conn.CreateCommand())
+        {
+            info.CommandText = "SELECT COUNT(*) FROM pragma_table_info('approval_requests') WHERE name = 'reason';";
+            hasReason = Convert.ToInt64(await info.ExecuteScalarAsync(ct).ConfigureAwait(false), System.Globalization.CultureInfo.InvariantCulture) > 0;
+        }
+        using var migrate = conn.CreateCommand();
+        migrate.CommandText = hasReason
+            ? "PRAGMA user_version = 2;"
+            : "ALTER TABLE approval_requests ADD COLUMN reason TEXT; PRAGMA user_version = 2;";
+        await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 }
