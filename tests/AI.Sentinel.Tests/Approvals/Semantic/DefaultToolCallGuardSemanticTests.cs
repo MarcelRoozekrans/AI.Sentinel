@@ -312,6 +312,30 @@ public class DefaultToolCallGuardSemanticTests
         Assert.NotEqual(requestId, again.RequestId, StringComparer.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SemanticOnly_WithoutSecurityContext_WarnsAnonymous(bool hasSecurityContext)
+    {
+        var logger = new CapturingLogger<SentinelPipeline>();
+        var services = new ServiceCollection();
+        services.AddAISentinel(o =>
+        {
+            o.EmbeddingGenerator = new ExactMatchEmbeddingGenerator();
+            o.RequireSemanticApproval("Bash", s => s.BackendBinding = "Operator");
+        });
+        if (hasSecurityContext)
+            services.AddSingleton<ISecurityContext>(Caller);
+        services.AddSingleton<ILogger<SentinelPipeline>>(logger);
+        using var sp = services.BuildServiceProvider();
+
+        _ = sp.GetRequiredService<IToolCallGuard>();
+
+        var warnings = logger.Entries.Where(e => e.Level == LogLevel.Warning
+            && e.Message.Contains("no ISecurityContext provider", StringComparison.Ordinal));
+        Assert.Equal(hasSecurityContext ? 0 : 1, warnings.Count());
+    }
+
     [Fact]
     public void NoGenerator_Inert_LogsWarningOnce()
     {

@@ -482,9 +482,10 @@ public static class ServiceCollectionExtensions
             }
         }
 
-        if (bindings.Count > 0 && !hasSecurityContext)
+        // Semantic approvals key their grants on the caller too, so a semantic-only setup shares Anonymous grants.
+        if ((bindings.Count > 0 || opts.GetSemanticApprovals().Tools.Count > 0) && !hasSecurityContext)
         {
-            logger.LogWarning("AI.Sentinel: tool-call policies are configured, but no ISecurityContext provider is registered — all calls will resolve as Anonymous and policies referencing roles will deny.");
+            logger.LogWarning("AI.Sentinel: tool-call policies or semantic approvals are configured, but no ISecurityContext provider is registered — all calls will resolve as Anonymous, so every caller shares the same approval grants, and policies referencing roles will deny.");
         }
     }
 
