@@ -20,15 +20,23 @@ internal static class SemanticApprovalText
         ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
 
         var result = new List<ScoredText>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var seen = new Dictionary<string, int>(StringComparer.Ordinal);
 
         void Add(string path, string text)
         {
-            if (string.IsNullOrWhiteSpace(text))
+            // Trim first, so a text padded with whitespace past the cap still has its content scored.
+            var cut = Truncate(text.Trim(), maxBytes, out var truncated);
+            if (string.IsNullOrWhiteSpace(cut))
                 return;
-            var cut = Truncate(text, maxBytes, out var truncated);
-            if (string.IsNullOrWhiteSpace(cut) || !seen.Add(cut))
+            if (seen.TryGetValue(cut, out var index))
+            {
+                // A dropped duplicate that was cut still means the call had more text than was scored.
+                if (truncated && !result[index].Truncated)
+                    result[index] = result[index] with { Truncated = true };
                 return;
+            }
+
+            seen[cut] = result.Count;
             result.Add(new ScoredText(path, cut, truncated));
         }
 

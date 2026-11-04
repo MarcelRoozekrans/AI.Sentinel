@@ -124,6 +124,84 @@ public class SemanticApprovalTextTests
     }
 
     [Fact]
+    public void WhitespacePaddedText_IsTrimmedBeforeTruncation()
+    {
+        var args = JsonSerializer.SerializeToElement(new Dictionary<string, string>(StringComparer.Ordinal) { ["command"] = new string(' ', 5000) + "rm -rf /" });
+
+        var item = Assert.Single(SemanticApprovalText.Select("Bash", args, null, 100));
+
+        Assert.Equal("rm -rf /", item.Text);
+        Assert.False(item.Truncated);
+    }
+
+    [Fact]
+    public void DuplicateDroppedAfterTruncation_MarksKeptEntryTruncated()
+    {
+        var paths = new[] { ArgumentPath.Parse("$.a"), ArgumentPath.Parse("$.b") };
+        var args = Json("""{"a":"abcd","b":"abcdefgh"}""");
+
+        var item = Assert.Single(SemanticApprovalText.Select("t", args, paths, 4));
+
+        Assert.Equal("$.a", item.Path);
+        Assert.Equal("abcd", item.Text);
+        Assert.True(item.Truncated);
+    }
+
+    [Fact]
+    public void NullRoot_YieldsNothing() =>
+        Assert.Empty(SemanticApprovalText.Select("t", Json("null"), null, Max));
+
+    [Theory]
+    [InlineData("42", "42")]
+    [InlineData("true", "true")]
+    [InlineData("false", "false")]
+    public void NumberAndBooleanRoots_YieldRawToken(string json, string expected)
+    {
+        var item = Assert.Single(SemanticApprovalText.Select("Bash", Json(json), null, Max));
+
+        Assert.Equal("$", item.Path);
+        Assert.Equal(expected, item.Text);
+    }
+
+    [Fact]
+    public void ArrayRoot_YieldsCompactJson()
+    {
+        var item = Assert.Single(SemanticApprovalText.Select("t", Json("""[ "a", 1 ]"""), null, Max));
+
+        Assert.Equal("$", item.Path);
+        Assert.Equal("""["a",1]""", item.Text);
+    }
+
+    [Theory]
+    [InlineData("\u00e9", 2)]
+    [InlineData("\u20ac", 3)]
+    public void MultiByteChar_StraddlingCap_IsNotSplit(string escaped, int size)
+    {
+        var ch = JsonSerializer.Deserialize<string>($"\"{escaped}\"")!;
+        var args = JsonSerializer.SerializeToElement(new Dictionary<string, string>(StringComparer.Ordinal) { ["command"] = "aaaa" + ch + "zz" });
+
+        var item = Assert.Single(SemanticApprovalText.Select("Bash", args, null, 4 + size - 1));
+
+        Assert.Equal("aaaa", item.Text);
+        Assert.True(item.Truncated);
+
+        var exact = Assert.Single(SemanticApprovalText.Select("Bash", args, null, 4 + size));
+        Assert.Equal("aaaa" + ch, exact.Text);
+        Assert.True(exact.Truncated);
+    }
+
+    [Fact]
+    public void TextExactlyAtCap_NotTruncated()
+    {
+        var args = Json("""{"command":"a\u20acb"}""");
+
+        var item = Assert.Single(SemanticApprovalText.Select("Bash", args, null, 5));
+
+        Assert.Equal("a\u20acb", item.Text);
+        Assert.False(item.Truncated);
+    }
+
+    [Fact]
     public void DefaultExamples_NonEmpty_NoBlanks_NoDuplicates()
     {
         var examples = SemanticApprovalExamples.Default;
