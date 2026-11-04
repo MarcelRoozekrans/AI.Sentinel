@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [5.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.0.0...v5.1.0) (2026-11-04)
+
+
+### Features
+
+* **approvals:** semantic approvals that can only add approvals ([#569](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/569)) ([38af348](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/38af34843fa93e32adc99cc5647cfc0476515abe))
+* **detection:** report detectors that did not run as configured in each scan ([#565](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/565)) ([6fc3ffa](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/6fc3ffa1b669e3b1833372d794d03dccde1e27d3))
+
 ## [5.0.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v4.2.0...v5.0.0) (2026-11-04)
 
 
