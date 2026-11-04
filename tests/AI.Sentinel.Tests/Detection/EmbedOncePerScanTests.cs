@@ -264,6 +264,19 @@ public class EmbedOncePerScanTests
     }
 
     [Fact]
+    public async Task Provider_failure_without_scope_is_listed_as_threw()
+    {
+        var gen = new YieldingEmbeddingGenerator(_ => true) { Failure = _ => new TaskCanceledException("timed out") };
+        var timingOut = new TestSemantic("TST-OPT", [FirstText], options: new SentinelOptions { EmbeddingGenerator = gen });
+        var rule = new TestSemantic("TST-RULE", ["rule detector example phrase"], fastPath: new Regex("calm", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        var pipeline = new DetectionPipeline([timingOut, rule], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DetectorFailure(new("TST-OPT"), DetectorFailureKind.Threw)], result.Failures);
+    }
+
+    [Fact]
     public async Task Detector_scores_exactly_the_texts_collected_for_the_scan()
     {
         // An override that answers differently on each call: the first call is the one the pipeline embeds, and

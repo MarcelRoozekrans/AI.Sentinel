@@ -108,7 +108,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         if (_detectors.Length == 0)
         {
             return ctx.ExceedsScanBudget
-                ? BuildResult([], ScanLimitFinding(ctx))
+                ? BuildResult([], [], ScanLimitFinding(ctx))
                 : new PipelineResult(ThreatRiskScore.Zero, []);
         }
 
@@ -119,7 +119,11 @@ public sealed class DetectionPipeline : IDetectionPipeline
         // Each semantic detector's outcome, indexed like _detectors: its result plus its review candidate.
         var outcomes = new SemanticOutcome?[_detectors.Length];
 
-        var results = await AnalyzeAllAsync(ctx, embedded, outcomes, ct).ConfigureAwait(false);
+        // Why each detector did not run to completion, indexed like _detectors. Each writes only its own slot, so the
+        // concurrent analysis stage needs no lock; the earliest recorded kind stays.
+        var failures = new DetectorFailureKind?[_detectors.Length];
+
+        var results = await AnalyzeAllAsync(ctx, embedded, outcomes, failures, ct).ConfigureAwait(false);
 
         // Floor/Cap before review, so candidacy uses the configured severity: a Cap below Medium keeps a rule-based
         // result out of review. The clamp skips clean results, so a Floor never makes a clean result a candidate.
@@ -146,11 +150,12 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
         // Last, so no clamp, cap, review or action override touches it: the text was not scanned, which a
         // setting for one detector cannot undo.
-        return BuildResult(results, ctx.ExceedsScanBudget ? ScanLimitFinding(ctx) : null);
+        return BuildResult(results, failures, ctx.ExceedsScanBudget ? ScanLimitFinding(ctx) : null);
     }
 
     private async ValueTask<DetectionResult[]> AnalyzeAllAsync(
-        SentinelContext ctx, EmbeddedScan? embedded, SemanticOutcome?[] outcomes, CancellationToken ct)
+        SentinelContext ctx, EmbeddedScan? embedded, SemanticOutcome?[] outcomes,
+        DetectorFailureKind?[] failures, CancellationToken ct)
     {
         var vTasks = ArrayPool<ValueTask<DetectionResult>>.Shared.Rent(_detectors.Length);
         DetectionResult[] results;
@@ -158,7 +163,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         {
             // Start all detectors
             for (int i = 0; i < _detectors.Length; i++)
-                vTasks[i] = SafeAnalyzeAsync(_detectors[i], _configurations[i], ctx, embedded, outcomes, i, ct);
+                vTasks[i] = SafeAnalyzeAsync(_detectors[i], _configurations[i], ctx, embedded, outcomes, failures, i, ct);
 
             // Fast path: all completed synchronously (typical for rule-based detectors with cached clean results)
             if (AllCompletedSuccessfully(vTasks, _detectors.Length))
@@ -254,7 +259,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// </remarks>
     private async ValueTask<DetectionResult> SafeAnalyzeAsync(
         IDetector detector, DetectorConfiguration? configuration, SentinelContext ctx,
-        EmbeddedScan? embedded, SemanticOutcome?[] outcomes, int index, CancellationToken ct)
+        EmbeddedScan? embedded, SemanticOutcome?[] outcomes, DetectorFailureKind?[] failures, int index,
+        CancellationToken ct)
     {
         try
         {
@@ -292,6 +298,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
             var message = $"AI.Sentinel: detector {detector.Id.Value} timed out and was flagged Critical for this scan.";
             _logger?.LogWarning(ex, "AI.Sentinel: detector {DetectorId} timed out and was flagged Critical for this scan.", detector.Id.Value);
             _onDetectorFailure?.Invoke(message);
+            RecordFailure(failures, index, DetectorFailureKind.RegexTimeout);
             return DetectionResult.WithSeverity(detector.Id, Severity.Critical,
                 $"Regex timed out after {ex.MatchTimeout.TotalMilliseconds:0} ms; content could not be judged.");
         }
@@ -300,9 +307,15 @@ public sealed class DetectionPipeline : IDetectionPipeline
             var message = $"AI.Sentinel: detector {detector.Id.Value} failed and was skipped for this scan ({ex.GetType().Name}: {ex.Message}). Other detectors still ran.";
             _logger?.LogWarning(ex, "AI.Sentinel: detector {DetectorId} failed and was skipped for this scan.", detector.Id.Value);
             _onDetectorFailure?.Invoke(message);
+            RecordFailure(failures, index, DetectorFailureKind.Threw);
             return DetectionResult.Clean(detector.Id);
         }
     }
+
+    /// <summary>Notes why a detector did not run to completion. The first kind recorded for it is kept, so the
+    /// earliest stage wins.</summary>
+    private static void RecordFailure(DetectorFailureKind?[] failures, int index, DetectorFailureKind kind) =>
+        failures[index] ??= kind;
 
     private static DetectionResult Record(SemanticOutcome?[] outcomes, int index, in SemanticOutcome outcome)
     {
@@ -765,7 +778,19 @@ public sealed class DetectionPipeline : IDetectionPipeline
         return true;
     }
 
-    private static PipelineResult BuildResult(DetectionResult[] results, DetectionResult? scanLimit = null)
+    /// <summary>The recorded failures as entries in detector order, or the shared empty list when there are none, so
+    /// a complete scan allocates nothing for it.</summary>
+    private IReadOnlyList<DetectorFailure> FailureList(DetectorFailureKind?[] failures)
+    {
+        List<DetectorFailure>? list = null;
+        for (int i = 0; i < failures.Length; i++)
+            if (failures[i] is { } kind)
+                (list ??= []).Add(new DetectorFailure(_detectors[i].Id, kind));
+        return list ?? [];
+    }
+
+    private PipelineResult BuildResult(
+        DetectionResult[] results, DetectorFailureKind?[] failures, DetectionResult? scanLimit = null)
     {
         var nonClean = new List<DetectionResult>();
         var scores = new ThreatRiskScore[results.Length + (scanLimit is null ? 0 : 1)];
@@ -781,6 +806,6 @@ public sealed class DetectionPipeline : IDetectionPipeline
             scores[^1] = new ThreatRiskScore(SeverityScore(scanLimit.Severity));
         }
         var score = ThreatRiskScore.Aggregate(scores);
-        return new PipelineResult(score, nonClean);
+        return new PipelineResult(score, nonClean) { Failures = FailureList(failures) };
     }
 }

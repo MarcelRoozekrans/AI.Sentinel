@@ -283,4 +283,69 @@ public class DetectorFailureIsolationTests
         Assert.Equal("TST-CATASTROPHIC", detection.DetectorId.Value);
         Assert.Equal(Severity.Critical, detection.Severity);
     }
+
+    [Fact]
+    public async Task Throwing_detector_is_listed_as_threw()
+    {
+        var pipeline = new DetectionPipeline(
+            [new ThrowingDetector(), new FiringDetector()], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        Assert.False(result.Complete);
+        Assert.Equal([new DetectorFailure(new("TST-THROW"), DetectorFailureKind.Threw)], result.Failures);
+    }
+
+    [Fact]
+    public async Task Async_throwing_detector_is_listed_as_threw()
+    {
+        var pipeline = new DetectionPipeline(
+            [new AsyncThrowingDetector(), new FiringDetector()], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        Assert.False(result.Complete);
+        Assert.Equal([new DetectorFailure(new("TST-THROW-ASYNC"), DetectorFailureKind.Threw)], result.Failures);
+    }
+
+    [Fact]
+    public async Task Regex_timeout_is_listed_and_still_critical()
+    {
+        var pipeline = new DetectionPipeline(
+            [new MillisecondRegexTimeoutDetector()], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        var detection = Assert.Single(result.Detections);
+        Assert.Equal(Severity.Critical, detection.Severity);
+        Assert.Equal(
+            [new DetectorFailure(new("TST-REGEX-MS"), DetectorFailureKind.RegexTimeout)], result.Failures);
+    }
+
+    [Fact]
+    public async Task Clean_scan_is_complete()
+    {
+        var pipeline = new DetectionPipeline([new FiringDetector()], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.Complete);
+        Assert.Empty(result.Failures);
+    }
+
+    [Fact]
+    public void PipelineResult_constructed_directly_is_complete()
+    {
+        var result = new PipelineResult(ThreatRiskScore.Zero, []);
+
+        Assert.True(result.Complete);
+    }
+
+    private sealed class MillisecondRegexTimeoutDetector : IDetector
+    {
+        public DetectorId Id => new("TST-REGEX-MS");
+        public DetectorCategory Category => DetectorCategory.Security;
+        public ValueTask<DetectionResult> AnalyzeAsync(SentinelContext ctx, CancellationToken ct) =>
+            throw new RegexMatchTimeoutException("x", "y", TimeSpan.FromMilliseconds(5));
+    }
 }
