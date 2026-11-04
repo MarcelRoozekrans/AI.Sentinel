@@ -334,10 +334,68 @@ public class SemanticApprovalMatcherTests
     }
 
     [Fact]
-    public async Task MatchAsync_UncoveredTool_Throws()
+    public async Task ZeroCallVector_Failed_InvalidVector()
     {
-        await Assert.ThrowsAsync<ArgumentException>(
-            () => Matcher(new ExactMatchEmbeddingGenerator()).MatchAsync("Read", Command("x"), CancellationToken.None).AsTask());
+        var examples = new HashSet<string>(SemanticApprovalExamples.Default, StringComparer.Ordinal);
+        var generator = new VectorEmbeddingGenerator(t => examples.Contains(t) ? [1f, 0f] : [0f, 0f]);
+
+        var match = await Matcher(generator).MatchAsync("Bash", Command("rm -rf /tmp/x"), CancellationToken.None);
+
+        Assert.Equal("invalid vector", Assert.IsType<SemanticMatch.Failed>(match).Kind);
+    }
+
+    [Fact]
+    public async Task NaNCallVector_Failed_InvalidVector()
+    {
+        var examples = new HashSet<string>(SemanticApprovalExamples.Default, StringComparer.Ordinal);
+        var generator = new VectorEmbeddingGenerator(t => examples.Contains(t) ? [1f, 0f] : [float.NaN, 1f]);
+
+        var match = await Matcher(generator).MatchAsync("Bash", Command("rm -rf /tmp/x"), CancellationToken.None);
+
+        Assert.Equal("invalid vector", Assert.IsType<SemanticMatch.Failed>(match).Kind);
+    }
+
+    [Theory]
+    [InlineData("empty", "empty vector")]
+    [InlineData("zero", "invalid vector")]
+    [InlineData("infinite", "invalid vector")]
+    [InlineData("uneven", "dimension mismatch")]
+    public async Task PersistentExampleCache_BadResponseNotCached_NextCallFlagged(string bad, string kind)
+    {
+        var valid = false;
+        var generator = new VectorEmbeddingGenerator(t => valid ? [1f, 0f] : bad switch
+        {
+            "empty" => [],
+            "zero" => [0f, 0f],
+            "infinite" => [float.PositiveInfinity, 0f],
+            _ => string.Equals(t, "rm -rf /", StringComparison.Ordinal) ? [1f, 0f, 0f] : [1f, 0f],
+        });
+        var exampleCache = new InMemoryLruEmbeddingCache();
+        var matcher = new SemanticApprovalMatcher(
+            new EmbeddingScope(generator, new InMemoryLruEmbeddingCache(), exampleCache),
+            new SemanticApprovalSettings(), [("Bash", new SemanticApprovalSpec())], Max);
+
+        var first = await matcher.MatchAsync("Bash", Command("rm -rf /tmp/x"), CancellationToken.None);
+        Assert.False(exampleCache.TryGet("rm -rf /", out _));
+        valid = true;
+        var second = await matcher.MatchAsync("Bash", Command("rm -rf /tmp/x"), CancellationToken.None);
+
+        Assert.Equal(kind, Assert.IsType<SemanticMatch.Failed>(first).Kind);
+        Assert.IsType<SemanticMatch.Flagged>(second);
+        Assert.True(exampleCache.TryGet("rm -rf /", out var cached));
+        Assert.Equal(2, cached.Vector.Length);
+    }
+
+    [Fact]
+    public async Task UnreadableArguments_Failed_WithKind()
+    {
+        var doc = JsonDocument.Parse("""{"command":"rm -rf /"}""");
+        var args = doc.RootElement;
+        doc.Dispose();
+
+        var match = await Matcher(new ExactMatchEmbeddingGenerator()).MatchAsync("Bash", args, CancellationToken.None);
+
+        Assert.Equal("ObjectDisposedException", Assert.IsType<SemanticMatch.Failed>(match).Kind);
     }
 
     [Fact]
@@ -386,5 +444,15 @@ public class SemanticApprovalMatcherTests
 
         public object? GetService(Type serviceType, object? serviceKey = null) => null;
         public void Dispose() { }
+    }
+}
+
+/// <summary>Resolves the key and spec through <see cref="SemanticApprovalMatcher.Covers"/>, as the guard does.</summary>
+file static class MatcherTestExtensions
+{
+    public static ValueTask<SemanticMatch> MatchAsync(this SemanticApprovalMatcher matcher, string toolName, JsonElement args, CancellationToken ct)
+    {
+        Assert.True(matcher.Covers(toolName, out var key, out var spec));
+        return matcher.MatchAsync(toolName, args, key, spec, ct);
     }
 }

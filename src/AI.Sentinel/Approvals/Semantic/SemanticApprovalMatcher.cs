@@ -9,11 +9,12 @@ namespace AI.Sentinel.Approvals.Semantic;
 /// <remarks>Each selected text is embedded once, through the scope's scan cache, and compared to every example
 /// by cosine similarity; the call's score is the maximum. The example vectors are embedded once per generator
 /// and shared by concurrent first calls. Any embedding failure, including an empty vector or vectors of
-/// different lengths, is a <see cref="SemanticMatch.Failed"/>; cancellation of the caller's token propagates.</remarks>
+/// different lengths, a zero-norm or a non-finite vector, is a <see cref="SemanticMatch.Failed"/>; cancellation of
+/// the caller's token propagates.</remarks>
 internal sealed class SemanticApprovalMatcher
 {
-    private const string DimensionMismatch = "dimension mismatch";
-    private const string EmptyVector = "empty vector";
+    // A text the embedder reported as done but returned no vector for.
+    private const string MissingVector = "missing vector";
 
     private readonly EmbeddingScope _scope;
     private readonly (string Pattern, SemanticApprovalSpec Spec)[] _tools;
@@ -69,50 +70,50 @@ internal sealed class SemanticApprovalMatcher
         return false;
     }
 
-    /// <summary>Scores the call of <paramref name="toolName"/> with <paramref name="args"/>.</summary>
-    /// <exception cref="ArgumentException"><paramref name="toolName"/> is not covered.</exception>
+    /// <summary>Scores the call of <paramref name="toolName"/> with <paramref name="args"/>, under the
+    /// <paramref name="key"/> and <paramref name="spec"/> that <see cref="Covers"/> resolved for it.</summary>
+    /// <remarks>Never throws for a provider or input problem: any such exception is a <see cref="SemanticMatch.Failed"/>.</remarks>
     /// <exception cref="OperationCanceledException"><paramref name="ct"/> was cancelled.</exception>
-    public async ValueTask<SemanticMatch> MatchAsync(string toolName, JsonElement args, CancellationToken ct)
+    public async ValueTask<SemanticMatch> MatchAsync(
+        string toolName, JsonElement args, string key, SemanticApprovalSpec spec, CancellationToken ct)
     {
-        if (!Covers(toolName, out var key, out var spec))
-            throw new ArgumentException($"No semantic approval covers the tool '{toolName}'.", nameof(toolName));
+        ArgumentNullException.ThrowIfNull(toolName);
+        ArgumentNullException.ThrowIfNull(key);
+        ArgumentNullException.ThrowIfNull(spec);
         ct.ThrowIfCancellationRequested();
 
-        var texts = SemanticApprovalText.Select(toolName, args, spec.ParsedPaths, _maxBytes);
-        if (texts.Count == 0)
-            return new SemanticMatch.NotFlagged(key, spec);
-
         var truncated = false;
-        var inputs = new string[texts.Count];
-        for (var i = 0; i < texts.Count; i++)
-        {
-            inputs[i] = texts[i].Text;
-            truncated |= texts[i].Truncated;
-        }
-
-        ReadOnlyMemory<float>[] examples;
-        ScanEmbeddings embeddings;
         try
         {
-            examples = await _exampleTask.GetAsync(
+            var texts = SemanticApprovalText.Select(toolName, args, spec.ParsedPaths, _maxBytes);
+            if (texts.Count == 0)
+                return new SemanticMatch.NotFlagged(key, spec);
+
+            var inputs = new string[texts.Count];
+            for (var i = 0; i < texts.Count; i++)
+            {
+                inputs[i] = texts[i].Text;
+                truncated |= texts[i].Truncated;
+            }
+
+            var examples = await _exampleTask.GetAsync(
                 _scope.Generator, this, static (m, token) => m.EmbedExamplesAsync(token), ct).ConfigureAwait(false);
-            embeddings = await ScanEmbedder.EmbedAsync(_scope, inputs, ct).ConfigureAwait(false);
+            var embeddings = await ScanEmbedder.EmbedAsync(_scope, inputs, ct).ConfigureAwait(false);
+            if (embeddings.FailedCount > 0)
+            {
+                var kind = embeddings.FirstFailure?.GetType().Name ?? nameof(InvalidOperationException);
+                return new SemanticMatch.Failed(key, spec, kind, truncated);
+            }
+
+            return Score(key, spec, texts, inputs, embeddings, examples, truncated);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             // A provider often surfaces a cancellation as its own exception type; cancellation wins.
             ct.ThrowIfCancellationRequested();
-            var kind = ex is VectorShapeException shape ? shape.Kind : ex.GetType().Name;
+            var kind = ex is InvalidEmbeddingException invalid ? invalid.Kind : ex.GetType().Name;
             return new SemanticMatch.Failed(key, spec, kind, truncated);
         }
-
-        if (embeddings.FailedCount > 0)
-        {
-            var kind = embeddings.FirstFailure?.GetType().Name ?? nameof(InvalidOperationException);
-            return new SemanticMatch.Failed(key, spec, kind, truncated);
-        }
-
-        return Score(key, spec, texts, inputs, embeddings, examples, truncated);
     }
 
     private SemanticMatch Score(
@@ -125,10 +126,12 @@ internal sealed class SemanticApprovalMatcher
         var bestExample = 0;
         for (var i = 0; i < texts.Count; i++)
         {
-            if (!embeddings.TryGet(inputs[i], out var vector) || vector.IsEmpty)
-                return new SemanticMatch.Failed(key, spec, EmptyVector, truncated);
+            if (!embeddings.TryGet(inputs[i], out var vector))
+                return new SemanticMatch.Failed(key, spec, MissingVector, truncated);
+            if (InvalidEmbeddingException.Problem(vector.Span) is { } problem)
+                return new SemanticMatch.Failed(key, spec, problem, truncated);
             if (vector.Length != dimensions)
-                return new SemanticMatch.Failed(key, spec, DimensionMismatch, truncated);
+                return new SemanticMatch.Failed(key, spec, InvalidEmbeddingException.DimensionMismatch, truncated);
 
             var index = SemanticDetectorBase.MaxSimilarityIndex(vector.Span, examples, out var score);
             if (score > best)
@@ -145,31 +148,7 @@ internal sealed class SemanticApprovalMatcher
             : new SemanticMatch.NotFlagged(key, spec);
     }
 
-    // Throws instead of returning bad vectors, so the shared task is dropped and the next call embeds again.
-    private async Task<ReadOnlyMemory<float>[]> EmbedExamplesAsync(CancellationToken ct)
-    {
-        var vectors = await ExampleEmbedder.EmbedAsync(_scope.Generator, _scope.ExampleCache, _examples, ct).ConfigureAwait(false);
-        if (vectors.Length != _examples.Length)
-        {
-            throw new InvalidOperationException(
-                $"Embedding generator returned {vectors.Length} vectors for {_examples.Length} inputs; results must correspond one-to-one and in order.");
-        }
-
-        var dimensions = vectors[0].Length;
-        foreach (var vector in vectors)
-        {
-            if (vector.IsEmpty)
-                throw new VectorShapeException(EmptyVector);
-            if (vector.Length != dimensions)
-                throw new VectorShapeException(DimensionMismatch);
-        }
-
-        return vectors;
-    }
-
-    /// <summary>The example vectors cannot be compared: empty, or not all the same length.</summary>
-    private sealed class VectorShapeException(string kind) : Exception($"The example embeddings have a bad shape: {kind}.")
-    {
-        public string Kind { get; } = kind;
-    }
+    // ExampleEmbedder throws on an unusable response, so the shared task is dropped and the next call embeds again.
+    private Task<ReadOnlyMemory<float>[]> EmbedExamplesAsync(CancellationToken ct) =>
+        ExampleEmbedder.EmbedAsync(_scope.Generator, _scope.ExampleCache, _examples, ct);
 }
