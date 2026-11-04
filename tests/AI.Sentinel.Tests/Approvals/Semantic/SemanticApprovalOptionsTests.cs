@@ -43,6 +43,7 @@ public class SemanticApprovalOptionsTests
     [InlineData(0f)]
     [InlineData(-0.1f)]
     [InlineData(1.01f)]
+    [InlineData(float.NaN)]
     public void ThresholdOutOfRange_Throws(float threshold)
     {
         var opts = new SentinelOptions();
@@ -80,6 +81,34 @@ public class SemanticApprovalOptionsTests
         Assert.True(settings.ReplaceExamples);
         Assert.Equal(new[] { "a", "b", "c" }, settings.AddedExamples);
     }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(-0.1f)]
+    [InlineData(1.01f)]
+    [InlineData(5f)]
+    [InlineData(float.NaN)]
+    public void GlobalThresholdOutOfRange_Throws(float threshold)
+    {
+        var opts = new SentinelOptions();
+        Assert.Throws<InvalidOperationException>(() => opts.ConfigureSemanticApprovals(s => s.Threshold = threshold));
+    }
+
+    [Fact]
+    public void GlobalThresholdOne_IsAccepted()
+    {
+        var opts = new SentinelOptions();
+        opts.ConfigureSemanticApprovals(s => s.Threshold = 1f);
+        Assert.Equal(1f, opts.GetSemanticApprovals().Settings.Threshold);
+    }
+
+    [Fact]
+    public void NullExample_ThrowsArgumentNull()
+        => Assert.Throws<ArgumentNullException>(() => new SemanticApprovalSettings().AddExamples("ok", null!));
+
+    [Fact]
+    public void NullExamplesArray_ThrowsArgumentNull()
+        => Assert.Throws<ArgumentNullException>(() => new SemanticApprovalSettings().AddExamples(null!));
 
     [Fact]
     public void BlankExample_Throws()

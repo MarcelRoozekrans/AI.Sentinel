@@ -39,12 +39,17 @@ public static class SentinelOptionsSemanticApprovalExtensions
     /// <param name="opts">The Sentinel options to configure.</param>
     /// <param name="configure">Settings configuration.</param>
     /// <returns>The same <see cref="SentinelOptions"/> for fluent chaining.</returns>
+    /// <exception cref="InvalidOperationException">The threshold is outside (0, 1].</exception>
     public static SentinelOptions ConfigureSemanticApprovals(
         this SentinelOptions opts, Action<SemanticApprovalSettings> configure)
     {
         ArgumentNullException.ThrowIfNull(opts);
         ArgumentNullException.ThrowIfNull(configure);
-        configure(opts.GetSemanticApprovals().Settings);
+        var settings = opts.GetSemanticApprovals().Settings;
+        configure(settings);
+        if (settings.Threshold is { } t && !(t > 0f && t <= 1f))
+            throw new InvalidOperationException(
+                $"Semantic approval settings have threshold {t}; it must be above 0 and at most 1.");
         return opts;
     }
 }
