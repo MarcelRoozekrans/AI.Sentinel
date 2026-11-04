@@ -40,18 +40,26 @@ public class CopilotHookCliSemanticApprovalTests : IDisposable
     }
 
     private static async Task<(int Exit, string Stderr)> PreToolUseAsync(
-        string command, IEmbeddingGenerator<string, Embedding<float>>? generator)
+        string command, IEmbeddingGenerator<string, Embedding<float>>? generator, bool argsAsString = false)
     {
-        var stdin = new StringReader($$$"""{"sessionId":"s","toolName":"bash","toolArgs":{"command":"{{{command}}}"}}""");
+        // The Copilot CLI may send toolArgs as a JSON object or as a string holding the JSON.
+        var toolArgs = argsAsString
+            ? $$$"""
+                "{\"command\":\"{{{command}}}\"}"
+                """
+            : $$$"""{"command":"{{{command}}}"}""";
+        var stdin = new StringReader($$$"""{"sessionId":"s","toolName":"bash","toolArgs":{{{toolArgs}}}}""");
         var stderr = new StringWriter();
         var exit = await Program.RunAsync(["pre-tool-use"], stdin, new StringWriter(), stderr, generator);
         return (exit, stderr.ToString());
     }
 
-    [Fact]
-    public async Task Semantic_DestructiveBashCommand_BlocksWithTheSemanticReceipt()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Semantic_DestructiveBashCommand_BlocksWithTheSemanticReceipt(bool argsAsString)
     {
-        var (exit, stderr) = await PreToolUseAsync(Destructive, new ExactMatchEmbeddingGenerator());
+        var (exit, stderr) = await PreToolUseAsync(Destructive, new ExactMatchEmbeddingGenerator(), argsAsString);
 
         Assert.Equal(2, exit);
         Assert.Contains("Rule: semantic:bash#", stderr, StringComparison.Ordinal);
@@ -68,10 +76,12 @@ public class CopilotHookCliSemanticApprovalTests : IDisposable
         Assert.Contains("Reason: Semantic check failed:", stderr, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task Semantic_BenignBashCommand_IsAllowed()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Semantic_BenignBashCommand_IsAllowed(bool argsAsString)
     {
-        var (exit, stderr) = await PreToolUseAsync("ls -la", new ExactMatchEmbeddingGenerator());
+        var (exit, stderr) = await PreToolUseAsync("ls -la", new ExactMatchEmbeddingGenerator(), argsAsString);
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain("semantic:", stderr, StringComparison.Ordinal);
