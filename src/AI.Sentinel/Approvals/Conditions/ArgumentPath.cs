@@ -171,7 +171,7 @@ internal sealed class ArgumentPath
         }
     }
 
-    private static bool TryWriteCompact(JsonElement element, out string text)
+    internal static bool TryWriteCompact(JsonElement element, out string text)
     {
         try
         {
