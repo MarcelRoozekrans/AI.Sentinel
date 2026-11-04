@@ -299,7 +299,7 @@ public class ReviewStepTests
 
         var result = await RunAsync([Semantic("FAIL-REV", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer);
 
-        Assert.False(result.Complete);
+        Assert.False(result.IsComplete);
         Assert.Equal([new DetectorFailure(new("FAIL-REV"), DetectorFailureKind.ReviewFailed)], result.Failures);
         Assert.Equal(Severity.Medium, Assert.Single(result.Detections).Severity);
     }
@@ -341,7 +341,7 @@ public class ReviewStepTests
 
         // The budget goes to the higher-ranked candidate.
         Assert.Equal(new DetectorId("OVER-CRITICAL"), Assert.Single(reviewer.Requests).DetectorId);
-        Assert.True(result.Complete);
+        Assert.True(result.IsComplete);
         Assert.Empty(result.Failures);
     }
 
@@ -367,7 +367,7 @@ public class ReviewStepTests
 
         var result = await RunAsync([Semantic("ANS-REV", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer);
 
-        Assert.True(result.Complete);
+        Assert.True(result.IsComplete);
         Assert.Empty(result.Failures);
     }
 

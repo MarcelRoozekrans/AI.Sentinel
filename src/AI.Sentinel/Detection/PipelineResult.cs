@@ -20,5 +20,5 @@ public sealed record PipelineResult(
 
     /// <summary>Whether every detector ran to completion, so a clean result means nothing was found rather than
     /// that something could not be checked.</summary>
-    public bool Complete => Failures.Count == 0;
+    public bool IsComplete => Failures.Count == 0;
 }

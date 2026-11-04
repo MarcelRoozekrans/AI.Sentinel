@@ -292,7 +292,7 @@ public class DetectorFailureIsolationTests
 
         var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
 
-        Assert.False(result.Complete);
+        Assert.False(result.IsComplete);
         Assert.Equal([new DetectorFailure(new("TST-THROW"), DetectorFailureKind.Threw)], result.Failures);
     }
 
@@ -304,7 +304,7 @@ public class DetectorFailureIsolationTests
 
         var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
 
-        Assert.False(result.Complete);
+        Assert.False(result.IsComplete);
         Assert.Equal([new DetectorFailure(new("TST-THROW-ASYNC"), DetectorFailureKind.Threw)], result.Failures);
     }
 
@@ -329,7 +329,7 @@ public class DetectorFailureIsolationTests
 
         var result = await pipeline.RunAsync(Context(), TestContext.Current.CancellationToken);
 
-        Assert.True(result.Complete);
+        Assert.True(result.IsComplete);
         Assert.Empty(result.Failures);
         Assert.Same(new PipelineResult(ThreatRiskScore.Zero, []).Failures, result.Failures);
     }
@@ -339,7 +339,7 @@ public class DetectorFailureIsolationTests
     {
         var result = new PipelineResult(ThreatRiskScore.Zero, []);
 
-        Assert.True(result.Complete);
+        Assert.True(result.IsComplete);
     }
 
     private sealed class MillisecondRegexTimeoutDetector : IDetector

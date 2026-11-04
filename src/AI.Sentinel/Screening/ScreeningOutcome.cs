@@ -30,7 +30,7 @@ public abstract record ScreeningOutcome
 
         /// <summary>Whether every detector ran to completion. A <see cref="Passed"/> that is not complete means
         /// nothing was found by the detectors that did run, not that the text is safe.</summary>
-        public bool Complete => Failures.Count == 0;
+        public bool IsComplete => Failures.Count == 0;
     }
 
     /// <summary>The scan quarantined the text. <see cref="RedactedText"/> is still masked.</summary>
@@ -54,7 +54,7 @@ public abstract record ScreeningOutcome
 
         /// <summary>Whether every detector ran to completion. The scan quarantined the text on what the
         /// other detectors found; a failed detector may have found more.</summary>
-        public bool Complete => Failures.Count == 0;
+        public bool IsComplete => Failures.Count == 0;
     }
 
     /// <summary>The rate limit refused the call; nothing was masked or scanned.</summary>

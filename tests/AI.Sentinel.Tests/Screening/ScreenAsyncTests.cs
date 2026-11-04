@@ -129,8 +129,9 @@ public class ScreenAsyncTests
 
         var passed = Assert.IsType<ScreeningOutcome.Passed>(await pipeline.ScreenAsync(Normal, ct: Ct));
 
-        Assert.True(passed.Complete);
+        Assert.True(passed.IsComplete);
         Assert.Empty(passed.Failures);
+        Assert.Same(new PipelineResult(ThreatRiskScore.Zero, []).Failures, passed.Failures);
     }
 
     [Fact]
@@ -140,7 +141,7 @@ public class ScreenAsyncTests
 
         var passed = Assert.IsType<ScreeningOutcome.Passed>(await pipeline.ScreenAsync(Normal, ct: Ct));
 
-        Assert.False(passed.Complete);
+        Assert.False(passed.IsComplete);
         Assert.Equal([new DetectorFailure(new("TST-FAIL"), DetectorFailureKind.Threw)], passed.Failures);
     }
 
@@ -155,7 +156,7 @@ public class ScreenAsyncTests
 
         var quarantined = Assert.IsType<ScreeningOutcome.Quarantined>(await pipeline.ScreenAsync(Normal, ct: Ct));
 
-        Assert.False(quarantined.Complete);
+        Assert.False(quarantined.IsComplete);
         Assert.Equal([new DetectorFailure(new("TST-FAIL"), DetectorFailureKind.Threw)], quarantined.Failures);
     }
 
