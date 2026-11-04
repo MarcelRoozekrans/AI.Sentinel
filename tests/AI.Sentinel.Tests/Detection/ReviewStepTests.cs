@@ -287,6 +287,89 @@ public class ReviewStepTests
         Assert.Equal(0, metrics.Count(outcome: null, "ZERO-"));
     }
 
+    // ---- failure signal (#550) ----
+
+    private static ReviewVerdict ThrowingReview(ReviewRequest request, CancellationToken token) =>
+        throw new HttpRequestException("provider down");
+
+    [Fact]
+    public async Task Failed_review_is_listed()
+    {
+        var reviewer = new FakeReviewer(ThrowingReview);
+
+        var result = await RunAsync([Semantic("FAIL-REV", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer);
+
+        Assert.False(result.Complete);
+        Assert.Equal([new DetectorFailure(new("FAIL-REV"), DetectorFailureKind.ReviewFailed)], result.Failures);
+        Assert.Equal(Severity.Medium, Assert.Single(result.Detections).Severity);
+    }
+
+    [Fact]
+    public async Task Timed_out_review_is_listed()
+    {
+        var clock = new ManualTimeProvider();
+        var gate = new TaskCompletionSource<ReviewVerdict>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reviewer = new FakeReviewer((_, _) => new ValueTask<ReviewVerdict>(gate.Task));
+        try
+        {
+            var run = RunAsync(
+                [Semantic("TIME-LIST", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer,
+                limits: new ReviewLimits(4, ClockTimeout, clock));
+            await clock.TimersCreated(1);
+            clock.Advance(ClockTimeout);
+            var result = await run.WaitAsync(Generous, TestContext.Current.CancellationToken);
+
+            Assert.Equal([new DetectorFailure(new("TIME-LIST"), DetectorFailureKind.ReviewFailed)], result.Failures);
+        }
+        finally
+        {
+            gate.TrySetResult(ReviewVerdict.None);
+        }
+    }
+
+    [Fact]
+    public async Task Over_budget_review_is_not_a_failure()
+    {
+        var detectors = new IDetector[]
+        {
+            Semantic("OVER-MEDIUM", Vector(Axis.Medium, 0.85f)),
+            new FakeEscalatingDetector("OVER-CRITICAL", Severity.Critical),
+        };
+        var reviewer = new FakeReviewer((_, _) => ReviewVerdict.None);
+
+        var result = await RunAsync(detectors, reviewer, limits: new ReviewLimits(1, Generous));
+
+        Assert.Single(reviewer.Requests);
+        Assert.True(result.Complete);
+        Assert.Empty(result.Failures);
+    }
+
+    [Fact]
+    public async Task Over_budget_next_to_failed_lists_only_the_failed()
+    {
+        var detectors = new IDetector[]
+        {
+            Semantic("NEXT-MEDIUM", Vector(Axis.Medium, 0.85f)),
+            new FakeEscalatingDetector("NEXT-CRITICAL", Severity.Critical),
+        };
+        var reviewer = new FakeReviewer(ThrowingReview);
+
+        var result = await RunAsync(detectors, reviewer, limits: new ReviewLimits(1, Generous));
+
+        Assert.Equal([new DetectorFailure(new("NEXT-CRITICAL"), DetectorFailureKind.ReviewFailed)], result.Failures);
+    }
+
+    [Fact]
+    public async Task Answered_review_is_complete()
+    {
+        var reviewer = new FakeReviewer((_, _) => new ReviewVerdict(Severity.High, "clear override"));
+
+        var result = await RunAsync([Semantic("ANS-REV", Vector(Axis.Medium, 0.85f), mapped: true)], reviewer);
+
+        Assert.True(result.Complete);
+        Assert.Empty(result.Failures);
+    }
+
     [Theory]
     [InlineData("confirmed", Severity.High)]
     [InlineData("raised", Severity.Critical)]

@@ -142,7 +142,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
         if (reviewer is not null && proposed is not null)
         {
-            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, escalated, ct).ConfigureAwait(false);
+            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, escalated, failures, ct).ConfigureAwait(false);
         }
 
         // After review: a verdict rebuilds the result, which would drop an override set earlier.
@@ -504,7 +504,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// </remarks>
     private async Task ReviewAllAsync(
         IDetectionReviewer reviewer, SentinelContext ctx, DetectionResult[] results, Severity[] proposed,
-        SemanticOutcome?[] outcomes, bool[]? escalated, CancellationToken ct)
+        SemanticOutcome?[] outcomes, bool[]? escalated, DetectorFailureKind?[] failures, CancellationToken ct)
     {
         var candidates = CollectCandidates(ctx, results, proposed, outcomes, escalated);
         if (candidates.Count == 0) return;
@@ -532,6 +532,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
             {
                 failed++;
                 firstFailure ??= failure;
+                // Only a review that ran and failed: the over-budget candidates above never reach here.
+                RecordFailure(failures, candidate.Index, DetectorFailureKind.ReviewFailed);
                 CountReview(status == ReviewStatus.TimedOut ? ReviewOutcomes.TimedOut : ReviewOutcomes.Failed, candidate.Request.DetectorId);
                 continue;
             }
@@ -812,6 +814,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         for (int i = 0; i < failures.Length; i++)
             if (failures[i] is { } kind)
                 (list ??= []).Add(new DetectorFailure(_detectors[i].Id, kind));
+        // Not `list ?? []`: that would allocate a new List per clean scan instead of returning the shared empty list.
         if (list is null) return [];
         return list;
     }
