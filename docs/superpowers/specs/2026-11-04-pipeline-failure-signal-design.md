@@ -37,10 +37,10 @@ One entry per affected detector, with a kind:
 | Kind | When | Today's result |
 |---|---|---|
 | `Threw` | The detector threw, other than the caller's own cancellation and a regex timeout | `Clean` |
-| `RegexTimeout` | A `RegexMatchTimeoutException` | Critical, unchanged |
+| `RegexTimeout` | A `RegexMatchTimeoutException` | Flagged Critical; a configured `SeverityCap` still applies |
 | `TextsNotEmbedded` | A semantic detector needed a text that could not be embedded, or its text selection threw | Scored on the texts that did embed, or rule layer only |
 | `ExamplesNotEmbedded` | A semantic detector's example phrases could not be embedded | Rule layer only |
-| `ReviewFailed` | The reviewer failed or timed out on one of the detector's results | Keeps its capped severity |
+| `ReviewFailed` | The reviewer failed or timed out on one of the detector's results | Keeps the result it had before review |
 
 A review skipped because `MaxReviewsPerScan` ran out is not a failure: that is the configured limit. A detector
 that matched in its rule layer after an embedding failure is still listed: the semantic layer did not run, even
@@ -71,7 +71,7 @@ public readonly record struct DetectorFailure(DetectorId Detector, DetectorFailu
 public sealed record PipelineResult(ThreatRiskScore Score, IReadOnlyList<DetectionResult> Detections)
 {
     public IReadOnlyList<DetectorFailure> Failures { get; init; } = [];
-    public bool Complete => Failures.Count == 0;
+    public bool IsComplete => Failures.Count == 0;
 }
 ```
 
@@ -83,6 +83,6 @@ stay as they are. `ScreeningOutcome.Passed` and `ScreeningOutcome.Quarantined` g
 - The exact names, if a clash or an analyzer argues for others; the shape stays as above.
 - How `TextsNotEmbedded` maps a failed text to the detectors that needed it, from `EmbeddedScan.Texts`.
 - Where the collector array lives (a field on a per-scan state object or a parameter, like `outcomes`).
-- Tests: one per kind through `RunAsync`, the precedence rule, a clean scan reports `Complete`, the budget-skipped
+- Tests: one per kind through `RunAsync`, the precedence rule, a clean scan reports `IsComplete`, the budget-skipped
   review is not a failure, and `ScreenAsync` carries the failures. The docs page on detector failures gets a section
   on reading `Failures` from a gate.

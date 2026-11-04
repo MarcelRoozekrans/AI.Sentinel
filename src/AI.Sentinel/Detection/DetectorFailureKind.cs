@@ -6,12 +6,12 @@ namespace AI.Sentinel.Detection;
 /// (embedding, then analysis, then review), because that is the one that limited what ran.</remarks>
 public enum DetectorFailureKind
 {
-    /// <summary>The detector threw, other than the caller's own cancellation and a regex timeout. Its result is
-    /// Clean.</summary>
+    /// <summary>The detector threw, other than the caller's own cancellation and a regex timeout, including an
+    /// embedding failure when the pipeline was built without an embedding scope. Its result is Clean.</summary>
     Threw,
 
     /// <summary>The detector raised a <see cref="System.Text.RegularExpressions.RegexMatchTimeoutException"/>. The
-    /// content can provoke this, so its result is Critical, unchanged.</summary>
+    /// content can provoke this, so it is flagged Critical; a configured <c>SeverityCap</c> still applies.</summary>
     RegexTimeout,
 
     /// <summary>A semantic detector needed a text that could not be embedded, or its text selection threw. It is
@@ -21,7 +21,7 @@ public enum DetectorFailureKind
     /// <summary>A semantic detector's example phrases could not be embedded. Only its rule layer ran.</summary>
     ExamplesNotEmbedded,
 
-    /// <summary>The reviewer failed or timed out on one of the detector's results, which keeps its capped
-    /// severity. A review skipped because <c>MaxReviewsPerScan</c> ran out is not a failure.</summary>
+    /// <summary>The reviewer failed or timed out on one of the detector's results, which keeps the result it had
+    /// before review. A review skipped because <c>MaxReviewsPerScan</c> ran out is not a failure.</summary>
     ReviewFailed,
 }
