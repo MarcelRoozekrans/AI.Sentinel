@@ -216,7 +216,7 @@ It needs an embedding generator. The CLIs read it from the `SENTINEL_EMBEDDING_*
 | `examples` | string[] | no | none | Added to the built-in examples. A blank entry is a config error. |
 | `replaceExamples` | bool | no | `false` | `true` drops the built-in examples and uses only `examples`, which must then not be empty. |
 
-### Per-tool fields
+### Semantic per-tool fields
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
@@ -249,13 +249,13 @@ The semantic layer runs last. If a rule or a policy already decides the call (ap
 
 A semantic request carries a `Reason`, for example `Semantic match 0.87 ≥ 0.80 on $.command: "kubectl delete namespace production"`: the score, the threshold, the path of the text and the closest example. It shows as "Why approval is needed" on the [dashboard](/docs/approvals/dashboard) request page, as a `Reason:` line in the receipt, and as `reason` in the [webhook](#payload) body. Rule-based requests have no reason. Like the arguments, the reason is redacted on the dashboard page.
 
-### Fail closed
+### Semantic fail closed
 
 When the call cannot be scored, it asks for approval instead of passing. The cases are an error from the embedding generator, a timeout, a wrong number of vectors, an empty or invalid vector, and a vector of the wrong size. The request has the reason `Semantic check failed: <kind>; approval required (fail closed)`. It has the same policy name as a match, so after the provider recovers a retry of the same call is covered by the grant. There is no switch to fail open. The timeout is the embedding provider's own.
 
 ### How well it works
 
-Read this before you rely on the defaults. The built-in examples and the default threshold were tuned with `all-MiniLM-L6-v2`. On a held-out set of 35 destructive calls written as paraphrases of the examples, through other tools, flag spellings, shell wrappers and API calls, the default flags 2 (6 %). Of 33 held-out benign calls none was flagged, and the highest benign score was 0.7916 (`git pull --rebase origin main`), just under the threshold of 0.80. The layer catches close variants of the built-in commands, such as `kubectl delete namespace payments-prod` or `terraform apply -destroy -auto-approve`. Embeddings judge topic more than intent, so a paraphrase through another tool scores low. A different embedding model needs its own run.
+Read this before you rely on the defaults. The built-in examples and the default threshold were tuned with `all-MiniLM-L6-v2`. On a held-out set of 35 destructive calls written as paraphrases of the examples, through other tools, flag spellings, shell wrappers and API calls, the default flags 2 (6 %). Of 33 held-out benign calls none was flagged, and the highest benign score was 0.7916 (`git pull --rebase origin main`), just under the threshold of 0.80. The layer catches close variants of the built-in commands, such as the held-out `k=kubectl; $k delete namespace --all` (0.883) and `echo 'FLUSHDB' | redis-cli` (0.844), the only two flagged. A near miss is `kubectl delete namespace payments-prod --wait=false` at 0.754, which passes. Embeddings judge topic more than intent, so a paraphrase through another tool scores low. A different embedding model needs its own run.
 
 To get more out of it:
 
@@ -270,7 +270,7 @@ The agent runs `kubectl -n prod delete ns billing`.
 
 1. The regex rule `\bkubectl\s+delete\b` does not match, because `-n prod` sits between `kubectl` and `delete`. The call passes.
 2. With the default semantic layer the call is scored. The closest example is `kubectl delete ns prod --all --force`, and the score is 0.784. That is below 0.80, so the call still passes.
-3. Add an example close to how your team writes the command, and the semantic layer asks:
+3. Add an example close to how your team writes the command, and the semantic layer may ask. Check the score with `--approvals` before you rely on it:
 
 ```json
 "semantic": {
@@ -279,9 +279,9 @@ The agent runs `kubectl -n prod delete ns billing`.
 }
 ```
 
-Lowering `threshold` for `Bash`, for example to `0.75`, also makes it ask. Do it on the strength of your own benign samples: it moves the benign commands towards the line too. The request then carries the reason with the score, the path `$.command` and the closest example.
+Lowering `threshold` for `Bash`, for example to `0.75`, makes it ask, since 0.784 is above 0.75. Do it on the strength of your own benign samples: it moves the benign commands towards the line too. When it asks, the request carries the reason with the score, the path `$.command` and the closest example.
 
-### Not a sandbox
+### Semantic approvals are not a sandbox
 
 As with a `when` rule, the semantic layer reduces approval noise for cooperative agents. It is not a security boundary. A model scores similarity, so a command the examples do not resemble, or one that is obfuscated, passes. Keep real isolation in the credentials and permissions of the account the commands run as.
 

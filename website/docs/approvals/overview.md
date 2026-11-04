@@ -121,12 +121,12 @@ opts.ConfigureSemanticApprovals(s =>
 
 - `RequireSemanticApproval` takes an exact tool name or a pattern ending in `*`, and each pattern can be registered once. A missing `BackendBinding` or a threshold outside (0, 1] throws `InvalidOperationException`.
 - `Paths` limits the scoring to the text at those paths, each scored separately. Without it `Bash`, `bash` and `powershell` score `$.command`, and any other tool scores the whole arguments JSON. Tool names match ordinally.
-- `AddExamples` adds to the built-in examples and throws on a blank one. `ConfigureSemanticApprovals` checks the threshold and keeps the old settings when it throws.
+- `AddExamples` adds to the built-in examples and throws on a blank one. `ReplaceExamples = true` without any `AddExamples` throws `InvalidOperationException` when the guard is first resolved. `ConfigureSemanticApprovals` checks the threshold and keeps the old settings when it throws.
 - A grant is always tied to the approved call, under the policy name `semantic:<pattern>#<fingerprint>`. With the [Entra PIM store](/docs/approvals/entra-pim) the guard throws when first resolved, as for `GrantScope.Call`.
 - A call that cannot be scored asks for approval with the reason `Semantic check failed: ...`. There is no fail-open switch.
 - The request carries a `Reason`, shown on the dashboard, in the receipt and in the webhook.
 
-The built-in examples catch close variants only: on the held-out set the default flags 2 of 35 paraphrased destructive calls. Add your own examples and tune the threshold; see [How well it works](/docs/approvals/cli-config#how-well-it-works) and the [worked example](/docs/approvals/cli-config#worked-example). It is not a sandbox, for the reasons given under [Not a sandbox](/docs/approvals/cli-config#not-a-sandbox-1).
+The built-in examples catch close variants only: on the held-out set the default flags 2 of 35 paraphrased destructive calls. Add your own examples and tune the threshold; see [How well it works](/docs/approvals/cli-config#how-well-it-works) and the [worked example](/docs/approvals/cli-config#worked-example). It is not a sandbox, for the reasons given under [Semantic approvals are not a sandbox](/docs/approvals/cli-config#semantic-approvals-are-not-a-sandbox).
 
 **Behaviour change.**
 
