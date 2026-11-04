@@ -11,7 +11,8 @@ internal static class SemanticApprovalText
     private const string CommandPath = "$.command";
 
     // Tool names match ordinally: Claude Code's "Bash" and Copilot's "bash" are separate. Copilot passes the
-    // shell command as "command" in toolArgs, as for Bash.
+    // shell command as "command" in toolArgs, as for Bash. For "powershell" that field follows the Copilot tool
+    // schema but is not confirmed by a test here; the docs say so and point to "paths".
     private static readonly ArgumentPath[] CommandPaths = [ArgumentPath.Parse(CommandPath)];
 
     /// <summary>The texts to score for a call of <paramref name="toolName"/>. A missing or null value yields no text.</summary>

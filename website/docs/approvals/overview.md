@@ -100,7 +100,7 @@ Path syntax, the value table, fail-closed behaviour and the limits of regexes on
 
 ### Semantic approvals
 
-`RequireSemanticApproval` asks for approval when the text of a tool call is close in meaning to an example of a destructive call, even when no `WhenArgument` rule matched. It can only add approvals. It needs `SentinelOptions.EmbeddingGenerator`; without one the layer is inert and the guard logs a warning.
+`RequireSemanticApproval` asks for approval when the text of a tool call is close in meaning to an example of a destructive call, even when no `WhenArgument` rule matched. It can only add approvals. It uses the pipeline's embedding generator: `SentinelOptions.EmbeddingGenerator`, or an `IEmbeddingGenerator<string, Embedding<float>>` registered in the container while `UseEmbeddingGeneratorFromServices` is on. Without one the layer is inert and the guard logs a warning.
 
 ```csharp
 opts.RequireSemanticApproval("Bash", spec =>
@@ -120,7 +120,7 @@ opts.ConfigureSemanticApprovals(s =>
 ```
 
 - `RequireSemanticApproval` takes an exact tool name or a pattern ending in `*`, and each pattern can be registered once. A missing `BackendBinding` or a threshold outside (0, 1] throws `InvalidOperationException`.
-- `Paths` limits the scoring to the text at those paths, each scored separately. Without it `Bash`, `bash` and `powershell` score `$.command`, and any other tool scores the whole arguments JSON. Tool names match ordinally.
+- `Paths` limits the scoring to the text at those paths, each scored separately. Without it `Bash`, `bash` and `powershell` score `$.command`, and any other tool scores the whole arguments JSON. Tool names match ordinally. The `powershell` default assumes Copilot's tool schema, see [Which text is scored](/docs/approvals/cli-config#which-text-is-scored).
 - `AddExamples` adds to the built-in examples and throws on a blank one. `ReplaceExamples = true` without any `AddExamples` throws `InvalidOperationException` when the guard is first resolved. `ConfigureSemanticApprovals` checks the threshold and keeps the old settings when it throws.
 - A grant is always tied to the approved call, under the policy name `semantic:<pattern>#<fingerprint>`. With the [Entra PIM store](/docs/approvals/entra-pim) the guard throws when first resolved, as for `GrantScope.Call`.
 - A call that cannot be scored asks for approval with the reason `Semantic check failed: ...`. There is no fail-open switch.
