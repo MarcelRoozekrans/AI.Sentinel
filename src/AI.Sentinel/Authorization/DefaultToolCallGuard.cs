@@ -191,9 +191,10 @@ internal sealed class DefaultToolCallGuard(
         JsonElement args,
         ApprovalSpec approvalSpec,
         IApprovalStore store,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? reason = null)
     {
-        var approvalCtx = new ApprovalContext(toolName, args, Justification: null);
+        var approvalCtx = new ApprovalContext(toolName, args, Justification: null) { Reason = reason };
         ApprovalState state;
         try
         {
@@ -213,7 +214,8 @@ internal sealed class DefaultToolCallGuard(
         {
             ApprovalState.Active => null, // active grant — continue evaluating remaining bindings
             ApprovalState.Pending p => AuthorizationDecision.RequireApproval(
-                approvalSpec.PolicyName, p.RequestId, p.ApprovalUrl, p.RequestedAt, approvalSpec.WaitTimeout),
+                approvalSpec.PolicyName, p.RequestId, p.ApprovalUrl, p.RequestedAt, approvalSpec.WaitTimeout) with
+            { Reason = reason },
             // Denied = real denial-by-approver: keep the default 'policy_denied' code so it lines up
             // with structured-policy denials. Operators differentiate via reason text.
             ApprovalState.Denied d => AuthorizationDecision.Deny(approvalSpec.PolicyName, d.Reason),

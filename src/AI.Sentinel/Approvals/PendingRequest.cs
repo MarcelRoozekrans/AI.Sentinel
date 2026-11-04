@@ -10,4 +10,8 @@ public sealed record PendingRequest(
     string ToolName,
     JsonElement Args,
     DateTimeOffset RequestedAt,
-    string? Justification);
+    string? Justification)
+{
+    /// <summary>Why the call needs approval, fixed when the request was created, or <see langword="null"/> for a rule-based request.</summary>
+    public string? Reason { get; init; }
+}

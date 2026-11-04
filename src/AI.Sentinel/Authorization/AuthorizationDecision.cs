@@ -31,7 +31,11 @@ public abstract record AuthorizationDecision
         string RequestId,
         string ApprovalUrl,
         DateTimeOffset RequestedAt,
-        TimeSpan WaitTimeout) : AuthorizationDecision;
+        TimeSpan WaitTimeout) : AuthorizationDecision
+    {
+        /// <summary>Why the call needs approval, or <see langword="null"/> for a rule-based request.</summary>
+        public string? Reason { get; init; }
+    }
 
     public static RequireApprovalDecision RequireApproval(
         string policyName, string requestId, string approvalUrl,
