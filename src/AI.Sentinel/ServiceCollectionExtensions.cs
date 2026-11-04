@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 using AI.Sentinel.Alerts;
 using AI.Sentinel.Approvals;
+using AI.Sentinel.Approvals.Semantic;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.Detection;
@@ -335,12 +336,46 @@ public static class ServiceCollectionExtensions
 
         EmitAuthorizationStartupWarnings(opts, bindings, policyByName, hasSecurityContext, pipelineLogger);
 
+        var (semanticSettings, semanticTools) = opts.GetSemanticApprovals();
         var approvalStore = ApprovalStoreAuditing.Resolve(sp);
-        RejectCallScopedGrantsOnRoleActivationStore(approvalStore, bindings);
-        return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, approvalStore, logger);
+        RejectCallScopedGrantsOnRoleActivationStore(approvalStore, bindings, semanticTools);
+        var semantic = BuildSemanticApprovalMatcher(
+            semanticSettings, semanticTools, sp.GetService<DefaultEmbeddingScope>()?.Scope, opts.MaxScanBytes, pipelineLogger);
+        return new DefaultToolCallGuard(bindings, policyByName, opts.DefaultToolPolicy, approvalStore, logger, semantic);
     }
 
-    private static void RejectCallScopedGrantsOnRoleActivationStore(IApprovalStore? approvalStore, IReadOnlyList<ToolCallPolicyBinding> bindings)
+    /// <summary>The semantic approval stage of the default pipeline's guard, or <see langword="null"/> when no tool
+    /// is covered or no embedding generator is configured; the latter logs a warning, as the layer is inert.</summary>
+    private static SemanticApprovalMatcher? BuildSemanticApprovalMatcher(
+        SemanticApprovalSettings settings,
+        IReadOnlyList<(string Pattern, SemanticApprovalSpec Spec)> tools,
+        EmbeddingScope? scope,
+        int maxBytes,
+        ILogger<SentinelPipeline>? logger)
+    {
+        if (tools.Count == 0) return null;
+
+        // A config error whether or not a generator is configured, so it is rejected before the generator check.
+        if (settings.ReplaceExamples && settings.AddedExamples.Count == 0)
+        {
+            throw new InvalidOperationException(
+                "AI.Sentinel: semantic approvals set ReplaceExamples but add no examples, so nothing would ever match. " +
+                "Add examples with AddExamples, or leave ReplaceExamples off to keep the built-in set.");
+        }
+
+        if (scope is null)
+        {
+            logger?.LogWarning("Semantic approvals are configured but no embedding generator is; the semantic layer is inert.");
+            return null;
+        }
+
+        return new SemanticApprovalMatcher(scope, settings, tools, maxBytes);
+    }
+
+    private static void RejectCallScopedGrantsOnRoleActivationStore(
+        IApprovalStore? approvalStore,
+        IReadOnlyList<ToolCallPolicyBinding> bindings,
+        IReadOnlyList<(string Pattern, SemanticApprovalSpec Spec)> semanticTools)
     {
         var active = approvalStore is null ? null : ApprovalStoreAuditing.Unwrap(approvalStore);
         if (active is not IRoleActivationApprovalStore store)
@@ -355,6 +390,14 @@ public static class ServiceCollectionExtensions
                 $"The approval rule for '{callScoped.Pattern}' uses GrantScope.Call, which the {store.BackendName} approval store " +
                 "cannot honour: a role activation covers a time window and knows nothing of tool arguments. " +
                 "Use GrantScope.Rule, or a store that grants per call.");
+        }
+
+        if (semanticTools.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"The semantic approval for '{semanticTools[0].Pattern}' grants per call, which the {store.BackendName} approval store " +
+                "cannot honour: a role activation covers a time window and knows nothing of tool arguments. " +
+                "Use a store that grants per call, such as the in-memory or SQLite store.");
         }
     }
 

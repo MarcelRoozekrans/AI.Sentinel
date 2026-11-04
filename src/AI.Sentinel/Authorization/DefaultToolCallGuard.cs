@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Approvals.Conditions;
+using AI.Sentinel.Approvals.Semantic;
 using Microsoft.Extensions.Logging;
 using ZeroAlloc.Authorization;
 using ZeroAlloc.Results;
@@ -13,20 +14,23 @@ namespace AI.Sentinel.Authorization;
 /// Approval bindings that share the exact same pattern string form a group, evaluated in the
 /// registration slot of its first member. Within a group only the first binding whose argument
 /// conditions all hold, or that has none, is evaluated. Policy bindings are never grouped.
+/// A semantic approval stage runs last, on calls the bindings allowed, unless an approval rule with an
+/// active grant was selected for the call.
 /// </remarks>
 internal sealed class DefaultToolCallGuard(
     IReadOnlyList<ToolCallPolicyBinding> bindings,
     IReadOnlyDictionary<string, IAuthorizationPolicy> policiesByName,
     ToolPolicyDefault @default,
     IApprovalStore? approvalStore,
-    ILogger<DefaultToolCallGuard>? logger) : IToolCallGuard
+    ILogger<DefaultToolCallGuard>? logger,
+    SemanticApprovalMatcher? semantic = null) : IToolCallGuard
 {
     private readonly ToolCallPolicyBinding[] _bindings = [.. bindings];
 
-    /// <summary>True when the guard can refuse a call: it has a binding, or <see cref="ToolPolicyDefault.Deny"/>
-    /// applies to unbound tools. <c>AddAISentinel</c> always registers a guard, so its presence alone does not mean
+    /// <summary>True when the guard can refuse a call: it has a binding, <see cref="ToolPolicyDefault.Deny"/>
+    /// applies to unbound tools, or a semantic approval stage is configured. <c>AddAISentinel</c> always registers a guard, so its presence alone does not mean
     /// authorization is configured.</summary>
-    internal bool CanRefuse => _bindings.Length > 0 || @default == ToolPolicyDefault.Deny;
+    internal bool CanRefuse => _bindings.Length > 0 || @default == ToolPolicyDefault.Deny || semantic is not null;
 
     // Evaluation slots in registration order.
     private readonly Slot[] _slots = BuildSlots(bindings);
@@ -51,28 +55,75 @@ internal sealed class DefaultToolCallGuard(
 
         if (!governed)
         {
+            // Being covered by a semantic approval does not make a tool governed; a denied call is never scored.
             return @default == ToolPolicyDefault.Allow
-                ? AuthorizationDecision.Allow
+                ? await EvaluateSemanticAsync(caller, toolName, args, ct).ConfigureAwait(false)
                 : AuthorizationDecision.Deny("default", "No matching policy and DefaultToolPolicy is Deny");
         }
 
         var ctx = new ToolCallContextWrapper(caller, toolName, args);
 
+        // Whether some group selected an approval rule whose grant is active. One such rule covers the whole
+        // call: the approver already approved it, so the semantic stage does not run.
+        var ruleGrantActive = false;
         foreach (var slot in _slots)
         {
             if (!slot.Matches(toolName)) continue;
 
-            var decision = slot switch
+            AuthorizationDecision? decision;
+            switch (slot)
             {
-                GroupSlot group => await EvaluateGroupAsync(caller, toolName, args, group, ct).ConfigureAwait(false),
-                PolicySlot policy => await EvaluatePolicyAsync(policy.Binding, ctx, ct).ConfigureAwait(false),
-                _ => throw new UnreachableException(),
-            };
+                case GroupSlot group:
+                    var (groupDecision, selected) = await EvaluateGroupAsync(caller, toolName, args, group, ct).ConfigureAwait(false);
+                    decision = groupDecision;
+                    ruleGrantActive |= selected && groupDecision is null;
+                    break;
+                case PolicySlot policy:
+                    decision = await EvaluatePolicyAsync(policy.Binding, ctx, ct).ConfigureAwait(false);
+                    break;
+                default:
+                    throw new UnreachableException();
+            }
 
             if (decision is not null) return decision;
         }
 
-        return AuthorizationDecision.Allow;
+        return ruleGrantActive
+            ? AuthorizationDecision.Allow
+            : await EvaluateSemanticAsync(caller, toolName, args, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>The semantic stage: scores a covered call and asks for approval of those exact arguments when it
+    /// matches an example or cannot be scored. Uncovered calls and calls that do not match are allowed.</summary>
+    private async ValueTask<AuthorizationDecision> EvaluateSemanticAsync(
+        ISecurityContext caller, string toolName, JsonElement args, CancellationToken ct)
+    {
+        if (semantic is null || !semantic.Covers(toolName, out var key, out var semanticSpec))
+            return AuthorizationDecision.Allow;
+
+        var match = await semantic.MatchAsync(toolName, args, key, semanticSpec, ct).ConfigureAwait(false);
+        if (match is SemanticMatch.NotFlagged)
+            return AuthorizationDecision.Allow;
+
+        if (match is SemanticMatch.Failed failed)
+        {
+            logger?.LogWarning(
+                "Semantic approval check for tool '{ToolName}' failed ({Kind}) — approval required (fail closed).",
+                toolName, failed.Kind);
+        }
+
+        var spec = new ApprovalSpec
+        {
+            PolicyName = $"semantic:{key}#{ArgumentFingerprint.Compute(toolName, args)}",
+            GrantScope = ApprovalGrantScope.Call,
+            BackendBinding = semanticSpec.BackendBinding,
+            GrantDuration = semanticSpec.GrantDuration,
+            RequireJustification = semanticSpec.RequireJustification,
+            WaitTimeout = semanticSpec.WaitTimeout,
+        };
+
+        return await EvaluateApprovalAsync(caller, toolName, args, spec, RequireStore(), ct, match.Reason).ConfigureAwait(false)
+            ?? AuthorizationDecision.Allow;
     }
 
     private static Slot[] BuildSlots(IReadOnlyList<ToolCallPolicyBinding> bindings)
@@ -100,30 +151,31 @@ internal sealed class DefaultToolCallGuard(
         return [.. slots];
     }
 
-    private async ValueTask<AuthorizationDecision?> EvaluateGroupAsync(
+    /// <returns>The group's decision, and whether one of its rules was selected for these arguments.</returns>
+    private async ValueTask<(AuthorizationDecision? Decision, bool Selected)> EvaluateGroupAsync(
         ISecurityContext caller,
         string toolName,
         JsonElement args,
         GroupSlot group,
         CancellationToken ct)
     {
-        if (approvalStore is null)
-        {
-            throw new InvalidOperationException(
-                "RequireApproval configured but no IApprovalStore registered. The InMemory store is auto-registered " +
-                "by AddAISentinel when bindings carry an ApprovalSpec; if you cleared it explicitly, register one of " +
-                "AddSentinelSqliteApprovalStore / AddSentinelEntraPimApprovalStore, or " +
-                "services.AddSingleton<IApprovalStore, InMemoryApprovalStore>().");
-        }
+        var store = RequireStore();
 
         var spec = SelectSpec(group, args);
-        if (spec is null) return null; // no rule of the group applies to these arguments
+        if (spec is null) return (null, false); // no rule of the group applies to these arguments
 
         if (spec.GrantScope == ApprovalGrantScope.Call)
             spec = spec.WithPolicyName($"{spec.PolicyName}#{ArgumentFingerprint.Compute(toolName, args)}");
 
-        return await EvaluateApprovalAsync(caller, toolName, args, spec, approvalStore, ct).ConfigureAwait(false);
+        return (await EvaluateApprovalAsync(caller, toolName, args, spec, store, ct).ConfigureAwait(false), true);
     }
+
+    private IApprovalStore RequireStore() => approvalStore ?? throw new InvalidOperationException(
+        "RequireApproval or RequireSemanticApproval configured but no IApprovalStore registered. The InMemory store " +
+        "is auto-registered by AddAISentinel when bindings carry an ApprovalSpec or semantic approvals are configured; " +
+        "if you cleared it explicitly, register one of " +
+        "AddSentinelSqliteApprovalStore / AddSentinelEntraPimApprovalStore, or " +
+        "services.AddSingleton<IApprovalStore, InMemoryApprovalStore>().");
 
     /// <summary>
     /// Returns the spec of the first group member with no conditions, or whose conditions all
