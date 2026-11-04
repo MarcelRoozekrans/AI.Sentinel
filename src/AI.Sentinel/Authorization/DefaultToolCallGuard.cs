@@ -185,7 +185,7 @@ internal sealed class DefaultToolCallGuard(
         _ => result.ToString(),
     };
 
-    private async ValueTask<AuthorizationDecision?> EvaluateApprovalAsync(
+    internal async ValueTask<AuthorizationDecision?> EvaluateApprovalAsync(
         ISecurityContext caller,
         string toolName,
         JsonElement args,
@@ -215,7 +215,7 @@ internal sealed class DefaultToolCallGuard(
             ApprovalState.Active => null, // active grant — continue evaluating remaining bindings
             ApprovalState.Pending p => AuthorizationDecision.RequireApproval(
                 approvalSpec.PolicyName, p.RequestId, p.ApprovalUrl, p.RequestedAt, approvalSpec.WaitTimeout) with
-            { Reason = reason },
+            { Reason = p.Reason ?? reason },
             // Denied = real denial-by-approver: keep the default 'policy_denied' code so it lines up
             // with structured-policy denials. Operators differentiate via reason text.
             ApprovalState.Denied d => AuthorizationDecision.Deny(approvalSpec.PolicyName, d.Reason),

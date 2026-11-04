@@ -28,6 +28,12 @@ public abstract record ApprovalState
         /// <see langword="false"/>. A store that does not set it gets no approval notifications.
         /// </summary>
         public bool IsNew { get; init; }
+
+        /// <summary>
+        /// Why the call needs approval, as stored when the request was created, or <see langword="null"/> for a
+        /// rule-based request and for stores that do not keep it. A reuse of the request returns the first reason.
+        /// </summary>
+        public string? Reason { get; init; }
     }
 
     /// <summary>The approval was denied or has expired.</summary>

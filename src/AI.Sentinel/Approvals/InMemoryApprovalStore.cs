@@ -153,7 +153,7 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
                 => new ApprovalState.Denied("expired", now) { RequestId = e.RequestId },
             EntryStatus.Denied
                 => new ApprovalState.Denied(e.DenyReason ?? "denied", e.DeniedAt ?? now) { RequestId = e.RequestId },
-            _ => new ApprovalState.Pending(e.RequestId, $"sentinel://approve/{e.RequestId}", e.RequestedAt),
+            _ => new ApprovalState.Pending(e.RequestId, $"sentinel://approve/{e.RequestId}", e.RequestedAt) { Reason = e.Reason },
         };
     }
 

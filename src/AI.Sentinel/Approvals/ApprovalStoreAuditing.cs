@@ -144,7 +144,8 @@ internal static class ApprovalStoreAuditing
     /// <summary>
     /// Builds the informational audit entry of one approval decision: <see cref="Severity.None"/>, the
     /// <see cref="AuditEntryKinds.ApprovalDetectorId"/> detector id and <paramref name="policyCode"/>. The summary reads
-    /// <c>Approved: policy p, tool t, request r</c> and never carries the arguments, a note, a reason or an identity.
+    /// <c>Approved: policy p, tool t, request r</c> and never carries the arguments, a note, a denial reason or an identity. The one exception is the entry
+    /// of a new request that has a reason, see <see cref="Request"/>.
     /// </summary>
     /// <param name="policyCode">One of the four approval policy codes in <see cref="AuditEntryKinds"/>.</param>
     /// <param name="policyName">The approval policy.</param>

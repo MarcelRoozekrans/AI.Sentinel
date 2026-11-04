@@ -132,6 +132,51 @@ public class ApprovalReasonTests
         Assert.False(AuditEntryKinds.IsApproval(entry));
     }
 
+    private static DefaultToolCallGuard BuildGuard() =>
+        new(
+            bindings: [],
+            policiesByName: new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal),
+            @default: ToolPolicyDefault.Allow,
+            approvalStore: null,
+            logger: Microsoft.Extensions.Logging.Abstractions.NullLogger<DefaultToolCallGuard>.Instance);
+
+    private sealed class CapturingStore : IApprovalStore
+    {
+        public ApprovalContext? Last { get; private set; }
+
+        public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext c, ApprovalSpec s, ApprovalContext ctx, CancellationToken t)
+        {
+            Last = ctx;
+            return ValueTask.FromResult<ApprovalState>(new ApprovalState.Pending("req-1", "sentinel://approve/req-1", DateTimeOffset.UtcNow));
+        }
+
+        public ValueTask<ApprovalState> WaitForDecisionAsync(string id, TimeSpan to, CancellationToken t) =>
+            throw new NotSupportedException();
+    }
+
+    [Fact]
+    public async Task Guard_PassesReason_IntoContextAndDecision()
+    {
+        var store = new CapturingStore();
+        var d = await BuildGuard().EvaluateApprovalAsync(new Caller("alice"), "Bash", default, MakeSpec(), store, Ct, Reason);
+
+        Assert.Equal(Reason, store.Last!.Reason);
+        Assert.Equal(Reason, Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(d).Reason);
+    }
+
+    [Fact]
+    public async Task Guard_ReusedPending_ShowsTheFirstReason()
+    {
+        var store = new InMemoryApprovalStore();
+        var guard = BuildGuard();
+        var first = await guard.EvaluateApprovalAsync(new Caller("alice"), "Bash", default, MakeSpec(), store, Ct, Reason);
+        var second = await guard.EvaluateApprovalAsync(
+            new Caller("alice"), "Bash", default, MakeSpec(), store, Ct, "Semantic check failed: timeout; approval required (fail closed)");
+
+        Assert.Equal(Reason, Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(first).Reason);
+        Assert.Equal(Reason, Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(second).Reason);
+    }
+
     [Fact]
     public async Task Audit_RuleBasedRequest_WritesNoRequestEntry()
     {
