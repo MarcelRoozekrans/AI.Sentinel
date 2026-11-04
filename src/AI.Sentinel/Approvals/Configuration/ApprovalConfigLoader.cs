@@ -64,10 +64,132 @@ internal static class ApprovalConfigLoader
             NotifyHeaders = ParseNotifyHeaders(root),
             NotifyIncludeArgs = ParseNotifyIncludeArgs(root),
             DashboardUrl = ParseHttpUrl(root, "dashboardUrl"),
+            Semantic = ParseSemantic(root, backend),
         };
 
         Validate(config);
         return config;
+    }
+
+    private static readonly string[] SemanticKeys = ["threshold", "examples", "replaceExamples", "tools"];
+    private static readonly string[] SemanticToolKeys = ["role", "grantMinutes", "requireJustification", "paths", "threshold"];
+
+    private static SemanticApprovalConfig? ParseSemantic(JsonElement root, string backend)
+    {
+        if (!root.TryGetProperty("semantic", out var el)) return null;
+        if (el.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("semantic must be an object");
+        // A semantic grant is always tied to the approved call: a PIM role activation cannot be, and "none" has no store to approve in.
+        var normalisedBackend = backend.Trim();
+        if (string.Equals(normalisedBackend, "entra-pim", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                "semantic is not supported with backend 'entra-pim': a PIM grant is a role activation and cannot be tied to arguments");
+        if (string.Equals(normalisedBackend, "none", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("semantic is not supported with backend 'none': there is no approval store to ask");
+        RejectUnknownKeys(el, "semantic", SemanticKeys);
+
+        var threshold = ParseThreshold(el, "semantic");
+        var examples = new List<string>();
+        if (el.TryGetProperty("examples", out var exEl))
+        {
+            if (exEl.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException("semantic.examples must be an array of strings");
+            var i = 0;
+            foreach (var item in exEl.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetString()))
+                    throw new InvalidOperationException($"semantic.examples[{i}] must be a non-blank string");
+                examples.Add(item.GetString()!);
+                i++;
+            }
+        }
+        var replace = false;
+        if (el.TryGetProperty("replaceExamples", out var repEl))
+        {
+            if (repEl.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                throw new InvalidOperationException("semantic.replaceExamples must be true or false");
+            replace = repEl.GetBoolean();
+        }
+        if (replace && examples.Count == 0)
+            throw new InvalidOperationException("semantic.replaceExamples is true but semantic.examples is empty: there would be nothing to match");
+
+        if (!el.TryGetProperty("tools", out var toolsEl) || toolsEl.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException("semantic.tools is required and must be an object");
+        var tools = new List<KeyValuePair<string, SemanticToolConfig>>();
+        foreach (var prop in toolsEl.EnumerateObject())
+        {
+            if (tools.Exists(t => string.Equals(t.Key, prop.Name, StringComparison.Ordinal)))
+                throw new InvalidOperationException($"semantic.tools has duplicate key '{prop.Name}'");
+            tools.Add(new(prop.Name, ParseSemanticTool(prop.Value, $"semantic.tools.{prop.Name}")));
+        }
+        if (tools.Count == 0)
+            throw new InvalidOperationException("semantic.tools must not be empty");
+        return new SemanticApprovalConfig(threshold, examples, replace, tools);
+    }
+
+    private static SemanticToolConfig ParseSemanticTool(JsonElement el, string location)
+    {
+        if (el.ValueKind != JsonValueKind.Object)
+            throw new InvalidOperationException($"{location} must be an object");
+        RejectUnknownKeys(el, location, SemanticToolKeys);
+        var role = RequireString(el, "role", $"{location}.role");
+        var grantMinutes = OptionalInt(el, "grantMinutes");
+        if (el.TryGetProperty("grantMinutes", out _) && grantMinutes is null or <= 0)
+            throw new InvalidOperationException($"{location}.grantMinutes must be a whole number above 0");
+        var requireJustification = OptionalBool(el, "requireJustification");
+        if (el.TryGetProperty("requireJustification", out _) && requireJustification is null)
+            throw new InvalidOperationException($"{location}.requireJustification must be true or false");
+
+        List<string>? paths = null;
+        if (el.TryGetProperty("paths", out var pathsEl))
+        {
+            if (pathsEl.ValueKind != JsonValueKind.Array)
+                throw new InvalidOperationException($"{location}.paths must be an array of paths");
+            paths = new List<string>();
+            var i = 0;
+            foreach (var item in pathsEl.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String)
+                    throw new InvalidOperationException($"{location}.paths[{i}] must be a string");
+                var text = item.GetString()!;
+                try
+                {
+                    _ = ArgumentPath.Parse(text); // validates the path at load
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new InvalidOperationException($"{location}.paths[{i}] is invalid: {ex.Message}", ex);
+                }
+                paths.Add(text);
+                i++;
+            }
+            if (paths.Count == 0)
+                throw new InvalidOperationException($"{location}.paths must not be empty");
+        }
+        return new SemanticToolConfig(role, grantMinutes, requireJustification, paths, ParseThreshold(el, location));
+    }
+
+    private static float? ParseThreshold(JsonElement el, string location)
+    {
+        if (!el.TryGetProperty("threshold", out var t)) return null;
+        if (t.ValueKind != JsonValueKind.Number || !t.TryGetDouble(out var d) || !(d > 0d && d <= 1d))
+            throw new InvalidOperationException($"{location}.threshold must be a number above 0 and at most 1. Got: {t.GetRawText()}");
+        return (float)d;
+    }
+
+    /// <summary>Rejects every key not in <paramref name="known"/>, and any key that appears twice. Stricter than the rule
+    /// entries on purpose: the block is new, so there are no existing files to keep loading.</summary>
+    private static void RejectUnknownKeys(JsonElement el, string location, string[] known)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var prop in el.EnumerateObject())
+        {
+            if (!seen.Add(prop.Name))
+                throw new InvalidOperationException($"{location} has duplicate key '{prop.Name}'");
+            if (!known.Contains(prop.Name, StringComparer.Ordinal))
+                throw new InvalidOperationException(
+                    $"{location}.{prop.Name} is not a recognised key; allowed keys: {string.Join(", ", known)}");
+        }
     }
 
     private static Uri? ParseHttpUrl(JsonElement root, string key)

@@ -25,4 +25,7 @@ internal sealed record ApprovalConfig(
 
     /// <summary>Base URL of the dashboard, used to link a notification to its request.</summary>
     public Uri? DashboardUrl { get; init; }
+
+    /// <summary>The <c>semantic</c> block, or null when the file has none.</summary>
+    public SemanticApprovalConfig? Semantic { get; init; }
 }
