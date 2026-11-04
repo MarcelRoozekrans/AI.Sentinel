@@ -270,6 +270,10 @@ public sealed class DetectionPipeline : IDetectionPipeline
             if (embedded is null)
                 return Record(outcomes, index, await semantic.AnalyzeAsync(ctx, configuration, ct).ConfigureAwait(false));
 
+            // Before the analysis stage, so the rethrow below, which the general catch turns into Threw, and a rule-layer
+            // match, which returns without failing, both keep the embedding kind.
+            RecordEmbeddingFailure(embedded, failures, index);
+
             if (embedded.TextsFailures[index] is { } textsFailure)
             {
                 // As without a scope: the rule layer still decides, and otherwise the failure is this detector's own.
@@ -310,6 +314,28 @@ public sealed class DetectionPipeline : IDetectionPipeline
             RecordFailure(failures, index, DetectorFailureKind.Threw);
             return DetectionResult.Clean(detector.Id);
         }
+    }
+
+    /// <summary>Notes that a semantic detector's texts or example phrases could not be embedded. Texts are checked
+    /// first, so a detector that failed at both is listed as <see cref="DetectorFailureKind.TextsNotEmbedded"/>.</summary>
+    /// <remarks>A text with no vector counts only while the scan has a failed text: a text the scan never embedded
+    /// for another reason is not a provider failure.</remarks>
+    private static void RecordEmbeddingFailure(EmbeddedScan embedded, DetectorFailureKind?[] failures, int index)
+    {
+        if (embedded.TextsFailures[index] is not null || TextWithoutVector(embedded, index))
+            RecordFailure(failures, index, DetectorFailureKind.TextsNotEmbedded);
+        else if (embedded.ExamplesFailed[index])
+            RecordFailure(failures, index, DetectorFailureKind.ExamplesNotEmbedded);
+    }
+
+    private static bool TextWithoutVector(EmbeddedScan embedded, int index)
+    {
+        if (embedded.Scan.FailedCount == 0) return false;
+
+        foreach (var text in embedded.Texts[index])
+            if (!embedded.Scan.TryGet(text, out _)) return true;
+
+        return false;
     }
 
     /// <summary>Notes why a detector did not run to completion. The first kind recorded for it is kept, so the
@@ -786,7 +812,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
         for (int i = 0; i < failures.Length; i++)
             if (failures[i] is { } kind)
                 (list ??= []).Add(new DetectorFailure(_detectors[i].Id, kind));
-        return list ?? [];
+        if (list is null) return [];
+        return list;
     }
 
     private PipelineResult BuildResult(

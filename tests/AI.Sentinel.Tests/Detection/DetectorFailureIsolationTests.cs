@@ -323,7 +323,7 @@ public class DetectorFailureIsolationTests
     }
 
     [Fact]
-    public async Task Clean_scan_is_complete()
+    public async Task Scan_without_failures_is_complete()
     {
         var pipeline = new DetectionPipeline([new FiringDetector()], configurations: null, reviewer: null);
 
@@ -331,6 +331,7 @@ public class DetectorFailureIsolationTests
 
         Assert.True(result.Complete);
         Assert.Empty(result.Failures);
+        Assert.Same(new PipelineResult(ThreatRiskScore.Zero, []).Failures, result.Failures);
     }
 
     [Fact]
