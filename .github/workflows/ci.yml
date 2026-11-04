@@ -42,6 +42,14 @@ jobs:
         # One Cobertura file per test app and target framework; Codecov merges them.
         run: dotnet test AI.Sentinel.slnx --no-build -c Release --verbosity normal --coverage --coverage-output-format cobertura --coverage-settings coverage.config.xml --results-directory TestResults
 
+      # Merges the Cobertura reports and fails below 80 percent line coverage, or when codecov.yml would let a drop in
+      # coverage pass quietly. Microsoft.Testing.Extensions.CodeCoverage writes the reports, one per test app and
+      # target framework.
+      - name: Coverage gate
+        uses: MarcelRoozekrans/ci-baseline/actions/coverage-gate@v1
+        with:
+          reports: TestResults/**/*.cobertura.xml
+
       - name: Upload coverage to Codecov
         if: '!cancelled()'
         uses: codecov/codecov-action@v7

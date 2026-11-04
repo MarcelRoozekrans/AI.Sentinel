@@ -209,3 +209,11 @@ jobs:
             ./nupkg/*.nupkg ./nupkg-pointer/*.nupkg ./nupkg-rid/*.nupkg
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A CycloneDX SBOM of the solution, attached to the same release. release-please created the release in the
+      # release-please job, and this job runs on main, so the tag comes from that job's tag_name output.
+      - name: Attach the SBOM to the GitHub release
+        uses: MarcelRoozekrans/ci-baseline/actions/sbom@v1
+        with:
+          solution: AI.Sentinel.slnx
+          tag: ${{ needs.release-please.outputs.tag_name }}
