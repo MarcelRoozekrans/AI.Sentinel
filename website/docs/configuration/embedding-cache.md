@@ -84,7 +84,7 @@ A provider can reject one input, for example one over its token limit, and that 
 
 - If the batch call fails, or returns a different number of vectors than inputs, each missing text is retried on its own, one call at a time. A text the provider rejects is skipped by itself; the other texts are still scored.
 - If the first two single-input calls both fail and none has succeeded, the endpoint is treated as down and the rest of the scan's texts are skipped without further calls. An outage, a rejected key or rate limiting costs the batch call plus two more.
-- A failure is logged and passed to `OnDetectorFailure` once per scan, with the number of inputs that failed and the exception, never the input text. The same holds for a failure to embed the example phrases.
+- A failure is logged and passed to `OnDetectorFailure` once per scan, with the number of inputs that failed and the exception, never the input text. The same holds for a failure to embed the example phrases. Each scan also lists the affected detectors in `PipelineResult.Failures`, and on a screening outcome; see [Incomplete scans](../screening#incomplete-scans).
 - A detector left with no vectors returns `Clean`, as it does without a generator. A detector whose example phrases failed still runs its rule layer, where it has one.
 - Cancellation always propagates and is never reported as a failure.
 

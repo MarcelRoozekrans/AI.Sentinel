@@ -852,6 +852,7 @@ public sealed partial class SentinelPipeline
         if (topDetector is not null)
             scanActivity?.SetTag("sentinel.top_detector", topDetector.DetectorId.Value);
 
+        if (findings is ScanFindings screened) screened.Failures = pipelineResult.Failures; // Before the clean return: a failed scan is often clean.
         if (pipelineResult.IsClean) return null;
 
         foreach (var d in pipelineResult.Detections)

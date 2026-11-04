@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.AI;
+using AI.Sentinel.Detection;
 using AI.Sentinel.Domain;
 using AI.Sentinel.Redaction;
 using AI.Sentinel.Screening;
@@ -56,7 +57,7 @@ public sealed partial class SentinelPipeline
                 $"AI.Sentinel could not mask the text ({ex.GetType().Name}); it was not scanned or returned.");
         }
 
-        var findings = new List<ScanFinding>();
+        var findings = new ScanFindings();
         SentinelError? error;
         try
         {
@@ -74,11 +75,18 @@ public sealed partial class SentinelPipeline
 
         var (redactedText, redactions) = Placeholders(text, masked, replaced, options?.Placeholder);
         var detections = findings.ConvertAll(f => f.Detection);
+
         return error is SentinelError.ThreatDetected threat
             ? new ScreeningOutcome.Quarantined(threat.Action, redactedText, detections, redactions, sessionId)
+            {
+                Failures = findings.Failures,
+            }
             : new ScreeningOutcome.Passed(
                 SentinelActionRanking.MostRestrictive(findings.Select(f => f.Action)),
-                redactedText, detections, redactions, sessionId);
+                redactedText, detections, redactions, sessionId)
+            {
+                Failures = findings.Failures,
+            };
     }
 
     /// <summary>

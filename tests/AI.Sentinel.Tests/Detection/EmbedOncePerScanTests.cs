@@ -264,6 +264,19 @@ public class EmbedOncePerScanTests
     }
 
     [Fact]
+    public async Task Provider_failure_without_scope_is_listed_as_threw()
+    {
+        var gen = new YieldingEmbeddingGenerator(_ => true) { Failure = _ => new TaskCanceledException("timed out") };
+        var timingOut = new TestSemantic("TST-OPT", [FirstText], options: new SentinelOptions { EmbeddingGenerator = gen });
+        var rule = new TestSemantic("TST-RULE", ["rule detector example phrase"], fastPath: new Regex("calm", RegexOptions.None, TimeSpan.FromSeconds(1)));
+        var pipeline = new DetectionPipeline([timingOut, rule], configurations: null, reviewer: null);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DetectorFailure(new("TST-OPT"), DetectorFailureKind.Threw)], result.Failures);
+    }
+
+    [Fact]
     public async Task Detector_scores_exactly_the_texts_collected_for_the_scan()
     {
         // An override that answers differently on each call: the first call is the one the pipeline embeds, and
@@ -297,6 +310,124 @@ public class EmbedOncePerScanTests
         Assert.False(Fired(result, "TST-THROWS"));
         var message = Assert.Single(failures);
         Assert.Contains("detector TST-THROWS failed", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Bad_input_lists_only_the_detectors_that_needed_it()
+    {
+        var gen = new YieldingEmbeddingGenerator(batch => batch.Contains(FirstText, StringComparer.Ordinal));
+        var needsBoth = new TestSemantic("TST-BOTH", ["both example phrase"], texts: _ => [FirstText, SecondText]);
+        var needsSecond = new TestSemantic("TST-SECOND", ["second example phrase"], texts: _ => [SecondText]);
+        var (pipeline, _) = Pipeline([needsBoth, needsSecond], gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText), User(SecondText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DetectorFailure(new("TST-BOTH"), DetectorFailureKind.TextsNotEmbedded)], result.Failures);
+        Assert.False(result.IsComplete);
+    }
+
+    [Fact]
+    public async Task Example_failure_is_listed_as_examples_not_embedded()
+    {
+        const string BrokenExample = "example phrase the provider refuses to embed";
+        var gen = new YieldingEmbeddingGenerator(batch => batch.Contains(BrokenExample, StringComparer.Ordinal));
+        var detectors = SixDetectors();
+        detectors.Add(new TestSemantic("TST-BROKEN", [BrokenExample, FirstText]));
+        var (pipeline, _) = Pipeline(detectors, gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText), User(SecondText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DetectorFailure(new("TST-BROKEN"), DetectorFailureKind.ExamplesNotEmbedded)], result.Failures);
+    }
+
+    [Fact]
+    public async Task Rule_layer_match_after_text_failure_is_still_listed()
+    {
+        var gen = new YieldingEmbeddingGenerator(batch => batch.Contains(FirstText, StringComparer.Ordinal))
+        {
+            Failure = _ => new TaskCanceledException("timed out"),
+        };
+        var detectors = SixDetectors();
+        detectors.Add(new TestSemantic("TST-RULE", ["rule detector example phrase"], fastPath: new Regex("calm", RegexOptions.None, TimeSpan.FromSeconds(1))));
+        var (pipeline, _) = Pipeline(detectors, gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(SecondText), User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.True(Has(result, "TST-RULE", Severity.High));
+        Assert.Contains(new DetectorFailure(new("TST-RULE"), DetectorFailureKind.TextsNotEmbedded), result.Failures);
+    }
+
+    [Fact]
+    public async Task Throwing_text_selection_is_listed_as_texts_not_embedded()
+    {
+        var detectors = new List<IDetector>
+        {
+            new TestSemantic("TST-THROWS", [FirstText], texts: _ => throw new InvalidOperationException("selection failed")),
+        };
+        var (pipeline, _) = Pipeline(detectors, new YieldingEmbeddingGenerator());
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DetectorFailure(new("TST-THROWS"), DetectorFailureKind.TextsNotEmbedded)], result.Failures);
+    }
+
+    private sealed class ThrowingReviewer : IDetectionReviewer
+    {
+        public int Calls { get; private set; }
+
+        public ValueTask<ReviewVerdict> ReviewAsync(ReviewRequest request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            throw new HttpRequestException("provider down");
+        }
+    }
+
+    [Fact]
+    public async Task Embedding_failure_wins_over_a_failed_review_of_the_same_detector()
+    {
+        // FirstText embeds and matches the example, so the detector reaches review; SecondText does not embed.
+        var gen = new YieldingEmbeddingGenerator(batch => batch.Contains(SecondText, StringComparer.Ordinal));
+        var detector = new TestSemantic("TST-PREC", [FirstText], texts: _ => [FirstText, SecondText]);
+        var reviewer = new ThrowingReviewer();
+        var pipeline = new DetectionPipeline(
+            [detector], Uncapped, reviewer,
+            embeddingScope: new EmbeddingScope(gen, new InMemoryLruEmbeddingCache(), null),
+            reviewLimits: new ReviewLimits(4, TimeSpan.FromSeconds(30)));
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText), User(SecondText)), TestContext.Current.CancellationToken);
+
+        Assert.True(Has(result, "TST-PREC", Severity.High));
+        Assert.Equal(1, reviewer.Calls);
+        Assert.Equal([new DetectorFailure(new("TST-PREC"), DetectorFailureKind.TextsNotEmbedded)], result.Failures);
+    }
+
+    [Fact]
+    public async Task Texts_failure_wins_over_examples_failure()
+    {
+        const string BrokenExample = "example phrase the provider refuses to embed";
+        var gen = new YieldingEmbeddingGenerator(batch =>
+            batch.Contains(BrokenExample, StringComparer.Ordinal) || batch.Contains(FirstText, StringComparer.Ordinal));
+        var (pipeline, _) = Pipeline([new TestSemantic("TST-BOTHFAIL", [BrokenExample])], gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DetectorFailure(new("TST-BOTHFAIL"), DetectorFailureKind.TextsNotEmbedded)], result.Failures);
+    }
+
+    [Fact]
+    public async Task Warm_cache_scan_is_complete()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var cache = new InMemoryLruEmbeddingCache();
+        var warm = await new FakeEmbeddingGenerator().GenerateAsync([FirstText, SecondText], cancellationToken: ct);
+        cache.Set(FirstText, warm[0]);
+        cache.Set(SecondText, warm[1]);
+        var (pipeline, _) = Pipeline(SixDetectors(), new YieldingEmbeddingGenerator(), cache);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText), User(SecondText)), ct);
+
+        Assert.True(result.IsComplete);
+        Assert.Empty(result.Failures);
     }
 
     private sealed class ThrowingCache : IEmbeddingCache
