@@ -728,12 +728,11 @@ public sealed partial class SentinelPipeline
     /// <summary>One scan with no rate-limit check, collecting every finding.</summary>
     private ValueTask<SentinelError?> ScanCollectingAsync(
         IReadOnlyList<ChatMessage> messages, SessionId sessionId, List<ScanFinding> findings,
-        IReadOnlySet<string>? exemptPlaceholders, int newMessagesFrom, CancellationToken ct,
-        List<DetectorFailure>? failures = null)
+        IReadOnlySet<string>? exemptPlaceholders, int newMessagesFrom, CancellationToken ct)
     {
         var systemPrompt = SystemPromptOf(messages);
         return ScanAsync(messages, sessionId, options.DefaultSenderId, options.DefaultReceiverId, ct, systemPrompt,
-            new Exemptions(exemptPlaceholders), findings: findings, newMessagesFrom: newMessagesFrom, failures: failures);
+            new Exemptions(exemptPlaceholders), findings: findings, newMessagesFrom: newMessagesFrom);
     }
 
     /// <summary>
@@ -837,8 +836,7 @@ public sealed partial class SentinelPipeline
         Exemptions exemptions = default,
         string? llmId = null,
         List<ScanFinding>? findings = null,
-        int newMessagesFrom = 0,
-        List<DetectorFailure>? failures = null)
+        int newMessagesFrom = 0)
     {
         var history = await SessionHistory.ReadAsync(
             auditStore, sessionId.Value, _timeProvider.GetUtcNow(), options.OnDetectorFailure, ct).ConfigureAwait(false);
@@ -854,7 +852,7 @@ public sealed partial class SentinelPipeline
         if (topDetector is not null)
             scanActivity?.SetTag("sentinel.top_detector", topDetector.DetectorId.Value);
 
-        failures?.AddRange(pipelineResult.Failures); // Before the clean return: a failed scan is often clean.
+        if (findings is ScanFindings screened) screened.Failures = pipelineResult.Failures; // Before the clean return: a failed scan is often clean.
         if (pipelineResult.IsClean) return null;
 
         foreach (var d in pipelineResult.Detections)

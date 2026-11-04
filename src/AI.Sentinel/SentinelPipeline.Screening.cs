@@ -57,13 +57,12 @@ public sealed partial class SentinelPipeline
                 $"AI.Sentinel could not mask the text ({ex.GetType().Name}); it was not scanned or returned.");
         }
 
-        var findings = new List<ScanFinding>();
-        var failures = new List<DetectorFailure>();
+        var findings = new ScanFindings();
         SentinelError? error;
         try
         {
             error = await ScanCollectingAsync([new ChatMessage(ChatRole.User, masked)], sessionId, findings,
-                RedactionScope.ExemptPlaceholders(session, parent: null), newMessagesFrom: 0, ct, failures).ConfigureAwait(false);
+                RedactionScope.ExemptPlaceholders(session, parent: null), newMessagesFrom: 0, ct).ConfigureAwait(false);
 
             // The masked text is returned on both verdicts, so its redactions are recorded on both.
             await AppendRedactionsAsync(session, sessionId, ct).ConfigureAwait(false);
@@ -77,18 +76,16 @@ public sealed partial class SentinelPipeline
         var (redactedText, redactions) = Placeholders(text, masked, replaced, options?.Placeholder);
         var detections = findings.ConvertAll(f => f.Detection);
 
-        // The shared empty array on a clean screen. Not `[]` in the conditional: there it would build a new List.
-        IReadOnlyList<DetectorFailure> reported = failures.Count == 0 ? Array.Empty<DetectorFailure>() : failures;
         return error is SentinelError.ThreatDetected threat
             ? new ScreeningOutcome.Quarantined(threat.Action, redactedText, detections, redactions, sessionId)
             {
-                Failures = reported,
+                Failures = findings.Failures,
             }
             : new ScreeningOutcome.Passed(
                 SentinelActionRanking.MostRestrictive(findings.Select(f => f.Action)),
                 redactedText, detections, redactions, sessionId)
             {
-                Failures = reported,
+                Failures = findings.Failures,
             };
     }
 
