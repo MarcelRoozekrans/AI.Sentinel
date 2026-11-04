@@ -121,4 +121,17 @@ public sealed class SqliteApprovalReasonTests : IDisposable
         ver.CommandText = "PRAGMA user_version;";
         Assert.Equal(2L, (long)ver.ExecuteScalar()!);
     }
+
+    [Fact]
+    public async Task ReopeningMigratedV2Database_KeepsRowsAndReasons()
+    {
+        await using (var first = NewStore())
+        {
+            await first.EnsureRequestAsync(new TestSecurityContext("alice"), MakeSpec(), MakeCtx("kept"), TestContext.Current.CancellationToken);
+        }
+
+        await using var second = NewStore();
+        var pending = Assert.Single(await ListAsync(second));
+        Assert.Equal("kept", pending.Reason);
+    }
 }
