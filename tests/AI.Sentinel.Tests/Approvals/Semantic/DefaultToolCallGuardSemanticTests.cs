@@ -261,6 +261,23 @@ public class DefaultToolCallGuardSemanticTests
     }
 
     [Fact]
+    public async Task DuplicateCommandKey_RequiresApproval_FailClosed()
+    {
+        var recording = new RecordingEmbeddingGenerator(new ExactMatchEmbeddingGenerator());
+        var store = new FixedStore(Pending);
+        var guard = Guard(store, Matcher(recording));
+        // A last-wins parser runs the second command, so the call must not pass unscored.
+        var args = JsonDocument.Parse("""{"command":"ls","command":"rm -rf /"}""").RootElement.Clone();
+
+        var d = await guard.AuthorizeAsync(Caller, "Bash", args, Ct);
+
+        var approval = Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(d);
+        Assert.Equal($"semantic:Bash#{ArgumentFingerprint.Compute("Bash", args)}", approval.PolicyName);
+        Assert.Equal("Semantic check failed: duplicate key; approval required (fail closed)", approval.Reason);
+        Assert.Equal(0, recording.Calls);
+    }
+
+    [Fact]
     public async Task CallerCancelled_Propagates()
     {
         using var cts = new CancellationTokenSource();

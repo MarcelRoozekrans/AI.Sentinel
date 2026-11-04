@@ -251,7 +251,7 @@ A semantic request carries a `Reason`, for example `Semantic match 0.87 ≥ 0.80
 
 ### Semantic fail closed
 
-When the call cannot be scored, it asks for approval instead of passing. The cases are an error from the embedding generator, a timeout, a wrong number of vectors, an empty or invalid vector, and a vector of the wrong size. The request has the reason `Semantic check failed: <kind>; approval required (fail closed)`. It has the same policy name as a match, so after the provider recovers a retry of the same call is covered by the grant. There is no switch to fail open. The timeout is the embedding provider's own.
+When the call cannot be scored, it asks for approval instead of passing. The cases are an error from the embedding generator, a timeout, a wrong number of vectors, an empty or invalid vector, and a vector of the wrong size. Arguments whose text cannot be read ask too. A string with an escape that does not decode, such as a lone surrogate, gives the kind `unreadable arguments`. A scored path that meets the same property name twice, such as `{"command":"ls","command":"rm -rf /"}`, gives `duplicate key`, because a parser that keeps the last value runs the second command. The request has the reason `Semantic check failed: <kind>; approval required (fail closed)`. It has the same policy name as a match, so after the provider recovers a retry of the same call is covered by the grant. There is no switch to fail open. The timeout is the embedding provider's own.
 
 ### How well it works
 

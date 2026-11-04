@@ -73,6 +73,60 @@ public class SemanticApprovalTextTests
     }
 
     [Fact]
+    public void WholeJson_LoneSurrogate_ThrowsUnreadable()
+    {
+        var ex = Assert.Throws<SemanticTextException>(
+            () => SemanticApprovalText.Select("db_query", Json("""{"sql":"DROP TABLE a","note":"\ud800"}"""), null, Max));
+
+        Assert.Equal(SemanticTextException.UnreadableArguments, ex.Kind);
+    }
+
+    [Fact]
+    public void Bash_DuplicateCommandKey_ThrowsDuplicateKey()
+    {
+        var ex = Assert.Throws<SemanticTextException>(
+            () => SemanticApprovalText.Select("Bash", Json("""{"command":"ls","command":"rm -rf /"}"""), null, Max));
+
+        Assert.Equal(SemanticTextException.DuplicateKey, ex.Kind);
+    }
+
+    [Fact]
+    public void Path_LoneSurrogate_ThrowsUnreadable()
+    {
+        var ex = Assert.Throws<SemanticTextException>(
+            () => SemanticApprovalText.Select("Bash", Json("""{"command":"rm -rf /\ud800"}"""), null, Max));
+
+        Assert.Equal(SemanticTextException.UnreadableArguments, ex.Kind);
+    }
+
+    [Fact]
+    public void ExplicitPaths_AnyUndecidablePath_Throws_EvenWhenAnotherResolves()
+    {
+        var paths = new[] { ArgumentPath.Parse("$.a"), ArgumentPath.Parse("$.b") };
+
+        var ex = Assert.Throws<SemanticTextException>(
+            () => SemanticApprovalText.Select("t", Json("""{"a":"drop it","b":1,"b":2}"""), paths, Max));
+
+        Assert.Equal(SemanticTextException.DuplicateKey, ex.Kind);
+    }
+
+    [Fact]
+    public void StringArgs_LoneSurrogate_ThrowsUnreadable()
+    {
+        var ex = Assert.Throws<SemanticTextException>(() => SemanticApprovalText.Select("t", Json("\"\\ud800\""), null, Max));
+
+        Assert.Equal(SemanticTextException.UnreadableArguments, ex.Kind);
+    }
+
+    [Fact]
+    public void DuplicateKeyOffThePath_StillScoresThePath()
+    {
+        var result = SemanticApprovalText.Select("Bash", Json("""{"command":"ls","d":1,"d":2}"""), null, Max);
+
+        Assert.Equal("ls", Assert.Single(result).Text);
+    }
+
+    [Fact]
     public void BlankAndDuplicateTexts_AreDropped()
     {
         var paths = new[] { ArgumentPath.Parse("$.a"), ArgumentPath.Parse("$.b"), ArgumentPath.Parse("$.c") };

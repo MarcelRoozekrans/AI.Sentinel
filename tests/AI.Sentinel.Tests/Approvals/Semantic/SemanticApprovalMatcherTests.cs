@@ -398,6 +398,24 @@ public class SemanticApprovalMatcherTests
         Assert.Equal("ObjectDisposedException", Assert.IsType<SemanticMatch.Failed>(match).Kind);
     }
 
+    [Theory]
+    [InlineData("Bash", """{"command":"ls","command":"rm -rf /"}""", "duplicate key")]
+    [InlineData("db_query", """{"sql":"DROP TABLE a","note":"\ud800"}""", "unreadable arguments")]
+    public async Task UndecidableArgumentText_Failed_WithoutGeneratorRequest(string tool, string json, string kind)
+    {
+        var recording = new RecordingEmbeddingGenerator(new ExactMatchEmbeddingGenerator());
+        var matcher = new SemanticApprovalMatcher(
+            new EmbeddingScope(recording, new InMemoryLruEmbeddingCache(), null),
+            new SemanticApprovalSettings(), [(tool, new SemanticApprovalSpec { BackendBinding = "Operator" })], Max);
+
+        var match = await matcher.MatchAsync(tool, Json(json), CancellationToken.None);
+
+        var failed = Assert.IsType<SemanticMatch.Failed>(match);
+        Assert.Equal(kind, failed.Kind);
+        Assert.Equal($"Semantic check failed: {kind}; approval required (fail closed)", failed.Reason);
+        Assert.Equal(0, recording.Calls);
+    }
+
     [Fact]
     public void Reason_Copy_MatchesSpec()
     {

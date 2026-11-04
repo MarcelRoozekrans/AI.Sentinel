@@ -35,7 +35,8 @@ internal abstract record SemanticMatch(string Key, SemanticApprovalSpec Spec)
     }
 
     /// <summary>The texts could not be scored: the call needs approval (fail closed).</summary>
-    /// <param name="Kind">The exception type name, or <c>dimension mismatch</c> or <c>empty vector</c>.</param>
+    /// <param name="Kind">The exception type name, or a kind such as <c>dimension mismatch</c>, <c>empty vector</c>,
+    /// <c>unreadable arguments</c> or <c>duplicate key</c>.</param>
     /// <param name="Truncated">Whether any selected text was cut to the size cap.</param>
     internal sealed record Failed(string Key, SemanticApprovalSpec Spec, string Kind, bool Truncated) : SemanticMatch(Key, Spec)
     {

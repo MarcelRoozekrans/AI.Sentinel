@@ -14,6 +14,9 @@ internal static class SemanticApprovalText
     // shell command as "command" in toolArgs, as for Bash.
     private static readonly ArgumentPath[] CommandPaths = [ArgumentPath.Parse(CommandPath)];
 
+    /// <summary>The texts to score for a call of <paramref name="toolName"/>. A missing or null value yields no text.</summary>
+    /// <exception cref="SemanticTextException">The arguments hold text that cannot be decoded, or a selected path
+    /// meets a duplicate key: the call carries text that cannot be scored, so it must not pass unscored.</exception>
     public static IReadOnlyList<ScoredText> Select(string toolName, JsonElement args, IReadOnlyList<ArgumentPath>? paths, int maxBytes)
     {
         ArgumentNullException.ThrowIfNull(toolName);
@@ -53,14 +56,26 @@ internal static class SemanticApprovalText
         var effective = paths ?? (toolName is "Bash" or "bash" or "powershell" ? CommandPaths : null);
         if (effective is null)
         {
-            if (ArgumentPath.TryWriteCompact(args, out var compact))
-                Add(Root, compact);
+            if (!ArgumentPath.TryWriteCompact(args, out var compact))
+                throw new SemanticTextException(SemanticTextException.UnreadableArguments);
+            Add(Root, compact);
             return result;
         }
 
         foreach (var path in effective)
-            if (path.Resolve(args, out var text) == ArgumentPathResult.Resolved)
-                Add(path.Text, text);
+        {
+            switch (path.Resolve(args, out var text))
+            {
+                case ArgumentPathResult.Resolved:
+                    Add(path.Text, text);
+                    break;
+                case ArgumentPathResult.Unreadable:
+                    throw new SemanticTextException(SemanticTextException.UnreadableArguments);
+                case ArgumentPathResult.DuplicateKey:
+                    throw new SemanticTextException(SemanticTextException.DuplicateKey);
+            }
+        }
+
         return result;
     }
 
@@ -77,7 +92,8 @@ internal static class SemanticApprovalText
         }
         catch (InvalidOperationException)
         {
-            return null;
+            // A string with an escape that does not decode, such as a lone surrogate.
+            throw new SemanticTextException(SemanticTextException.UnreadableArguments);
         }
     }
 

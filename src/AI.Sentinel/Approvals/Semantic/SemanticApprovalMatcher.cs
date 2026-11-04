@@ -9,8 +9,9 @@ namespace AI.Sentinel.Approvals.Semantic;
 /// <remarks>Each selected text is embedded once, through the scope's scan cache, and compared to every example
 /// by cosine similarity; the call's score is the maximum. The example vectors are embedded once per generator
 /// and shared by concurrent first calls. Any embedding failure, including an empty vector or vectors of
-/// different lengths, a zero-norm or a non-finite vector, is a <see cref="SemanticMatch.Failed"/>; cancellation of
-/// the caller's token propagates.</remarks>
+/// different lengths, a zero-norm or a non-finite vector, is a <see cref="SemanticMatch.Failed"/>, and so are
+/// arguments whose text cannot be read: an escape that does not decode or a duplicate key on a selected path.
+/// Cancellation of the caller's token propagates.</remarks>
 internal sealed class SemanticApprovalMatcher
 {
     // A text the embedder reported as done but returned no vector for.
@@ -111,7 +112,12 @@ internal sealed class SemanticApprovalMatcher
         {
             // A provider often surfaces a cancellation as its own exception type; cancellation wins.
             ct.ThrowIfCancellationRequested();
-            var kind = ex is InvalidEmbeddingException invalid ? invalid.Kind : ex.GetType().Name;
+            var kind = ex switch
+            {
+                InvalidEmbeddingException invalid => invalid.Kind,
+                SemanticTextException text => text.Kind,
+                _ => ex.GetType().Name,
+            };
             return new SemanticMatch.Failed(key, spec, kind, truncated);
         }
     }
