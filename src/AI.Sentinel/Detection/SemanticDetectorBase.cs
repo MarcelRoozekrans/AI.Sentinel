@@ -674,13 +674,27 @@ public abstract class SemanticDetectorBase : IDetector
     /// Internal so the offline threshold evaluation scores with exactly this math.</summary>
     internal static float MaxSimilarity(ReadOnlySpan<float> query, ReadOnlyMemory<float>[] references)
     {
-        var max = 0f;
-        foreach (var r in references)
-        {
-            var sim = CosineSimilarity(query, r.Span);
-            if (sim > max) max = sim;
-        }
+        MaxSimilarityIndex(query, references, out var max);
         return max;
+    }
+
+    /// <summary>The index of the first reference vector with the highest cosine similarity to <paramref name="query"/>,
+    /// or -1 when none is above 0; <paramref name="similarity"/> is that similarity, as <see cref="MaxSimilarity"/> returns it.</summary>
+    internal static int MaxSimilarityIndex(ReadOnlySpan<float> query, ReadOnlyMemory<float>[] references, out float similarity)
+    {
+        var max = 0f;
+        var index = -1;
+        for (var i = 0; i < references.Length; i++)
+        {
+            var sim = CosineSimilarity(query, references[i].Span);
+            if (sim > max)
+            {
+                max = sim;
+                index = i;
+            }
+        }
+        similarity = max;
+        return index;
     }
 
     private static float CosineSimilarity(ReadOnlySpan<float> a, ReadOnlySpan<float> b)
