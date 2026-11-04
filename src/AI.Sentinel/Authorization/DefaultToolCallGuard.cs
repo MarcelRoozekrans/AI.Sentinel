@@ -173,9 +173,9 @@ internal sealed class DefaultToolCallGuard(
     private IApprovalStore RequireStore() => approvalStore ?? throw new InvalidOperationException(
         "RequireApproval or RequireSemanticApproval configured but no IApprovalStore registered. The InMemory store " +
         "is auto-registered by AddAISentinel when bindings carry an ApprovalSpec or semantic approvals are configured; " +
-        "if you cleared it explicitly, register one of " +
-        "AddSentinelSqliteApprovalStore / AddSentinelEntraPimApprovalStore, or " +
-        "services.AddSingleton<IApprovalStore, InMemoryApprovalStore>().");
+        "if you cleared it explicitly, register AddSentinelSqliteApprovalStore or " +
+        "services.AddSingleton<IApprovalStore, InMemoryApprovalStore>(). AddSentinelEntraPimApprovalStore also serves " +
+        "RequireApproval rules with GrantScope.Rule, but not call-scoped rules or semantic approvals.");
 
     /// <summary>
     /// Returns the spec of the first group member with no conditions, or whose conditions all

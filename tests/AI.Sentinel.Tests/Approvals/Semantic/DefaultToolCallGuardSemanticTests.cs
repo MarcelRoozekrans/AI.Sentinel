@@ -73,6 +73,12 @@ public class DefaultToolCallGuardSemanticTests
             new(UnitResult<AuthorizationFailure>.Success());
     }
 
+    private sealed class DenyAll : IAuthorizationPolicy
+    {
+        public ValueTask<UnitResult<AuthorizationFailure>> EvaluateAsync(ISecurityContext ctx, CancellationToken ct = default) =>
+            new(UnitResult<AuthorizationFailure>.Failure(new AuthorizationFailure(AuthorizationFailure.DefaultDenyCode, "no")));
+    }
+
     private static readonly ApprovalState Pending =
         new ApprovalState.Pending("req-1", "https://example.test/approve/req-1", DateTimeOffset.UtcNow);
 
@@ -100,7 +106,7 @@ public class DefaultToolCallGuardSemanticTests
         ILogger<DefaultToolCallGuard>? logger = null,
         params ToolCallPolicyBinding[] bindings) =>
         new(bindings,
-            new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal) { ["allow-all"] = new AllowAll() },
+            new Dictionary<string, IAuthorizationPolicy>(StringComparer.Ordinal) { ["allow-all"] = new AllowAll(), ["deny-all"] = new DenyAll() },
             @default,
             store,
             logger,
@@ -219,6 +225,20 @@ public class DefaultToolCallGuardSemanticTests
 
         Assert.IsType<AuthorizationDecision.RequireApprovalDecision>(flagged);
         Assert.IsType<AuthorizationDecision.AllowDecision>(benign);
+    }
+
+    [Fact]
+    public async Task FailingToolPolicy_DenyStands_NoEmbeddingRequest()
+    {
+        var recording = new RecordingEmbeddingGenerator(new ExactMatchEmbeddingGenerator());
+        var store = new FixedStore(Pending);
+        var guard = Guard(store, Matcher(recording), bindings: new ToolCallPolicyBinding("Bash", "deny-all"));
+
+        var d = await guard.AuthorizeAsync(Caller, "Bash", Command(Destructive), Ct);
+
+        Assert.Equal("deny-all", Assert.IsType<AuthorizationDecision.DenyDecision>(d).PolicyName);
+        Assert.Equal(0, recording.Calls);
+        Assert.Empty(store.Requests);
     }
 
     [Fact]
