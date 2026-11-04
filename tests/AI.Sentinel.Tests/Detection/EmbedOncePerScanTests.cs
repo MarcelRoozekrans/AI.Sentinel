@@ -323,7 +323,7 @@ public class EmbedOncePerScanTests
         var result = await pipeline.RunAsync(Ctx(User(FirstText), User(SecondText)), TestContext.Current.CancellationToken);
 
         Assert.Equal([new DetectorFailure(new("TST-BOTH"), DetectorFailureKind.TextsNotEmbedded)], result.Failures);
-        Assert.False(result.Complete);
+        Assert.False(result.IsComplete);
     }
 
     [Fact]
@@ -371,6 +371,36 @@ public class EmbedOncePerScanTests
         Assert.Equal([new DetectorFailure(new("TST-THROWS"), DetectorFailureKind.TextsNotEmbedded)], result.Failures);
     }
 
+    private sealed class ThrowingReviewer : IDetectionReviewer
+    {
+        public int Calls { get; private set; }
+
+        public ValueTask<ReviewVerdict> ReviewAsync(ReviewRequest request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            throw new HttpRequestException("provider down");
+        }
+    }
+
+    [Fact]
+    public async Task Embedding_failure_wins_over_a_failed_review_of_the_same_detector()
+    {
+        // FirstText embeds and matches the example, so the detector reaches review; SecondText does not embed.
+        var gen = new YieldingEmbeddingGenerator(batch => batch.Contains(SecondText, StringComparer.Ordinal));
+        var detector = new TestSemantic("TST-PREC", [FirstText], texts: _ => [FirstText, SecondText]);
+        var reviewer = new ThrowingReviewer();
+        var pipeline = new DetectionPipeline(
+            [detector], Uncapped, reviewer,
+            embeddingScope: new EmbeddingScope(gen, new InMemoryLruEmbeddingCache(), null),
+            reviewLimits: new ReviewLimits(4, TimeSpan.FromSeconds(30)));
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText), User(SecondText)), TestContext.Current.CancellationToken);
+
+        Assert.True(Has(result, "TST-PREC", Severity.High));
+        Assert.Equal(1, reviewer.Calls);
+        Assert.Equal([new DetectorFailure(new("TST-PREC"), DetectorFailureKind.TextsNotEmbedded)], result.Failures);
+    }
+
     [Fact]
     public async Task Texts_failure_wins_over_examples_failure()
     {
@@ -396,7 +426,7 @@ public class EmbedOncePerScanTests
 
         var result = await pipeline.RunAsync(Ctx(User(FirstText), User(SecondText)), ct);
 
-        Assert.True(result.Complete);
+        Assert.True(result.IsComplete);
         Assert.Empty(result.Failures);
     }
 

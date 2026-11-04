@@ -15,7 +15,7 @@
 - No behaviour change: chat, hooks, MCP and `ScreenAsync` verdicts stay as they are; only the new members are added.
 - `Failures` is an `init` property with default `[]`, never a positional record parameter: the public constructors and `Deconstruct` of `PipelineResult`, `ScreeningOutcome.Passed` and `ScreeningOutcome.Quarantined` must not change.
 - The signal carries no exception message and no scanned text.
-- A clean scan allocates no failure list: `Failures` is the shared empty `[]`. The per-scan kinds array sits next to `outcomes` and is the only extra allocation.
+- A clean scan allocates no failure list: `Failures` is the shared empty `[]`. The per-scan kinds array is rented from `ArrayPool` and returned after the scan, so a clean, complete scan allocates no more than before.
 - One entry per detector. The precedence follows the stages: embedding (`TextsNotEmbedded`, `ExamplesNotEmbedded`), then analysis (`Threw`, `RegexTimeout`), then review (`ReviewFailed`). The earliest recorded kind wins.
 - A review skipped because `MaxReviewsPerScan` ran out is not a failure.
 - `Failures` lists detectors in `_detectors` order.
@@ -48,7 +48,7 @@
   - `PipelineResult.Complete => Failures.Count == 0`
   - in `DetectionPipeline`: `private static void RecordFailure(DetectorFailureKind?[] failures, int index, DetectorFailureKind kind) => failures[index] ??= kind;`
   - `BuildResult(DetectionResult[] results, DetectorFailureKind?[] failures, DetectionResult? scanLimit = null)`
-- Decided: `RunAsync` allocates `failures = new DetectorFailureKind?[_detectors.Length]` per scan, as it already does for `outcomes`, and threads it like `outcomes`. Each detector writes only its own slot, so the concurrent analysis stage needs no locking. `BuildResult` returns the shared `[]` when every slot is null.
+- Decided: `RunAsync` rents `failures` from `ArrayPool<DetectorFailureKind?>.Shared` (cleared to `_detectors.Length`, returned in a `finally`) and threads it like `outcomes`. Each detector writes only its own slot, so the concurrent analysis stage needs no locking. `BuildResult` returns the shared `[]` when every slot is null.
 
 XML doc comments on each public member must say what each kind means, matching the spec's table.
 

@@ -121,36 +121,46 @@ public sealed class DetectionPipeline : IDetectionPipeline
 
         // Why each detector did not run to completion, indexed like _detectors. Each writes only its own slot, so the
         // concurrent analysis stage needs no lock; the earliest recorded kind stays.
-        var failures = new DetectorFailureKind?[_detectors.Length];
-
-        var results = await AnalyzeAllAsync(ctx, embedded, outcomes, failures, ct).ConfigureAwait(false);
-
-        // Floor/Cap before review, so candidacy uses the configured severity: a Cap below Medium keeps a rule-based
-        // result out of review. The clamp skips clean results, so a Floor never makes a clean result a candidate.
-        ApplySeverityClamp(results);
-
-        // After the clamp, so a configured cap holds the escalated severity; before the proposed severities, so a
-        // reviewer that confirms can lift a capped semantic result to it.
-        var escalated = await EscalateRepeatedAsync(ctx, results, outcomes, ct).ConfigureAwait(false);
-
-        // The severity each detector proposes before the semantic cap, None for a clean result. A review
-        // step can lift a capped result back to it, so it is only needed when review is on.
-        var reviewer = _reviewLimits.MaxPerScan > 0 ? _reviewer : null;
-        var proposed = reviewer is not null ? ProposedSeverities(results) : null;
-
-        ApplySemanticCap(results, outcomes, escalated);
-
-        if (reviewer is not null && proposed is not null)
+        // Rented, as a clean scan must not allocate more than before; the array may be longer than _detectors.
+        var failures = ArrayPool<DetectorFailureKind?>.Shared.Rent(_detectors.Length);
+        Array.Clear(failures, 0, _detectors.Length);
+        try
         {
-            await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, escalated, failures, ct).ConfigureAwait(false);
+            var results = await AnalyzeAllAsync(ctx, embedded, outcomes, failures, ct).ConfigureAwait(false);
+
+            // Floor/Cap before review, so candidacy uses the configured severity: a Cap below Medium keeps a rule-based
+            // result out of review. The clamp skips clean results, so a Floor never makes a clean result a candidate.
+            ApplySeverityClamp(results);
+
+            // After the clamp, so a configured cap holds the escalated severity; before the proposed severities, so a
+            // reviewer that confirms can lift a capped semantic result to it.
+            var escalated = await EscalateRepeatedAsync(ctx, results, outcomes, ct).ConfigureAwait(false);
+
+            // The severity each detector proposes before the semantic cap, None for a clean result. A review
+            // step can lift a capped result back to it, so it is only needed when review is on.
+            var reviewer = _reviewLimits.MaxPerScan > 0 ? _reviewer : null;
+            var proposed = reviewer is not null ? ProposedSeverities(results) : null;
+
+            ApplySemanticCap(results, outcomes, escalated);
+
+            if (reviewer is not null && proposed is not null)
+            {
+                await ReviewAllAsync(reviewer, ctx, results, proposed, outcomes, escalated, failures, ct).ConfigureAwait(false);
+            }
+
+            // After review: a verdict rebuilds the result, which would drop an override set earlier.
+            ApplyActionOverrides(results);
+
+            // Last, so no clamp, cap, review or action override touches it: the text was not scanned, which a
+            // setting for one detector cannot undo.
+            return BuildResult(results, failures, ctx.ExceedsScanBudget ? ScanLimitFinding(ctx) : null);
         }
-
-        // After review: a verdict rebuilds the result, which would drop an override set earlier.
-        ApplyActionOverrides(results);
-
-        // Last, so no clamp, cap, review or action override touches it: the text was not scanned, which a
-        // setting for one detector cannot undo.
-        return BuildResult(results, failures, ctx.ExceedsScanBudget ? ScanLimitFinding(ctx) : null);
+        finally
+        {
+            // Every analysis task is awaited before BuildResult and a review writes its slot only after its await, so no
+            // late write can reach the array once it is back in the pool.
+            ArrayPool<DetectorFailureKind?>.Shared.Return(failures);
+        }
     }
 
     private async ValueTask<DetectionResult[]> AnalyzeAllAsync(
@@ -811,7 +821,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
     private IReadOnlyList<DetectorFailure> FailureList(DetectorFailureKind?[] failures)
     {
         List<DetectorFailure>? list = null;
-        for (int i = 0; i < failures.Length; i++)
+        // Bounded by the detector count: a rented array is longer.
+        for (int i = 0; i < _detectors.Length; i++)
             if (failures[i] is { } kind)
                 (list ??= []).Add(new DetectorFailure(_detectors[i].Id, kind));
         // Not `list ?? []`: that would allocate a new List per clean scan instead of returning the shared empty list.

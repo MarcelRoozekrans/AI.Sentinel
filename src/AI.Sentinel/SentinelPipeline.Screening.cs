@@ -76,16 +76,19 @@ public sealed partial class SentinelPipeline
 
         var (redactedText, redactions) = Placeholders(text, masked, replaced, options?.Placeholder);
         var detections = findings.ConvertAll(f => f.Detection);
+
+        // The shared empty array on a clean screen. Not `[]` in the conditional: there it would build a new List.
+        IReadOnlyList<DetectorFailure> reported = failures.Count == 0 ? Array.Empty<DetectorFailure>() : failures;
         return error is SentinelError.ThreatDetected threat
             ? new ScreeningOutcome.Quarantined(threat.Action, redactedText, detections, redactions, sessionId)
             {
-                Failures = failures,
+                Failures = reported,
             }
             : new ScreeningOutcome.Passed(
                 SentinelActionRanking.MostRestrictive(findings.Select(f => f.Action)),
                 redactedText, detections, redactions, sessionId)
             {
-                Failures = failures,
+                Failures = reported,
             };
     }
 
