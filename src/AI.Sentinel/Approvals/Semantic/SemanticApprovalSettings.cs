@@ -17,7 +17,8 @@ public sealed class SemanticApprovalSettings
     /// <summary>Adds examples of calls that need approval.</summary>
     /// <param name="examples">Example texts; none may be blank.</param>
     /// <returns>The same <see cref="SemanticApprovalSettings"/> for fluent chaining.</returns>
-    /// <exception cref="ArgumentException">An example is null or blank.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="examples"/> or one of its elements is null.</exception>
+    /// <exception cref="ArgumentException">An example is blank.</exception>
     public SemanticApprovalSettings AddExamples(params string[] examples)
     {
         ArgumentNullException.ThrowIfNull(examples);
@@ -25,5 +26,22 @@ public sealed class SemanticApprovalSettings
             ArgumentException.ThrowIfNullOrWhiteSpace(e, nameof(examples));
         _examples.AddRange(examples);
         return this;
+    }
+
+    /// <summary>Returns an independent copy of these settings.</summary>
+    internal SemanticApprovalSettings Clone()
+    {
+        var copy = new SemanticApprovalSettings();
+        copy.CopyFrom(this);
+        return copy;
+    }
+
+    /// <summary>Replaces this instance's values with those of <paramref name="other"/>.</summary>
+    internal void CopyFrom(SemanticApprovalSettings other)
+    {
+        Threshold = other.Threshold;
+        ReplaceExamples = other.ReplaceExamples;
+        _examples.Clear();
+        _examples.AddRange(other._examples);
     }
 }

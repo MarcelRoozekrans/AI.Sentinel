@@ -95,6 +95,21 @@ public class SemanticApprovalOptionsTests
     }
 
     [Fact]
+    public void FailedConfigure_LeavesSettingsUnchanged()
+    {
+        var opts = new SentinelOptions();
+        opts.ConfigureSemanticApprovals(s => { s.Threshold = 0.6f; s.AddExamples("keep"); });
+
+        Assert.Throws<InvalidOperationException>(() =>
+            opts.ConfigureSemanticApprovals(s => { s.Threshold = 5f; s.ReplaceExamples = true; s.AddExamples("drop"); }));
+
+        var settings = opts.GetSemanticApprovals().Settings;
+        Assert.Equal(0.6f, settings.Threshold);
+        Assert.False(settings.ReplaceExamples);
+        Assert.Equal(new[] { "keep" }, settings.AddedExamples.ToArray());
+    }
+
+    [Fact]
     public void GlobalThresholdOne_IsAccepted()
     {
         var opts = new SentinelOptions();

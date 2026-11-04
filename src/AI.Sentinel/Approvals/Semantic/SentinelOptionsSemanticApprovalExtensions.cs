@@ -45,11 +45,14 @@ public static class SentinelOptionsSemanticApprovalExtensions
     {
         ArgumentNullException.ThrowIfNull(opts);
         ArgumentNullException.ThrowIfNull(configure);
-        var settings = opts.GetSemanticApprovals().Settings;
-        configure(settings);
-        if (settings.Threshold is { } t && !(t > 0f && t <= 1f))
+        // Configure a copy and commit only when valid, so a caller that catches the exception keeps the old settings.
+        var stored = opts.GetSemanticApprovals().Settings;
+        var candidate = stored.Clone();
+        configure(candidate);
+        if (candidate.Threshold is { } t && !(t > 0f && t <= 1f))
             throw new InvalidOperationException(
                 $"Semantic approval settings have threshold {t}; it must be above 0 and at most 1.");
+        stored.CopyFrom(candidate);
         return opts;
     }
 }
