@@ -27,7 +27,8 @@ namespace AI.Sentinel.Mcp;
 /// Authorization is intentionally not consulted here — resources are data, not actions.
 /// A pipeline that throws fails closed (#544), matching <see cref="ToolCallInterceptor"/> and
 /// <see cref="PromptGetInterceptor"/>: the read is blocked with <see cref="McpFailClosed.Block"/> and only the
-/// exception type is logged, never its message. The caller's own cancellation propagates; any other cancellation, such as an internal timeout, fails closed. A <see cref="SentinelError.ThreatDetected"/>
+/// exception type is logged, never its message. The caller's own cancellation propagates; any other cancellation,
+/// such as an internal timeout, fails closed. A <see cref="SentinelError.ThreatDetected"/>
 /// blocks via <see cref="McpProtocolException"/> with <see cref="McpErrorCode.InternalError"/>.
 /// </para>
 /// <para>

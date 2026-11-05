@@ -148,14 +148,16 @@ public class McpFailClosedTests
     {
         var stderr = new StringWriter();
         using var cts = new CancellationTokenSource();
+        var store = new RingBufferAuditStore(16);
         var handler = ToolCallInterceptor.Create(
-            ThrowingPipeline(() => CancelRequest(cts), throwFromCall), stderr,
+            ThrowingPipeline(() => CancelRequest(cts), throwFromCall), stderr, audit: store,
             placeholders: redacting ? NewStore() : null)(new Counter().Next);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () => await handler(Context(ReadFile()), cts.Token));
 
         Assert.DoesNotContain("FailClosed", stderr.ToString());
+        Assert.Empty(await RecordingAuditForwarder.ReadAllAsync(store));
     }
 
     [Theory]

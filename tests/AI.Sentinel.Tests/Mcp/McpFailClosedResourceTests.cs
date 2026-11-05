@@ -135,8 +135,20 @@ public class McpFailClosedResourceTests
             ThrowingPipeline(() => McpFailClosedTests.CancelRequest(cts)),
             placeholders: redacting ? NewStore() : null)(Returning(result));
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await handler(
-            Context(new ReadResourceRequestParams { Uri = "file:///x.txt" }), cts.Token));
+        var prev = Console.Error;
+        var sw = new StringWriter();
+        Console.SetError(sw);
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await handler(
+                Context(new ReadResourceRequestParams { Uri = "file:///x.txt" }), cts.Token));
+        }
+        finally
+        {
+            Console.SetError(prev);
+        }
+
+        Assert.DoesNotContain("fail_closed", sw.ToString());
     }
 
     [Theory]
