@@ -156,4 +156,45 @@ public class McpFailClosedTests
 
         Assert.DoesNotContain("FailClosed", stderr.ToString());
     }
+
+    private static McpRequestHandler<GetPromptRequestParams, GetPromptResult> HelloPrompt => (_, _) =>
+        new ValueTask<GetPromptResult>(new GetPromptResult
+        {
+            Messages = [new PromptMessage { Role = Role.User, Content = new TextContentBlock { Text = "hello" } }],
+        });
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PromptGet_ScanThrows_Blocks(bool redacting)
+    {
+        var stderr = new StringWriter();
+        var handler = PromptGetInterceptor.Create(
+            ThrowingPipeline(), stderr, placeholders: redacting ? NewStore() : null)(HelloPrompt);
+
+        var ex = await Assert.ThrowsAsync<McpProtocolException>(
+            async () => await handler(Context(new GetPromptRequestParams { Name = "onboard" }), TestContext.Current.CancellationToken));
+
+        AssertFailClosed(ex);
+        var log = stderr.ToString();
+        Assert.Contains("event=prompts/get decision=FailClosed prompt=onboard phase=response reason=InvalidOperationException", log);
+        Assert.DoesNotContain("FailOpen", log);
+        Assert.DoesNotContain(LeakMarker, log);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PromptGet_Cancelled_Propagates(bool redacting)
+    {
+        var stderr = new StringWriter();
+        var handler = PromptGetInterceptor.Create(
+            ThrowingPipeline(() => new OperationCanceledException()), stderr,
+            placeholders: redacting ? NewStore() : null)(HelloPrompt);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await handler(Context(new GetPromptRequestParams { Name = "onboard" }), TestContext.Current.CancellationToken));
+
+        Assert.DoesNotContain("FailClosed", stderr.ToString());
+    }
 }

@@ -14,8 +14,9 @@ namespace AI.Sentinel.Mcp;
 /// embedded in the prompt), blocks with <see cref="McpProtocolException"/>.
 /// </summary>
 /// <remarks>
-/// Sentinel exceptions are caught and fail-open to stderr, matching
-/// <see cref="ToolCallInterceptor"/>. Throws <see cref="McpProtocolException"/> on block
+/// A pipeline that throws fails closed, matching <see cref="ToolCallInterceptor"/>: the exception type goes to
+/// stderr, never its message, and the call is blocked with <see cref="McpFailClosed.Block"/>. Cancellation
+/// propagates. Throws <see cref="McpProtocolException"/> on block
 /// (not the base <see cref="McpException"/>) — the SDK's request pipeline silently wraps
 /// plain <c>McpException</c> into the return result, whereas <see cref="McpProtocolException"/>
 /// escapes as a real JSON-RPC error.
@@ -44,7 +45,7 @@ internal static class PromptGetInterceptor
 
     /// <summary>
     /// Redacts the prompt in place and scans the redacted copy. A threat blocks and nothing is written back or
-    /// audited as redacted. A pipeline failure fails open and logs only the exception type, because its message can
+    /// audited as redacted. A pipeline failure fails closed and logs only the exception type, because its message can
     /// carry the value.
     /// </summary>
     private static async ValueTask<GetPromptResult> InvokeRedactingAsync(
@@ -82,10 +83,7 @@ internal static class PromptGetInterceptor
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await stderr.WriteLineAsync(
-                $"[sentinel-mcp] event=prompts/get decision=FailOpen phase=response reason={ex.GetType().Name}"
-            ).ConfigureAwait(false);
-            return result;
+            throw await FailClosedAsync(ex, req.Name, stderr).ConfigureAwait(false);
         }
 
         await BlockIfThreatAsync(scanned.Error, req.Name, stderr).ConfigureAwait(false);
@@ -132,7 +130,7 @@ internal static class PromptGetInterceptor
             return result;
         }
 
-        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, sessionId, ct).ConfigureAwait(false);
+        var postError = await ScanAsync(pipeline, responseMessages, req.Name, stderr, sessionId, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(postError, req.Name, stderr).ConfigureAwait(false);
 
         await stderr.WriteLineAsync(
@@ -180,9 +178,10 @@ internal static class PromptGetInterceptor
             McpErrorCode.InternalError);
     }
 
-    private static async ValueTask<SentinelError?> ScanSafelyAsync(
+    private static async ValueTask<SentinelError?> ScanAsync(
         SentinelPipeline pipeline,
         Microsoft.Extensions.AI.ChatMessage[] messages,
+        string promptName,
         TextWriter stderr,
         SessionId? sessionId,
         CancellationToken ct)
@@ -191,12 +190,17 @@ internal static class PromptGetInterceptor
         {
             return await pipeline.ScanMessagesAsync(messages, ct: ct, sessionId: sessionId).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            await stderr.WriteLineAsync(
-                $"[sentinel-mcp] event=prompts/get decision=FailOpen phase=response reason={ex.GetType().Name}"
-            ).ConfigureAwait(false);
-            return null;
+            throw await FailClosedAsync(ex, promptName, stderr).ConfigureAwait(false);
         }
+    }
+
+    private static async ValueTask<McpProtocolException> FailClosedAsync(Exception ex, string promptName, TextWriter stderr)
+    {
+        await stderr.WriteLineAsync(
+            $"[sentinel-mcp] event=prompts/get decision=FailClosed prompt={promptName} phase=response reason={ex.GetType().Name}"
+        ).ConfigureAwait(false);
+        return McpFailClosed.Block(ex);
     }
 }
