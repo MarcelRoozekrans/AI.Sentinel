@@ -9,6 +9,14 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [5.1.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.1.0...v5.1.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* **detection:** never cache or score an unusable call-text vector ([#572](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/572)) ([b95c2a7](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/b95c2a7b854b00eb05747e949728934a1ce6b786))
+* **mcp:** fail closed when the detection pipeline throws ([#570](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/570)) ([204e949](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/204e949d41dd0e9050632a04144bf244806c2970))
+
 ## [5.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.0.0...v5.1.0) (2026-11-04)
 
 
