@@ -99,10 +99,15 @@ internal sealed class SemanticApprovalMatcher
 
             var examples = await _exampleTask.GetAsync(
                 _scope.Generator, this, static (m, token) => m.EmbedExamplesAsync(token), ct).ConfigureAwait(false);
-            var embeddings = await ScanEmbedder.EmbedAsync(_scope, inputs, ct).ConfigureAwait(false);
+            var embeddings = await ScanEmbedder.EmbedAsync(_scope, inputs, null, ct).ConfigureAwait(false);
             if (embeddings.FailedCount > 0)
             {
-                var kind = embeddings.FirstFailure?.GetType().Name ?? nameof(InvalidOperationException);
+                var kind = embeddings.FirstFailure switch
+                {
+                    InvalidEmbeddingException invalid => invalid.Kind,
+                    { } failure => failure.GetType().Name,
+                    _ => nameof(InvalidOperationException),
+                };
                 return new SemanticMatch.Failed(key, spec, kind, truncated);
             }
 

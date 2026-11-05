@@ -477,7 +477,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
     {
         try
         {
-            return await ScanEmbedder.EmbedAsync(scope, texts, ct).ConfigureAwait(false);
+            return await ScanEmbedder.EmbedAsync(scope, texts, null, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
