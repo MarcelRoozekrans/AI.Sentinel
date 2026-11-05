@@ -15,8 +15,8 @@ namespace AI.Sentinel.Mcp;
 /// </summary>
 /// <remarks>
 /// A pipeline that throws fails closed, matching <see cref="ToolCallInterceptor"/>: the exception type goes to
-/// stderr, never its message, and the call is blocked with <see cref="McpFailClosed.Block"/>. Cancellation
-/// propagates.
+/// stderr, never its message, and the call is blocked with <see cref="McpFailClosed.Block"/>. The caller's own cancellation
+/// propagates; any other cancellation, such as an internal timeout, fails closed.
 /// A block throws <see cref="McpProtocolException"/>, not the base <see cref="McpException"/>, because the SDK's
 /// request pipeline silently wraps a plain <c>McpException</c> into the return result, whereas
 /// <see cref="McpProtocolException"/> escapes as a real JSON-RPC error.
@@ -81,7 +81,7 @@ internal static class PromptGetInterceptor
                 pipeline, placeholders, context: [], content,
                 Microsoft.Extensions.AI.ChatRole.Assistant, sessionId, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             throw await FailClosedAsync(ex, req.Name, stderr).ConfigureAwait(false);
         }
@@ -190,7 +190,7 @@ internal static class PromptGetInterceptor
         {
             return await pipeline.ScanMessagesAsync(messages, ct: ct, sessionId: sessionId).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             throw await FailClosedAsync(ex, promptName, stderr).ConfigureAwait(false);
         }

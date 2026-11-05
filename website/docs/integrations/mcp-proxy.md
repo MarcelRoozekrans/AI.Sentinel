@@ -221,6 +221,7 @@ When the detection pipeline itself throws, the proxy blocks the tool call, promp
 - For a tool call, it also writes an `AUTHZ-DENY` audit entry with the `internal_error` code.
 - A tool whose result scan fails has already run. The proxy blocks its result, not the call.
 - A `resources/read` with several items is blocked whole when the scan of any item fails, and nothing is written back.
+- The caller's own cancellation propagates and is not a block. A cancellation the caller did not ask for, such as an internal timeout, counts as a pipeline error and blocks.
 - There is no switch to fail open, as with the hook CLIs.
 - A single detector that fails is still skipped and reported in the scan result, not blocked.
 

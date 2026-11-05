@@ -130,11 +130,29 @@ public class McpFailClosedResourceTests
     public async Task ResourceRead_Cancelled_Propagates(bool redacting)
     {
         var result = new ReadResourceResult { Contents = [Text("hello")] };
+        using var cts = new CancellationTokenSource();
         var handler = ResourceReadInterceptor.Create(
-            ThrowingPipeline(() => new OperationCanceledException()),
+            ThrowingPipeline(() => McpFailClosedTests.CancelRequest(cts)),
             placeholders: redacting ? NewStore() : null)(Returning(result));
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await handler(
-            Context(new ReadResourceRequestParams { Uri = "file:///x.txt" }), TestContext.Current.CancellationToken));
+            Context(new ReadResourceRequestParams { Uri = "file:///x.txt" }), cts.Token));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResourceRead_ForeignCancellation_FailsClosed(bool redacting)
+    {
+        var result = new ReadResourceResult { Contents = [Text("hello")] };
+        var handler = ResourceReadInterceptor.Create(
+            ThrowingPipeline(() => new TaskCanceledException(LeakMarker)),
+            placeholders: redacting ? NewStore() : null)(Returning(result));
+
+        var (ex, stderr) = await BlockedAsync(handler);
+
+        AssertFailClosed(ex, "TaskCanceledException");
+        Assert.Contains("fail_closed", stderr);
+        Assert.DoesNotContain(LeakMarker, stderr);
     }
 }

@@ -35,7 +35,7 @@ Each one now logs a fail-closed event and throws the block:
 
 - **`tools/call` and `prompts/get` log** `[sentinel-mcp] event=… decision=FailClosed tool|prompt=<name> phase=<phase> reason=<ExceptionType>`.
 - **`resources/read` logs** through `StderrLogger` with `action=fail_closed`, `uri` and `error=<ExceptionType>`, matching its key-value style.
-- **`OperationCanceledException` propagates** and is not turned into a block. The two `ScanSafelyAsync` catches that catch everything today get the same `when (ex is not OperationCanceledException)` filter as the others.
+- **The caller's own cancellation propagates** and is not turned into a block: an `OperationCanceledException` passes through only when the request's token is cancelled. Any other one, such as a `TaskCanceledException` from an internal timeout, fails closed. Every fail-closed catch uses `when (ex is not OperationCanceledException || !ct.IsCancellationRequested)`.
 - **The tool-call audit entry reuses `HookInternalError.BuildAuditEntry`.** AI.Sentinel.ClaudeCode already exposes its internals to AI.Sentinel.Mcp. The entry's caller comes from `callerResolver` when one is set, and otherwise it is anonymous. Its reason is the agent-facing text, so the type only. A failure to write the entry is logged as `decision=AuditFailed` and never changes the block.
 - **Unchanged:**
   - the `AuditFailed` catches around `AppendRedactionsAsync`, because they run after a scan passed and let nothing through unscanned;
@@ -56,7 +56,7 @@ For each of the four paths, in both modes, use a pipeline whose scan throws:
 - **The stderr event:** the fail-closed event is logged, and nothing logs `FailOpen` or `fail_open`.
 - **The target is never called** when the request scan throws.
 - **Tool calls only, the audit entry:** an `AUTHZ-DENY` / `internal_error` entry is written when an audit store is set, and an audit store that throws still blocks.
-- **Cancellation:** a cancelled scan propagates `OperationCanceledException`.
+- **Cancellation:** a scan cancelled by the caller propagates `OperationCanceledException`; a foreign cancellation fails closed.
 - **Existing tests:** any that assert fail-open, such as `*FailsOpen*`, are inverted rather than deleted.
 
 ## Left to the builder

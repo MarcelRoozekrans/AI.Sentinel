@@ -147,14 +147,48 @@ public class McpFailClosedTests
     public async Task ToolCall_Cancelled_Propagates(int throwFromCall, bool redacting)
     {
         var stderr = new StringWriter();
+        using var cts = new CancellationTokenSource();
         var handler = ToolCallInterceptor.Create(
-            ThrowingPipeline(() => new OperationCanceledException(), throwFromCall), stderr,
+            ThrowingPipeline(() => CancelRequest(cts), throwFromCall), stderr,
             placeholders: redacting ? NewStore() : null)(new Counter().Next);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await handler(Context(ReadFile()), TestContext.Current.CancellationToken));
+            async () => await handler(Context(ReadFile()), cts.Token));
 
         Assert.DoesNotContain("FailClosed", stderr.ToString());
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(2, true)]
+    public async Task ToolCall_ForeignCancellation_FailsClosed(int throwFromCall, bool redacting)
+    {
+        // A cancellation the caller did not request, such as an internal HTTP timeout, is a pipeline failure.
+        var stderr = new StringWriter();
+        var store = new RingBufferAuditStore(16);
+        var handler = ToolCallInterceptor.Create(
+            ThrowingPipeline(() => new TaskCanceledException(LeakMarker), throwFromCall), stderr, audit: store,
+            placeholders: redacting ? NewStore() : null)(new Counter().Next);
+
+        var ex = await Assert.ThrowsAsync<McpProtocolException>(
+            async () => await handler(Context(ReadFile()), TestContext.Current.CancellationToken));
+
+        AssertFailClosed(ex, "TaskCanceledException");
+        var log = stderr.ToString();
+        Assert.Contains("decision=FailClosed", log);
+        Assert.DoesNotContain(LeakMarker, log);
+        var stored = Assert.Single(await RecordingAuditForwarder.ReadAllAsync(store));
+        Assert.Equal("AUTHZ-DENY", stored.DetectorId);
+        Assert.Equal(SentinelDenyCodes.InternalError, stored.PolicyCode);
+        Assert.DoesNotContain(LeakMarker, stored.Summary);
+    }
+
+    // Cancels the request the way a caller would, while the scan runs, then reports it.
+    internal static OperationCanceledException CancelRequest(CancellationTokenSource cts)
+    {
+        cts.Cancel();
+        return new OperationCanceledException(cts.Token);
     }
 
     private static McpRequestHandler<GetPromptRequestParams, GetPromptResult> HelloPrompt => (_, _) =>
@@ -188,13 +222,33 @@ public class McpFailClosedTests
     public async Task PromptGet_Cancelled_Propagates(bool redacting)
     {
         var stderr = new StringWriter();
+        using var cts = new CancellationTokenSource();
         var handler = PromptGetInterceptor.Create(
-            ThrowingPipeline(() => new OperationCanceledException()), stderr,
+            ThrowingPipeline(() => CancelRequest(cts)), stderr,
             placeholders: redacting ? NewStore() : null)(HelloPrompt);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await handler(Context(new GetPromptRequestParams { Name = "onboard" }), TestContext.Current.CancellationToken));
+            async () => await handler(Context(new GetPromptRequestParams { Name = "onboard" }), cts.Token));
 
         Assert.DoesNotContain("FailClosed", stderr.ToString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PromptGet_ForeignCancellation_FailsClosed(bool redacting)
+    {
+        var stderr = new StringWriter();
+        var handler = PromptGetInterceptor.Create(
+            ThrowingPipeline(() => new TaskCanceledException(LeakMarker)), stderr,
+            placeholders: redacting ? NewStore() : null)(HelloPrompt);
+
+        var ex = await Assert.ThrowsAsync<McpProtocolException>(
+            async () => await handler(Context(new GetPromptRequestParams { Name = "onboard" }), TestContext.Current.CancellationToken));
+
+        AssertFailClosed(ex, "TaskCanceledException");
+        var log = stderr.ToString();
+        Assert.Contains("decision=FailClosed", log);
+        Assert.DoesNotContain(LeakMarker, log);
     }
 }

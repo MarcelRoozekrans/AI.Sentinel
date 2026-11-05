@@ -21,7 +21,7 @@ namespace AI.Sentinel.Mcp;
 /// </summary>
 /// <remarks>
 /// Fail-closed semantics for pipeline bugs (#544): any exception out of
-/// <see cref="SentinelPipeline.ScanMessagesAsync"/> other than cancellation is logged to <c>stderr</c>
+/// <see cref="SentinelPipeline.ScanMessagesAsync"/> other than the caller's own cancellation is logged to <c>stderr</c>
 /// by type only, recorded as an <c>AUTHZ-DENY</c> entry with <see cref="SentinelDenyCodes.InternalError"/>
 /// when an <see cref="IAuditStore"/> is supplied, and blocks the call, in both scan phases. A scan that could
 /// not run must not let the message through. Blocks raise <see cref="McpProtocolException"/> with
@@ -91,7 +91,7 @@ internal static class ToolCallInterceptor
         }
 
         var requestMessages = MessageBuilder.BuildToolCallRequest(req);
-        var preError = await ScanSafelyAsync(
+        var preError = await ScanAsync(
             pipeline, requestMessages, stderr, phase: "request", req, audit, forwarders, callerResolver, sessionId, redaction?.Placeholders.KnownTokens(), newMessagesFrom: 0, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(preError, req.Name, stderr, phase: "request").ConfigureAwait(false);
 
@@ -104,7 +104,7 @@ internal static class ToolCallInterceptor
         }
 
         var responseMessages = MessageBuilder.BuildToolCallResponse(req, result);
-        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", req, audit, forwarders, callerResolver, sessionId, exemptPlaceholders: null, newMessagesFrom: 1, ct).ConfigureAwait(false);
+        var postError = await ScanAsync(pipeline, responseMessages, stderr, phase: "response", req, audit, forwarders, callerResolver, sessionId, exemptPlaceholders: null, newMessagesFrom: 1, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(postError, req.Name, stderr, phase: "response").ConfigureAwait(false);
 
         await stderr.WriteLineAsync(
@@ -165,7 +165,7 @@ internal static class ToolCallInterceptor
                 pipeline, redaction.Placeholders, MessageBuilder.BuildToolCallRequest(req),
                 content, Microsoft.Extensions.AI.ChatRole.Assistant, sessionId, ct, unscanned).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             throw await FailClosedAsync(ex, "response", req, stderr, audit, forwarders, callerResolver, sessionId).ConfigureAwait(false);
         }
@@ -331,7 +331,7 @@ internal static class ToolCallInterceptor
         return doc.RootElement.Clone();
     }
 
-    private static async ValueTask<SentinelError?> ScanSafelyAsync(
+    private static async ValueTask<SentinelError?> ScanAsync(
         SentinelPipeline pipeline,
         Microsoft.Extensions.AI.ChatMessage[] messages,
         TextWriter stderr,
@@ -349,7 +349,7 @@ internal static class ToolCallInterceptor
         {
             return await pipeline.ScanMessagesExemptingAsync(messages, sessionId, exemptPlaceholders, newMessagesFrom, ct).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             throw await FailClosedAsync(ex, phase, req, stderr, audit, forwarders, callerResolver, sessionId).ConfigureAwait(false);
         }

@@ -270,23 +270,23 @@ public class ResourceReadInterceptorTests
             [
                 new TextResourceContents
                 {
-                    Uri = "file:///should-fail-open.txt",
+                    Uri = "file:///failing-detectors.txt",
                     MimeType = "text/plain",
-                    Text = "scan me — pipeline will throw",
+                    Text = "scan me — some detectors will fail",
                 },
             ],
         };
         h.Fake.EnqueueResourceResult(expectedResult);
 
         var (result, stderr) = await CaptureStderrAsync(() =>
-            h.DriverClient.ReadResourceAsync("file:///should-fail-open.txt", cancellationToken: h.Cts.Token));
+            h.DriverClient.ReadResourceAsync("file:///failing-detectors.txt", cancellationToken: h.Cts.Token));
 
-        // (a) Call still completed — fail-open contract.
+        // (a) The call completed: the scan ran with the failing detectors skipped.
         Assert.NotNull(result);
         // (b) Result forwarded to host unchanged (single content item with our text).
         Assert.Single(result.Contents);
         var forwarded = Assert.IsType<TextResourceContents>(result.Contents[0]);
-        Assert.Equal("scan me — pipeline will throw", forwarded.Text);
+        Assert.Equal("scan me — some detectors will fail", forwarded.Text);
         // (c) The degraded detectors are reported rather than passing silently as clean.
         Assert.Contains("could not be embedded and were skipped for this scan", stderr, StringComparison.Ordinal);
     }

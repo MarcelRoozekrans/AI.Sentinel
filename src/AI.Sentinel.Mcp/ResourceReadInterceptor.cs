@@ -27,7 +27,7 @@ namespace AI.Sentinel.Mcp;
 /// Authorization is intentionally not consulted here — resources are data, not actions.
 /// A pipeline that throws fails closed (#544), matching <see cref="ToolCallInterceptor"/> and
 /// <see cref="PromptGetInterceptor"/>: the read is blocked with <see cref="McpFailClosed.Block"/> and only the
-/// exception type is logged, never its message. Cancellation propagates. A <see cref="SentinelError.ThreatDetected"/>
+/// exception type is logged, never its message. The caller's own cancellation propagates; any other cancellation, such as an internal timeout, fails closed. A <see cref="SentinelError.ThreatDetected"/>
 /// blocks via <see cref="McpProtocolException"/> with <see cref="McpErrorCode.InternalError"/>.
 /// </para>
 /// <para>
@@ -102,7 +102,7 @@ internal static class ResourceReadInterceptor
                 continue;
             }
 
-            var scanError = await ScanSafelyAsync(pipeline, textContent.Text, req.Uri, sessionId, ct).ConfigureAwait(false);
+            var scanError = await ScanAsync(pipeline, textContent.Text, req.Uri, sessionId, ct).ConfigureAwait(false);
             BlockIfThreat(req.Uri, scanError);
         }
 
@@ -142,7 +142,7 @@ internal static class ResourceReadInterceptor
                     pipeline, placeholders, context: [], [HostContent.FromText(item.Text)],
                     Microsoft.Extensions.AI.ChatRole.Tool, sessionId, ct).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
                 throw LogFailClosed(uri, ex);
             }
@@ -193,7 +193,7 @@ internal static class ResourceReadInterceptor
             McpErrorCode.InternalError);
     }
 
-    private static async ValueTask<SentinelError?> ScanSafelyAsync(
+    private static async ValueTask<SentinelError?> ScanAsync(
         SentinelPipeline pipeline, string text, string uri, SessionId? sessionId, CancellationToken ct)
     {
         try
@@ -201,7 +201,7 @@ internal static class ResourceReadInterceptor
             return await pipeline.ScanMessagesAsync(
                 [MessageBuilder.BuildResourceRead(text)], ct: ct, sessionId: sessionId).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             throw LogFailClosed(uri, ex);
         }
