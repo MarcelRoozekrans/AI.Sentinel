@@ -33,7 +33,7 @@ internal static class McpFailClosedFixture
             var call = Interlocked.Increment(ref _calls);
             if (call >= throwFromCall)
             {
-                throw _exception();
+                return ValueTask.FromException<PipelineResult>(_exception());
             }
 
             return _inner.RunAsync(ctx, ct);
@@ -74,10 +74,10 @@ internal static class McpFailClosedFixture
 
     internal static PlaceholderStore NewStore() => new(PlaceholderStore.DefaultIdleExpiry);
 
-    internal static void AssertFailClosed(McpProtocolException ex)
+    internal static void AssertFailClosed(McpProtocolException ex, string expectedType = "InvalidOperationException")
     {
         Assert.Equal(McpErrorCode.InternalError, ex.ErrorCode);
-        Assert.Contains("Blocked by AI.Sentinel: internal error (InvalidOperationException)", ex.Message);
+        Assert.Contains($"Blocked by AI.Sentinel: internal error ({expectedType})", ex.Message);
         Assert.DoesNotContain(LeakMarker, ex.Message);
     }
 }
