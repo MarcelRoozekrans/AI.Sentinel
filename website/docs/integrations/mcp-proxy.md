@@ -97,7 +97,7 @@ Limits:
 - **Only `tools/call` is restored.** A placeholder in the arguments of `prompts/get` or in a resource URI stays literal text.
 - **Tool-call arguments are not redacted.** The proxy judges a call before it runs, so a PII or credential finding in the arguments uses the action of its severity, and its audit summary ends with `; not redacted`. The same holds for blob resources and resources whose MIME type is not allowlisted.
 - **The byte budget.** Every allowlisted item is redacted whole, however large. `SENTINEL_MCP_MAX_SCAN_BYTES` is the scan budget of one tool result, prompt or resource item: the detectors scan its first bytes, and content over it is reported as [`SEC-00`](#scan-budget), which blocks it under the default `OnCritical`.
-- **Fallbacks.** When a scan is rate limited, or the pipeline throws, the content is forwarded unredacted, as 3.0 forwarded it unscanned. The rate-limited case is logged with `reason=rate_limited`.
+- **Fallbacks.** When a scan is rate limited, the content is forwarded unredacted, as 3.0 forwarded it unscanned, and the proxy logs `reason=rate_limited`. When the pipeline throws, the proxy blocks; see [Pipeline errors](#pipeline-errors).
 
 See [Redaction → Per surface](../redaction#per-surface) for how this compares with the hook CLIs and the in-process client.
 
@@ -212,6 +212,17 @@ event=audit_unavailable detail=...
 ```
 
 Browse the file with `sentinel dashboard` from the `AI.Sentinel.Cli` tool; see [Claude Code → Audit destination](./claude-code#audit-destination).
+
+### Pipeline errors
+
+When the detection pipeline itself throws, the proxy blocks the tool call, prompt or resource read with `Blocked by AI.Sentinel: internal error (<ExceptionType>)`. The message names the exception type only, because an exception message can carry the scanned text.
+
+- The proxy logs `decision=FailClosed` on stderr, or `action=fail_closed` for `resources/read`.
+- For a tool call, it also writes an `AUTHZ-DENY` audit entry with the `internal_error` code.
+- A tool whose result scan fails has already run. The proxy blocks its result, not the call.
+- A `resources/read` with several items is blocked whole when the scan of any item fails, and nothing is written back.
+- There is no switch to fail open, as with the hook CLIs.
+- A single detector that fails is still skipped and reported in the scan result, not blocked.
 
 ## Capability mirroring (v1.1)
 

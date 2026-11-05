@@ -16,10 +16,10 @@ namespace AI.Sentinel.Mcp;
 /// <remarks>
 /// A pipeline that throws fails closed, matching <see cref="ToolCallInterceptor"/>: the exception type goes to
 /// stderr, never its message, and the call is blocked with <see cref="McpFailClosed.Block"/>. Cancellation
-/// propagates. Throws <see cref="McpProtocolException"/> on block
-/// (not the base <see cref="McpException"/>) — the SDK's request pipeline silently wraps
-/// plain <c>McpException</c> into the return result, whereas <see cref="McpProtocolException"/>
-/// escapes as a real JSON-RPC error.
+/// propagates.
+/// A block throws <see cref="McpProtocolException"/>, not the base <see cref="McpException"/>, because the SDK's
+/// request pipeline silently wraps a plain <c>McpException</c> into the return result, whereas
+/// <see cref="McpProtocolException"/> escapes as a real JSON-RPC error.
 /// When a <see cref="PlaceholderStore"/> is supplied, message text and allowlisted embedded text resources are
 /// redacted before they reach the agent, and the redacted messages are what the scan judges.
 /// </remarks>
