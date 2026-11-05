@@ -54,7 +54,7 @@ Wiring both prompt verbs scans the prompt twice, so without an embedding endpoin
 
 **PascalCase event names.** A hook configured with a PascalCase event name, such as `PostToolUse`, gets the VS Code compatible payload, with `session_id`, `tool_name`, `tool_input` and `tool_result`. The hook reads that format too, and the [placeholder guard](#redaction) then checks the Claude Code tool names as well as the Copilot ones. Whether Copilot honours the hook's output for that configuration is not verified yet.
 
-The `timeoutSec: 10` is recommended — gives the hook plenty of headroom even on a cold start with semantic detection enabled. Lower it (2–3 seconds) once you've validated steady-state latency on your hardware.
+The `timeoutSec: 10` is recommended — gives the hook plenty of headroom even on a cold start with semantic detection enabled. If you lower it, keep it above `SENTINEL_REVIEW_TIMEOUT_MS` (5 s by default) plus scan time whenever a reviewer is configured, because a hook can wait the full review timeout for the judge.
 
 ## Severity → action
 
@@ -81,7 +81,7 @@ Same shared env-var contract as Claude Code:
 | `SENTINEL_REVIEW_MODEL` | — | Model identifier of the reviewer. Required with the endpoint |
 | `SENTINEL_REVIEW_API_KEY` | — | Bearer token. Omit for local servers that need none |
 | `SENTINEL_REVIEW_MAX_PER_SCAN` | `4` | Reviews per scan. `0` turns the review off |
-| `SENTINEL_REVIEW_TIMEOUT_MS` | `3000` | Per-review timeout in milliseconds. The hooks default to 3 s because they run on your critical path |
+| `SENTINEL_REVIEW_TIMEOUT_MS` | `5000` | Per-review timeout in milliseconds. A hook waits at most this long for the judge; lowering it trades recall on confirmed findings for latency |
 
 **What the review endpoint receives.** `SENTINEL_REVIEW_ENDPOINT` is sent each flagged text, up to its last 64 KiB. That text can contain the secret or personal data a credential or PII detector flagged, just as the embedding endpoint receives the texts it embeds, so choose a provider you would trust with that data, or a local one. The reviewer's reason comes back the other way: it becomes part of the finding's reason, which the hook's block or warning text passes on to the model. It is sanitised to one line and capped at 200 characters.
 

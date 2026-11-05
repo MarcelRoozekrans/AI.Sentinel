@@ -72,7 +72,7 @@ Both Claude Code and Copilot share the same env-var contract:
 | `SENTINEL_REVIEW_MODEL` | — | Model identifier of the reviewer. Required with the endpoint |
 | `SENTINEL_REVIEW_API_KEY` | — | Bearer token. Omit for local servers that need none |
 | `SENTINEL_REVIEW_MAX_PER_SCAN` | `4` | Reviews per scan. `0` turns the review off |
-| `SENTINEL_REVIEW_TIMEOUT_MS` | `3000` | Per-review timeout in milliseconds. The hooks default to 3 s because they run on your critical path |
+| `SENTINEL_REVIEW_TIMEOUT_MS` | `5000` | Per-review timeout in milliseconds. A hook waits at most this long for the judge; lowering it trades recall on confirmed findings for latency |
 
 **What the review endpoint receives.** `SENTINEL_REVIEW_ENDPOINT` is sent each flagged text, up to its last 64 KiB. That text can contain the secret or personal data a credential or PII detector flagged, just as the embedding endpoint receives the texts it embeds, so choose a provider you would trust with that data, or a local one. The reviewer's reason comes back the other way: it becomes part of the finding's reason, which the hook's block or warning text passes on to the model. It is sanitised to one line and capped at 200 characters.
 

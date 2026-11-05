@@ -953,7 +953,9 @@ Both adapters share the same env-var contract — configure once, applies to bot
 | `SENTINEL_REVIEW_MODEL` | — | Model identifier of the reviewer. Required with the endpoint |
 | `SENTINEL_REVIEW_API_KEY` | — | Bearer token. Omit for local servers that need none |
 | `SENTINEL_REVIEW_MAX_PER_SCAN` | `4` | Reviews per scan. `0` turns the review off |
-| `SENTINEL_REVIEW_TIMEOUT_MS` | `3000 for the hooks, 5000 otherwise` | Per-review timeout in milliseconds |
+| `SENTINEL_REVIEW_TIMEOUT_MS` | `5000` | Per-review timeout in milliseconds |
+
+A hook waits at most that long for the judge; a review that takes longer keeps the capped Medium result, and lowering the timeout trades recall on confirmed findings for latency.
 
 **What the review endpoint receives.** `SENTINEL_REVIEW_ENDPOINT` is sent each flagged text, up to its last 64 KiB. That text can contain the secret or personal data a credential or PII detector flagged, just as the embedding endpoint receives the texts it embeds, so choose a provider you would trust with that data, or a local one. The reviewer's reason comes back the other way: it becomes part of the finding's reason, which a hook's block or warning text, or the MCP proxy's block error, passes on to the model. It is sanitised to one line and capped at 200 characters.
 
