@@ -70,7 +70,7 @@ A detector gets one entry per scan. When it hits more than one kind, the earlies
 |------|---------|
 | `Threw` | The detector threw, other than a regex timeout or your own cancellation, including an embedding failure when the pipeline was built without an embedding scope. Its result is Clean. |
 | `RegexTimeout` | The detector raised a `RegexMatchTimeoutException`. The content can provoke this, so it is flagged Critical; a configured `SeverityCap` still applies. |
-| `TextsNotEmbedded` | A semantic detector needed a text that could not be embedded, or its text selection threw. It is scored on the texts that did embed, or on its rule layer only. |
+| `TextsNotEmbedded` | A semantic detector needed a text that could not be embedded, the provider returned an unusable vector for it, or its text selection threw. It is scored on the texts that did embed, or on its rule layer only. |
 | `ExamplesNotEmbedded` | A semantic detector's example phrases could not be embedded. Only its rule layer ran. |
 | `ReviewFailed` | The reviewer failed or timed out on one of the detector's results, which keeps the result it had before review. A review skipped because `MaxReviewsPerScan` ran out is not a failure. |
 

@@ -22,7 +22,8 @@ internal sealed class ScanEmbeddings
     /// returned a vector that cannot be scored. Such a vector is never cached.</summary>
     public int FailedCount { get; }
 
-    /// <summary>The batch exception, or the first single-input exception when the batch succeeded in part.</summary>
+    /// <summary>The batch exception, or the first single-input exception when the batch succeeded in part. It can also
+    /// be the <see cref="InvalidEmbeddingException"/> of the first unusable vector.</summary>
     public Exception? FirstFailure { get; }
 
     public bool TryGet(string text, out ReadOnlyMemory<float> vector) => _vectors.TryGetValue(text, out vector);
