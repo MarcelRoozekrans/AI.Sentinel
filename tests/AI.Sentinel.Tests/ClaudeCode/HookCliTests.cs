@@ -424,7 +424,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         }
     }
 
-    /// <summary>A reply this slow is past every review timeout under test by at least three times.</summary>
+    /// <summary>A reply this slow is past every review timeout under test by at least twice.</summary>
     private static readonly TimeSpan SlowReply = TimeSpan.FromSeconds(10);
 
     private static string EmbeddingOnlyInjection => DetectorExamples.IndirectInjectionHigh;

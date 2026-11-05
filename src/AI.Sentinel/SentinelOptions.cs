@@ -103,11 +103,11 @@ public sealed class SentinelOptions
     /// <summary>Most reviews one scan may start; the rest keep their capped result. 0 disables review; a negative
     /// value is rejected. Default: 4.</summary>
     [GreaterThanOrEqualTo(0, ErrorCode = "GreaterThanOrEqualTo")]
-    public int MaxReviewsPerScan { get; set; } = 4;
+    public int MaxReviewsPerScan { get; set; } = ReviewLimits.Default.MaxPerScan;
 
     /// <summary>How long one review may take before it is abandoned and the capped result stands. Default: 5 seconds.</summary>
     [PositiveTimeSpan]
-    public TimeSpan ReviewTimeout { get; set; } = TimeSpan.FromSeconds(5);
+    public TimeSpan ReviewTimeout { get; set; } = ReviewLimits.Default.Timeout;
 
     [GreaterThan(0, ErrorCode = "GreaterThan")]
     public int AuditCapacity { get; set; } = 10_000;

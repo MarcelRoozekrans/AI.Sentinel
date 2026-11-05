@@ -544,7 +544,7 @@ public class CopilotHookCliTests : HookAuditOffFixtureBase
         Assert.Contains("modifiedResult", stdout.ToString(), StringComparison.Ordinal);
     }
 
-    /// <summary>A reply this slow is past every review timeout under test by at least three times.</summary>
+    /// <summary>A reply this slow is past every review timeout under test by at least twice.</summary>
     private static readonly TimeSpan SlowReply = TimeSpan.FromSeconds(10);
 
     /// <summary>With no SENTINEL_REVIEW_TIMEOUT_MS a reply after 10 s never counts. The exact value is pinned by

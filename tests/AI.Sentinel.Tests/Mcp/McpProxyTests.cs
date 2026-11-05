@@ -232,7 +232,7 @@ public class McpProxyTests
         Assert.True(server.Requests > 0);
     }
 
-    /// <summary>The proxy does not use the hooks' 3 s: a supplied reviewer with no setting gets the library's 5 s.</summary>
+    /// <summary>The proxy keeps the library default, the same 5 s the hooks use: a supplied reviewer with no setting gets 5 s.</summary>
     [Fact]
     public async Task RunWithSessionAsync_SuppliedReviewer_GetsTheLibraryDefaultOf5s()
     {
@@ -240,7 +240,7 @@ public class McpProxyTests
         await using var h = await StartHarnessAsync(config: BlockHighOnly(), reviewer: reviewer);
 
         Assert.False(await ToolResultIsBlockedAsync(h));
-        // A timer never fires early, so 4 s or more rules out the hooks' 3 s; a late timer only makes it longer.
+        // A timer never fires early, so 4 s or more rules out a shorter timeout; a late timer only makes it longer.
         Assert.True(await reviewer.ElapsedUntilCancelledAsync() >= TimeSpan.FromSeconds(4));
     }
 
