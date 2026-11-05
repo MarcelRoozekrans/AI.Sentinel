@@ -14,8 +14,8 @@ public enum DetectorFailureKind
     /// content can provoke this, so it is flagged Critical; a configured <c>SeverityCap</c> still applies.</summary>
     RegexTimeout,
 
-    /// <summary>A semantic detector needed a text that could not be embedded, or its text selection threw. It is
-    /// scored on the texts that did embed, or on its rule layer only.</summary>
+    /// <summary>A semantic detector needed a text that could not be embedded, or the provider returned an unusable
+    /// vector for it, or its text selection threw. It is scored on the texts that did embed, or on its rule layer only.</summary>
     TextsNotEmbedded,
 
     /// <summary>A semantic detector's example phrases could not be embedded. Only its rule layer ran.</summary>
