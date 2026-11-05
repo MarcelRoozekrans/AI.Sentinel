@@ -20,10 +20,11 @@ namespace AI.Sentinel.Mcp;
 /// <see cref="SentinelPipeline.ScanMessagesAsync"/>.
 /// </summary>
 /// <remarks>
-/// Fail-open semantics for pipeline bugs: any exception out of
-/// <see cref="SentinelPipeline.ScanMessagesAsync"/> is logged to <c>stderr</c>
-/// and the call forwards. Only a <see cref="SentinelError.ThreatDetected"/>
-/// yields a block. Blocks raise <see cref="McpProtocolException"/> with
+/// Fail-closed semantics for pipeline bugs (#544): any exception out of
+/// <see cref="SentinelPipeline.ScanMessagesAsync"/> other than the caller's own cancellation is logged to <c>stderr</c>
+/// by type only, recorded as an <c>AUTHZ-DENY</c> entry with <see cref="SentinelDenyCodes.InternalError"/>
+/// when an <see cref="IAuditStore"/> is supplied, and blocks the call, in both scan phases. A scan that could
+/// not run must not let the message through. Blocks raise <see cref="McpProtocolException"/> with
 /// <see cref="McpErrorCode.InternalError"/> so the SDK emits a JSON-RPC error
 /// (plain <see cref="McpException"/> would be swallowed by the tool-call
 /// wrapper into a <see cref="CallToolResult"/> with <c>IsError=true</c>).
@@ -90,8 +91,8 @@ internal static class ToolCallInterceptor
         }
 
         var requestMessages = MessageBuilder.BuildToolCallRequest(req);
-        var preError = await ScanSafelyAsync(
-            pipeline, requestMessages, stderr, phase: "request", sessionId, redaction?.Placeholders.KnownTokens(), newMessagesFrom: 0, ct).ConfigureAwait(false);
+        var preError = await ScanAsync(
+            pipeline, requestMessages, stderr, phase: "request", req, audit, forwarders, callerResolver, sessionId, redaction?.Placeholders.KnownTokens(), newMessagesFrom: 0, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(preError, req.Name, stderr, phase: "request").ConfigureAwait(false);
 
         ctx.Params = forwarded;
@@ -99,11 +100,11 @@ internal static class ToolCallInterceptor
 
         if (redaction is not null)
         {
-            return await RedactResponseAsync(pipeline, stderr, sessionId, redaction, req, result, ct).ConfigureAwait(false);
+            return await RedactResponseAsync(pipeline, stderr, audit, forwarders, callerResolver, sessionId, redaction, req, result, ct).ConfigureAwait(false);
         }
 
         var responseMessages = MessageBuilder.BuildToolCallResponse(req, result);
-        var postError = await ScanSafelyAsync(pipeline, responseMessages, stderr, phase: "response", sessionId, exemptPlaceholders: null, newMessagesFrom: 1, ct).ConfigureAwait(false);
+        var postError = await ScanAsync(pipeline, responseMessages, stderr, phase: "response", req, audit, forwarders, callerResolver, sessionId, exemptPlaceholders: null, newMessagesFrom: 1, ct).ConfigureAwait(false);
         await BlockIfThreatAsync(postError, req.Name, stderr, phase: "response").ConfigureAwait(false);
 
         await stderr.WriteLineAsync(
@@ -139,12 +140,15 @@ internal static class ToolCallInterceptor
     /// <summary>
     /// Redacts the result in place and scans the redacted copy with the arguments as context. A threat blocks and
     /// nothing is written back or audited as redacted. Otherwise the redacted content is written back, its
-    /// placeholders are registered and the redactions are audited. A pipeline failure fails open, as the 3.0 scan
-    /// does, and logs only the exception type, because its message can carry the value.
+    /// placeholders are registered and the redactions are audited. A pipeline failure fails closed: the result is
+    /// not returned, and only the exception type is logged and audited, because its message can carry the value.
     /// </summary>
     private static async ValueTask<CallToolResult> RedactResponseAsync(
         SentinelPipeline pipeline,
         TextWriter stderr,
+        IAuditStore? audit,
+        IAuditForwarder[] forwarders,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         SessionId? sessionId,
         RedactionSetup redaction,
         CallToolRequestParams req,
@@ -161,12 +165,9 @@ internal static class ToolCallInterceptor
                 pipeline, redaction.Placeholders, MessageBuilder.BuildToolCallRequest(req),
                 content, Microsoft.Extensions.AI.ChatRole.Assistant, sessionId, ct, unscanned).ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            await stderr.WriteLineAsync(
-                $"[sentinel-mcp] event=tools/call decision=FailOpen phase=response reason={ex.GetType().Name}"
-            ).ConfigureAwait(false);
-            return result;
+            throw await FailClosedAsync(ex, "response", req, stderr, audit, forwarders, callerResolver, sessionId).ConfigureAwait(false);
         }
 
         await BlockIfThreatAsync(scanned.Error, req.Name, stderr, phase: "response").ConfigureAwait(false);
@@ -330,11 +331,15 @@ internal static class ToolCallInterceptor
         return doc.RootElement.Clone();
     }
 
-    private static async ValueTask<SentinelError?> ScanSafelyAsync(
+    private static async ValueTask<SentinelError?> ScanAsync(
         SentinelPipeline pipeline,
         Microsoft.Extensions.AI.ChatMessage[] messages,
         TextWriter stderr,
         string phase,
+        CallToolRequestParams req,
+        IAuditStore? audit,
+        IAuditForwarder[] forwarders,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver,
         SessionId? sessionId,
         IReadOnlySet<string>? exemptPlaceholders,
         int newMessagesFrom,
@@ -344,13 +349,52 @@ internal static class ToolCallInterceptor
         {
             return await pipeline.ScanMessagesExemptingAsync(messages, sessionId, exemptPlaceholders, newMessagesFrom, ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            await stderr.WriteLineAsync(
-                $"[sentinel-mcp] event=tools/call decision=FailOpen phase={phase} reason={ex.GetType().Name}"
-            ).ConfigureAwait(false);
-            return null;
+            throw await FailClosedAsync(ex, phase, req, stderr, audit, forwarders, callerResolver, sessionId).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// The block for a scan that threw (#544). Logs the exception type, records an <c>AUTHZ-DENY</c> entry with
+    /// <see cref="SentinelDenyCodes.InternalError"/> when there is a store, and returns the exception to throw.
+    /// The message of <paramref name="ex"/> is never used, because it can carry the scanned value. A failing
+    /// audit write is logged and does not change the block.
+    /// </summary>
+    private static async ValueTask<McpProtocolException> FailClosedAsync(
+        Exception ex,
+        string phase,
+        CallToolRequestParams req,
+        TextWriter stderr,
+        IAuditStore? audit,
+        IAuditForwarder[] forwarders,
+        Func<CallToolRequestParams, ISecurityContext>? callerResolver,
+        SessionId? sessionId)
+    {
+        await stderr.WriteLineAsync(
+            $"[sentinel-mcp] event=tools/call decision=FailClosed tool={req.Name} phase={phase} reason={ex.GetType().Name}"
+        ).ConfigureAwait(false);
+
+        var block = McpFailClosed.Block(ex);
+        if (audit is not null)
+        {
+            try
+            {
+                var entry = HookInternalError.BuildAuditEntry(
+                    callerResolver?.Invoke(req) ?? AnonymousSecurityContext.Instance, req.Name, sessionId?.Value ?? string.Empty, block.Message);
+                await audit.AppendAndForwardAsync(entry, forwarders, CancellationToken.None).ConfigureAwait(false);
+            }
+#pragma warning disable CA1031 // Best effort: the call is blocked whether or not the entry is written.
+            catch (Exception auditEx)
+#pragma warning restore CA1031
+            {
+                await stderr.WriteLineAsync(
+                    $"[sentinel-mcp] event=tools/call decision=AuditFailed phase=fail_closed reason={auditEx.GetType().Name}"
+                ).ConfigureAwait(false);
+            }
+        }
+
+        return block;
     }
 
     private static async ValueTask BlockIfThreatAsync(

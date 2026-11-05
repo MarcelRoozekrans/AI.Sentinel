@@ -25,9 +25,11 @@ namespace AI.Sentinel.Mcp;
 /// </para>
 /// <para>
 /// Authorization is intentionally not consulted here — resources are data, not actions.
-/// Detection-pipeline failures fail open (logged, forwarded). A <see cref="SentinelError.ThreatDetected"/>
-/// blocks via <see cref="McpProtocolException"/> with <see cref="McpErrorCode.InternalError"/>,
-/// matching <see cref="ToolCallInterceptor"/> and <see cref="PromptGetInterceptor"/>.
+/// A pipeline that throws fails closed (#544), matching <see cref="ToolCallInterceptor"/> and
+/// <see cref="PromptGetInterceptor"/>: the read is blocked with <see cref="McpFailClosed.Block"/> and only the
+/// exception type is logged, never its message. The caller's own cancellation propagates; any other cancellation,
+/// such as an internal timeout, fails closed. A <see cref="SentinelError.ThreatDetected"/>
+/// blocks via <see cref="McpProtocolException"/> with <see cref="McpErrorCode.InternalError"/>.
 /// </para>
 /// <para>
 /// When a <see cref="PlaceholderStore"/> is supplied, the allowlisted text items are redacted whole, in place, before
@@ -101,7 +103,7 @@ internal static class ResourceReadInterceptor
                 continue;
             }
 
-            var scanError = await ScanSafelyAsync(pipeline, textContent.Text, req.Uri, sessionId, ct).ConfigureAwait(false);
+            var scanError = await ScanAsync(pipeline, textContent.Text, req.Uri, sessionId, ct).ConfigureAwait(false);
             BlockIfThreat(req.Uri, scanError);
         }
 
@@ -117,9 +119,10 @@ internal static class ResourceReadInterceptor
     /// Redacts and scans each item on its own, as 3.0 scanned them, so the items of one read neither add up to a
     /// burst of tool messages nor dilute each other. Every item is scanned before any is written back: a threat in
     /// any item blocks the read, and then nothing is written back or audited as redacted. Otherwise each item is
-    /// written back and its redactions are audited. A pipeline failure on an item fails open for that item and logs
-    /// only the exception type, because its message can carry the value. Returns the number of redacted occurrences
-    /// and whether any scan was skipped by the rate limit.
+    /// written back and its redactions are audited. A pipeline failure on any item blocks the whole read before any
+    /// write-back, so nothing is written back or audited as redacted, and logs only the exception type, because its
+    /// message can carry the value. Returns the number of redacted occurrences and whether any scan was skipped by
+    /// the rate limit.
     /// </summary>
     private static async ValueTask<(int Redacted, bool RateLimited)> RedactAsync(
         SentinelPipeline pipeline,
@@ -140,10 +143,9 @@ internal static class ResourceReadInterceptor
                     pipeline, placeholders, context: [], [HostContent.FromText(item.Text)],
                     Microsoft.Extensions.AI.ChatRole.Tool, sessionId, ct).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
             {
-                LogFailOpen(uri, ex.GetType().Name);
-                continue;
+                throw LogFailClosed(uri, ex);
             }
 
             BlockIfThreat(uri, scanned.Error);
@@ -192,7 +194,7 @@ internal static class ResourceReadInterceptor
             McpErrorCode.InternalError);
     }
 
-    private static async ValueTask<SentinelError?> ScanSafelyAsync(
+    private static async ValueTask<SentinelError?> ScanAsync(
         SentinelPipeline pipeline, string text, string uri, SessionId? sessionId, CancellationToken ct)
     {
         try
@@ -200,22 +202,24 @@ internal static class ResourceReadInterceptor
             return await pipeline.ScanMessagesAsync(
                 [MessageBuilder.BuildResourceRead(text)], ct: ct, sessionId: sessionId).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
-            LogFailOpen(uri, ex.GetType().Name);
-            return null;
+            throw LogFailClosed(uri, ex);
         }
     }
 
-    /// <summary>Logs the exception type only: a message can carry the scanned text.</summary>
-    private static void LogFailOpen(string uri, string error) =>
+    /// <summary>Logs the exception type only, because a message can carry the scanned text, and returns the block.</summary>
+    private static McpProtocolException LogFailClosed(string uri, Exception ex)
+    {
         StderrLogger.Log(new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["event"] = "resources_read",
-            ["action"] = "fail_open",
+            ["action"] = "fail_closed",
             ["uri"] = uri,
-            ["error"] = error,
+            ["error"] = ex.GetType().Name,
         });
+        return McpFailClosed.Block(ex);
+    }
 
     private static void LogAllow(string uri, string? reason, int redacted = 0)
     {
