@@ -322,13 +322,9 @@ public static class Program
         return env;
     }
 
-    /// <summary>A hook runs on the user's critical path, so a review gets 3 s unless
-    /// <c>SENTINEL_REVIEW_TIMEOUT_MS</c> says otherwise. The library default is 5 s.</summary>
-    internal static ReviewLimits DefaultReviewLimits { get; } = new(MaxPerScan: 4, Timeout: TimeSpan.FromSeconds(3));
-
-    /// <summary>The limits from the review setting, with the hook defaults for what it leaves unset.</summary>
+    /// <summary>The limits from the review setting, with <see cref="ReviewLimits.Default"/> for what it leaves unset.</summary>
     internal static ReviewLimits ReviewLimitsFor(SentinelReviewSetup? review) =>
-        new(review?.MaxReviewsPerScan ?? DefaultReviewLimits.MaxPerScan, review?.ReviewTimeout ?? DefaultReviewLimits.Timeout);
+        new(review?.MaxReviewsPerScan ?? ReviewLimits.Default.MaxPerScan, review?.ReviewTimeout ?? ReviewLimits.Default.Timeout);
 
     /// <summary>Joins the warnings that apply, one per line, or returns <see langword="null"/> when none does.</summary>
     private static string? CombineWarnings(params string?[] warnings)
@@ -421,7 +417,7 @@ public static class Program
             opts.ExampleEmbeddingCache = exampleEmbeddingCache;
             // No logging provider here, so a detector that fails would degrade silently.
             opts.OnDetectorFailure = detectorFailureSink;
-            var limits = reviewLimits ?? DefaultReviewLimits;
+            var limits = reviewLimits ?? ReviewLimits.Default;
             opts.Reviewer = reviewer;
             opts.MaxReviewsPerScan = limits.MaxPerScan;
             opts.ReviewTimeout = limits.Timeout;

@@ -381,14 +381,14 @@ public class HookCliTests : HookAuditOffFixtureBase
     }
 
     [Fact]
-    public void ClaudeCodeHook_ReviewTimeoutDefaultsTo3s()
+    public void ClaudeCodeHook_ReviewTimeoutDefaultsToTheLibraryDefault()
     {
         using var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: null);
         var options = provider.GetRequiredService<SentinelOptions>();
-        Assert.Equal(TimeSpan.FromSeconds(3), options.ReviewTimeout);
-        Assert.Equal(4, options.MaxReviewsPerScan);
+        Assert.Equal(ReviewLimits.Default.Timeout, options.ReviewTimeout);
+        Assert.Equal(ReviewLimits.Default.MaxPerScan, options.MaxReviewsPerScan);
 
-        // SENTINEL_REVIEW_TIMEOUT_MS and SENTINEL_REVIEW_MAX_PER_SCAN win over the hook defaults.
+        // SENTINEL_REVIEW_TIMEOUT_MS and SENTINEL_REVIEW_MAX_PER_SCAN win over the library defaults.
         using var setup = SentinelReviewSetup.TryCreateFromEnvironment(new Dictionary<string, string?>(StringComparer.Ordinal)
         {
             ["SENTINEL_REVIEW_ENDPOINT"] = "https://reviewer.example.com/v1/chat/completions",
@@ -400,7 +400,7 @@ public class HookCliTests : HookAuditOffFixtureBase
         var limits = Program.ReviewLimitsFor(setup);
         Assert.Equal(TimeSpan.FromMilliseconds(1500), limits.Timeout);
         Assert.Equal(2, limits.MaxPerScan);
-        Assert.Equal(TimeSpan.FromSeconds(3), Program.ReviewLimitsFor(null).Timeout);
+        Assert.Equal(ReviewLimits.Default, Program.ReviewLimitsFor(null));
     }
 
     [Fact]
@@ -469,10 +469,10 @@ public class HookCliTests : HookAuditOffFixtureBase
         Assert.False(IsBlocked(stdout));
     }
 
-    /// <summary>With no SENTINEL_REVIEW_TIMEOUT_MS the hook gives a review 3 s, not more: a reply after 10 s never
-    /// counts. The exact value is pinned by <see cref="ClaudeCodeHook_ReviewTimeoutDefaultsTo3s"/>.</summary>
+    /// <summary>With no SENTINEL_REVIEW_TIMEOUT_MS the hook gives a review the library default, not more: a reply after 10 s never
+    /// counts. The exact value is pinned by <see cref="ClaudeCodeHook_ReviewTimeoutDefaultsToTheLibraryDefault"/>.</summary>
     [Fact]
-    public async Task EnvironmentReviewer_WithoutATimeoutSetting_GetsTheHookDefaultOf3s()
+    public async Task EnvironmentReviewer_WithoutATimeoutSetting_GetsTheLibraryDefault()
     {
         using var server = new ReviewStubServer("High", SlowReply);
         using var _ = EnvironmentScope.Review(server);
@@ -484,7 +484,7 @@ public class HookCliTests : HookAuditOffFixtureBase
     }
 
     [Fact]
-    public async Task SuppliedReviewer_WithoutAnEnvironmentSetting_GetsTheHookDefaultOf3s()
+    public async Task SuppliedReviewer_WithoutAnEnvironmentSetting_GetsTheLibraryDefault()
     {
         var reviewer = new TimeoutRecordingReviewer();
         var stdout = new StringWriter();
@@ -495,9 +495,9 @@ public class HookCliTests : HookAuditOffFixtureBase
         // four detectors flag it; exact-match embeddings leave only the detector the text is an example of.
         Assert.Equal(1, reviewer.Calls);
         Assert.False(IsBlocked(stdout));
-        // A timer never fires early, so 2.5 s or more means the timeout is not shorter than about 3 s; the test
-        // returning at all means the review was abandoned well before the library's 5 s mattered.
-        Assert.True(await reviewer.ElapsedUntilCancelledAsync() >= TimeSpan.FromSeconds(2.5));
+        // A timer never fires early, so 4.5 s or more means the timeout is not shorter than about 5 s; the test
+        // returning at all means the review was abandoned well before the 10 s reply.
+        Assert.True(await reviewer.ElapsedUntilCancelledAsync() >= TimeSpan.FromSeconds(4.5));
     }
 
     /// <summary>SENTINEL_REVIEW_MAX_PER_SCAN=0 turns the review off: nothing is asked, the detection stays capped and the
