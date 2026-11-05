@@ -497,4 +497,74 @@ public class EmbedOncePerScanTests
 
         Assert.Empty(failures);
     }
+
+    private static readonly float[] Good = [1f, 0f, 0f];
+    private const string Example = "a distinct example phrase for the vector tests";
+
+    private static (DetectionPipeline Pipeline, ConcurrentQueue<string> Failures) VectorPipeline(
+        VectorEmbeddingGenerator gen, IEmbeddingCache? scanCache = null)
+    {
+        var failures = new ConcurrentQueue<string>();
+        var pipeline = new DetectionPipeline(
+            [new TestSemantic("TST-A", [Example])], Uncapped, reviewer: null,
+            onDetectorFailure: failures.Enqueue,
+            embeddingScope: new EmbeddingScope(gen, scanCache ?? new InMemoryLruEmbeddingCache(), null));
+        return (pipeline, failures);
+    }
+
+    [Fact]
+    public async Task Zero_vector_text_reports_texts_not_embedded_and_is_not_cached()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var gen = new VectorEmbeddingGenerator(t => string.Equals(t, FirstText, StringComparison.Ordinal) ? [0f, 0f, 0f] : Good);
+        var (pipeline, failures) = VectorPipeline(gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), ct);
+
+        Assert.Equal([new DetectorFailure(new("TST-A"), DetectorFailureKind.TextsNotEmbedded)], result.Failures);
+        Assert.False(Fired(result, "TST-A"));
+        Assert.Contains(nameof(InvalidEmbeddingException), Assert.Single(failures), StringComparison.Ordinal);
+
+        gen.Vectors = _ => Good;
+        result = await pipeline.RunAsync(Ctx(User(FirstText)), ct);
+
+        Assert.True(Has(result, "TST-A", Severity.High));
+        Assert.Empty(result.Failures);
+    }
+
+    [Fact]
+    public async Task Invalid_cached_vector_is_re_embedded_and_the_text_flags()
+    {
+        var cache = new InMemoryLruEmbeddingCache();
+        cache.Set(FirstText, new Embedding<float>(new float[] { 0f, 0f, 0f }));
+        var (pipeline, _) = VectorPipeline(new VectorEmbeddingGenerator(_ => Good), cache);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.True(Has(result, "TST-A", Severity.High));
+        Assert.Empty(result.Failures);
+    }
+
+    [Fact]
+    public async Task Wrong_length_scan_vector_reports_texts_not_embedded()
+    {
+        var gen = new VectorEmbeddingGenerator(t => string.Equals(t, FirstText, StringComparison.Ordinal) ? [1f, 0f] : Good);
+        var (pipeline, failures) = VectorPipeline(gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DetectorFailure(new("TST-A"), DetectorFailureKind.TextsNotEmbedded)], result.Failures);
+        Assert.Contains(InvalidEmbeddingException.DimensionMismatch, Assert.Single(failures), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Scan_without_example_dimension_still_reports_examples_not_embedded()
+    {
+        var gen = new VectorEmbeddingGenerator(t => string.Equals(t, Example, StringComparison.Ordinal) ? [0f, 0f, 0f] : Good);
+        var (pipeline, _) = VectorPipeline(gen);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DetectorFailure(new("TST-A"), DetectorFailureKind.ExamplesNotEmbedded)], result.Failures);
+    }
 }

@@ -373,13 +373,15 @@ public sealed class DetectionPipeline : IDetectionPipeline
     /// <summary>Embeds the distinct texts of every semantic detector once, and their example phrases, before the
     /// detectors run, and reports each kind of failure once for the scan.</summary>
     /// <remarks>Without this every semantic detector embedded its own texts, so one scan sent the same message to
-    /// the provider once per detector, and a rejected input or an outage was reported by each of them.</remarks>
+    /// the provider once per detector, and a rejected input or an outage was reported by each of them. The example
+    /// phrases are awaited before the scan texts are embedded, so the scan embedder can refuse a vector whose length
+    /// differs from the example vectors; the scan texts then wait for the examples, which are cached after first use.</remarks>
     private async Task<EmbeddedScan> EmbedScanAsync(EmbeddingScope scope, SentinelContext ctx, CancellationToken ct)
     {
         var union = new HashSet<string>(StringComparer.Ordinal);
         var detectorTexts = new IReadOnlyList<string>[_detectors.Length];
         var textsFailures = new Exception?[_detectors.Length];
-        var exampleTasks = new Task<Exception?>[_semanticIndices.Length];
+        var exampleTasks = new Task<(Exception? Failure, int? Dimension)>[_semanticIndices.Length];
         for (var s = 0; s < _semanticIndices.Length; s++)
         {
             var semantic = (SemanticDetectorBase)_detectors[_semanticIndices[s]];
@@ -404,12 +406,15 @@ public sealed class DetectionPipeline : IDetectionPipeline
             exampleTasks[s] = texts.Count > 0 ? EmbedExamplesAsync(semantic, scope, ct) : NoFailure;
         }
 
-        var scanTask = union.Count > 0 ? EmbedTextsAsync(scope, union, ct) : Task.FromResult(ScanEmbeddings.Empty);
+        // Awaits every example task, so a cancellation or fault in one leaves none of the others unobserved.
+        await Task.WhenAll(exampleTasks).ConfigureAwait(false);
 
-        // Awaits every task, so a cancellation or fault in one leaves none of the others unobserved.
-        await Task.WhenAll([scanTask, .. exampleTasks]).ConfigureAwait(false);
+        // The first semantic detector, in index order, whose examples embedded sets the length scan vectors must have.
+        int? dimension = null;
+        for (var s = 0; s < exampleTasks.Length && dimension is null; s++)
+            dimension = (await exampleTasks[s].ConfigureAwait(false)).Dimension;
 
-        var scan = await scanTask.ConfigureAwait(false);
+        var scan = union.Count > 0 ? await EmbedTextsAsync(scope, union, dimension, ct).ConfigureAwait(false) : ScanEmbeddings.Empty;
         ReportScanFailure(scan);
 
         var examplesFailed = new bool[_detectors.Length];
@@ -417,7 +422,7 @@ public sealed class DetectionPipeline : IDetectionPipeline
         Exception? firstExampleFailure = null;
         for (var s = 0; s < _semanticIndices.Length; s++)
         {
-            if (await exampleTasks[s].ConfigureAwait(false) is not { } failure) continue;
+            if ((await exampleTasks[s].ConfigureAwait(false)).Failure is not { } failure) continue;
 
             examplesFailed[_semanticIndices[s]] = true;
             failedIds.Add(_detectors[_semanticIndices[s]].Id.Value);
@@ -452,32 +457,35 @@ public sealed class DetectionPipeline : IDetectionPipeline
         _onDetectorFailure?.Invoke(message);
     }
 
-    private static readonly Task<Exception?> NoFailure = Task.FromResult<Exception?>(null);
+    private static readonly Task<(Exception? Failure, int? Dimension)> NoFailure = Task.FromResult<(Exception?, int?)>((null, null));
 
-    /// <summary>The failure of <paramref name="semantic"/>'s example phrases, or <see langword="null"/>.</summary>
-    private static async Task<Exception?> EmbedExamplesAsync(SemanticDetectorBase semantic, EmbeddingScope scope, CancellationToken ct)
+    /// <summary>The failure of <paramref name="semantic"/>'s example phrases, or <see langword="null"/>, and when they
+    /// embedded, the length of the first vector of the first non-empty tier.</summary>
+    private static async Task<(Exception? Failure, int? Dimension)> EmbedExamplesAsync(SemanticDetectorBase semantic, EmbeddingScope scope, CancellationToken ct)
     {
         try
         {
-            await semantic.GetExampleVectorsAsync(scope.Generator, scope.ExampleCache, ct).ConfigureAwait(false);
-            return null;
+            var examples = await semantic.GetExampleVectorsAsync(scope.Generator, scope.ExampleCache, ct).ConfigureAwait(false);
+            var first = examples.High.Length > 0 ? examples.High : examples.Medium.Length > 0 ? examples.Medium : examples.Low;
+            return (null, first.Length > 0 ? first[0].Length : null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             // On a live token an OperationCanceledException is a provider failure, such as an HttpClient timeout.
             // A provider also often surfaces a cancellation as its own exception type; cancellation wins.
             ct.ThrowIfCancellationRequested();
-            return ex;
+            return (ex, null);
         }
     }
 
     /// <summary>The scan vectors of <paramref name="texts"/>. A fault outside the provider calls, which the embedder
     /// already isolates, such as a throwing scan cache, counts as every text failing.</summary>
-    private static async Task<ScanEmbeddings> EmbedTextsAsync(EmbeddingScope scope, HashSet<string> texts, CancellationToken ct)
+    private static async Task<ScanEmbeddings> EmbedTextsAsync(
+        EmbeddingScope scope, HashSet<string> texts, int? expectedDimension, CancellationToken ct)
     {
         try
         {
-            return await ScanEmbedder.EmbedAsync(scope, texts, null, ct).ConfigureAwait(false);
+            return await ScanEmbedder.EmbedAsync(scope, texts, expectedDimension, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
