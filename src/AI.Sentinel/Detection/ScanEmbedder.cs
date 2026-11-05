@@ -24,7 +24,7 @@ internal static class ScanEmbedder
         var misses = new List<string>();
         foreach (var text in texts)
         {
-            if (scope.ScanCache.TryGet(text, out var cached) && dimension.Check(cached.Vector.Span) is null)
+            if (scope.ScanCache.TryGet(text, out var cached) && dimension.Accept(cached.Vector.Span) is null)
             {
                 vectors[text] = cached.Vector;
             }
@@ -139,7 +139,7 @@ internal static class ScanEmbedder
         EmbeddingScope scope, Dictionary<string, ReadOnlyMemory<float>> vectors, Dimension dimension,
         string text, Embedding<float> embedding)
     {
-        if (dimension.Check(embedding.Vector.Span) is { } problem)
+        if (dimension.Accept(embedding.Vector.Span) is { } problem)
         {
             return new InvalidEmbeddingException(problem);
         }
@@ -148,12 +148,13 @@ internal static class ScanEmbedder
         return null;
     }
 
-    // The length every vector of one scan must have. The first usable vector fixes it when none was given.
+    // The length every vector of one scan must have. Accept returns why a vector is unusable, or null; accepting
+    // the first usable vector fixes the length when none was given.
     private sealed class Dimension(int? expected)
     {
         private int? _expected = expected;
 
-        public string? Check(ReadOnlySpan<float> vector)
+        public string? Accept(ReadOnlySpan<float> vector)
         {
             if (InvalidEmbeddingException.Problem(vector) is { } problem)
             {

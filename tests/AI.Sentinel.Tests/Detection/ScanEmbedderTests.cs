@@ -323,6 +323,25 @@ public class ScanEmbedderTests
         Assert.IsType<HttpRequestException>(result.FirstFailure);
     }
 
+    [Fact]
+    public async Task Unusable_retry_vectors_do_not_trip_the_outage_cut_off()
+    {
+        // The batch throws; the first two singles answer with zero vectors, which are bad answers, not an outage.
+        var gen = new VectorEmbeddingGenerator(t => t is "good" ? Good : [0f, 0f, 0f])
+        {
+            FailBatch = batch => batch.Count > 1,
+        };
+        var cache = new InMemoryLruEmbeddingCache();
+
+        var result = await ScanEmbedder.EmbedAsync(Scope(gen, cache), ["bad1", "bad2", "good"], expectedDimension: 3, TestContext.Current.CancellationToken);
+
+        Assert.Equal(4, gen.Calls);
+        Assert.Equal(2, result.FailedCount);
+        Assert.True(result.TryGet("good", out _));
+        Assert.True(cache.TryGet("good", out _));
+        Assert.IsType<HttpRequestException>(result.FirstFailure);
+    }
+
     private sealed class ShortBatchGenerator : IEmbeddingGenerator<string, Embedding<float>>
     {
         private readonly FakeEmbeddingGenerator _inner = new();
