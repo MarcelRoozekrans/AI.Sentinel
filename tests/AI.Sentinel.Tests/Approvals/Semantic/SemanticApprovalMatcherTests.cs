@@ -345,6 +345,43 @@ public class SemanticApprovalMatcherTests
     }
 
     [Fact]
+    public async Task Invalid_call_vector_fails_with_its_kind()
+    {
+        var examples = new HashSet<string>(SemanticApprovalExamples.Default, StringComparer.Ordinal);
+        var generator = new VectorEmbeddingGenerator(t => examples.Contains(t) ? [1f, 0f, 0f] : [0f, 0f, 0f]);
+
+        var match = await Matcher(generator).MatchAsync("Bash", Command("rm -rf /tmp/x"), CancellationToken.None);
+
+        Assert.Equal(InvalidEmbeddingException.InvalidVector, Assert.IsType<SemanticMatch.Failed>(match).Kind);
+    }
+
+    [Fact]
+    public async Task Invalid_call_vector_is_not_cached_so_the_next_call_is_scored()
+    {
+        var examples = new HashSet<string>(SemanticApprovalExamples.Default, StringComparer.Ordinal);
+        var generator = new VectorEmbeddingGenerator(t => examples.Contains(t) ? [1f, 0f, 0f] : [0f, 0f, 0f]);
+        var matcher = Matcher(generator);
+
+        var first = await matcher.MatchAsync("Bash", Command("rm -rf /tmp/x"), CancellationToken.None);
+        generator.Vectors = _ => [1f, 0f, 0f];
+        var second = await matcher.MatchAsync("Bash", Command("rm -rf /tmp/x"), CancellationToken.None);
+
+        Assert.Equal(InvalidEmbeddingException.InvalidVector, Assert.IsType<SemanticMatch.Failed>(first).Kind);
+        Assert.IsType<SemanticMatch.Flagged>(second);
+    }
+
+    [Fact]
+    public async Task Wrong_length_call_vector_fails_with_dimension_mismatch()
+    {
+        var examples = new HashSet<string>(SemanticApprovalExamples.Default, StringComparer.Ordinal);
+        var generator = new VectorEmbeddingGenerator(t => examples.Contains(t) ? [1f, 0f, 0f] : [1f, 0f]);
+
+        var match = await Matcher(generator).MatchAsync("Bash", Command("rm -rf /tmp/x"), CancellationToken.None);
+
+        Assert.Equal(InvalidEmbeddingException.DimensionMismatch, Assert.IsType<SemanticMatch.Failed>(match).Kind);
+    }
+
+    [Fact]
     public async Task NaNCallVector_Failed_InvalidVector()
     {
         var examples = new HashSet<string>(SemanticApprovalExamples.Default, StringComparer.Ordinal);
@@ -466,15 +503,6 @@ public class SemanticApprovalMatcherTests
         }
     }
 
-    private sealed class VectorEmbeddingGenerator(Func<string, float[]> vectors) : IEmbeddingGenerator<string, Embedding<float>>
-    {
-        public Task<GeneratedEmbeddings<Embedding<float>>> GenerateAsync(
-            IEnumerable<string> values, EmbeddingGenerationOptions? options = null, CancellationToken cancellationToken = default) =>
-            Task.FromResult(new GeneratedEmbeddings<Embedding<float>>(values.Select(v => new Embedding<float>(vectors(v))).ToList()));
-
-        public object? GetService(Type serviceType, object? serviceKey = null) => null;
-        public void Dispose() { }
-    }
 }
 
 /// <summary>Resolves the key and spec through <see cref="SemanticApprovalMatcher.Covers"/>, as the guard does.</summary>
