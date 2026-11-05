@@ -665,4 +665,85 @@ public class SemanticDetectorBaseTests
         Assert.Equal(1f, similarity, 5);
         Assert.Equal(MathF.Sqrt(0.5f), SemanticDetectorBase.MaxSimilarity(query, [references[0]]), 5);
     }
+
+    private const string ScanText = "a perfectly ordinary sentence";
+
+    /// <summary>Length-3 vectors for the examples, so a text can be given another length or an unusable vector.</summary>
+    private static VectorEmbeddingGenerator ExampleVectorsPlus(Func<string, float[]?> scanVector) => new(text => text switch
+    {
+        HighText => [1f, 0f, 0f],
+        MediumText => [0f, 1f, 0f],
+        LowText => [0f, 0f, 1f],
+        _ => scanVector(text) ?? [1f, 0f, 0f],
+    });
+
+    [Fact]
+    public async Task Standalone_unusable_fresh_vector_throws_and_caches_nothing()
+    {
+        var cache = new InMemoryLruEmbeddingCache();
+        var generator = ExampleVectorsPlus(_ => [0f, 0f, 0f]);
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = generator, EmbeddingCache = cache });
+
+        var ex = await Assert.ThrowsAsync<InvalidEmbeddingException>(async () =>
+            await detector.AnalyzeAsync(Ctx(ScanText), configuration: null, TestContext.Current.CancellationToken));
+
+        Assert.Equal(InvalidEmbeddingException.InvalidVector, ex.Kind);
+        Assert.False(cache.TryGet(ScanText, out _));
+    }
+
+    [Fact]
+    public async Task Standalone_wrong_length_fresh_vector_throws_dimension_mismatch()
+    {
+        var cache = new InMemoryLruEmbeddingCache();
+        var generator = ExampleVectorsPlus(_ => [1f, 0f]);
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = generator, EmbeddingCache = cache });
+
+        var ex = await Assert.ThrowsAsync<InvalidEmbeddingException>(async () =>
+            await detector.AnalyzeAsync(Ctx(ScanText), configuration: null, TestContext.Current.CancellationToken));
+
+        Assert.Equal(InvalidEmbeddingException.DimensionMismatch, ex.Kind);
+        Assert.False(cache.TryGet(ScanText, out _));
+    }
+
+    [Fact]
+    public async Task Standalone_invalid_cached_hit_is_re_embedded()
+    {
+        var cache = new InMemoryLruEmbeddingCache();
+        cache.Set(HighText, new Embedding<float>(new float[] { 0f, 0f, 0f }));
+        var generator = ExampleVectorsPlus(_ => null);
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = generator, EmbeddingCache = cache });
+
+        var r = await detector.AnalyzeAsync(Ctx(HighText), TestContext.Current.CancellationToken);
+
+        Assert.Equal(Severity.High, r.Severity);
+    }
+
+    [Fact]
+    public async Task Scoped_vector_of_other_length_throws_dimension_mismatch()
+    {
+        var generator = ExampleVectorsPlus(_ => null);
+        var options = new SentinelOptions { EmbeddingGenerator = generator };
+        var detector = new TestDetector(options);
+        var scan = new ScanEmbeddings(
+            new Dictionary<string, ReadOnlyMemory<float>>(StringComparer.Ordinal) { [ScanText] = new float[] { 1f, 0f } },
+            totalCount: 1, failedCount: 0, firstFailure: null);
+        var scope = new EmbeddingScope(generator, new InMemoryLruEmbeddingCache(), null);
+
+        var ex = await Assert.ThrowsAsync<InvalidEmbeddingException>(async () =>
+            await detector.AnalyzeAsync(Ctx(ScanText), null, scope, scan, [ScanText], TestContext.Current.CancellationToken));
+
+        Assert.Equal(InvalidEmbeddingException.DimensionMismatch, ex.Kind);
+    }
+
+    [Fact]
+    public async Task Example_tiers_of_mixed_length_throw_dimension_mismatch()
+    {
+        var generator = new VectorEmbeddingGenerator(text => string.Equals(text, MediumText, StringComparison.Ordinal) ? [1f, 0f] : [1f, 0f, 0f]);
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = generator });
+
+        var ex = await Assert.ThrowsAsync<InvalidEmbeddingException>(async () =>
+            await detector.GetExampleVectorsAsync(generator, null, TestContext.Current.CancellationToken));
+
+        Assert.Equal(InvalidEmbeddingException.DimensionMismatch, ex.Kind);
+    }
 }

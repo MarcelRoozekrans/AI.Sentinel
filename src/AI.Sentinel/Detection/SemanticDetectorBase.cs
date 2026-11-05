@@ -269,7 +269,9 @@ public abstract class SemanticDetectorBase : IDetector
     /// <remarks>One detector instance is shared by every named pipeline, so a pipeline's
     /// <see cref="DetectorConfiguration.HighThreshold"/>, <see cref="DetectorConfiguration.MediumThreshold"/> and
     /// <see cref="DetectorConfiguration.ReviewThreshold"/> arrive with each call from <see cref="DetectionPipeline"/>
-    /// instead of being stored on the detector.</remarks>
+    /// instead of being stored on the detector. Called outside a pipeline, it embeds the texts itself and throws
+    /// <see cref="InvalidEmbeddingException"/> for a vector that is empty, zero-norm, non-finite or not of the
+    /// examples' length; nothing of that batch is cached.</remarks>
     internal async ValueTask<SemanticOutcome> AnalyzeAsync(SentinelContext ctx, DetectorConfiguration? configuration, CancellationToken ct)
     {
         if (EarlyOutcome(ctx) is { } early)
@@ -283,7 +285,7 @@ public abstract class SemanticDetectorBase : IDetector
             return CleanOutcome();
 
         var examples = await GetExampleVectorsAsync(_generator, _exampleCache, ct).ConfigureAwait(false);
-        var vectors = await GetEmbeddingsAsync(texts, ct).ConfigureAwait(false);
+        var vectors = await GetEmbeddingsAsync(texts, ExampleDimension(examples), ct).ConfigureAwait(false);
 
         var (result, index, score) = Score(vectors, examples, configuration);
         return new SemanticOutcome(
@@ -297,7 +299,9 @@ public abstract class SemanticDetectorBase : IDetector
     /// <paramref name="scope"/>'s generator. <paramref name="texts"/> is what <see cref="TextsToEmbed"/> returned for
     /// this scan, so an override of <see cref="GetTextsToScore"/> runs once and the texts scored are the texts
     /// embedded. A text that is not in <paramref name="scan"/> could not be embedded and is skipped; the pipeline has
-    /// reported it.</remarks>
+    /// reported it. A vector of <paramref name="scan"/> that is unusable or not of the examples' length throws
+    /// <see cref="InvalidEmbeddingException"/>: the pipeline checks the vectors it builds, so this guards a scan
+    /// that was assembled by hand.</remarks>
     internal async ValueTask<SemanticOutcome> AnalyzeAsync(
         SentinelContext ctx, DetectorConfiguration? configuration, EmbeddingScope scope, ScanEmbeddings scan,
         IReadOnlyList<string> texts, CancellationToken ct)
@@ -310,12 +314,15 @@ public abstract class SemanticDetectorBase : IDetector
 
         var examples = await GetExampleVectorsAsync(scope.Generator, scope.ExampleCache, ct).ConfigureAwait(false);
 
+        var dimension = ExampleDimension(examples);
         var vectors = new List<ReadOnlyMemory<float>>(texts.Count);
         var embeddedTexts = new List<string>(texts.Count);
         foreach (var text in texts)
         {
             if (!scan.TryGet(text, out var vector)) continue;
 
+            // The pipeline checks scan vectors before it hands them out, so this only guards a hand-built scan.
+            CheckVector(vector, dimension);
             vectors.Add(vector);
             embeddedTexts.Add(text);
         }
@@ -626,12 +633,47 @@ public abstract class SemanticDetectorBase : IDetector
         var high = await ExampleEmbedder.EmbedAsync(generator, exampleCache, HighExamples, ct).ConfigureAwait(false);
         var medium = await ExampleEmbedder.EmbedAsync(generator, exampleCache, MediumExamples, ct).ConfigureAwait(false);
         var low = await ExampleEmbedder.EmbedAsync(generator, exampleCache, LowExamples, ct).ConfigureAwait(false);
+
+        // Each tier is consistent within itself, but a cosine against a vector of another length is meaningless.
+        var dimension = ExampleDimension(high, medium, low);
+        foreach (var tier in (ReadOnlyMemory<float>[][])[high, medium, low])
+        {
+            if (tier.Length > 0 && tier[0].Length != dimension)
+                throw new InvalidEmbeddingException(InvalidEmbeddingException.DimensionMismatch);
+        }
+
         return new ExampleVectors(high, medium, low);
     }
 
+    /// <summary>The length of the example vectors: that of the first vector of the first non-empty tier, or 0 when
+    /// the detector has no examples, which leaves nothing to compare a scan vector's length with.</summary>
+    private static int ExampleDimension(ExampleVectors examples) => ExampleDimension(examples.High, examples.Medium, examples.Low);
+
+    private static int ExampleDimension(ReadOnlyMemory<float>[] high, ReadOnlyMemory<float>[] medium, ReadOnlyMemory<float>[] low)
+    {
+        foreach (var tier in (ReadOnlyMemory<float>[][])[high, medium, low])
+        {
+            if (tier.Length > 0) return tier[0].Length;
+        }
+
+        return 0;
+    }
+
+    /// <summary>Throws when <paramref name="vector"/> cannot be scored: unusable, or not of the example
+    /// <paramref name="dimension"/>. A <paramref name="dimension"/> of 0 skips the length check.</summary>
+    private static void CheckVector(ReadOnlyMemory<float> vector, int dimension)
+    {
+        if (InvalidEmbeddingException.Problem(vector.Span) is { } problem)
+            throw new InvalidEmbeddingException(problem);
+
+        if (dimension > 0 && vector.Length != dimension)
+            throw new InvalidEmbeddingException(InvalidEmbeddingException.DimensionMismatch);
+    }
+
     /// <summary>The vector of each of <paramref name="texts"/>, in order: cached ones from the scan cache, and all
-    /// misses from one generator call.</summary>
-    private async Task<ReadOnlyMemory<float>[]> GetEmbeddingsAsync(IReadOnlyList<string> texts, CancellationToken ct)
+    /// misses from one generator call. A cached vector that is unusable or not of <paramref name="dimension"/> is a
+    /// miss; a fresh one that is throws <see cref="InvalidEmbeddingException"/> before anything is cached.</summary>
+    private async Task<ReadOnlyMemory<float>[]> GetEmbeddingsAsync(IReadOnlyList<string> texts, int dimension, CancellationToken ct)
     {
         var vectors = new ReadOnlyMemory<float>[texts.Count];
         var missingText = new List<string>();
@@ -639,7 +681,8 @@ public abstract class SemanticDetectorBase : IDetector
 
         for (var i = 0; i < texts.Count; i++)
         {
-            if (_cache.TryGet(texts[i], out var cached))
+            // An unusable cached vector, stored before these checks existed, is embedded again rather than trusted.
+            if (_cache.TryGet(texts[i], out var cached) && IsUsable(cached.Vector, dimension))
             {
                 vectors[i] = cached.Vector;
             }
@@ -661,6 +704,9 @@ public abstract class SemanticDetectorBase : IDetector
                 $"Embedding generator returned {fresh.Count} vectors for {missingText.Count} inputs; results must correspond one-to-one and in order.");
         }
 
+        // All of them are checked before the first is cached, so a bad batch leaves the cache as it was.
+        foreach (var embedding in fresh) CheckVector(embedding.Vector, dimension);
+
         for (var i = 0; i < missingIndex.Count; i++)
         {
             _cache.Set(missingText[i], fresh[i]);
@@ -669,6 +715,9 @@ public abstract class SemanticDetectorBase : IDetector
 
         return vectors;
     }
+
+    private static bool IsUsable(ReadOnlyMemory<float> vector, int dimension) =>
+        InvalidEmbeddingException.Problem(vector.Span) is null && (dimension == 0 || vector.Length == dimension);
 
     /// <summary>The highest cosine similarity between <paramref name="query"/> and any reference vector.
     /// Internal so the offline threshold evaluation scores with exactly this math.</summary>
