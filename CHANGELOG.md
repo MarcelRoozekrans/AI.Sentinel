@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [5.1.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.1.1...v5.1.2) (2026-11-05)
+
+
+### Bug Fixes
+
+* **hooks:** wait the library default of 5 s for a judge review ([#573](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/573)) ([75c6123](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/75c612335bef1d7f9db74aa7197fe85d56ee4455))
+
 ## [5.1.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.1.0...v5.1.1) (2026-11-05)
 
 
