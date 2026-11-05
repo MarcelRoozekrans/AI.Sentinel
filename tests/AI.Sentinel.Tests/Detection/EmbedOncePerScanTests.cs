@@ -22,13 +22,14 @@ public class EmbedOncePerScanTests
         string[] high,
         Func<SentinelContext, IEnumerable<string>>? texts = null,
         Regex? fastPath = null,
-        SentinelOptions? options = null) : SemanticDetectorBase(options ?? new SentinelOptions())
+        SentinelOptions? options = null,
+        string[]? medium = null) : SemanticDetectorBase(options ?? new SentinelOptions())
     {
         protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
         public override DetectorId Id => new(id);
         public override DetectorCategory Category => DetectorCategory.Security;
         protected override string[] HighExamples => high;
-        protected override string[] MediumExamples => [];
+        protected override string[] MediumExamples => medium ?? [];
         protected override string[] LowExamples => [];
         protected override Regex? FastPathPattern => fastPath;
 
@@ -566,5 +567,32 @@ public class EmbedOncePerScanTests
         var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
 
         Assert.Equal([new DetectorFailure(new("TST-A"), DetectorFailureKind.ExamplesNotEmbedded)], result.Failures);
+    }
+
+    [Fact]
+    public async Task Example_tiers_of_mixed_length_report_examples_not_embedded()
+    {
+        const string mediumExample = "a medium example phrase for the vector tests";
+        var gen = new VectorEmbeddingGenerator(t => string.Equals(t, mediumExample, StringComparison.Ordinal) ? [1f, 0f] : Good);
+        var pipeline = new DetectionPipeline(
+            [new TestSemantic("TST-A", [Example], medium: [mediumExample])], Uncapped, reviewer: null,
+            embeddingScope: new EmbeddingScope(gen, new InMemoryLruEmbeddingCache(), null));
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.Equal([new DetectorFailure(new("TST-A"), DetectorFailureKind.ExamplesNotEmbedded)], result.Failures);
+    }
+
+    [Fact]
+    public async Task Wrong_length_cached_vector_is_re_embedded_and_the_text_flags()
+    {
+        var cache = new InMemoryLruEmbeddingCache();
+        cache.Set(FirstText, new Embedding<float>(new float[] { 1f, 0f }));
+        var (pipeline, _) = VectorPipeline(new VectorEmbeddingGenerator(_ => Good), cache);
+
+        var result = await pipeline.RunAsync(Ctx(User(FirstText)), TestContext.Current.CancellationToken);
+
+        Assert.True(Has(result, "TST-A", Severity.High));
+        Assert.Empty(result.Failures);
     }
 }

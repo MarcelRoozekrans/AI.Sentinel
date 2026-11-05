@@ -658,7 +658,7 @@ public abstract class SemanticDetectorBase : IDetector
         return dimension;
     }
 
-    private static int ExampleDimension(ExampleVectors examples) => ExampleDimension(examples.High, examples.Medium, examples.Low);
+    internal static int ExampleDimension(ExampleVectors examples) => ExampleDimension(examples.High, examples.Medium, examples.Low);
 
     /// <summary>Throws when <paramref name="vector"/> cannot be scored: unusable, or not of the example
     /// <paramref name="dimension"/>. A <paramref name="dimension"/> of 0 skips the length check.</summary>

@@ -466,8 +466,8 @@ public sealed class DetectionPipeline : IDetectionPipeline
         try
         {
             var examples = await semantic.GetExampleVectorsAsync(scope.Generator, scope.ExampleCache, ct).ConfigureAwait(false);
-            var first = examples.High.Length > 0 ? examples.High : examples.Medium.Length > 0 ? examples.Medium : examples.Low;
-            return (null, first.Length > 0 ? first[0].Length : null);
+            var dimension = SemanticDetectorBase.ExampleDimension(examples);
+            return (null, dimension == 0 ? null : dimension);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
