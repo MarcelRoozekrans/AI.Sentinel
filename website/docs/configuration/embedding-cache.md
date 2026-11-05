@@ -86,6 +86,8 @@ A provider can reject one input, for example one over its token limit, and that 
 - If the first two single-input calls both fail and none has succeeded, the endpoint is treated as down and the rest of the scan's texts are skipped without further calls. An outage, a rejected key or rate limiting costs the batch call plus two more.
 - A failure is logged and passed to `OnDetectorFailure` once per scan, with the number of inputs that failed and the exception, never the input text. The same holds for a failure to embed the example phrases. Each scan also lists the affected detectors in `PipelineResult.Failures`, and on a screening outcome; see [Incomplete scans](../screening#incomplete-scans).
 - A detector left with no vectors returns `Clean`, as it does without a generator. A detector whose example phrases failed still runs its rule layer, where it has one.
+- A vector that is empty, has zero norm, holds a non-finite value or has the wrong dimension is never cached. The detectors that needed that text report `TextsNotEmbedded` for the scan, and a cached entry that is unusable, for example one stored by an older version, is embedded again. A detector used on its own, outside a pipeline, throws instead, and the pipeline records that as `Threw`.
+- The scan texts are embedded after the example phrases, so their vectors can be checked against the examples' dimension. While the example cache is cold, that costs one extra round trip in sequence.
 - Cancellation always propagates and is never reported as a failure.
 
 ## Cost model
