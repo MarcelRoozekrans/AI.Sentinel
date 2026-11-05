@@ -92,8 +92,8 @@ public class ConcurrencyAndAdversarialTests
     [Fact]
     public async Task TargetReturnsEmptyContent_ProxyForwards()
     {
-        // Empty content returns before any scan runs, so the result is forwarded.
-        // A scan that throws fails closed instead (see McpFailClosedTests).
+        // Empty content still scans; the scan comes back clean, so the result is forwarded.
+        // A scan that throws fails closed instead, see McpFailClosedTests.
         await using var h = await StartHarnessAsync();
         h.Fake.EnqueueToolResult(new CallToolResult
         {

@@ -100,13 +100,17 @@ public class McpFailClosedTests
         Assert.DoesNotContain(LeakMarker, log);
     }
 
-    [Fact]
-    public async Task ToolCall_FailClosed_WritesInternalErrorAuditEntry()
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(2, true)]
+    public async Task ToolCall_FailClosed_WritesInternalErrorAuditEntry(int throwFromCall, bool redacting)
     {
         var store = new RingBufferAuditStore(16);
         var forwarder = new RecordingAuditForwarder();
         var handler = ToolCallInterceptor.Create(
-            ThrowingPipeline(), TextWriter.Null, audit: store, forwarders: [forwarder])(new Counter().Next);
+            ThrowingPipeline(throwFromCall: throwFromCall), TextWriter.Null, audit: store, forwarders: [forwarder],
+            placeholders: redacting ? NewStore() : null)(new Counter().Next);
 
         await Assert.ThrowsAsync<McpProtocolException>(
             async () => await handler(Context(ReadFile()), TestContext.Current.CancellationToken));
@@ -136,12 +140,16 @@ public class McpFailClosedTests
         Assert.DoesNotContain(LeakMarker, log);
     }
 
-    [Fact]
-    public async Task ToolCall_Cancelled_Propagates()
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, false)]
+    [InlineData(2, true)]
+    public async Task ToolCall_Cancelled_Propagates(int throwFromCall, bool redacting)
     {
         var stderr = new StringWriter();
         var handler = ToolCallInterceptor.Create(
-            ThrowingPipeline(() => new OperationCanceledException()), stderr)(new Counter().Next);
+            ThrowingPipeline(() => new OperationCanceledException(), throwFromCall), stderr,
+            placeholders: redacting ? NewStore() : null)(new Counter().Next);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () => await handler(Context(ReadFile()), TestContext.Current.CancellationToken));
