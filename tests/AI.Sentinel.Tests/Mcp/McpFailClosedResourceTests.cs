@@ -75,6 +75,19 @@ public class McpFailClosedResourceTests
     }
 
     [Fact]
+    public async Task NonRedacting_SecondItemThrows_BlocksWholeRead()
+    {
+        var result = new ReadResourceResult { Contents = [Text("first"), Text("second")] };
+        var handler = ResourceReadInterceptor.Create(ThrowingPipeline(throwFromCall: 2))(Returning(result));
+
+        var (ex, stderr) = await BlockedAsync(handler);
+
+        AssertFailClosed(ex);
+        Assert.Contains("fail_closed", stderr);
+        Assert.DoesNotContain("fail_open", stderr);
+    }
+
+    [Fact]
     public async Task Redacting_NoItemThrows_RewritesItemOne()
     {
         // Positive control: with nothing throwing, item 1 is rewritten, so the "unchanged" test below means something.

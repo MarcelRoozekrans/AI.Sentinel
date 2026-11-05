@@ -120,8 +120,8 @@ internal static class ResourceReadInterceptor
     /// any item blocks the read, and then nothing is written back or audited as redacted. Otherwise each item is
     /// written back and its redactions are audited. A pipeline failure on any item blocks the whole read before any
     /// write-back, so nothing is written back or audited as redacted, and logs only the exception type, because its
-    /// message can carry the value. Returns the number of redacted occurrences
-    /// and whether any scan was skipped by the rate limit.
+    /// message can carry the value. Returns the number of redacted occurrences and whether any scan was skipped by
+    /// the rate limit.
     /// </summary>
     private static async ValueTask<(int Redacted, bool RateLimited)> RedactAsync(
         SentinelPipeline pipeline,

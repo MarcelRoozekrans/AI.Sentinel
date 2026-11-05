@@ -133,7 +133,7 @@ Three cases fall back:
 - **Restored values are not scanned.** The request scan judges the arguments as the agent sent them, with placeholders. A restored email address sent to an outbound tool is therefore not flagged by the PII detector on the way out. An [authorization policy](./authorization/overview) sees the restored arguments and is the control for outbound tools.
 - **Approvals store real values.** With `RequireApproval`, the approval store, SQLite included, keeps the restored real arguments, so an approver judges the actual call.
 - **Only `tools/call` is restored.** A placeholder in the arguments of `prompts/get` or in a resource URI stays literal text.
-- **Fallbacks.** When a scan is rate limited, or the pipeline throws, the content is forwarded unredacted, as 3.0 forwarded it unscanned. The rate-limited case is logged with `reason=rate_limited`.
+- **Fallbacks.** When a scan is rate limited, the content is forwarded unredacted, as 3.0 forwarded it unscanned, and the proxy logs `reason=rate_limited`. When the pipeline throws, the proxy blocks; see [MCP proxy → Pipeline errors](./integrations/mcp-proxy#pipeline-errors).
 
 ### Hook CLIs
 
@@ -236,7 +236,7 @@ When redaction is not possible, the detection uses the action of its severity, a
 
 In the in-process client, if redaction itself fails, the call fails with a pipeline failure. AI.Sentinel never sends unredacted text there because redaction broke.
 
-The hook CLIs and the MCP proxy cannot fail the host's call, so when redaction fails there, the content is scanned unredacted, as in 3.0, and the detections fall back with `; not redacted`. The exception is not kept, because its message can carry the value.
+The hook CLIs and the MCP proxy cannot fail the host's call, so when redaction fails there, the content is scanned unredacted, as in 3.0, and the detections fall back with `; not redacted`. The exception is not kept, because its message can carry the value. This fallback is not a pipeline throw: when the pipeline itself throws, the MCP proxy blocks the call, prompt or read.
 
 ## The mapping is never stored
 
