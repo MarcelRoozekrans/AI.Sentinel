@@ -709,6 +709,7 @@ public class SemanticDetectorBaseTests
     public async Task Standalone_invalid_cached_hit_is_re_embedded()
     {
         var cache = new InMemoryLruEmbeddingCache();
+        // The scan cache, separate from the example cache: HighText's examples are never read from it.
         cache.Set(HighText, new Embedding<float>(new float[] { 0f, 0f, 0f }));
         var generator = ExampleVectorsPlus(_ => null);
         var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = generator, EmbeddingCache = cache });
@@ -745,5 +746,60 @@ public class SemanticDetectorBaseTests
             await detector.GetExampleVectorsAsync(generator, null, TestContext.Current.CancellationToken));
 
         Assert.Equal(InvalidEmbeddingException.DimensionMismatch, ex.Kind);
+    }
+
+    private sealed class NoExamplesDetector(SentinelOptions options) : SemanticDetectorBase(options)
+    {
+        protected override string ReviewCriterion => "A test-only detector with a generic criterion, never reviewed by a real judge.";
+        private static readonly DetectorId _id = new("TEST-03");
+        public override DetectorId Id => _id;
+        public override DetectorCategory Category => DetectorCategory.Security;
+        protected override string[] HighExamples => [];
+        protected override string[] MediumExamples => [];
+        protected override string[] LowExamples => [];
+    }
+
+    [Fact]
+    public async Task Scoped_unusable_vector_throws_its_kind()
+    {
+        var generator = ExampleVectorsPlus(_ => null);
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = generator });
+        var scan = new ScanEmbeddings(
+            new Dictionary<string, ReadOnlyMemory<float>>(StringComparer.Ordinal) { [ScanText] = new float[] { 0f, 0f, 0f } },
+            totalCount: 1, failedCount: 0, firstFailure: null);
+        var scope = new EmbeddingScope(generator, new InMemoryLruEmbeddingCache(), null);
+
+        var ex = await Assert.ThrowsAsync<InvalidEmbeddingException>(async () =>
+            await detector.AnalyzeAsync(Ctx(ScanText), null, scope, scan, [ScanText], TestContext.Current.CancellationToken));
+
+        Assert.Equal(InvalidEmbeddingException.InvalidVector, ex.Kind);
+    }
+
+    [Fact]
+    public async Task Standalone_bad_vector_after_a_good_one_caches_neither()
+    {
+        const string good = "the first, usable message";
+        const string bad = "the second, unusable message";
+        var cache = new InMemoryLruEmbeddingCache();
+        var generator = ExampleVectorsPlus(text => string.Equals(text, bad, StringComparison.Ordinal) ? [0f, 0f, 0f] : null);
+        var detector = new TestDetector(new SentinelOptions { EmbeddingGenerator = generator, EmbeddingCache = cache });
+
+        await Assert.ThrowsAsync<InvalidEmbeddingException>(async () =>
+            await detector.AnalyzeAsync(Ctx(0, User(good), User(bad)), configuration: null, TestContext.Current.CancellationToken));
+
+        Assert.False(cache.TryGet(good, out _));
+        Assert.False(cache.TryGet(bad, out _));
+    }
+
+    [Fact]
+    public async Task Standalone_without_examples_still_refuses_an_unusable_vector()
+    {
+        var generator = new VectorEmbeddingGenerator(_ => [0f, 0f, 0f]);
+        var detector = new NoExamplesDetector(new SentinelOptions { EmbeddingGenerator = generator });
+
+        var ex = await Assert.ThrowsAsync<InvalidEmbeddingException>(async () =>
+            await detector.AnalyzeAsync(Ctx(ScanText), configuration: null, TestContext.Current.CancellationToken));
+
+        Assert.Equal(InvalidEmbeddingException.InvalidVector, ex.Kind);
     }
 }

@@ -635,29 +635,30 @@ public abstract class SemanticDetectorBase : IDetector
         var low = await ExampleEmbedder.EmbedAsync(generator, exampleCache, LowExamples, ct).ConfigureAwait(false);
 
         // Each tier is consistent within itself, but a cosine against a vector of another length is meaningless.
-        var dimension = ExampleDimension(high, medium, low);
-        foreach (var tier in (ReadOnlyMemory<float>[][])[high, medium, low])
-        {
-            if (tier.Length > 0 && tier[0].Length != dimension)
-                throw new InvalidEmbeddingException(InvalidEmbeddingException.DimensionMismatch);
-        }
-
+        ExampleDimension(high, medium, low);
         return new ExampleVectors(high, medium, low);
     }
 
     /// <summary>The length of the example vectors: that of the first vector of the first non-empty tier, or 0 when
-    /// the detector has no examples, which leaves nothing to compare a scan vector's length with.</summary>
-    private static int ExampleDimension(ExampleVectors examples) => ExampleDimension(examples.High, examples.Medium, examples.Low);
-
-    private static int ExampleDimension(ReadOnlyMemory<float>[] high, ReadOnlyMemory<float>[] medium, ReadOnlyMemory<float>[] low)
+    /// the detector has no examples, which leaves nothing to compare a scan vector's length with. Throws
+    /// <see cref="InvalidEmbeddingException"/> when another non-empty tier has vectors of another length.</summary>
+    private static int ExampleDimension(params ReadOnlyMemory<float>[][] tiers)
     {
-        foreach (var tier in (ReadOnlyMemory<float>[][])[high, medium, low])
+        var dimension = 0;
+        foreach (var tier in tiers)
         {
-            if (tier.Length > 0) return tier[0].Length;
+            if (tier.Length == 0) continue;
+
+            if (dimension == 0)
+                dimension = tier[0].Length;
+            else if (tier[0].Length != dimension)
+                throw new InvalidEmbeddingException(InvalidEmbeddingException.DimensionMismatch);
         }
 
-        return 0;
+        return dimension;
     }
+
+    private static int ExampleDimension(ExampleVectors examples) => ExampleDimension(examples.High, examples.Medium, examples.Low);
 
     /// <summary>Throws when <paramref name="vector"/> cannot be scored: unusable, or not of the example
     /// <paramref name="dimension"/>. A <paramref name="dimension"/> of 0 skips the length check.</summary>
