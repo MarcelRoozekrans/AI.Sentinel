@@ -26,17 +26,14 @@ internal sealed class ReviewEvaluation(
     /// <summary>The per-review timeout configuration 3 runs under. A review timeout is a deployment's latency policy;
     /// under one, an occasional slow answer from a hosted judge times out, keeps the capped result and makes the judge
     /// columns invalid. Measuring under the judge client's own 30 s outer bound records every verdict, and each review's
-    /// duration is counted against the deployment defaults in <see cref="DeploymentTimeouts"/> instead, so a reader still
-    /// sees how many reviews each default would have abandoned.</summary>
+    /// duration is counted against the default in <see cref="DeploymentTimeouts"/> instead, so a reader still
+    /// sees how many reviews it would have abandoned.</summary>
     private static readonly ReviewLimits MeasurementLimits = new(ReviewLimits.Default.MaxPerScan, TimeSpan.FromSeconds(30));
 
-    /// <summary>The default review timeouts a deployment runs under, shortest first: the hook CLIs' 3 s, which mirrors
-    /// <c>DefaultReviewLimits</c> in <c>AI.Sentinel.ClaudeCode.Cli</c> and <c>AI.Sentinel.Copilot.Cli</c>, executables
-    /// this tool does not reference, and the library's <see cref="ReviewLimits.Default"/>, which the MCP proxy and an
-    /// <c>AddAISentinel</c> host keep unless they set <c>ReviewTimeout</c>.</summary>
+    /// <summary>The default review timeout a deployment runs under: <see cref="ReviewLimits.Default"/>, which the hook
+    /// CLIs, the MCP proxy and an <c>AddAISentinel</c> host all keep unless they set <c>ReviewTimeout</c>.</summary>
     private static readonly (string Name, TimeSpan Timeout)[] DeploymentTimeouts =
     [
-        ("the hook CLIs' default", TimeSpan.FromSeconds(3)),
         ("the library default", ReviewLimits.Default.Timeout),
     ];
 
@@ -212,9 +209,9 @@ internal sealed class ReviewEvaluation(
         var counts = string.Join("; ", DeploymentTimeouts.Select(t => string.Create(CultureInfo.InvariantCulture,
             $"{Over(t.Timeout).Count()} over {t.Name} of {t.Timeout.TotalMilliseconds:0} ms")));
         _notes.Add(string.Create(CultureInfo.InvariantCulture,
-            $"Review duration for {id}: {_reviewDurations.Count} reviews, slowest {slowest:0} ms; {counts}. A deployment with that timeout abandons such a review and keeps the capped result."));
+            $"Review duration for {id}: {_reviewDurations.Count} reviews, slowest {slowest:0} ms; {counts}. A review over that timeout is abandoned and keeps the capped result."));
 
-        // The shortest default abandons the most reviews; name each one, so a reader sees whether a positive was lost.
+        // Name each review over the default, so a reader sees whether a positive was lost.
         foreach (var (milliseconds, phrase) in Over(DeploymentTimeouts[0].Timeout))
         {
             _notes.Add(string.Create(CultureInfo.InvariantCulture,
@@ -287,7 +284,7 @@ internal sealed class ReviewEvaluation(
         public void Dispose() => _listener.Dispose();
     }
 
-    /// <summary>Times each review of the wrapped reviewer, so configuration 3 can report how many would exceed each
+    /// <summary>Times each review of the wrapped reviewer, so configuration 3 can report how many would exceed the
     /// deployment default in <see cref="DeploymentTimeouts"/>.</summary>
     private sealed class TimedReviewer(IDetectionReviewer inner) : IDetectionReviewer
     {
