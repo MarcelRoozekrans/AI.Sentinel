@@ -23,6 +23,10 @@ on:
         description: Attest build provenance for each archive.
         type: boolean
         default: false
+      ref:
+        description: Git ref to build, for republishing an existing release tag. Empty builds the calling ref.
+        type: string
+        default: ''
 
 env:
   GLIBC_IMAGE: almalinux:8
@@ -52,6 +56,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Setup .NET
         if: matrix.target.libc == 'none'

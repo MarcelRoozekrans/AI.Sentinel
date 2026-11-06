@@ -3,6 +3,14 @@ name: Release Please
 on:
   push:
     branches: [main]
+  # Republishes an existing release whose publish job failed, for example 5.1.2 after an expired NuGet key.
+  # It builds the tag's code but runs main's workflow file, which the NuGet trusted publishing policy names.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version of the existing release to publish, without the leading v, for example 5.1.2.
+        type: string
+        required: true
 
 permissions:
   contents: write
@@ -10,6 +18,7 @@ permissions:
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -79,7 +88,7 @@ jobs:
     # Packs, smoke-tests, archives and attests the Native AOT builds of the three hook/MCP CLIs,
     # one runner per RID. Nothing is pushed unless every leg succeeds.
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ !cancelled() && (needs.release-please.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) }}
     permissions:
       contents: read
       id-token: write
@@ -87,12 +96,13 @@ jobs:
       artifact-metadata: write
     uses: ./.github/workflows/native-cli.yml
     with:
-      version: ${{ needs.release-please.outputs.version }}
+      version: ${{ needs.release-please.outputs.version || inputs.version }}
+      ref: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || '' }}
       attest: true
 
   publish:
     needs: [release-please, native]
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ !cancelled() && needs.native.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -100,9 +110,12 @@ jobs:
       attestations: write
       artifact-metadata: write
     env:
-      VERSION: ${{ needs.release-please.outputs.version }}
+      VERSION: ${{ needs.release-please.outputs.version || inputs.version }}
+      TAG: ${{ needs.release-please.outputs.tag_name || format('v{0}', inputs.version) }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', inputs.version) || '' }}
 
       - uses: actions/setup-dotnet@v6
         with:
@@ -169,8 +182,17 @@ jobs:
             done
           done
 
+      # Trusted publishing: nuget.org holds a policy for this repository and workflow file, and NuGet/login
+      # swaps this job's OIDC token for an API key that lasts about an hour. The wait below can take 30
+      # minutes, so the second push stage logs in again. NUGET_USER is the nuget.org profile name.
+      - name: Log in to NuGet for the RID packages
+        id: nuget-login-rid
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push the RID packages to NuGet
-        run: dotnet nuget push "./nupkg-rid/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        run: dotnet nuget push "./nupkg-rid/*.nupkg" --api-key ${{ steps.nuget-login-rid.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       # NuGet validates and indexes each package on its own schedule, so push order alone does not
       # make a large RID package available before the small pointer that names it.
@@ -188,10 +210,16 @@ jobs:
             exit 1
           done
 
+      - name: Log in to NuGet for the libraries and pointers
+        id: nuget-login-libs
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push the libraries and the CLI pointer packages to NuGet
         run: |
-          dotnet nuget push "./nupkg/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
-          dotnet nuget push "./nupkg-pointer/*.nupkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push "./nupkg/*.nupkg" --api-key ${{ steps.nuget-login-libs.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+          dotnet nuget push "./nupkg-pointer/*.nupkg" --api-key ${{ steps.nuget-login-libs.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Write SHA256SUMS
         working-directory: ./native
@@ -204,16 +232,16 @@ jobs:
 
       - name: Upload to GitHub Release
         run: |
-          gh release upload ${{ needs.release-please.outputs.tag_name }} --clobber \
+          gh release upload "$TAG" --clobber \
             ./native/*.tar.gz ./native/*.zip ./native/SHA256SUMS \
             ./nupkg/*.nupkg ./nupkg-pointer/*.nupkg ./nupkg-rid/*.nupkg
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # A CycloneDX SBOM of the solution, attached to the same release. release-please created the release in the
-      # release-please job, and this job runs on main, so the tag comes from that job's tag_name output.
+      # release-please job, and this job runs on main, so the tag comes from that job's tag_name output, or from the dispatch input when republishing.
       - name: Attach the SBOM to the GitHub release
         uses: MarcelRoozekrans/ci-baseline/actions/sbom@v1
         with:
           solution: AI.Sentinel.slnx
-          tag: ${{ needs.release-please.outputs.tag_name }}
+          tag: ${{ env.TAG }}
