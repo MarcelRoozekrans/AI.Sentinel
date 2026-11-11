@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net10.0;net11.0</TargetFrameworks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -11,6 +11,10 @@
     <RootNamespace>AI.Sentinel</RootNamespace>
     <!-- EPS06/EPC12 fire exclusively in source-generator output (*.g.cs); suppress globally -->
     <NoWarn>$(NoWarn);EPS06;EPC12</NoWarn>
+    <!-- The System.Text.Json source generator of the .NET 11 SDK emits code that passes Nullable values by value,
+         which ErrorProne.NET.Structs reports as EPS05 (error). The code is machine-generated and cannot be edited, and an
+         .editorconfig section for *.g.cs does not reach it. The net8.0 and net10.0 builds of the same sources keep the rule. -->
+    <NoWarn Condition="'$(TargetFramework)' == 'net11.0'">$(NoWarn);EPS05</NoWarn>
     <!-- Every project that references AI.Sentinel gets the ZeroAlloc.Authorization generator transitively.
          A shipped package must not export the generated registration: an app with its own policies would
          see two public AddZeroAllocAuthorization extensions and get CS0121 (issues #493, #512). -->

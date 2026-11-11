@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>net8.0;net10.0;net11.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <OutputType>Exe</OutputType>
     <RollForward>LatestMajor</RollForward>
@@ -10,7 +10,7 @@
   </PropertyGroup>
   <!-- The three hook/MCP CLIs target net10.0 only (RID-specific .NET 10 tool packages, eng/NativeTool.props).
        The net8.0 leg keeps testing the libraries and skips the tests that use CLI types. -->
-  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+  <ItemGroup Condition="'$(TargetFramework)' != 'net8.0'">
     <ProjectReference Include="..\..\src\AI.Sentinel.ClaudeCode.Cli\AI.Sentinel.ClaudeCode.Cli.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Copilot.Cli\AI.Sentinel.Copilot.Cli.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Mcp.Cli\AI.Sentinel.Mcp.Cli.csproj" />
@@ -50,7 +50,7 @@
     <PackageReference Include="Microsoft.Extensions.AI" Version="[10.11.0]" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="[10.0.15]" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="8.0.33" Condition="'$(TargetFramework)' == 'net8.0'" />
-    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="[10.0.15]" Condition="'$(TargetFramework)' == 'net10.0'" />
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="[10.0.15]" Condition="'$(TargetFramework)' != 'net8.0'" />
   </ItemGroup>
   <ItemGroup>
     <None Update="Fixtures\**\*.*">

@@ -22,6 +22,7 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
+            11.0.x
 
       # Whitespace and charset follow .editorconfig; folder mode needs no restore or build.
       - name: Check formatting
@@ -77,6 +78,7 @@ jobs:
           dotnet-version: |
             8.0.x
             10.0.x
+            11.0.x
 
       - name: Build
         run: dotnet build tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj -c Release

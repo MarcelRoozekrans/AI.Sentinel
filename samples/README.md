@@ -5,7 +5,7 @@ using the `nvidia/llama-3.3-nemotron-super-49b-v1` model.
 
 ## Prerequisites
 
-- .NET 10 SDK (`10.0.104` or later)
+- .NET 11 SDK (`11.0.100` or later)
 - An [OpenRouter](https://openrouter.ai/) API key
 
 ---

@@ -7,7 +7,7 @@ title: Installation
 
 ## Requirements
 
-- **.NET 8**, **.NET 9** or **.NET 10** target framework
+- **.NET 8**, **.NET 9**, **.NET 10** or **.NET 11** target framework
 - **`Microsoft.Extensions.AI`** ≥ 9.x (the `IChatClient` abstraction)
 
 That's it. No native dependencies, no out-of-process services, no databases unless you opt into the SQLite audit store.
@@ -68,23 +68,23 @@ dotnet tool install -g AI.Sentinel.Copilot.Cli      # GitHub Copilot hook adapte
 
 ## TFM matrix
 
-| Package | net8.0 | net9.0 | net10.0 |
-|---|:---:|:---:|:---:|
-| `AI.Sentinel` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.AspNetCore` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.Detectors.Sdk` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.Sqlite` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.AzureSentinel` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.OpenTelemetry` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.Mcp` (library behind the `sentinel-mcp` CLI; no public embedding API) | ✓ | ✓ | ✓ |
-| `AI.Sentinel.ClaudeCode` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.Copilot` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.Approvals.Sqlite` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.Approvals.EntraPim` | ✓ | ✓ | ✓ |
-| `AI.Sentinel.Cli` | ✓ | — | ✓ |
-| `AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli`, `AI.Sentinel.Mcp.Cli` | — | — | ✓ |
+| Package | net8.0 | net9.0 | net10.0 | net11.0 |
+|---|:---:|:---:|:---:|:---:|
+| `AI.Sentinel` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.AspNetCore` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Detectors.Sdk` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Sqlite` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.AzureSentinel` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.OpenTelemetry` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Mcp` (library behind the `sentinel-mcp` CLI; no public embedding API) | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.ClaudeCode` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Copilot` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Approvals.Sqlite` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Approvals.EntraPim` | ✓ | ✓ | ✓ | ✓ |
+| `AI.Sentinel.Cli` | ✓ | — | ✓ | ✓ |
+| `AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli`, `AI.Sentinel.Mcp.Cli` | — | — | ✓ | — |
 
-`AI.Sentinel.Cli` ships as a `dotnet tool` for net8.0 and net10.0; `dotnet tool install` picks the newest one your machine can run. The hook and MCP CLIs are .NET 10 RID-specific tools: installing them needs the .NET 10 SDK, and on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64 you get a Native AOT build. Library packages multi-target, so a net8, net9 or net10 host gets a matching build.
+`AI.Sentinel.Cli` ships as a `dotnet tool` for net8.0, net10.0 and net11.0; `dotnet tool install` picks the newest one your machine can run. The hook and MCP CLIs are .NET 10 RID-specific tools, which also run on newer runtimes: installing them needs the .NET 10 SDK, and on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64 you get a Native AOT build. Library packages multi-target, so a net8, net9 or net10 host gets a matching build.
 
 ## What you get out of the box
 
