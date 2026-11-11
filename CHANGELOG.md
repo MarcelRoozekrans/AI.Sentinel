@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [5.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.1.2...v5.2.0) (2026-11-11)
+
+
+### Features
+
+* add net11.0 target ([#585](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/585)) ([4aea19e](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/4aea19e9c30342bf82eafbd6df5965593e869de6))
+
 ## [5.1.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.1.1...v5.1.2) (2026-11-05)
 
 
