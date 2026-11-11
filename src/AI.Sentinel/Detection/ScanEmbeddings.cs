@@ -13,7 +13,7 @@ internal sealed class ScanEmbeddings
         FirstFailure = firstFailure;
     }
 
-    public static ScanEmbeddings Empty { get; } = new([], 0, 0, null);
+    public static ScanEmbeddings Empty { get; } = new(new Dictionary<string, ReadOnlyMemory<float>>(StringComparer.Ordinal), 0, 0, null);
 
     /// <summary>The number of distinct texts the scan asked for.</summary>
     public int TotalCount { get; }

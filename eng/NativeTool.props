@@ -7,6 +7,10 @@
     <TargetFrameworks></TargetFrameworks>
     <TargetFramework>net10.0</TargetFramework>
     <PackAsTool>true</PackAsTool>
+    <!-- SDK 11 packs the RID packages it can build on this host together with the pointer when `dotnet pack` runs without -r,
+         and restore has no assets for that RID. The release builds each RID package on its own runner with -r, so a pack
+         without a RuntimeIdentifier only makes the pointer, as it did on SDK 10. -->
+    <CreateRidSpecificToolPackages Condition="'$(RuntimeIdentifier)' == '' and '$(CreateRidSpecificToolPackages)' == ''">false</CreateRidSpecificToolPackages>
     <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
     <!-- musl needs its own packages: the RID graph sends linux-musl-x64 to linux-x64 before any,
          and a glibc binary cannot start on Alpine. -->

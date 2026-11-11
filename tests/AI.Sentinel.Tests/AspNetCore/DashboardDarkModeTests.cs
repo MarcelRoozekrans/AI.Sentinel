@@ -9,7 +9,7 @@ public class DashboardDarkModeTests
     public void SentinelCss_ContainsPrefersColorSchemeLightBlock()
     {
         // Walk up from the test assembly directory until we find the solution file so the path
-        // math is robust across both net8.0 and net10.0 test outputs (and any future TFM bumps).
+        // math is robust across both net8.0, net10.0 and net11.0 test outputs (and any future TFM bumps).
         // The solution file marks the repo root in clones, git worktrees (where .git is a file)
         // and source archives (where there is no .git at all).
         var dir = new DirectoryInfo(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!);

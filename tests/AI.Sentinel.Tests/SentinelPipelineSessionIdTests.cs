@@ -48,14 +48,14 @@ public class SentinelPipelineSessionIdTests
     private static ChatOptions WithKey(string value) =>
         new() { AdditionalProperties = new AdditionalPropertiesDictionary { ["sentinel.session_id"] = value } };
 
-    private static async Task<HashSet<string?>> SessionIdsAsync(RingBufferAuditStore audit)
+    private static async Task<string?[]> SessionIdsAsync(RingBufferAuditStore audit)
     {
         var ids = new HashSet<string?>(StringComparer.Ordinal);
         await foreach (var e in audit.QueryAsync(new AuditQuery(), TestContext.Current.CancellationToken))
         {
             ids.Add(e.SessionId);
         }
-        return ids;
+        return [.. ids.Order(StringComparer.Ordinal)];
     }
 
     private static Task AskAsync(SentinelPipeline p, ChatOptions? options) =>
@@ -103,7 +103,7 @@ public class SentinelPipelineSessionIdTests
         await AskAsync(p, options);
 
         var ids = await SessionIdsAsync(audit);
-        Assert.Equal(2, ids.Count);
+        Assert.Equal(2, ids.Length);
         Assert.DoesNotContain(ids, string.IsNullOrWhiteSpace);
     }
 

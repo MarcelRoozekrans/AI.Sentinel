@@ -2,9 +2,9 @@
   <!-- Native AOT probe for DetectorRegistrationTrimTests. Not a test project: the test publishes
        it and reads the ILC warnings. It roots AddAISentinel and AddDetector<T> only. -->
   <PropertyGroup>
-    <!-- Clears the net8.0;net10.0 list from Directory.Build.props: publish needs one framework. -->
+    <!-- Clears the net8.0;net10.0;net11.0 list from Directory.Build.props: publish needs one framework. -->
     <TargetFrameworks></TargetFrameworks>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net11.0</TargetFramework>
     <OutputType>Exe</OutputType>
     <PublishAot>true</PublishAot>
     <IsPackable>false</IsPackable>
