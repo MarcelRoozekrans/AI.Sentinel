@@ -73,9 +73,10 @@ public class DashboardHostIsolationTests : IDisposable
             using var http = new HttpClient();
             var resp = await http.GetAsync(new Uri(dashboard.Url, "api/stats"), TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-            using var probe = new TcpClient();
-            await Assert.ThrowsAsync<SocketException>(async () =>
-                await probe.ConnectAsync(IPAddress.Loopback, evilPort, TestContext.Current.CancellationToken));
+            // Read the bound addresses rather than probing evilPort: once FreePort released it, any process on the
+            // machine may listen there, and a probe would then connect to that process.
+            var bound = Assert.Single(dashboard.ListenAddresses);
+            Assert.NotEqual(evilPort, new Uri(bound).Port);
         }
         finally
         {

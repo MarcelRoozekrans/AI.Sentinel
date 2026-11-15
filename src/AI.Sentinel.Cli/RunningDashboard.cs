@@ -22,6 +22,9 @@ public sealed class RunningDashboard : IAsyncDisposable
     /// <summary>The dashboard address, ending in <c>/ai-sentinel/</c>.</summary>
     public Uri Url { get; }
 
+    /// <summary>Every address the host listens on, as Kestrel reports it after start.</summary>
+    internal IReadOnlyList<string> ListenAddresses => [.. _app.Urls];
+
     /// <summary>Completes when <paramref name="ct"/> is cancelled.</summary>
     public async Task WaitForShutdownAsync(CancellationToken ct)
     {
