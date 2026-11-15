@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [5.2.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.2.0...v5.2.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* publish package dependencies as minimum versions, not exact ranges ([1930a9e](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/1930a9e0dfad10f97412c338b7c18be34f29d43c)), closes [#604](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/604)
+
 ## [5.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.1.2...v5.2.0) (2026-11-11)
 
 
