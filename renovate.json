@@ -5,12 +5,12 @@
   ],
   "packageRules": [
     {
-      "description": "Pin every NuGet reference to an exact version. A floating x.y.* resolves to whatever is newest at restore time, so a released tag stops restoring once a newer patch raises a dependency floor: v2.3.2 broke that way with NU1605 (#425). Renovate opens a pin PR for any float that is added later.",
+      "description": "Keep every NuGet version plain, such as 1.2.3, and move it to the new version. rangeStrategy pin is not used: for NuGet it writes an exact range [1.2.3], which the nuspec passes on to consumers as 'this version and no other' and which breaks their restore with NU1608 (#604). Floating x.y.* versions, the problem pin was meant to stop (#425), are rejected by Directory.Build.targets instead.",
       "matchManagers": ["nuget"],
-      "rangeStrategy": "pin"
+      "rangeStrategy": "bump"
     },
     {
-      "description": "Microsoft.AspNetCore.TestHost is referenced twice in AI.Sentinel.Tests.csproj, once per TargetFramework Condition. Renovate cannot see the Condition, so it rewrites both lines to the same version and pushes the net10.0-only package onto net8.0 (NU1202). Keep the net8.0 line inside 8.x; the net10.0 line updates normally. The pin rule above has the same blind spot and ignores allowedVersions, so the first pin PR rewrote the 8.0.33 line to [10.0.14] and broke restore on net8.0 again; rangeStrategy replace keeps this line out of the pin. The csproj keeps the exact 8.0.33 and Renovate still moves it within 8.x. Lift this when the two references can be told apart, for example by one central version per target framework.",
+      "description": "Microsoft.AspNetCore.TestHost is referenced twice in AI.Sentinel.Tests.csproj, once per TargetFramework Condition. Renovate cannot see the Condition, so it rewrites both lines to the same version and pushes the net10.0-only package onto net8.0 (NU1202). Keep the net8.0 line inside 8.x; the net10.0 line updates normally. The former pin rule had the same blind spot and ignored allowedVersions, so its first PR rewrote the 8.0.33 line to [10.0.14] and broke restore on net8.0 again; rangeStrategy replace keeps this line inside 8.x. The csproj keeps the exact 8.0.33 and Renovate still moves it within 8.x. Lift this when the two references can be told apart, for example by one central version per target framework.",
       "matchManagers": ["nuget"],
       "matchPackageNames": ["Microsoft.AspNetCore.TestHost"],
       "matchCurrentValue": "/^8\\./",

@@ -1,0 +1,14 @@
+<Project>
+  <!-- Package versions are plain, fixed versions such as 1.14.0.
+       A floating version such as 3.3.* resolves to whatever is newest at restore time, so a released tag stops
+       restoring once a newer patch raises a dependency floor: v2.3.2 broke that way with NU1605 (#425).
+       An exact range such as [1.14.0] is copied into the nuspec as "this version and no other", so every consumer
+       that needs a newer version of that package for another dependency fails restore with NU1608 (#604).
+       A plain version is fixed at restore time here and becomes a minimum in the nuspec. -->
+  <Target Name="RejectFloatingOrExactPackageVersions" BeforeTargets="CollectPackageReferences">
+    <Error Condition="$([System.String]::Copy('%(PackageReference.Version)').Contains('*'))"
+           Text="PackageReference %(PackageReference.Identity) floats with '%(PackageReference.Version)'. Use a fixed version such as 1.2.3, see #425." />
+    <Error Condition="$([System.String]::Copy('%(PackageReference.Version)').StartsWith('['))"
+           Text="PackageReference %(PackageReference.Identity) uses the exact range '%(PackageReference.Version)', which the nuspec passes on to consumers. Use a plain version such as 1.2.3, see #604." />
+  </Target>
+</Project>
