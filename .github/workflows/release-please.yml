@@ -42,7 +42,6 @@ jobs:
         uses: googleapis/release-please-action@v5
         id: release
         with:
-          release-type: simple
           token: ${{ steps.app-token.outputs.token }}
 
       # release-please parses every commit with a conventional-commit grammar, and a commit it
