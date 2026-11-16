@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [5.2.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.2.1...v5.2.2) (2026-11-16)
+
+
+### Bug Fixes
+
+* embed PDBs so Go to Definition shows the package source ([1582489](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/1582489bd545ad456c56ffc50fd766c270a81ef3))
+
 ## [5.2.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.2.0...v5.2.1) (2026-11-15)
 
 
