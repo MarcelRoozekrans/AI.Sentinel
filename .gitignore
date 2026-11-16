@@ -17,3 +17,6 @@ scripts/package-lock.json
 
 # Test results and coverage reports
 TestResults/
+
+# Local pack output
+artifacts/

@@ -16,7 +16,7 @@ AzureSentinel and Detectors.Sdk) and as three Native AOT tools: `sentinel-hook` 
 - `src/AI.Sentinel.ClaudeCode.Cli`, `Copilot.Cli` and `Mcp.Cli` target `net10.0` only and share
   `eng/NativeTool.props`. `AI.Sentinel.Tests` therefore compiles out the CLI test files on `net8.0`
   (see the `Compile Remove` items in its csproj): a new CLI test file needs the same entry.
-- `artifacts/` is tracked and holds two stale `0.1.0` nupkgs. Do not add build output there.
+- `artifacts/` is ignored; local pack output can go there.
 - `website/` is the Docusaurus docs site, built by `docs.yml` only.
 
 ## Build and test
@@ -68,7 +68,7 @@ Build with `-f net10.0` when you only need one target. The docs site builds with
 
 Do not build `benchmarks/AI.Sentinel.Benchmarks` expecting success: no CI job builds it, and on main it
 fails to compile (`MessageBuilder.TruncateIfNeeded` and the `escalationClient` parameter of
-`DetectionPipeline` no longer exist). Fix it before you give a run command.
+`DetectionPipeline` no longer exist). Issue #612 tracks the fix; give no run command until it lands.
 
 ## Conventions and gotchas
 
