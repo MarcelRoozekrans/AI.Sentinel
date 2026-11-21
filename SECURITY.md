@@ -22,4 +22,4 @@ Include what you found, the affected package and version, and the steps to repro
 
 ## Scope
 
-Good-faith research that follows this policy is welcome. Third-party services, volumetric denial of service, and bypassing a guardrail on your own machine are out of scope; the [shared policy](https://github.com/MarcelRoozekrans/product-line/blob/main/SECURITY.md#out-of-scope) has the details.
+Good-faith research that follows this policy is welcome. Third-party services, volumetric denial of service, and bypassing a guardrail on your own machine, where you already control the process, are out of scope; the [shared policy](https://github.com/MarcelRoozekrans/product-line/blob/main/SECURITY.md#out-of-scope) has the details.
