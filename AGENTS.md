@@ -6,6 +6,10 @@ ships as NuGet libraries (`AI.Sentinel` core plus AspNetCore dashboard, Sqlite, 
 AzureSentinel and Detectors.Sdk) and as three Native AOT tools: `sentinel-hook` (Claude Code),
 `sentinel-copilot-hook` and `sentinel-mcp`. The `sentinel` CLI is a managed tool.
 
+## Product-line standards
+
+This repository is part of a .NET product line. Read the [product-line standards](https://github.com/MarcelRoozekrans/product-line/blob/main/standards.md) before changing anything: they hold the rules for every product, including how to build (a failing test first, the cause before a fix, build and test output before calling work done) and what may appear in commits, pull requests and issues. Build sessions do not use superpowers. This file adds what is specific to this repository.
+
 ## Layout
 
 - Only `src/` ships. `tests/`, `benchmarks/`, `samples/` and `tools/` do not.
