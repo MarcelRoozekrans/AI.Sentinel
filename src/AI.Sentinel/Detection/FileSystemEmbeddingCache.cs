@@ -66,6 +66,10 @@ public sealed class FileSystemEmbeddingCache : IEmbeddingCache, IDisposable
     private bool _dirty;
     private bool _disposed;
 
+    /// <summary>Called after a write attempt fails, before the backoff. Lets a test release a contended file
+    /// once a retry is certain, instead of guessing how long the first attempt takes.</summary>
+    internal Action? WriteAttemptFailed { get; set; }
+
     /// <param name="directory">Directory to hold the cache file. Created if missing. Must not be
     /// writable by anyone but the running user — see the integrity note on this type.</param>
     /// <param name="modelId">Identity of the embedding model whose vectors this file holds.</param>
@@ -139,6 +143,8 @@ public sealed class FileSystemEmbeddingCache : IEmbeddingCache, IDisposable
                 if (!_dirty) return true;
                 if (TryMergeAndWrite()) return true;
             }
+
+            WriteAttemptFailed?.Invoke();
 
             // Sleep outside the lock. Every semantic detector shares one example cache, so holding it
             // through the backoff would stall all of them on TryGet while one writer waits its turn.
