@@ -369,10 +369,10 @@ public sealed class ApprovalStoreRegistrationTests : IDisposable
         public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
             _inner.WaitForDecisionAsync(requestId, timeout, ct);
 
-        public ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct) =>
+        public ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct) =>
             _inner.ApproveAsync(requestId, approverId, note, ct);
 
-        public ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct) =>
+        public ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct) =>
             _inner.DenyAsync(requestId, approverId, reason, ct);
 
         public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => _inner.ListPendingAsync(ct);

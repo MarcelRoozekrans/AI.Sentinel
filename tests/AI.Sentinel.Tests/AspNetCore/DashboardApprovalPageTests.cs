@@ -77,7 +77,7 @@ public class DashboardApprovalPageTests
         var html = await (await GetAsync(host, "/sentinel/approvals/" + Uri.EscapeDataString(pending.RequestId)))
             .Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
         Assert.Contains("s.textContent = ''; this.parentElement.textContent = 'Approved.'", html, StringComparison.Ordinal);
-        Assert.Contains("xhr.status === 409 ? event.detail.xhr.responseText", html, StringComparison.Ordinal);
+        Assert.Contains("xhr.status === 409 || event.detail.xhr.status === 404 && event.detail.xhr.responseText ? event.detail.xhr.responseText", html, StringComparison.Ordinal);
     }
 
     private static async Task<(InMemoryApprovalStore Store, ApprovalState.Pending Pending)> PendingAsync()
@@ -339,15 +339,15 @@ public class DashboardApprovalPageTests
             throw new NotSupportedException();
         public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
             throw new NotSupportedException();
-        public ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
+        public ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
         {
             Approved = requestId;
-            return ValueTask.CompletedTask;
+            return ValueTask.FromResult(ApprovalDecisionOutcome.Applied);
         }
-        public ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
+        public ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
         {
             Denied = requestId;
-            return ValueTask.CompletedTask;
+            return ValueTask.FromResult(ApprovalDecisionOutcome.Applied);
         }
         public async IAsyncEnumerable<PendingRequest> ListPendingAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken ct)
         {

@@ -28,7 +28,7 @@ The panel polls `GET /ai-sentinel/api/approvals` every 3s via HTMX and renders r
 | Tool | `toolName` |
 | Actions | Approve / Deny buttons |
 
-Approve/Deny POST to `/api/approvals/{id}/approve` or `/api/approvals/{id}/deny`. Successful POST returns `200 OK` with an empty `text/html` body — HTMX swaps the row out via `outerHTML` (with a 250ms fade transition driven by the `htmx-swapping` CSS class).
+Approve/Deny POST to `/api/approvals/{id}/approve` or `/api/approvals/{id}/deny`. Successful POST returns `200 OK` with an empty `text/html` body — HTMX swaps the row out via `outerHTML` (with a 250ms fade transition driven by the `htmx-swapping` CSS class). The answer follows the `ApprovalDecisionOutcome` the store returns: `200` when this POST settled the request, `409 Conflict` with the text "This request is no longer pending." when it was already approved or denied, for example by another approver at the same moment, and `404 Not Found` when the store does not know the id. The store checks and settles the request in one step, so of two approvers who click at once exactly one gets `200`.
 
 ## When the store doesn't implement `IApprovalAdmin`
 

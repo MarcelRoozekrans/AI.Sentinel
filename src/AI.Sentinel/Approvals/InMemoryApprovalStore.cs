@@ -11,13 +11,9 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
     private readonly ConcurrentDictionary<string, Entry> _byRequestId = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<(string callerId, string policyName), string> _dedupe =
         new(DedupeKeyComparer.Ordinal);
-    // Per-key lock objects guarding the create-path. We use `object` (not System.Threading.Lock)
-    // because the locks live in a ConcurrentDictionary value slot — the `Lock` type would force
-    // a target-framework split on the dictionary's value generic argument.
-#pragma warning disable MA0158 // Use System.Threading.Lock — N/A here (see comment above).
-    private readonly ConcurrentDictionary<(string callerId, string policyName), object> _keyLocks =
+    // Per-key locks guarding the create-path.
+    private readonly ConcurrentDictionary<(string callerId, string policyName), Lock> _keyLocks =
         new(DedupeKeyComparer.Ordinal);
-#pragma warning restore MA0158
     private readonly TimeProvider _time;
 
     public InMemoryApprovalStore() : this(TimeProvider.System) { }
@@ -48,10 +44,8 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
 
         // Per-key lock to prevent two concurrent callers from both creating an Entry and racing
         // last-writer-wins on the dedupe map (orphans the loser's Entry in _byRequestId).
-#pragma warning disable MA0158 // Use System.Threading.Lock — see _keyLocks comment above.
-        var lockObj = _keyLocks.GetOrAdd(key, static _ => new object());
+        var lockObj = _keyLocks.GetOrAdd(key, static _ => new Lock());
         lock (lockObj)
-#pragma warning restore MA0158
         {
             // Re-check inside the lock (double-checked locking).
             if (_dedupe.TryGetValue(key, out existingId) &&
@@ -96,34 +90,42 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
         catch (OperationCanceledException) { return StateOf(entry); }
     }
 
-    public ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
+    public ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
         ArgumentException.ThrowIfNullOrWhiteSpace(approverId);
-        if (_byRequestId.TryGetValue(requestId, out var entry) && entry.Status == EntryStatus.Pending)
+        if (!_byRequestId.TryGetValue(requestId, out var entry))
+            return ValueTask.FromResult(ApprovalDecisionOutcome.NotFound);
+        lock (entry.Gate)
         {
-            entry.Status = EntryStatus.Active;
+            if (entry.Status != EntryStatus.Pending)
+                return ValueTask.FromResult(ApprovalDecisionOutcome.AlreadySettled);
             entry.ApprovedAt = _time.GetUtcNow();
             entry.ApproverId = approverId;
             entry.ApproverNote = note;
-            entry.Decision.TrySetResult(StateOf(entry));
+            entry.Status = EntryStatus.Active;
         }
-        return ValueTask.CompletedTask;
+        entry.Decision.TrySetResult(StateOf(entry));
+        return ValueTask.FromResult(ApprovalDecisionOutcome.Applied);
     }
 
-    public ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
+    public ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
         ArgumentException.ThrowIfNullOrWhiteSpace(approverId);
-        if (_byRequestId.TryGetValue(requestId, out var entry) && entry.Status == EntryStatus.Pending)
+        if (!_byRequestId.TryGetValue(requestId, out var entry))
+            return ValueTask.FromResult(ApprovalDecisionOutcome.NotFound);
+        lock (entry.Gate)
         {
-            entry.Status = EntryStatus.Denied;
+            if (entry.Status != EntryStatus.Pending)
+                return ValueTask.FromResult(ApprovalDecisionOutcome.AlreadySettled);
             entry.DenyReason = reason;
             entry.DeniedAt = _time.GetUtcNow();
             entry.ApproverId = approverId;
-            entry.Decision.TrySetResult(StateOf(entry));
+            entry.Status = EntryStatus.Denied;
         }
-        return ValueTask.CompletedTask;
+        entry.Decision.TrySetResult(StateOf(entry));
+        return ValueTask.FromResult(ApprovalDecisionOutcome.Applied);
     }
 
     public async IAsyncEnumerable<PendingRequest> ListPendingAsync(
@@ -175,6 +177,9 @@ public sealed class InMemoryApprovalStore : IApprovalStore, IApprovalAdmin
 
     private sealed class Entry
     {
+        /// <summary>Makes the pending check and the decision of <see cref="ApproveAsync"/> and
+        /// <see cref="DenyAsync"/> one step, so only one of two concurrent decisions applies.</summary>
+        public Lock Gate { get; } = new();
         public required string RequestId { get; init; }
         public required string CallerId { get; init; }
         public required string PolicyName { get; init; }

@@ -95,11 +95,60 @@ public class ApprovalAuditingTests
         var requestId = await EnsurePendingAsync(store);
         var admin = (IApprovalAdmin)store;
 
-        await admin.ApproveAsync(requestId, ApproverId, null, Ct);
-        await admin.ApproveAsync(requestId, ApproverId, null, Ct);
-        await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct);
+        Assert.Equal(ApprovalDecisionOutcome.Applied, await admin.ApproveAsync(requestId, ApproverId, null, Ct));
+        Assert.Equal(ApprovalDecisionOutcome.AlreadySettled, await admin.ApproveAsync(requestId, ApproverId, null, Ct));
+        Assert.Equal(ApprovalDecisionOutcome.AlreadySettled, await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct));
 
         Assert.Single(audit.Entries);
+    }
+
+    [Fact]
+    public async Task DecideUnknownRequest_ReturnsNotFoundAndWritesNothing()
+    {
+        var (store, audit) = Wrap(new InMemoryApprovalStore());
+        var admin = (IApprovalAdmin)store;
+
+        Assert.Equal(ApprovalDecisionOutcome.NotFound, await admin.ApproveAsync("req-unknown", ApproverId, null, Ct));
+        Assert.Equal(ApprovalDecisionOutcome.NotFound, await admin.DenyAsync("req-unknown", ApproverId, DenyReason, Ct));
+
+        Assert.Empty(audit.Entries);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DecisionApplied_PendingListMissesTheRequest_StillWritesTheDecision(bool approve)
+    {
+        var inner = new InMemoryApprovalStore();
+        var (store, audit) = Wrap(new UnlistedAdminStore(inner));
+        var requestId = await EnsurePendingAsync(store);
+        var admin = (IApprovalAdmin)store;
+
+        var outcome = approve
+            ? await admin.ApproveAsync(requestId, ApproverId, null, Ct)
+            : await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct);
+
+        Assert.Equal(ApprovalDecisionOutcome.Applied, outcome);
+        var entry = Assert.Single(audit.Entries);
+        if (approve)
+            AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", requestId);
+        else
+            AssertDecision(entry, AuditEntryKinds.DeniedPolicyCode, "Denied", requestId);
+    }
+
+    [Fact]
+    public async Task DecisionApplied_RequestNeverSeenAndNotListed_WritesItUnderUnknownPolicyAndTool()
+    {
+        var inner = new InMemoryApprovalStore();
+        var pending = await inner.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+        var requestId = Assert.IsType<ApprovalState.Pending>(pending).RequestId;
+        var (store, audit) = Wrap(new UnlistedAdminStore(inner));
+
+        await ((IApprovalAdmin)store).ApproveAsync(requestId, ApproverId, null, Ct);
+
+        var entry = Assert.Single(audit.Entries);
+        Assert.Equal(AuditEntryKinds.ApprovedPolicyCode, entry.PolicyCode);
+        Assert.Equal($"Approved: policy unknown, tool unknown, request {requestId}", entry.Summary);
     }
 
     [Fact]
@@ -124,10 +173,12 @@ public class ApprovalAuditingTests
         var requestId = await EnsurePendingAsync(store);
         var admin = (IApprovalAdmin)store;
 
-        await Task.WhenAll(
+        var outcomes = await Task.WhenAll(
             Task.Run(async () => await admin.ApproveAsync(requestId, ApproverId, null, Ct), Ct),
             Task.Run(async () => await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct), Ct));
 
+        Assert.Single(outcomes, o => o == ApprovalDecisionOutcome.Applied);
+        Assert.Single(outcomes, o => o == ApprovalDecisionOutcome.AlreadySettled);
         var final = await inner.WaitForDecisionAsync(requestId, TimeSpan.Zero, Ct);
         var entry = Assert.Single(audit.Entries);
         if (final is ApprovalState.Active)
@@ -763,6 +814,24 @@ public class ApprovalAuditingTests
                 : Next);
     }
 
+    /// <summary>An admin store whose pending list never shows a request, as when the list read fails.</summary>
+    private sealed class UnlistedAdminStore(InMemoryApprovalStore inner) : IApprovalStore, IApprovalAdmin
+    {
+        public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
+            inner.EnsureRequestAsync(caller, spec, context, ct);
+
+        public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
+            inner.WaitForDecisionAsync(requestId, timeout, ct);
+
+        public ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct) =>
+            inner.ApproveAsync(requestId, approverId, note, ct);
+
+        public ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct) =>
+            inner.DenyAsync(requestId, approverId, reason, ct);
+
+        public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => AsyncEnumerable.Empty<PendingRequest>();
+    }
+
     /// <summary>
     /// An admin store whose approve and deny both wait until the other has started, so each has already read the
     /// request as pending before either reaches the inner store.
@@ -778,16 +847,16 @@ public class ApprovalAuditingTests
         public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
             inner.WaitForDecisionAsync(requestId, timeout, ct);
 
-        public async ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
+        public async ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
         {
             await ArriveAsync();
-            await inner.ApproveAsync(requestId, approverId, note, ct);
+            return await inner.ApproveAsync(requestId, approverId, note, ct);
         }
 
-        public async ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
+        public async ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
         {
             await ArriveAsync();
-            await inner.DenyAsync(requestId, approverId, reason, ct);
+            return await inner.DenyAsync(requestId, approverId, reason, ct);
         }
 
         public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => inner.ListPendingAsync(ct);

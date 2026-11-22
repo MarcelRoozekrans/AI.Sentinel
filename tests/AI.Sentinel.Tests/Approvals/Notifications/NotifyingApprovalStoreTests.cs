@@ -414,8 +414,10 @@ public class NotifyingApprovalStoreTests
         }
         Assert.Equal(new[] { first.RequestId, second.RequestId }.Order(StringComparer.Ordinal), listed.Order(StringComparer.Ordinal));
 
-        await ((IApprovalAdmin)wrapped).ApproveAsync(first.RequestId, "bob", null, ct);
-        await ((IApprovalAdmin)wrapped).DenyAsync(second.RequestId, "bob", "no", ct);
+        Assert.Equal(ApprovalDecisionOutcome.Applied, await ((IApprovalAdmin)wrapped).ApproveAsync(first.RequestId, "bob", null, ct));
+        Assert.Equal(ApprovalDecisionOutcome.Applied, await ((IApprovalAdmin)wrapped).DenyAsync(second.RequestId, "bob", "no", ct));
+        Assert.Equal(ApprovalDecisionOutcome.AlreadySettled, await ((IApprovalAdmin)wrapped).ApproveAsync(second.RequestId, "bob", null, ct));
+        Assert.Equal(ApprovalDecisionOutcome.NotFound, await ((IApprovalAdmin)wrapped).DenyAsync("req-unknown", "bob", "no", ct));
 
         Assert.IsType<ApprovalState.Active>(await inner.WaitForDecisionAsync(first.RequestId, TimeSpan.Zero, ct));
         var denied = Assert.IsType<ApprovalState.Denied>(await inner.WaitForDecisionAsync(second.RequestId, TimeSpan.Zero, ct));

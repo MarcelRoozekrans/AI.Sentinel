@@ -230,10 +230,8 @@ public class MicrosoftGraphRoleClientWireTests
         {
             // Buffer the body so the caller's capture callback can read it; Kiota
             // typically streams content, so reading after dispatch would otherwise fail.
-            // LoadIntoBufferAsync(CancellationToken) is .NET 9+ only; net8.0 needs the
-            // parameterless overload.
             if (request.Content is not null)
-                await request.Content.LoadIntoBufferAsync().ConfigureAwait(false);
+                await request.Content.LoadIntoBufferAsync(cancellationToken).ConfigureAwait(false);
 
             await _capture(request).ConfigureAwait(false);
 

@@ -22,11 +22,7 @@ internal sealed class RedactionSession
     private readonly IReadOnlyList<IRedactingDetector> _redactors;
     private readonly string _tag;
 
-#if NET9_0_OR_GREATER
     private readonly System.Threading.Lock _gate = new();
-#else
-    private readonly object _gate = new();
-#endif
     private readonly Dictionary<(string Type, string Value), string> _tokenByValue = new();
     private readonly Dictionary<string, string> _valueByToken = new(StringComparer.Ordinal);
     // Tokens whose value may go back into a tool call's arguments. A token is in here only when every

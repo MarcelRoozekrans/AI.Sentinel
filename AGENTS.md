@@ -18,8 +18,7 @@ This repository is part of a .NET product line. Read the [product-line standards
 - `samples/` and `benchmarks/` have their own `Directory.Build.props` that clears `TargetFrameworks`,
   so each project sets its own `TargetFramework`.
 - `src/AI.Sentinel.ClaudeCode.Cli`, `Copilot.Cli` and `Mcp.Cli` target `net10.0` only and share
-  `eng/NativeTool.props`. `AI.Sentinel.Tests` therefore compiles out the CLI test files on `net8.0`
-  (see the `Compile Remove` items in its csproj): a new CLI test file needs the same entry.
+  `eng/NativeTool.props`. Both legs of `AI.Sentinel.Tests` reference their `net10.0` build.
 - `artifacts/` is ignored; local pack output can go there.
 - `website/` is the Docusaurus docs site, built by `docs.yml` only.
 
@@ -27,9 +26,9 @@ This repository is part of a .NET product line. Read the [product-line standards
 
 Prerequisites: `global.json` pins SDK `11.0.100` with `rollForward: latestMinor`, so SDK 10 does not
 satisfy it. It also selects the Microsoft.Testing.Platform runner for `dotnet test`. Libraries and tests
-target `net8.0`, `net10.0` and `net11.0` (most `src/` libraries also `net9.0`), so the .NET 8, 10 and
-11 runtimes must be installed; test projects do not target `net9.0`. `AI.Sentinel.Tests` sets `RollForward` to `LatestMajor`;
-the other test projects do not. The AOT jobs also need the .NET 10 SDK. No other `global.json` exists.
+target `net10.0` and `net11.0` (6.0 dropped `net8.0` and `net9.0`), so the .NET 10 and 11 runtimes must be
+installed. The test projects set `RollForward` to `LatestMajor`, so a `net10.0` leg runs on the newest runtime
+present; set `DOTNET_ROLL_FORWARD=LatestPatch` to run each leg on its own runtime. The AOT jobs also need the .NET 10 SDK. No other `global.json` exists.
 
 CI job `build-test` in `.github/workflows/ci.yml`:
 
@@ -82,8 +81,6 @@ fails to compile (`MessageBuilder.TruncateIfNeeded` and the `escalationClient` p
   Do not widen either suppression.
 - `Directory.Build.targets` rejects a floating (`3.3.*`) or exact-range (`[1.2.3]`) `PackageReference`
   version. Use a plain `1.2.3`: a range lands in the nuspec as an exact pin and breaks consumers (#425, #604).
-- `Microsoft.AspNetCore.TestHost` is referenced twice in `AI.Sentinel.Tests.csproj`, once per target
-  framework condition: `8.0.x` for `net8.0`, `10.0.x` otherwise. Keep the `net8.0` line in 8.x.
 - `Directory.Build.props` sets `ZeroAllocAuthorizationRegistration` to `internal`. A shipped package must
   not export the generated registration (CS0121, issues #493 and #512).
 - Single-framework projects: `benchmarks/`, `samples/`,

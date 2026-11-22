@@ -19,7 +19,6 @@ public sealed class RepetitionLoopDetector : IDetector
         var counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         int maxRepeat = 0;
 
-#if NET9_0_OR_GREATER
         foreach (var range in text.AsSpan().SplitAny(new ReadOnlySpan<char>(['.', '!', '?'])))
         {
             var sentence = text[range].Trim();
@@ -29,18 +28,6 @@ public sealed class RepetitionLoopDetector : IDetector
             counts[sentence] = count;
             if (count > maxRepeat) maxRepeat = count;
         }
-#else
-        var parts = text.Split(['.', '!', '?'], StringSplitOptions.None);
-        foreach (var part in parts)
-        {
-            var sentence = part.Trim();
-            if (sentence.Length <= 5) continue;
-
-            var count = counts.TryGetValue(sentence, out var c) ? c + 1 : 1;
-            counts[sentence] = count;
-            if (count > maxRepeat) maxRepeat = count;
-        }
-#endif
 
         if (maxRepeat >= 3)
             return ValueTask.FromResult(DetectionResult.WithSeverity(_id, Severity.Medium,

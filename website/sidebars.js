@@ -56,6 +56,7 @@ const sidebars = {
         'configuration/embedding-cache',
         'configuration/migrating-to-4',
         'configuration/migrating-to-5',
+        'configuration/migrating-to-6',
       ],
     },
     {

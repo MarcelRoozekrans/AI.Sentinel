@@ -57,6 +57,8 @@ dotnet add package AI.Sentinel.AspNetCore   # optional, for the dashboard
 
 ## Quick start
 
+> **Upgrading from 5.x?** 6.0 targets net10.0 and net11.0 only; a net8.0 or net9.0 project stays on 5.x. `IApprovalAdmin.ApproveAsync` and `DenyAsync` now return an `ApprovalDecisionOutcome`, and the dashboard answers a decision that a concurrent approver already made with `409`. See [Migrating to 6.0](https://marcelroozekrans.github.io/AI.Sentinel/docs/configuration/migrating-to-6).
+
 > **Upgrading from 4.x?** 5.0 ships `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` as Native AOT builds. Installing them needs the .NET 10 SDK, or you use the release binaries. See [Migrating to 5.0](https://marcelroozekrans.github.io/AI.Sentinel/docs/configuration/migrating-to-5).
 
 > **Upgrading from 3.x?** 4.0 caps semantic detections at `Medium` until a reviewer confirms them, makes `ReviewCriterion` a required member for detector authors, and turns `EscalationClient` into shorthand for a reviewer that also judges semantic findings. See [Migrating to 4.0](https://marcelroozekrans.github.io/AI.Sentinel/docs/configuration/migrating-to-4).

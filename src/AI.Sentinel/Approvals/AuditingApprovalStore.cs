@@ -15,7 +15,7 @@ namespace AI.Sentinel.Approvals;
 internal class AuditingApprovalStore : IApprovalStore, IApprovalStoreDecorator
 {
     /// <summary>Stands in for a policy, tool or request id this process never saw.</summary>
-    private const string Unknown = "unknown";
+    private protected const string Unknown = "unknown";
 
     /// <summary>Reason of the <see cref="ApprovalState.Denied"/> the stores return for a grant that ran out.</summary>
     private const string ExpiredReason = "expired";
@@ -201,26 +201,6 @@ internal class AuditingApprovalStore : IApprovalStore, IApprovalStoreDecorator
         return pending is null
             ? new ApprovalAuditMemory.RequestInfo(Unknown, Unknown)
             : new ApprovalAuditMemory.RequestInfo(pending.PolicyName, pending.ToolName);
-    }
-
-    /// <summary>
-    /// The state of <paramref name="requestId"/> right now, read without waiting, or <see langword="null"/> when the
-    /// read fails. Uses <see cref="CancellationToken.None"/>: the decision has been taken, and recording it must not
-    /// depend on the caller's token.
-    /// </summary>
-    private protected async ValueTask<ApprovalState?> ReadStateAsync(string requestId)
-    {
-        try
-        {
-            return await _inner.WaitForDecisionAsync(requestId, TimeSpan.Zero, CancellationToken.None).ConfigureAwait(false);
-        }
-#pragma warning disable CA1031 // Auditing must never fail the decision; the failure is logged.
-        catch (Exception ex)
-#pragma warning restore CA1031
-        {
-            _logger?.LogError(ex, "Could not read the state of approval request {RequestId} for the audit log.", requestId);
-            return null;
-        }
     }
 
     /// <summary>

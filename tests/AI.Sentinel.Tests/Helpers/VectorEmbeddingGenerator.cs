@@ -9,11 +9,7 @@ namespace AI.Sentinel.Tests.Helpers;
 /// <param name="vectors">Returns the vector for an input text.</param>
 public sealed class VectorEmbeddingGenerator(Func<string, float[]> vectors) : IEmbeddingGenerator<string, Embedding<float>>
 {
-#if NET9_0_OR_GREATER
     private readonly System.Threading.Lock _lock = new();
-#else
-    private readonly object _lock = new();
-#endif
     private readonly List<IReadOnlyList<string>> _batches = [];
 
     /// <summary>Returns the vector for an input text. A test may switch the answers between calls.</summary>

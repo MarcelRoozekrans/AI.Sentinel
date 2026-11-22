@@ -239,6 +239,48 @@ public sealed class SqliteApprovalStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Decide_PendingRequest_ReturnsApplied()
+    {
+        await using var store = NewStore();
+        var approve = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec("a"), MakeCtx(), TestContext.Current.CancellationToken);
+        var deny = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec("d"), MakeCtx(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(ApprovalDecisionOutcome.Applied, await store.ApproveAsync(approve.RequestId, "bob", null, TestContext.Current.CancellationToken));
+        Assert.Equal(ApprovalDecisionOutcome.Applied, await store.DenyAsync(deny.RequestId, "bob", "no", TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task Decide_SettledRequest_ReturnsAlreadySettledAndKeepsTheFirstDecision(bool firstApproves, bool secondApproves)
+    {
+        await using var store = NewStore();
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        await DecideAsync(store, pending.RequestId, firstApproves);
+
+        Assert.Equal(ApprovalDecisionOutcome.AlreadySettled, await DecideAsync(store, pending.RequestId, secondApproves));
+
+        var state = await store.WaitForDecisionAsync(pending.RequestId, TimeSpan.Zero, TestContext.Current.CancellationToken);
+        Assert.Equal(firstApproves ? typeof(ApprovalState.Active) : typeof(ApprovalState.Denied), state.GetType());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Decide_UnknownRequest_ReturnsNotFound(bool approve)
+    {
+        await using var store = NewStore();
+        Assert.Equal(ApprovalDecisionOutcome.NotFound, await DecideAsync(store, "req-unknown", approve));
+    }
+
+    private static ValueTask<ApprovalDecisionOutcome> DecideAsync(SqliteApprovalStore store, string requestId, bool approve) =>
+        approve
+            ? store.ApproveAsync(requestId, "bob", null, TestContext.Current.CancellationToken)
+            : store.DenyAsync(requestId, "bob", "no", TestContext.Current.CancellationToken);
+
+    [Fact]
     public async Task StoresOnOneFile_RacingApproveAndDeny_AllObserveTheOneDecision()
     {
         await using var first = NewStore();
@@ -250,7 +292,7 @@ public sealed class SqliteApprovalStoreTests : IDisposable
             var pending = (ApprovalState.Pending)await first.EnsureRequestAsync(MakeCaller(), MakeSpec(policy), MakeCtx(), TestContext.Current.CancellationToken);
 
             using var start = new Barrier(2);
-            await Task.WhenAll(
+            var outcomes = await Task.WhenAll(
                 Task.Run(
                     () =>
                     {
@@ -266,8 +308,10 @@ public sealed class SqliteApprovalStoreTests : IDisposable
                     },
                     TestContext.Current.CancellationToken));
 
-            // The first decision wins; the other finds the request no longer pending. Both
-            // stores must then report that one decision, not a fresh request.
+            // The first decision wins and reports Applied; the other finds the request no longer pending
+            // and reports AlreadySettled. Both stores must then report that one decision, not a fresh request.
+            Assert.Single(outcomes, o => o == ApprovalDecisionOutcome.Applied);
+            Assert.Single(outcomes, o => o == ApprovalDecisionOutcome.AlreadySettled);
             var seenByFirst = await first.WaitForDecisionAsync(pending.RequestId, TimeSpan.Zero, TestContext.Current.CancellationToken);
             var seenBySecond = await second.WaitForDecisionAsync(pending.RequestId, TimeSpan.Zero, TestContext.Current.CancellationToken);
             Assert.True(seenByFirst is ApprovalState.Active or ApprovalState.Denied, $"unexpected {seenByFirst}");

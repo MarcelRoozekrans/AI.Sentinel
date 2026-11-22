@@ -29,11 +29,7 @@ internal sealed class PlaceholderStore
     private readonly int _maxEntries;
     private readonly TimeProvider _time;
 
-#if NET9_0_OR_GREATER
     private readonly System.Threading.Lock _gate = new();
-#else
-    private readonly object _gate = new();
-#endif
     private readonly Dictionary<string, LinkedListNode<Entry>> _byToken = new(StringComparer.Ordinal);
     // Least recently used first.
     private readonly LinkedList<Entry> _byUse = new();

@@ -10,11 +10,7 @@ internal sealed class LocalAuditProblems(Action<string>? onProblem = null)
 {
     private readonly List<string> _problems = [];
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
-#if NET9_0_OR_GREATER
     private readonly Lock _lock = new();
-#else
-    private readonly object _lock = new();
-#endif
 
     public void Add(string problem)
     {

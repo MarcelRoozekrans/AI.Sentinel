@@ -57,11 +57,7 @@ public sealed class FileSystemEmbeddingCache : IEmbeddingCache, IDisposable
     private readonly string _path;
     private readonly int _dimensions;
     private readonly Dictionary<string, float[]> _entries = new(StringComparer.Ordinal);
-#if NET9_0_OR_GREATER
     private readonly System.Threading.Lock _lock = new();
-#else
-    private readonly object _lock = new();
-#endif
     private int _pendingWrites;
     private bool _dirty;
     private bool _disposed;
