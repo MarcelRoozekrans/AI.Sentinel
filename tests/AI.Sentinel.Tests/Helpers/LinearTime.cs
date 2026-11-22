@@ -40,14 +40,24 @@ public static class LinearTime
         // interference only ever adds time.
         var tSmall = TimeSpan.MaxValue;
         var tLarge = TimeSpan.MaxValue;
+        var pSmall = TimeSpan.MaxValue;
+        var pLarge = TimeSpan.MaxValue;
+        var nSmall = TimeSpan.MaxValue;
+        var nLarge = TimeSpan.MaxValue;
+        var gSmall = "";
+        var gLarge = "";
         for (var i = 0; i < MeasuredRuns; i++)
         {
-            tSmall = Min(tSmall, Time(small, run));
-            tLarge = Min(tLarge, Time(large, run));
+            var (t, p, g) = Diag(small, run);
+            if (t < tSmall) { tSmall = t; pSmall = p; gSmall = g; }
+            nSmall = Min(nSmall, t - p);
+            (t, p, g) = Diag(large, run);
+            if (t < tLarge) { tLarge = t; pLarge = p; gLarge = g; }
+            nLarge = Min(nLarge, t - p);
         }
 
-        var limit = (tSmall * 8) + TimeSpan.FromMilliseconds(50);
-        Xunit.Assert.True(tLarge <= limit, $"n: {tSmall.TotalMilliseconds:F1} ms, 4n: {tLarge.TotalMilliseconds:F1} ms, limit {limit.TotalMilliseconds:F1} ms");
+        Xunit.Assert.Fail(string.Create(System.Globalization.CultureInfo.InvariantCulture,
+            $"DIAG n={n} small {tSmall.TotalMilliseconds:F1} ms pause {pSmall.TotalMilliseconds:F1} gc {gSmall} | large {tLarge.TotalMilliseconds:F1} ms pause {pLarge.TotalMilliseconds:F1} gc {gLarge} | ratio {tLarge / tSmall:F2} | without pauses {nSmall.TotalMilliseconds:F1} / {nLarge.TotalMilliseconds:F1} ratio {nLarge / nSmall:F2} | server {System.Runtime.GCSettings.IsServerGC} cpus {Environment.ProcessorCount}"));
     }
 
     // Enough calls for tier-1 compilation, which needs 30 calls and a short background delay.
@@ -60,6 +70,19 @@ public static class LinearTime
         run(input);
         sw.Stop();
         return sw.Elapsed;
+    }
+
+    private static (TimeSpan Elapsed, TimeSpan Pause, string Gcs) Diag(string input, Action<string> run)
+    {
+        var g0 = GC.CollectionCount(0);
+        var g1 = GC.CollectionCount(1);
+        var g2 = GC.CollectionCount(2);
+        var pause = GC.GetTotalPauseDuration();
+        var sw = Stopwatch.StartNew();
+        run(input);
+        sw.Stop();
+        return (sw.Elapsed, GC.GetTotalPauseDuration() - pause,
+            $"{GC.CollectionCount(0) - g0}/{GC.CollectionCount(1) - g1}/{GC.CollectionCount(2) - g2}");
     }
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
