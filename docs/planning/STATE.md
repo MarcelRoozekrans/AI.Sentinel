@@ -15,7 +15,7 @@ Done this session (2026-11-22, late evening):
 Dependency order: #633, #669, #670, #671, #672 (no dependencies) then #654, #655, #658, #673, #656, #659, #664, #674, #660, #675, #661, #662, #663, #665, #666. Each issue body names its own dependencies.
 
 Still held:
-- PR #668 is a draft. Mark it ready only after ready-check.
+- PR #668 is ready for review; merge before a run.
 - The local queue file is `.claude/unattended-queue.json.hold` in the main checkout. Do not run the unattended queue.
 
 ## Decisions (Marcel, 2026-11-22)
@@ -29,7 +29,7 @@ Still held:
 
 ## Open Decisions
 
-- Approval requests carry the redacted tool input and are deleted 30 days after decision. This is marked on the design page as not yet confirmed by Marcel. Ask him when he reviews the page; it does not block writing issues.
+None. Approval requests carrying the redacted tool input, deleted 30 days after decision, confirmed by Marcel on 2026-11-22; the design page and #662 say so.
 
 ## Blockers
 
@@ -37,8 +37,14 @@ None.
 
 ## Recommended Next Step
 
-1. Run the ready-check skill over the 20 milestone issues and their plans, ask Marcel for the bases, write the queue, mark PR #668 ready.
-2. Ask Marcel to confirm the approval-request content and retention (Open Decisions); #662 carries it as an open question.
+Ready-check done on 2026-11-22: all 20 items pass; the build check passes on main at fcfe19d. Bases follow each item's latest direct dependency (Marcel). The queue is written to `.claude/unattended-queue.json.hold` in the main checkout, still held. PR #668 is marked ready.
+
+1. Merge PR #668 so the plans are on main before any run.
+2. When Marcel wants the run: rename the queue file to `.claude/unattended-queue.json` and start it with the command below. Not before he says so.
+
+```bash
+SUPERPOWERS_UNATTENDED=1 claude -p "Run the unattended queue: build milestone 'Controlled from a central server' in AI.Sentinel, issues #633 to #675 in queue order"
+```
 
 ## Inputs
 
