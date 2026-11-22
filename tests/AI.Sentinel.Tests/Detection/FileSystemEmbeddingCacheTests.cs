@@ -158,9 +158,11 @@ public sealed class FileSystemEmbeddingCacheTests : IDisposable
 
     /// <summary>A flush that collides with a concurrent reader must retry rather than drop this
     /// process's entries. A real reader holds the file only for the length of its constructor, so the
-    /// hold here is brief and well inside the retry budget.</summary>
+    /// hold here is brief and well inside the retry budget. The flush runs on a thread of its own and the
+    /// hold ends on the test thread after a plain sleep: released from a thread-pool continuation, the
+    /// hold could outlast the whole retry budget on a busy runner (#639).</summary>
     [Fact]
-    public async Task Flush_RetriesPastAConcurrentReader()
+    public void Flush_RetriesPastAConcurrentReader()
     {
         using (var seed = new FileSystemEmbeddingCache(_dir, "m"))
         {
@@ -168,19 +170,19 @@ public sealed class FileSystemEmbeddingCacheTests : IDisposable
         }
 
         var file = Directory.GetFiles(_dir).Single();
-        var held = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var writer = new FileSystemEmbeddingCache(_dir, "m");
+        writer.Set("written-during-contention", Vector(2f));
 
-        var writing = Task.Run(
-            () =>
-            {
-                using var writer = new FileSystemEmbeddingCache(_dir, "m");
-                writer.Set("written-during-contention", Vector(2f));
-            },
-            TestContext.Current.CancellationToken);
+        var flushed = false;
+        var flusher = new Thread(() => flushed = writer.Flush());
+        using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+        {
+            flusher.Start();
+            Thread.Sleep(20);
+        }
 
-        await Task.Delay(10, TestContext.Current.CancellationToken);
-        await held.DisposeAsync();
-        await writing;
+        flusher.Join();
+        Assert.True(flushed, "the flush gave up while the reader held the file");
 
         using var after = new FileSystemEmbeddingCache(_dir, "m");
         Assert.True(after.TryGet("written-during-contention", out _), "the flush never landed");
