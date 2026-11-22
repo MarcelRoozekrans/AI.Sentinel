@@ -6,11 +6,7 @@ namespace AI.Sentinel.Tests.Helpers;
 /// <see cref="Advance"/>. Only one-shot use is exercised: a periodic timer fires at most once per call.</remarks>
 public sealed class ManualTimeProvider : TimeProvider
 {
-#if NET9_0_OR_GREATER
     private readonly System.Threading.Lock _lock = new();
-#else
-    private readonly object _lock = new();
-#endif
     private readonly List<ManualTimer> _timers = [];
     private readonly List<(int Count, TaskCompletionSource Signal)> _waiters = [];
     private DateTimeOffset _now = new(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);

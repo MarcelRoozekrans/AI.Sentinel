@@ -13,11 +13,7 @@ public sealed class YieldingEmbeddingGenerator(
     Func<IReadOnlyList<string>, bool>? failWhen = null) : IEmbeddingGenerator<string, Embedding<float>>
 {
     private readonly FakeEmbeddingGenerator _inner = new();
-#if NET9_0_OR_GREATER
     private readonly System.Threading.Lock _lock = new();
-#else
-    private readonly object _lock = new();
-#endif
     private readonly List<IReadOnlyList<string>> _batches = [];
     private int _calls;
 

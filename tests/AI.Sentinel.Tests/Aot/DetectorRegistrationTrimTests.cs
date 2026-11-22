@@ -28,7 +28,7 @@ public partial class DetectorRegistrationTrimTests
             Assert.Skip("clang is not on PATH, so Native AOT cannot link here. Install clang and zlib1g-dev.");
         }
 
-        // The test project builds for net8.0, net10.0 and net11.0. The publish does not depend on the leg
+        // The test project builds for net10.0 and net11.0. The publish does not depend on the leg
         // (the probe targets net11.0), so only the net11.0 build runs it.
 #if !NET11_0_OR_GREATER
         Assert.Skip("The probe publish runs once, from the net11.0 build of this test project.");

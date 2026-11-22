@@ -21,11 +21,7 @@ internal static class ToolInvocationInterception
     public delegate ValueTask<object?> ToolInterceptor(FunctionInvocationContext context, ToolInvoker next, CancellationToken ct);
 
     private static readonly ConditionalWeakTable<FunctionInvokingChatClient, Chain> Chains = new();
-#if NET9_0_OR_GREATER
     private static readonly System.Threading.Lock ChainLock = new();
-#else
-    private static readonly object ChainLock = new();
-#endif
 
     // The interceptors installed on one function-invoking client, by stage, in the order they were chained.
     private sealed class Chain(Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>>? previous)

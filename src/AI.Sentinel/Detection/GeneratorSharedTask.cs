@@ -13,11 +13,7 @@ internal sealed class GeneratorSharedTask<T> where T : class
 
     private sealed class Slot
     {
-#if NET9_0_OR_GREATER
         public readonly System.Threading.Lock Lock = new();
-#else
-        public readonly object Lock = new();
-#endif
         public Task<T>? Task;
     }
 
