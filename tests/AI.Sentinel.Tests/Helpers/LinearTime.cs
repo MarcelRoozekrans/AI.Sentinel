@@ -64,11 +64,13 @@ public static class LinearTime
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
-        var pauses = GC.GetTotalPauseDuration();
+        // The stopwatch spans both pause readings, so no pause it did not measure is subtracted.
         var sw = Stopwatch.StartNew();
+        var pauses = GC.GetTotalPauseDuration();
         run(input);
+        pauses = GC.GetTotalPauseDuration() - pauses;
         sw.Stop();
-        return sw.Elapsed - (GC.GetTotalPauseDuration() - pauses);
+        return sw.Elapsed - pauses;
     }
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
