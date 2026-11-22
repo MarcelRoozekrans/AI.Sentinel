@@ -7,7 +7,14 @@ namespace AI.Sentinel.Approvals;
 /// </summary>
 public interface IApprovalAdmin
 {
-    ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct);
-    ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct);
+    /// <summary>Approves a pending request. Checking that the request is pending and settling it is one atomic step,
+    /// so of two concurrent decisions on one request exactly one returns <see cref="ApprovalDecisionOutcome.Applied"/>.</summary>
+    /// <returns><see cref="ApprovalDecisionOutcome.Applied"/> when this call approved the request,
+    /// <see cref="ApprovalDecisionOutcome.AlreadySettled"/> when it was no longer pending, and
+    /// <see cref="ApprovalDecisionOutcome.NotFound"/> when the store does not know the id.</returns>
+    ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct);
+
+    /// <summary>Denies a pending request, with the same atomicity and outcomes as <see cref="ApproveAsync"/>.</summary>
+    ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct);
     IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct);
 }

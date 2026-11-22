@@ -95,11 +95,23 @@ public class ApprovalAuditingTests
         var requestId = await EnsurePendingAsync(store);
         var admin = (IApprovalAdmin)store;
 
-        await admin.ApproveAsync(requestId, ApproverId, null, Ct);
-        await admin.ApproveAsync(requestId, ApproverId, null, Ct);
-        await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct);
+        Assert.Equal(ApprovalDecisionOutcome.Applied, await admin.ApproveAsync(requestId, ApproverId, null, Ct));
+        Assert.Equal(ApprovalDecisionOutcome.AlreadySettled, await admin.ApproveAsync(requestId, ApproverId, null, Ct));
+        Assert.Equal(ApprovalDecisionOutcome.AlreadySettled, await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct));
 
         Assert.Single(audit.Entries);
+    }
+
+    [Fact]
+    public async Task DecideUnknownRequest_ReturnsNotFoundAndWritesNothing()
+    {
+        var (store, audit) = Wrap(new InMemoryApprovalStore());
+        var admin = (IApprovalAdmin)store;
+
+        Assert.Equal(ApprovalDecisionOutcome.NotFound, await admin.ApproveAsync("req-unknown", ApproverId, null, Ct));
+        Assert.Equal(ApprovalDecisionOutcome.NotFound, await admin.DenyAsync("req-unknown", ApproverId, DenyReason, Ct));
+
+        Assert.Empty(audit.Entries);
     }
 
     [Fact]
@@ -124,10 +136,12 @@ public class ApprovalAuditingTests
         var requestId = await EnsurePendingAsync(store);
         var admin = (IApprovalAdmin)store;
 
-        await Task.WhenAll(
+        var outcomes = await Task.WhenAll(
             Task.Run(async () => await admin.ApproveAsync(requestId, ApproverId, null, Ct), Ct),
             Task.Run(async () => await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct), Ct));
 
+        Assert.Single(outcomes, o => o == ApprovalDecisionOutcome.Applied);
+        Assert.Single(outcomes, o => o == ApprovalDecisionOutcome.AlreadySettled);
         var final = await inner.WaitForDecisionAsync(requestId, TimeSpan.Zero, Ct);
         var entry = Assert.Single(audit.Entries);
         if (final is ApprovalState.Active)
@@ -778,16 +792,16 @@ public class ApprovalAuditingTests
         public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
             inner.WaitForDecisionAsync(requestId, timeout, ct);
 
-        public async ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
+        public async ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
         {
             await ArriveAsync();
-            await inner.ApproveAsync(requestId, approverId, note, ct);
+            return await inner.ApproveAsync(requestId, approverId, note, ct);
         }
 
-        public async ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
+        public async ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
         {
             await ArriveAsync();
-            await inner.DenyAsync(requestId, approverId, reason, ct);
+            return await inner.DenyAsync(requestId, approverId, reason, ct);
         }
 
         public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => inner.ListPendingAsync(ct);

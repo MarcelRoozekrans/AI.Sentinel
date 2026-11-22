@@ -27,6 +27,76 @@ public class InMemoryApprovalStoreTests
     }
 
     [Fact]
+    public async Task Decide_PendingRequest_ReturnsApplied()
+    {
+        var store = new InMemoryApprovalStore();
+        var approve = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec("a"), MakeCtx(), TestContext.Current.CancellationToken);
+        var deny = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec("d"), MakeCtx(), TestContext.Current.CancellationToken);
+
+        Assert.Equal(ApprovalDecisionOutcome.Applied, await store.ApproveAsync(approve.RequestId, "bob", null, TestContext.Current.CancellationToken));
+        Assert.Equal(ApprovalDecisionOutcome.Applied, await store.DenyAsync(deny.RequestId, "bob", "no", TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(false, false)]
+    public async Task Decide_SettledRequest_ReturnsAlreadySettledAndKeepsTheFirstDecision(bool firstApproves, bool secondApproves)
+    {
+        var store = new InMemoryApprovalStore();
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(), MakeCtx(), TestContext.Current.CancellationToken);
+        await DecideAsync(store, pending.RequestId, firstApproves);
+
+        Assert.Equal(ApprovalDecisionOutcome.AlreadySettled, await DecideAsync(store, pending.RequestId, secondApproves));
+
+        var state = await store.WaitForDecisionAsync(pending.RequestId, TimeSpan.Zero, TestContext.Current.CancellationToken);
+        Assert.Equal(firstApproves ? typeof(ApprovalState.Active) : typeof(ApprovalState.Denied), state.GetType());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Decide_UnknownRequest_ReturnsNotFound(bool approve)
+    {
+        var store = new InMemoryApprovalStore();
+        Assert.Equal(ApprovalDecisionOutcome.NotFound, await DecideAsync(store, "req-unknown", approve));
+    }
+
+    [Fact]
+    public async Task Decide_ConcurrentApprovers_ExactlyOneApplies()
+    {
+        var store = new InMemoryApprovalStore();
+        for (var round = 0; round < 50; round++)
+        {
+            await RaceApproversAsync(store, $"p{round}");
+        }
+    }
+
+    /// <summary>Eight approvers, half approving and half denying, decide one fresh request at the same moment.</summary>
+    private static async Task RaceApproversAsync(InMemoryApprovalStore store, string policy)
+    {
+        const int approvers = 8;
+        var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(MakeCaller(), MakeSpec(policy), MakeCtx(), TestContext.Current.CancellationToken);
+        using var start = new Barrier(approvers);
+        var outcomes = await Task.WhenAll(Enumerable.Range(0, approvers).Select(i => Task.Run(
+            () =>
+            {
+                start.SignalAndWait(TestContext.Current.CancellationToken);
+                return DecideAsync(store, pending.RequestId, approve: i % 2 == 0).AsTask();
+            },
+            TestContext.Current.CancellationToken)));
+
+        Assert.Single(outcomes, o => o == ApprovalDecisionOutcome.Applied);
+        Assert.Equal(approvers - 1, outcomes.Count(o => o == ApprovalDecisionOutcome.AlreadySettled));
+    }
+
+    private static ValueTask<ApprovalDecisionOutcome> DecideAsync(InMemoryApprovalStore store, string requestId, bool approve) =>
+        approve
+            ? store.ApproveAsync(requestId, "bob", null, TestContext.Current.CancellationToken)
+            : store.DenyAsync(requestId, "bob", "no", TestContext.Current.CancellationToken);
+
+    [Fact]
     public async Task EnsureRequest_FirstCall_ReturnsPending()
     {
         var store = new InMemoryApprovalStore();

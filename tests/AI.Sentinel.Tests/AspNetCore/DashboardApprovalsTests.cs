@@ -180,11 +180,73 @@ public class DashboardApprovalsTests
     [Theory]
     [InlineData("approve")]
     [InlineData("deny")]
-    public async Task Decide_UnknownId_Returns409(string action)
+    public async Task Decide_UnknownId_Returns404WithMessage(string action)
     {
         using var host = await BuildHostAsync(new InMemoryApprovalStore(), authenticatedAs: "ops-bob");
         var resp = await PostAsync(host, $"/sentinel/api/approvals/nope/{action}");
-        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+        Assert.Equal("This approval request does not exist.", await resp.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+    }
+
+    [Theory]
+    [InlineData("approve", "approve")]
+    [InlineData("approve", "deny")]
+    [InlineData("deny", "deny")]
+    public async Task Decide_ConcurrentApprovers_OneGets200TheOther409(string firstAction, string secondAction)
+    {
+        // Both decisions reach the store only after both requests have passed every check in the handler,
+        // so the handler cannot tell them apart up front: only the store's outcome can.
+        var (inner, id) = await PendingAsync();
+        var store = new BothArriveAdminStore(inner);
+        using var host = await BuildHostAsync(store, authenticatedAs: "ops-bob");
+
+        var responses = await Task.WhenAll(
+            PostAsync(host, $"/sentinel/api/approvals/{id}/{firstAction}"),
+            PostAsync(host, $"/sentinel/api/approvals/{id}/{secondAction}"));
+
+        Assert.Single(responses, r => r.StatusCode == HttpStatusCode.OK);
+        var loser = Assert.Single(responses, r => r.StatusCode == HttpStatusCode.Conflict);
+        Assert.Equal("This request is no longer pending.", await loser.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+        Assert.Equal(0, await PendingCountAsync(inner));
+    }
+
+    /// <summary>
+    /// An admin store whose approve and deny wait until two decisions have arrived, so two concurrent dashboard
+    /// requests both reach the store before either is applied.
+    /// </summary>
+    private sealed class BothArriveAdminStore(InMemoryApprovalStore inner) : IApprovalStore, IApprovalAdmin
+    {
+        private readonly TaskCompletionSource _bothArrived = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _arrived;
+
+        public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
+            inner.EnsureRequestAsync(caller, spec, context, ct);
+
+        public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
+            inner.WaitForDecisionAsync(requestId, timeout, ct);
+
+        public async ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
+        {
+            await ArriveAsync(ct);
+            return await inner.ApproveAsync(requestId, approverId, note, ct);
+        }
+
+        public async ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
+        {
+            await ArriveAsync(ct);
+            return await inner.DenyAsync(requestId, approverId, reason, ct);
+        }
+
+        public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => inner.ListPendingAsync(ct);
+
+        private Task ArriveAsync(CancellationToken ct)
+        {
+            if (Interlocked.Increment(ref _arrived) == 2)
+            {
+                _bothArrived.SetResult();
+            }
+            return _bothArrived.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+        }
     }
 
     [Fact]

@@ -149,7 +149,9 @@ It registers `IApprovalStore`, and `IApprovalAdmin` when your type implements it
 
 Set `RequestId` on every `ApprovalState.Active` and `ApprovalState.Denied` you return whenever the store knows the request, as the built-in stores do. [Approval decisions](#audit-trail) in the audit log are recorded under that id.
 
-For a store that implements `IApprovalAdmin`, AI.Sentinel records `ApproveAsync` and `DenyAsync` itself, from the request id they are called with. For a store without it, whose decisions are made elsewhere as with Entra PIM, AI.Sentinel records what the store returns:
+`ApproveAsync` and `DenyAsync` return an `ApprovalDecisionOutcome`: `Applied` when the call settled a pending request, `AlreadySettled` when the request was already decided, and `NotFound` for an unknown id. Check that the request is pending and settle it in one atomic step, such as an `UPDATE ... WHERE status = 'Pending'` and its row count, so that of two concurrent calls only one returns `Applied`. The dashboard answers `200`, `409` and `404` from it.
+
+For a store that implements `IApprovalAdmin`, AI.Sentinel records `ApproveAsync` and `DenyAsync` itself, from the request id they are called with, when the call returns `Applied`. For a store without it, whose decisions are made elsewhere as with Entra PIM, AI.Sentinel records what the store returns:
 
 - **A `Denied` without a `RequestId` is not recorded as a decision.** AI.Sentinel treats it as a denial that belongs to no request, such as a backend error while polling, so a real denial returned without an id is missing from the audit log.
 - **An `Active` without a `RequestId`** is recorded under the id this process waited on or saw pending. A process that saw neither, such as a hook invocation after an earlier one opened the request, records no `APPROVED` entry.

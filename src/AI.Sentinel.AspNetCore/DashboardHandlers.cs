@@ -575,11 +575,11 @@ internal static class DashboardHandlers
         await ctx.Response.WriteAsync(PageShell("Approval: " + found.ToolName, RenderRequest(found))).ConfigureAwait(false);
     }
 
-    // On success clear any stale error line; a 409 shows the server's (true) message, anything else a generic one.
+    // On success clear any stale error line; a 409, or a 404 with a message, shows the server's (true) message, anything else a generic one.
     private static string PageAfterRequest(string done) =>
         "const s = document.getElementById('approval-status'); "
         + "if (event.detail.successful) { s.textContent = ''; this.parentElement.textContent = '" + done + ".'; } "
-        + "else { s.textContent = event.detail.xhr.status === 409 ? event.detail.xhr.responseText : 'Could not record the decision.'; }";
+        + "else { s.textContent = event.detail.xhr.status === 409 || event.detail.xhr.status === 404 && event.detail.xhr.responseText ? event.detail.xhr.responseText : 'Could not record the decision.'; }";
 
     private static string RenderRequest(PendingRequest found)
     {
@@ -679,20 +679,18 @@ internal static class DashboardHandlers
 
     /// <summary>
     /// POST /api/approvals/{id}/approve — flips a Pending request to Active. 200 + empty
-    /// row HTML on success (so HTMX swaps the row out). 404 if the store doesn't expose
-    /// IApprovalAdmin (e.g., EntraPim — should never receive POSTs in that mode). 409 when the
-    /// request is not pending, so a stale page never reports a decision that was not recorded.
+    /// row HTML when this call decided the request (so HTMX swaps the row out). 404 if the store
+    /// doesn't expose IApprovalAdmin (e.g., EntraPim — should never receive POSTs in that mode) or
+    /// does not know the request. 409 when the request was already decided, for example by a
+    /// concurrent approver, so a page never reports a decision that this call did not make.
     /// </summary>
     public static async Task ApproveAsync(HttpContext ctx)
     {
         var target = await GuardDecisionAsync(ctx).ConfigureAwait(false);
         if (target is null) return;
 
-        await target.Admin.ApproveAsync(target.RequestId, target.ApproverId, note: null, ctx.RequestAborted).ConfigureAwait(false);
-
-        // Return an empty row so HTMX removes the row from the table.
-        ctx.Response.ContentType = "text/html";
-        await ctx.Response.WriteAsync("").ConfigureAwait(false);
+        var outcome = await target.Admin.ApproveAsync(target.RequestId, target.ApproverId, note: null, ctx.RequestAborted).ConfigureAwait(false);
+        await RespondToDecisionAsync(ctx, outcome).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -711,11 +709,25 @@ internal static class DashboardHandlers
             return;
         }
 
-        await target.Admin.DenyAsync(target.RequestId, target.ApproverId, reason, ctx.RequestAborted).ConfigureAwait(false);
+        var outcome = await target.Admin.DenyAsync(target.RequestId, target.ApproverId, reason, ctx.RequestAborted).ConfigureAwait(false);
+        await RespondToDecisionAsync(ctx, outcome).ConfigureAwait(false);
+    }
 
+    private static Task RespondToDecisionAsync(HttpContext ctx, ApprovalDecisionOutcome outcome) => outcome switch
+    {
+        // An empty row, so HTMX removes the row from the table.
+        ApprovalDecisionOutcome.Applied => RespondEmptyRowAsync(ctx),
+        ApprovalDecisionOutcome.AlreadySettled => RespondAsync(ctx, 409, NoLongerPendingMessage),
+        _ => RespondAsync(ctx, 404, "This approval request does not exist."),
+    };
+
+    private static async Task RespondEmptyRowAsync(HttpContext ctx)
+    {
         ctx.Response.ContentType = "text/html";
         await ctx.Response.WriteAsync("").ConfigureAwait(false);
     }
+
+    private const string NoLongerPendingMessage = "This request is no longer pending.";
 
     private const int MaxDenyReasonLength = 500;
     private const string DefaultDenyReason = "denied via dashboard";
@@ -737,8 +749,9 @@ internal static class DashboardHandlers
     }
 
     /// <summary>
-    /// The checks shared by approve and deny: same-site, authenticated, a request id, an admin
-    /// store and a request that is still pending. Writes the refusal and returns null otherwise.
+    /// The checks shared by approve and deny: same-site, authenticated, a request id and an admin
+    /// store. Writes the refusal and returns null otherwise. Whether the request is still pending is
+    /// not checked here: the store decides that atomically with the decision itself.
     /// </summary>
     private static async Task<DecisionTarget?> GuardDecisionAsync(HttpContext ctx)
     {
@@ -770,23 +783,8 @@ internal static class DashboardHandlers
             return null;
         }
 
-        if (!await IsPendingAsync(admin, requestId, ctx.RequestAborted).ConfigureAwait(false))
-        {
-            await RespondAsync(ctx, 409, "This request is no longer pending.").ConfigureAwait(false);
-            return null;
-        }
-
         // Authenticated but no Name (e.g., cert auth without subject extraction): "unknown"
         // is at least honest, vs. the previous "anonymous" which masked an auth misconfiguration.
         return new DecisionTarget(admin, requestId, ctx.User.Identity.Name ?? "unknown");
-    }
-
-    private static async Task<bool> IsPendingAsync(IApprovalAdmin admin, string requestId, CancellationToken ct)
-    {
-        await foreach (var pending in admin.ListPendingAsync(ct).ConfigureAwait(false))
-        {
-            if (string.Equals(pending.RequestId, requestId, StringComparison.Ordinal)) return true;
-        }
-        return false;
     }
 }

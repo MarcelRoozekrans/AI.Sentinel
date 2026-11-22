@@ -15,10 +15,10 @@ internal sealed class NotifyingApprovalAdminStore : NotifyingApprovalStore, IApp
             ?? throw new ArgumentException("The inner store has no admin surface.", nameof(inner));
     }
 
-    public ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct) =>
+    public ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct) =>
         _admin.ApproveAsync(requestId, approverId, note, ct);
 
-    public ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct) =>
+    public ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct) =>
         _admin.DenyAsync(requestId, approverId, reason, ct);
 
     public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => _admin.ListPendingAsync(ct);

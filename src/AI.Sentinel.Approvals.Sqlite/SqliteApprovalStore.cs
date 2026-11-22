@@ -207,7 +207,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         }
     }
 
-    public async ValueTask ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
+    public async ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
         ArgumentException.ThrowIfNullOrWhiteSpace(approverId);
@@ -229,7 +229,8 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
             cmd.Parameters.AddWithValue("$approver", approverId);
             cmd.Parameters.AddWithValue("$note", (object?)note ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$id", requestId);
-            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            var changed = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            return changed > 0 ? ApprovalDecisionOutcome.Applied : await NotAppliedOutcomeAsync(requestId, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -237,7 +238,7 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
         }
     }
 
-    public async ValueTask DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
+    public async ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(requestId);
         ArgumentException.ThrowIfNullOrWhiteSpace(approverId);
@@ -259,12 +260,24 @@ public sealed class SqliteApprovalStore : IApprovalStore, IApprovalAdmin, IAsync
             cmd.Parameters.AddWithValue("$reason", reason ?? string.Empty);
             cmd.Parameters.AddWithValue("$approver", approverId);
             cmd.Parameters.AddWithValue("$id", requestId);
-            await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            var changed = await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            return changed > 0 ? ApprovalDecisionOutcome.Applied : await NotAppliedOutcomeAsync(requestId, ct).ConfigureAwait(false);
         }
         finally
         {
             _writeLock.Release();
         }
+    }
+
+    /// <summary>Why an UPDATE ... WHERE status = 'Pending' changed no row. Runs under <c>_writeLock</c>, so no other
+    /// decision can land between the UPDATE and this read.</summary>
+    private async Task<ApprovalDecisionOutcome> NotAppliedOutcomeAsync(string requestId, CancellationToken ct)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT 1 FROM approval_requests WHERE id = $id;";
+        cmd.Parameters.AddWithValue("$id", requestId);
+        var found = await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false);
+        return found is null ? ApprovalDecisionOutcome.NotFound : ApprovalDecisionOutcome.AlreadySettled;
     }
 
     public async IAsyncEnumerable<PendingRequest> ListPendingAsync(
