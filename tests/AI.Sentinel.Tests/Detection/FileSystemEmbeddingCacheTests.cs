@@ -158,9 +158,9 @@ public sealed class FileSystemEmbeddingCacheTests : IDisposable
 
     /// <summary>A flush that collides with a concurrent reader must retry rather than drop this
     /// process's entries. A real reader holds the file only for the length of its constructor, so the
-    /// hold here is brief and well inside the retry budget. The flush runs on a thread of its own and the
-    /// hold ends on the test thread after a plain sleep: released from a thread-pool continuation, the
-    /// hold could outlast the whole retry budget on a busy runner (#639).</summary>
+    /// hold here ends as soon as the first write attempt has failed, which leaves the whole retry budget.
+    /// The release waits for that failure, not for a delay: released after a delay on the thread pool,
+    /// the hold could miss the first attempt or outlast the retry budget on a busy runner (#639).</summary>
     [Fact]
     public void Flush_RetriesPastAConcurrentReader()
     {
@@ -173,12 +173,15 @@ public sealed class FileSystemEmbeddingCacheTests : IDisposable
         using var writer = new FileSystemEmbeddingCache(_dir, "m");
         writer.Set("written-during-contention", Vector(2f));
 
+        using var attemptFailed = new ManualResetEventSlim();
+        writer.WriteAttemptFailed = attemptFailed.Set;
         var flushed = false;
         var flusher = new Thread(() => flushed = writer.Flush());
         using (new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
         {
             flusher.Start();
-            Thread.Sleep(20);
+            Assert.True(attemptFailed.Wait(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken),
+                "the flush never collided with the held file");
         }
 
         flusher.Join();
