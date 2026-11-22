@@ -114,6 +114,43 @@ public class ApprovalAuditingTests
         Assert.Empty(audit.Entries);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DecisionApplied_PendingListMissesTheRequest_StillWritesTheDecision(bool approve)
+    {
+        var inner = new InMemoryApprovalStore();
+        var (store, audit) = Wrap(new UnlistedAdminStore(inner));
+        var requestId = await EnsurePendingAsync(store);
+        var admin = (IApprovalAdmin)store;
+
+        var outcome = approve
+            ? await admin.ApproveAsync(requestId, ApproverId, null, Ct)
+            : await admin.DenyAsync(requestId, ApproverId, DenyReason, Ct);
+
+        Assert.Equal(ApprovalDecisionOutcome.Applied, outcome);
+        var entry = Assert.Single(audit.Entries);
+        if (approve)
+            AssertDecision(entry, AuditEntryKinds.ApprovedPolicyCode, "Approved", requestId);
+        else
+            AssertDecision(entry, AuditEntryKinds.DeniedPolicyCode, "Denied", requestId);
+    }
+
+    [Fact]
+    public async Task DecisionApplied_RequestNeverSeenAndNotListed_WritesItUnderUnknownPolicyAndTool()
+    {
+        var inner = new InMemoryApprovalStore();
+        var pending = await inner.EnsureRequestAsync(new TestCaller(CallerId), MakeSpec(), MakeCtx(), Ct);
+        var requestId = Assert.IsType<ApprovalState.Pending>(pending).RequestId;
+        var (store, audit) = Wrap(new UnlistedAdminStore(inner));
+
+        await ((IApprovalAdmin)store).ApproveAsync(requestId, ApproverId, null, Ct);
+
+        var entry = Assert.Single(audit.Entries);
+        Assert.Equal(AuditEntryKinds.ApprovedPolicyCode, entry.PolicyCode);
+        Assert.Equal($"Approved: policy unknown, tool unknown, request {requestId}", entry.Summary);
+    }
+
     [Fact]
     public async Task DenyThenApprove_WritesExactlyOneDenied()
     {
@@ -775,6 +812,24 @@ public class ApprovalAuditingTests
             ValueTask.FromResult(ct.IsCancellationRequested || Next is null
                 ? new ApprovalState.Pending(requestId, "https://pim/req", DateTimeOffset.UtcNow)
                 : Next);
+    }
+
+    /// <summary>An admin store whose pending list never shows a request, as when the list read fails.</summary>
+    private sealed class UnlistedAdminStore(InMemoryApprovalStore inner) : IApprovalStore, IApprovalAdmin
+    {
+        public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
+            inner.EnsureRequestAsync(caller, spec, context, ct);
+
+        public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
+            inner.WaitForDecisionAsync(requestId, timeout, ct);
+
+        public ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct) =>
+            inner.ApproveAsync(requestId, approverId, note, ct);
+
+        public ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct) =>
+            inner.DenyAsync(requestId, approverId, reason, ct);
+
+        public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => AsyncEnumerable.Empty<PendingRequest>();
     }
 
     /// <summary>

@@ -15,7 +15,7 @@ namespace AI.Sentinel.Approvals;
 internal class AuditingApprovalStore : IApprovalStore, IApprovalStoreDecorator
 {
     /// <summary>Stands in for a policy, tool or request id this process never saw.</summary>
-    private const string Unknown = "unknown";
+    private protected const string Unknown = "unknown";
 
     /// <summary>Reason of the <see cref="ApprovalState.Denied"/> the stores return for a grant that ran out.</summary>
     private const string ExpiredReason = "expired";

@@ -30,12 +30,16 @@ internal sealed class AuditingApprovalAdminStore : AuditingApprovalStore, IAppro
     {
         var pending = await FindPendingAsync(requestId, ct).ConfigureAwait(false);
         var outcome = await _admin.ApproveAsync(requestId, approverId, note, ct).ConfigureAwait(false);
-        if (pending is not null && TookEffect(outcome, requestId))
+        if (TookEffect(outcome, requestId))
         {
-            // Kept so that the expiry of this grant, observed later in this process, names its request.
-            Remember(ApprovalAuditMemory.CallerPolicyKey(pending.CallerId, pending.PolicyName), requestId);
+            if (pending is not null)
+            {
+                // Kept so that the expiry of this grant, observed later in this process, names its request.
+                Remember(ApprovalAuditMemory.CallerPolicyKey(pending.CallerId, pending.PolicyName), requestId);
+            }
+            var info = Describe(pending, requestId);
             Memory.Requests.TryRemove(requestId, out _);
-            await WriteAsync(AuditEntryKinds.ApprovedPolicyCode, pending.PolicyName, pending.ToolName, requestId).ConfigureAwait(false);
+            await WriteAsync(AuditEntryKinds.ApprovedPolicyCode, info.PolicyName, info.ToolName, requestId).ConfigureAwait(false);
         }
         return outcome;
     }
@@ -44,10 +48,11 @@ internal sealed class AuditingApprovalAdminStore : AuditingApprovalStore, IAppro
     {
         var pending = await FindPendingAsync(requestId, ct).ConfigureAwait(false);
         var outcome = await _admin.DenyAsync(requestId, approverId, reason, ct).ConfigureAwait(false);
-        if (pending is not null && TookEffect(outcome, requestId))
+        if (TookEffect(outcome, requestId))
         {
+            var info = Describe(pending, requestId);
             Memory.Requests.TryRemove(requestId, out _);
-            await WriteAsync(AuditEntryKinds.DeniedPolicyCode, pending.PolicyName, pending.ToolName, requestId).ConfigureAwait(false);
+            await WriteAsync(AuditEntryKinds.DeniedPolicyCode, info.PolicyName, info.ToolName, requestId).ConfigureAwait(false);
         }
         return outcome;
     }
@@ -58,6 +63,20 @@ internal sealed class AuditingApprovalAdminStore : AuditingApprovalStore, IAppro
     /// </summary>
     private bool TookEffect(ApprovalDecisionOutcome outcome, string requestId) =>
         outcome == ApprovalDecisionOutcome.Applied && Memory.Settled.TryAdd(requestId, 0);
+
+    /// <summary>
+    /// The policy and tool of a request this call settled: from the pending list read before the call, else from what
+    /// this process saw the request opened with, else <c>unknown</c>. The list can miss a request when its read fails,
+    /// and a settled decision is recorded all the same.
+    /// </summary>
+    private ApprovalAuditMemory.RequestInfo Describe(PendingRequest? pending, string requestId)
+    {
+        if (pending is not null)
+        {
+            return new ApprovalAuditMemory.RequestInfo(pending.PolicyName, pending.ToolName);
+        }
+        return Memory.Requests.TryGetValue(requestId, out var info) ? info : new ApprovalAuditMemory.RequestInfo(Unknown, Unknown);
+    }
 
     public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => _admin.ListPendingAsync(ct);
 }
