@@ -13,7 +13,8 @@ public static class LinearTime
 {
     /// <summary>
     /// Runs <paramref name="run"/> on inputs of size <paramref name="n"/> and 4 x <paramref name="n"/> and
-    /// asserts the larger takes at most 8 times as long, plus a small absolute slack. Linear work gives about
+    /// asserts the larger takes at most 8 times as long, plus a small absolute slack, not counting garbage
+    /// collection pauses. Linear work gives about
     /// 4x and quadratic work 16x. The slack keeps a sub-millisecond baseline from turning timer noise into a
     /// failure; it cannot hide a quadratic regression at these sizes, because quadratic matching of tens of
     /// thousands of characters takes hundreds of milliseconds on its own, and the detectors' regex timeout
@@ -37,7 +38,9 @@ public static class LinearTime
         }
 
         // Interleave the two sizes, so a slowdown of the machine lands on both, and keep the fastest of each:
-        // interference only ever adds time.
+        // interference only ever adds time. Garbage collection is left out of each measurement: the larger input
+        // crosses the GC's allocation budget and the smaller one does not, so on CI the larger run paid 10 to 57 ms
+        // of gen1 and gen2 pauses the smaller never did, and that step, not the detector, pushed the ratio past 8.
         var tSmall = TimeSpan.MaxValue;
         var tLarge = TimeSpan.MaxValue;
         for (var i = 0; i < MeasuredRuns; i++)
@@ -54,12 +57,18 @@ public static class LinearTime
     private const int WarmupRuns = 40;
     private const int MeasuredRuns = 7;
 
+    // The time the operation itself ran: the heap is collected first, so no run pays for the garbage of the one
+    // before it, and the GC pauses during the run are subtracted.
     private static TimeSpan Time(string input, Action<string> run)
     {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        var pauses = GC.GetTotalPauseDuration();
         var sw = Stopwatch.StartNew();
         run(input);
         sw.Stop();
-        return sw.Elapsed;
+        return sw.Elapsed - (GC.GetTotalPauseDuration() - pauses);
     }
 
     private static TimeSpan Min(TimeSpan a, TimeSpan b) => a < b ? a : b;
