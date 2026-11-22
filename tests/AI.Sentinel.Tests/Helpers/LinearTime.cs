@@ -64,14 +64,6 @@ public static class LinearTime
     private const int WarmupRuns = 40;
     private const int MeasuredRuns = 7;
 
-    private static TimeSpan Time(string input, Action<string> run)
-    {
-        var sw = Stopwatch.StartNew();
-        run(input);
-        sw.Stop();
-        return sw.Elapsed;
-    }
-
     private static (TimeSpan Elapsed, TimeSpan Pause, string Gcs) Diag(string input, Action<string> run)
     {
         var g0 = GC.CollectionCount(0);
