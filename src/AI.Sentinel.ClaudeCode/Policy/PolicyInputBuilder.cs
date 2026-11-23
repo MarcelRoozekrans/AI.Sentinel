@@ -69,7 +69,8 @@ internal static class PolicyInputBuilder
     // Copilot sends apply_patch as the patch text itself, or in an object, never as file_path. Its targets are the file headers.
     private static PolicyDetails PatchPaths(JsonElement input, string? root)
     {
-        var text = input.ValueKind == JsonValueKind.String ? Decode(input) : String(input, "input") ?? String(input, "patch");
+        var args = ReadObject(input);
+        var text = String(args, "input") ?? String(args, "patch") ?? (input.ValueKind == JsonValueKind.String ? Decode(input) : null);
         var paths = new List<PolicyPath>();
         foreach (var line in (text ?? string.Empty).Split('\n'))
         {
