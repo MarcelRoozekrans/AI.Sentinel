@@ -121,6 +121,8 @@ public static class Program
             return 1;
         }
 
+        RouteEvents(audit, hookEnv, input.ToolName);
+
         // A config that fails to load must not quietly drop every approval rule, so on PreToolUse it blocks.
         var (approvalConfig, configPath, configError) = TryLoadApprovalConfig();
         if (configError is not null)
@@ -275,6 +277,16 @@ public static class Program
         var exit = await WriteReasonAndReturn(stderr, reason, exitCode: 2).ConfigureAwait(false);
         await CloseAuditAsync(audit, reported, verbose, stderr).ConfigureAwait(false);
         return exit;
+    }
+
+    /// <summary>With a server configured and a repository that may send events, every entry of this call is routed to the server by the
+    /// resident process (#661). Strict repository mode, or no server, routes nothing.</summary>
+    private static void RouteEvents(LocalAuditSession audit, Dictionary<string, string?> hookEnv, string? toolName)
+    {
+        if (AI.Sentinel.ClaudeCode.Events.EventRouting.Resolve(hookEnv, PolicyClis.ClaudeCode, toolName, Directory.GetCurrentDirectory()) is { } route)
+        {
+            audit.RouteEvents(route.ToolKind, route.Node);
+        }
     }
 
     /// <summary>Every hook process records to the shared local audit file unless

@@ -13,6 +13,9 @@ internal sealed class SourceTaggingAuditStore(IAuditStore inner, string source, 
 
     /// <summary>Number of <see cref="AppendAsync"/> calls seen, including ones that failed.
     /// <see cref="AuditForwarding"/> forwards both, so this is what forwarders must catch up to.</summary>
+    /// <summary>The tool kind and node stamped on every entry from now on, or <see langword="null"/> for none (#661).</summary>
+    public (string ToolKind, string? Node)? Route { get; set; }
+
     public long AppendCount => Interlocked.Read(ref _appendCount);
 
     public async ValueTask<AuditEntry> AppendAsync(AuditEntry entry, CancellationToken ct)
@@ -20,6 +23,11 @@ internal sealed class SourceTaggingAuditStore(IAuditStore inner, string source, 
         ArgumentNullException.ThrowIfNull(entry);
         Interlocked.Increment(ref _appendCount);
         var tagged = entry with { Source = source };
+        if (Route is { } route)
+        {
+            tagged = tagged with { ToolKind = route.ToolKind, Node = route.Node };
+        }
+
         try
         {
             return await inner.AppendAsync(tagged, ct).ConfigureAwait(false);

@@ -1,0 +1,60 @@
+using AI.Sentinel.ClaudeCode.Events;
+using Xunit;
+
+namespace AI.Sentinel.Tests.ClaudeCode.Events;
+
+/// <summary>A reason leaves the machine only after paths, URLs, email addresses and quoted values are replaced, and not at all when it
+/// looks like it holds a secret (ADR-247).</summary>
+public sealed class ReasonRedactionTests
+{
+    [Theory]
+    [InlineData("may not read /etc/passwd", "may not read <path>")]
+    [InlineData("may not read ~/.ssh/config now", "may not read <path> now")]
+    [InlineData("writes to ./build/out and ../x", "writes to <path> and <path>")]
+    [InlineData(@"blocked C:\Users\someone\notes.txt here", "blocked <path> here")]
+    [InlineData("fetches https://internal.example.com/a?b=c today", "fetches <url> today")]
+    [InlineData("mail someone@example.com about it", "mail <email> about it")]
+    [InlineData("rule 'no force push' applies to \"main\"", "rule <value> applies to <value>")]
+    [InlineData("ran `rm -rf build`", "ran <value>")]
+    public void Paths_urls_emails_and_quoted_values_are_replaced(string reason, string expected) =>
+        Assert.Equal(expected, ReasonRedactor.Redact(reason));
+
+    [Theory]
+    [InlineData("no force push to main")]
+    [InlineData("the organisation forbids deleting branches and/or tags")]
+    [InlineData("don't run that: it isn't allowed")]
+    public void A_reason_with_nothing_private_is_unchanged(string reason) =>
+        Assert.Equal(reason, ReasonRedactor.Redact(reason));
+
+    [Theory]
+    [InlineData("uses AKIAIOSFODNN7EXAMPLE to sign")]
+    [InlineData("the token ghp_abcdefghijklmnopqrstuvwxyz0123456789 was in the command")]
+    [InlineData("header Authorization: Bearer abcdefghijklmnop1234567890")]
+    [InlineData("-----BEGIN RSA PRIVATE KEY----- MIIE")]
+    [InlineData("password=hunter2 in the file")]
+    [InlineData("api_key: 'abc'")]
+    [InlineData("jwt eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N")]
+    [InlineData("value Zx9Qw3Lk8Vb2Nm7Pa4Sd1Fg6Hj5Kt0Re")]
+    public void A_reason_that_looks_like_it_holds_a_secret_is_dropped(string reason) =>
+        Assert.Null(ReasonRedactor.Redact(reason));
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void An_empty_reason_is_dropped(string? reason) => Assert.Null(ReasonRedactor.Redact(reason));
+
+    [Fact]
+    public void A_long_reason_is_cut_to_what_the_server_takes()
+    {
+        var reason = string.Join(' ', Enumerable.Repeat("rule", 1000));
+
+        Assert.Equal(ReasonRedactor.MaxLength, ReasonRedactor.Redact(reason)!.Length);
+    }
+
+    [Fact]
+    public void A_secret_in_quotes_is_dropped_whole_and_not_just_hidden()
+    {
+        Assert.Null(ReasonRedactor.Redact("sent 'sk-abcdefghijklmnopqrstuv' to the model"));
+    }
+}

@@ -35,7 +35,9 @@ internal static class ResidentCommand
         // Sign-in is optional: without its settings the process holds no token (#659).
         using var http = new HttpClient();
         var tokens = SignIn.SignInCommand.OpenSession(ResidentSettings.ProcessEnvironment(), http, stderr);
-        var exit = await ResidentHost.RunAsync(settings, compilers, CancellationToken.None, listening: null, tokens).ConfigureAwait(false);
+        // Events go to the server only with the server configured; without it there is no forwarder (#661).
+        var forwarder = Events.EventForwarding.Open(ResidentSettings.ProcessEnvironment(), settings, tokens, inner: null, stderr);
+        var exit = await ResidentHost.RunAsync(settings, compilers, CancellationToken.None, listening: null, tokens, forwarder).ConfigureAwait(false);
         return exit == ResidentExit.Failed ? 1 : 0;
     }
 }

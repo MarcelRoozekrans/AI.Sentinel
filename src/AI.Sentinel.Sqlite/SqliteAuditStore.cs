@@ -247,29 +247,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             }
 
             entry = AuditHashChain.Link(entry, lastHash);
-            using var cmd = _connection.CreateCommand();
-            cmd.Transaction = tx;
-            cmd.CommandText = """
-                INSERT INTO audit_entries
-                    (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id, source)
-                VALUES
-                    ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session, $source);
-                INSERT INTO audit_chain_head (id, hash) VALUES (1, $hash)
-                    ON CONFLICT (id) DO UPDATE SET hash = excluded.hash;
-                """;
-            cmd.Parameters.AddWithValue("$id", entry.Id);
-            cmd.Parameters.AddWithValue("$ts", entry.Timestamp.UtcTicks);
-            cmd.Parameters.AddWithValue("$sev", (int)entry.Severity);
-            cmd.Parameters.AddWithValue("$det", entry.DetectorId);
-            cmd.Parameters.AddWithValue("$hash", entry.Hash);
-            cmd.Parameters.AddWithValue("$prev", (object?)entry.PreviousHash ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$summary", entry.Summary);
-            cmd.Parameters.AddWithValue("$seq", seq);
-            cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? DBNull.Value);
-            // session_id is nullable: detectors that don't carry a session pass null and we
-            // round-trip that as DBNull for dashboard queries to filter on IS NULL.
-            cmd.Parameters.AddWithValue("$session", (object?)entry.SessionId ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("$source", (object?)entry.Source ?? DBNull.Value);
+            using var cmd = InsertCommand(tx, entry, seq);
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             await tx.CommitAsync(ct).ConfigureAwait(false);
             return entry;
@@ -278,6 +256,36 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         {
             _writeLock.Release();
         }
+    }
+
+    private SqliteCommand InsertCommand(SqliteTransaction tx, AuditEntry entry, long seq)
+    {
+        var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO audit_entries
+                (id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence, policy_code, session_id, source, tool_kind, node)
+            VALUES
+                ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session, $source, $toolKind, $node);
+            INSERT INTO audit_chain_head (id, hash) VALUES (1, $hash)
+                ON CONFLICT (id) DO UPDATE SET hash = excluded.hash;
+            """;
+        cmd.Parameters.AddWithValue("$id", entry.Id);
+        cmd.Parameters.AddWithValue("$ts", entry.Timestamp.UtcTicks);
+        cmd.Parameters.AddWithValue("$sev", (int)entry.Severity);
+        cmd.Parameters.AddWithValue("$det", entry.DetectorId);
+        cmd.Parameters.AddWithValue("$hash", entry.Hash);
+        cmd.Parameters.AddWithValue("$prev", (object?)entry.PreviousHash ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$summary", entry.Summary);
+        cmd.Parameters.AddWithValue("$seq", seq);
+        cmd.Parameters.AddWithValue("$code", (object?)entry.PolicyCode ?? DBNull.Value);
+        // session_id is nullable: detectors that don't carry a session pass null and we
+        // round-trip that as DBNull for dashboard queries to filter on IS NULL.
+        cmd.Parameters.AddWithValue("$session", (object?)entry.SessionId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$source", (object?)entry.Source ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$toolKind", (object?)entry.ToolKind ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$node", (object?)entry.Node ?? DBNull.Value);
+        return cmd;
     }
 
     public async IAsyncEnumerable<AuditEntry> QueryAsync(
@@ -307,7 +315,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     {
         var cmd = _connection.CreateCommand();
         var sql = new System.Text.StringBuilder(
-            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code, session_id, source FROM audit_entries WHERE 1=1");
+            "SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code, session_id, source, tool_kind, node FROM audit_entries WHERE 1=1");
 
         if (query.MinSeverity.HasValue)
         {
@@ -369,8 +377,61 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         var policyCode = reader.IsDBNull(7) ? null : reader.GetString(7);
         var sessionId = reader.IsDBNull(8) ? null : reader.GetString(8);
         var source = reader.IsDBNull(9) ? null : reader.GetString(9);
+        var toolKind = reader.IsDBNull(10) ? null : reader.GetString(10);
+        var node = reader.IsDBNull(11) ? null : reader.GetString(11);
         var ts = new DateTimeOffset(tsTicks, TimeSpan.Zero);
-        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary) { PolicyCode = policyCode, SessionId = sessionId, Source = source };
+        return new AuditEntry(id, ts, hash, prev, sev, detectorId, summary)
+        {
+            PolicyCode = policyCode,
+            SessionId = sessionId,
+            Source = source,
+            ToolKind = toolKind,
+            Node = node,
+        };
+    }
+
+    /// <summary>One page of entries after a sequence, for the forwarder (#661). <paramref name="FirstSequence"/> and
+    /// <paramref name="LastSequence"/> are the smallest and largest sequence the file holds now, or 0 when it is empty.</summary>
+    internal readonly record struct ForwardPage(IReadOnlyList<(long Sequence, AuditEntry Entry)> Rows, long FirstSequence, long LastSequence);
+
+    /// <summary>The entries with a sequence above <paramref name="after"/>, oldest first, at most <paramref name="limit"/>.</summary>
+    internal async Task<ForwardPage> ReadAfterAsync(long after, int limit, CancellationToken ct)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            long first;
+            long last;
+            using (var range = _connection.CreateCommand())
+            {
+                range.CommandText = "SELECT COALESCE(MIN(sequence), 0), COALESCE(MAX(sequence), 0) FROM audit_entries;";
+                using var reader = await range.ExecuteReaderAsync(ct).ConfigureAwait(false);
+                await reader.ReadAsync(ct).ConfigureAwait(false);
+                first = reader.GetInt64(0);
+                last = reader.GetInt64(1);
+            }
+
+            var rows = new List<(long, AuditEntry)>();
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code, session_id, source, tool_kind, node, sequence
+                  FROM audit_entries WHERE sequence > $after ORDER BY sequence ASC LIMIT $limit;
+                """;
+            cmd.Parameters.AddWithValue("$after", after);
+            cmd.Parameters.AddWithValue("$limit", limit);
+            using var rowReader = await cmd.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await rowReader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                rows.Add((rowReader.GetInt64(12), ReadEntry((SqliteDataReader)rowReader)));
+            }
+
+            return new ForwardPage(rows, first, last);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
     }
 
     private void SweepRetention()

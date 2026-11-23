@@ -36,7 +36,7 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-        Assert.Equal(5, version);
+        Assert.Equal(6, version);
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public sealed class SqliteSchemaV3MigrationTests : IDisposable
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
             var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-            Assert.Equal(5, version);
+            Assert.Equal(6, version);
         }
 
         // Step 3: verify both new columns exist on a fresh raw connection.

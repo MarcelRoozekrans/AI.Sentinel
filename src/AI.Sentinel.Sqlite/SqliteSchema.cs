@@ -4,7 +4,7 @@ namespace AI.Sentinel.Sqlite;
 
 internal static class SqliteSchema
 {
-    internal const int CurrentVersion = 5;
+    internal const int CurrentVersion = 6;
 
     // The current shape, used only by the fresh-schema path. policy_code is nullable: only
     // AUTHZ-DENY entries carry one, and the stored value is hashed. source names the tool that
@@ -20,7 +20,9 @@ internal static class SqliteSchema
                 sequence      INTEGER NOT NULL,
                 policy_code   TEXT,
                 session_id    TEXT,
-                source        TEXT
+                source        TEXT,
+                tool_kind     TEXT,
+                node          TEXT
         """;
 
     // The v4 shape, frozen for the v3→v4 table rebuild. The later steps then run on top of it,
@@ -96,6 +98,7 @@ internal static class SqliteSchema
             if (current < 3) await MigrateV2ToV3Async(conn, tx, ct).ConfigureAwait(false);
             if (current < 4) await MigrateV3ToV4Async(conn, tx, ct).ConfigureAwait(false);
             if (current < 5) await MigrateV4ToV5Async(conn, tx, ct).ConfigureAwait(false);
+            if (current < 6) await MigrateV5ToV6Async(conn, tx, ct).ConfigureAwait(false);
         }
 
         using (var bump = conn.CreateCommand())
@@ -186,6 +189,16 @@ internal static class SqliteSchema
         using var migrate = conn.CreateCommand();
         migrate.Transaction = tx;
         migrate.CommandText = "ALTER TABLE audit_entries ADD COLUMN source TEXT;";
+        await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    private static async Task MigrateV5ToV6Async(SqliteConnection conn, SqliteTransaction tx, CancellationToken ct)
+    {
+        // v5→v6: add the nullable tool_kind and node columns that route an entry to the server (#661). They are not hashed, so
+        // existing rows still verify, and a row that has none is never forwarded.
+        using var migrate = conn.CreateCommand();
+        migrate.Transaction = tx;
+        migrate.CommandText = "ALTER TABLE audit_entries ADD COLUMN tool_kind TEXT; ALTER TABLE audit_entries ADD COLUMN node TEXT;";
         await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 

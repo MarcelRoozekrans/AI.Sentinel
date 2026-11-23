@@ -20,7 +20,8 @@ internal static class ResidentHost
     /// <param name="ct">Stops the process.</param>
     /// <param name="listening">Called once the socket accepts connections.</param>
     public static async Task<ResidentExit> RunAsync(
-        ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null, SignIn.TokenSession? tokens = null)
+        ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null, SignIn.TokenSession? tokens = null,
+        Events.EventForwarder? forwarder = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ResidentPaths.Prepare(settings);
@@ -58,7 +59,7 @@ internal static class ResidentHost
         await File.WriteAllTextAsync(pidPath, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), CancellationToken.None).ConfigureAwait(false);
         try
         {
-            return await ServeAsync(listener, settings, new ResidentService(compilers, tokens), ct, listening).ConfigureAwait(false);
+            return await ServeAsync(listener, settings, new ResidentService(compilers, tokens), ct, listening, forwarder).ConfigureAwait(false);
         }
         finally
         {
@@ -68,13 +69,15 @@ internal static class ResidentHost
     }
 
     private static async Task<ResidentExit> ServeAsync(
-        Socket listener, ResidentSettings settings, ResidentService service, CancellationToken ct, Action? listening)
+        Socket listener, ResidentSettings settings, ResidentService service, CancellationToken ct, Action? listening, Events.EventForwarder? forwarder)
     {
         using var _ = service;
         using var idle = new CancellationTokenSource();
         using var shutdown = new CancellationTokenSource();
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct, idle.Token, shutdown.Token);
         idle.CancelAfter(settings.IdleTimeout);
+        // The audit is read and sent beside the hooks' requests; no request waits for it, so it cannot change a decision (#661).
+        var forwarding = forwarder?.RunAsync(Events.EventForwarding.DefaultInterval, stop.Token) ?? Task.CompletedTask;
         listening?.Invoke();
         var inFlight = new List<Task>();
         while (!stop.IsCancellationRequested)
@@ -103,12 +106,27 @@ internal static class ResidentHost
             // A request that does not finish in a second is dropped with the process.
         }
 
+        await FinishForwardingAsync(forwarder, forwarding, stop).ConfigureAwait(false);
         if (shutdown.IsCancellationRequested)
         {
             return ResidentExit.Shutdown;
         }
 
         return ct.IsCancellationRequested ? ResidentExit.Cancelled : ResidentExit.Idle;
+    }
+
+    /// <summary>Stops the forwarding loop and gives the entries written since its last pass one more try, bounded, before the process ends.</summary>
+    private static async Task FinishForwardingAsync(Events.EventForwarder? forwarder, Task forwarding, CancellationTokenSource stop)
+    {
+        if (forwarder is null)
+        {
+            return;
+        }
+
+        await stop.CancelAsync().ConfigureAwait(false);
+        await forwarding.ConfigureAwait(false);
+        using var last = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await forwarder.TryForwardAsync(last.Token).ConfigureAwait(false);
     }
 
     private static FileStream? TryTakeLock(string path)

@@ -82,7 +82,7 @@ public sealed class SqliteSchemaV4MigrationTests : IDisposable
     {
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
-            Assert.Equal(5, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
+            Assert.Equal(6, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
         }
 
         Assert.Equal(0L, await ScalarAsync("""SELECT "notnull" FROM pragma_table_info('audit_entries') WHERE name = 'policy_code';"""));
@@ -111,7 +111,7 @@ public sealed class SqliteSchemaV4MigrationTests : IDisposable
 
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
-            Assert.Equal(5, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
+            Assert.Equal(6, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
         }
 
         Assert.IsType<DBNull>(await ScalarAsync("SELECT policy_code FROM audit_entries WHERE id = 'detection-1';"));
@@ -129,7 +129,7 @@ public sealed class SqliteSchemaV4MigrationTests : IDisposable
 
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
-            Assert.Equal(5, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
+            Assert.Equal(6, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
         }
 
         Assert.Equal(0L, await ScalarAsync("""SELECT "notnull" FROM pragma_table_info('audit_entries') WHERE name = 'source';"""));
