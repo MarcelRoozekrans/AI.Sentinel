@@ -13,17 +13,24 @@ internal interface IRoute
 {
     string Name { get; }
 
-    /// <summary>The modes the route can be measured in, the first one is what --check uses.</summary>
+    /// <summary>The modes the route can be measured in. --check evaluates every case in every mode except warm.</summary>
     IReadOnlyList<string> Modes { get; }
 
     string? Unavailable();
 
     IEvaluator Create(BundleSet set, string mode, string cacheDir);
+
+    /// <summary>Writes the precompiled artifacts of the module into the cache directory.</summary>
+    void Prepare(BundleSet set, string cacheDir);
 }
 
 internal static class Routes
 {
-    public static IEnumerable<IRoute> All() => [];
+    public static IEnumerable<IRoute> All()
+    {
+        ICompiler compiler = new OpaCliCompiler();
+        yield return new WasmtimeRoute(compiler);
+    }
 }
 
 internal static class Cache

@@ -8,7 +8,7 @@ internal static class Check
     {
         if (!args.Contains("--check", StringComparer.Ordinal))
         {
-            Console.WriteLine("usage: RegoAot --check");
+            Console.WriteLine("usage: RegoAot --check | --measure [--runs N] [--routes a,b]");
             return 2;
         }
 
@@ -72,13 +72,18 @@ internal static class Check
     private static int CheckRoute(IRoute route, BundleSet set, List<Case> cases)
     {
         var failures = 0;
-        using var eval = route.Create(set, route.Modes[0], Cache.Dir(set));
-        foreach (var c in cases)
+        var cacheDir = Cache.Dir(set);
+        route.Prepare(set, cacheDir);
+        foreach (var mode in route.Modes.Where(m => m != "warm"))
         {
-            var actual = eval.Evaluate(c.InputJson);
-            var ok = string.Equals(actual.Outcome, c.Expected, StringComparison.Ordinal);
-            Console.WriteLine($"  [{route.Name}] {c.Name}: expected {c.Expected}, got {actual.Outcome}{(ok ? "" : "  <-- MISMATCH")}");
-            failures += ok ? 0 : 1;
+            using var eval = route.Create(set, mode, cacheDir);
+            foreach (var c in cases)
+            {
+                var actual = eval.Evaluate(c.InputJson);
+                var ok = string.Equals(actual.Outcome, c.Expected, StringComparison.Ordinal);
+                Console.WriteLine($"  [{route.Name}/{mode}] {c.Name}: expected {c.Expected}, got {actual.Outcome}{(ok ? "" : "  <-- MISMATCH")}");
+                failures += ok ? 0 : 1;
+            }
         }
 
         return failures;

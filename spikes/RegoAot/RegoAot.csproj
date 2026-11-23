@@ -12,6 +12,9 @@
     <!-- The policy and inputs are read from disk at run time, next to the executable. -->
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Wasmtime" Version="48.0.2" />
+  </ItemGroup>
+  <ItemGroup>
     <Content Include="policy\**\*.rego;policy-unsafe\**\*.rego;inputs\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
