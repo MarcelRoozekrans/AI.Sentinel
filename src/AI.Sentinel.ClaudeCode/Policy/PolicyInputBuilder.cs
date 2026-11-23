@@ -6,6 +6,8 @@ namespace AI.Sentinel.ClaudeCode.Policy;
 internal static class PolicyInputBuilder
 {
     private const string McpPrefix = "mcp__";
+    private const string PatchTool = "apply_patch";
+    private static readonly string[] PatchHeaders = ["*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:"];
     private static readonly string[] PathKeys = ["file_path", "path", "notebook_path"];
 
     /// <param name="cli">One of <see cref="PolicyClis"/>.</param>
@@ -21,14 +23,19 @@ internal static class PolicyInputBuilder
         ArgumentNullException.ThrowIfNull(toolName);
         ArgumentNullException.ThrowIfNull(findings);
         var kind = ToolKinds.Map(cli, toolName);
-        var details = Details(kind, cli, toolName, ReadObject(toolInput), repositoryRoot);
+        var details = Details(kind, cli, toolName, toolInput, ReadObject(toolInput), repositoryRoot);
         return new PolicyInput(kind.ToWire(), cli, toolName, details, findings, "", "", session ?? "");
     }
 
-    private static PolicyDetails Details(ToolKind kind, string cli, string tool, JsonElement args, string? root) => kind switch
+    /// <summary>True for an <c>apply_patch</c> call, whose targets come from the patch text.</summary>
+    internal static bool IsPatch(PolicyInput input) =>
+        string.Equals(input.Kind, ToolKind.Edit.ToWire(), StringComparison.Ordinal) && string.Equals(input.Tool, PatchTool, StringComparison.Ordinal);
+
+    private static PolicyDetails Details(ToolKind kind, string cli, string tool, JsonElement input, JsonElement args, string? root) => kind switch
     {
         ToolKind.Shell => new PolicyDetails { Shell = Shell(cli, tool, args) },
         ToolKind.Mcp => new PolicyDetails { Mcp = Mcp(tool) },
+        ToolKind.Edit when string.Equals(tool, PatchTool, StringComparison.Ordinal) => PatchPaths(input, root),
         ToolKind.Read or ToolKind.Search or ToolKind.Write or ToolKind.Edit => Paths(args, root),
         ToolKind.Fetch => new PolicyDetails { Url = String(args, "url") },
         _ => new PolicyDetails(),
@@ -57,6 +64,26 @@ internal static class PolicyInputBuilder
         var rest = tool.StartsWith(McpPrefix, StringComparison.Ordinal) ? tool[McpPrefix.Length..] : tool;
         var split = rest.IndexOf("__", StringComparison.Ordinal);
         return split < 0 ? new McpDetails(rest, "", "") : new McpDetails(rest[..split], "", rest[(split + 2)..]);
+    }
+
+    // Copilot sends apply_patch as the patch text itself, or in an object, never as file_path. Its targets are the file headers.
+    private static PolicyDetails PatchPaths(JsonElement input, string? root)
+    {
+        var text = input.ValueKind == JsonValueKind.String ? Decode(input) : String(input, "input") ?? String(input, "patch");
+        var paths = new List<PolicyPath>();
+        foreach (var line in (text ?? string.Empty).Split('\n'))
+        {
+            foreach (var header in PatchHeaders)
+            {
+                if (line.StartsWith(header, StringComparison.Ordinal) && line[header.Length..].Trim() is { Length: > 0 } target)
+                {
+                    paths.Add(Resolve(target, root));
+                    break;
+                }
+            }
+        }
+
+        return paths.Count == 0 ? new PolicyDetails() : new PolicyDetails { Paths = paths };
     }
 
     private static PolicyDetails Paths(JsonElement args, string? root)

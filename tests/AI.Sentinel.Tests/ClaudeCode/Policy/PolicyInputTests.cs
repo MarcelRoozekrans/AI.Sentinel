@@ -164,6 +164,34 @@ public class PolicyInputTests
     }
 
     [Fact]
+    public void An_apply_patch_call_gets_the_targets_of_its_patch_headers_as_paths()
+    {
+        const string patch = "*** Begin Patch\r\n*** Update File: src/a.cs\n@@\n-x\n+y\n*** Add File: docs/new.md\n+hi\n*** Delete File: old.txt\n*** Move to: moved/old.txt\n*** End Patch";
+        var asString = JsonSerializer.SerializeToElement(patch);
+        var asObject = JsonSerializer.SerializeToElement(new Dictionary<string, string>(StringComparer.Ordinal) { ["input"] = patch });
+
+        AssertPatchPaths(PolicyInputBuilder.Build(PolicyClis.Copilot, "apply_patch", asString, "s", [], Root));
+        AssertPatchPaths(PolicyInputBuilder.Build(PolicyClis.Copilot, "apply_patch", asObject, "s", [], Root));
+    }
+
+    private static void AssertPatchPaths(PolicyInput input)
+    {
+        var paths = input.Details.Paths!.Select(p => Path.GetRelativePath(Root, p.Path).Replace("\\", "/", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(["src/a.cs", "docs/new.md", "old.txt", "moved/old.txt"], paths);
+        Assert.All(input.Details.Paths!, p => Assert.True(p.InRepository));
+    }
+
+    [Fact]
+    public void A_patch_target_outside_the_repository_is_marked_so()
+    {
+        var arg = JsonSerializer.SerializeToElement("*** Update File: ../outside.cs\n");
+
+        var input = PolicyInputBuilder.Build(PolicyClis.Copilot, "apply_patch", arg, "s", [], Root);
+
+        Assert.False(Assert.Single(input.Details.Paths!).InRepository);
+    }
+
+    [Fact]
     public void Path_is_not_inside_when_the_repository_root_is_unknown()
     {
         using var doc = JsonDocument.Parse("""{"path":"a.cs"}""");

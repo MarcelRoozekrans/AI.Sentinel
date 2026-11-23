@@ -19,7 +19,10 @@ internal sealed class LocalPolicy : IDisposable
     /// <summary>The source the parser's answer for a command line it cannot read is named by.</summary>
     public const string ParserSource = "shell-parser";
 
-    /// <summary>Why a command line that cannot be parsed asks, instead of leaving the call to the policy.</summary>
+    /// <summary>Why a patch whose target files cannot be read asks, instead of leaving the call to the policy.</summary>
+    public const string PatchTargetsReason = "AI.Sentinel could not read which files this patch changes, so it cannot say what it touches.";
+
+    /// <summary>Why a shell command line that cannot be parsed asks, instead of leaving the call to the policy.</summary>
     public const string UnparseableReason = "AI.Sentinel could not parse this shell command line, so it cannot say what it does.";
 
     private readonly RegoPolicy _policy;
@@ -94,6 +97,11 @@ internal sealed class LocalPolicy : IDisposable
         if (unparseable)
         {
             decisions.Add(new OutcomeDecision(DecisionOutcome.Ask, UnparseableReason, [ParserSource], _policy.Version));
+        }
+
+        if (input.Details.Paths is not { Count: > 0 } && PolicyInputBuilder.IsPatch(input))
+        {
+            decisions.Add(new OutcomeDecision(DecisionOutcome.Ask, PatchTargetsReason, [ParserSource], _policy.Version));
         }
 
         if (decisions.Count == 1 && decisions[0].Outcome == DecisionOutcome.Defer)

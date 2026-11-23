@@ -131,6 +131,27 @@ public class RegoPolicyDenyTests : IDisposable
     }
 
     [Fact]
+    public void A_patch_without_readable_targets_asks_even_when_the_policy_allows()
+    {
+        var allowing = RegoPolicyTestSupport.Folder(("p/allow.rego", "package sentinel\nimport rego.v1\nallow contains \"all fine\" if true\n"));
+        try
+        {
+            using var policy = LoadOf(allowing);
+
+            var unreadable = policy.Decide(Allowed, PolicyClis.Copilot, "apply_patch", JsonSerializer.SerializeToElement("not a patch"), "s");
+            var readable = policy.Decide(Allowed, PolicyClis.Copilot, "apply_patch", JsonSerializer.SerializeToElement("*** Update File: a.cs\n"), "s");
+
+            Assert.Equal(DecisionOutcome.Ask, unreadable.Outcome!.Outcome);
+            Assert.Equal(LocalPolicy.PatchTargetsReason, unreadable.Outcome.Reason);
+            Assert.NotEqual(LocalPolicy.PatchTargetsReason, readable.Outcome?.Reason, StringComparer.Ordinal);
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(allowing);
+        }
+    }
+
+    [Fact]
     public void A_deny_of_the_policy_stays_a_deny_for_a_command_the_parser_cannot_read()
     {
         var denying = RegoPolicyTestSupport.Folder(("p/deny.rego", "package sentinel\nimport rego.v1\ndeny contains \"no shell\" if input.kind == \"shell\"\n"));
