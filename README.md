@@ -12,7 +12,7 @@
 
 Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 56 detectors, plus 4 opt-in EU AI Act Art. 5 compliance detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
-> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same detectors, same audit trail, zero code changes in the host.
+> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), [Codex CLI](#codex-cli) (`sentinel-codex-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same detectors, same audit trail, zero code changes in the host.
 
 > **Approval workflows for high-stakes tool calls** (`delete_database`, `send_payment`, `rotate_secrets`) — pluggable backends include in-memory, SQLite (persists across CLI invocations), and **native Microsoft Entra PIM** (approvers act in the portal they already use). Operators approve/deny from the dashboard or the PIM portal; the conversation resumes when approval lands. See the [approvals docs](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview).
 
@@ -46,6 +46,7 @@ The embedded dashboard ships in `AI.Sentinel.AspNetCore`. Mount it on any ASP.NE
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI, `sentinel dashboard` to browse the audit file the hooks and the MCP proxy write, and `sentinel report` for a compliance report from it |
 | `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
 | `AI.Sentinel.Copilot` / `AI.Sentinel.Copilot.Cli` | GitHub Copilot native hook adapter — wire into `hooks.json` to scan userPromptSubmitted, preToolUse, postToolUse |
+| `AI.Sentinel.Codex.Cli` | Codex CLI hook adapter, `sentinel-codex-hook` — wire into `hooks.json` to scan UserPromptSubmit, PreToolUse, PostToolUse; shares the library code of `AI.Sentinel.ClaudeCode` |
 | `AI.Sentinel.Mcp` / `AI.Sentinel.Mcp.Cli` | `dotnet tool install AI.Sentinel.Mcp.Cli` — stdio MCP proxy that scans `tools/call` + `prompts/get` for any MCP-speaking host (Cursor, Continue, Cline, Windsurf, Copilot) |
 
 ```
@@ -855,6 +856,32 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
 
 Both hooks map each tool onto a shared tool kind (`shell`, `read`, `search`, `write`, `edit`, `fetch`, `mcp`, `agent` or `other`) and build the policy input for it, with a parsed command line for shell calls. It is the input of the [local Rego policy](#local-rego-policy), read only when `SENTINEL_HOOK_POLICY_DIR` is set; the hooks behave as before without it. See [Tool kinds and policy input](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#tool-kinds-and-policy-input).
 
+### Codex CLI
+
+```
+dotnet tool install -g AI.Sentinel.Codex.Cli
+```
+
+Add to `~/.codex/hooks.json`, or `.codex/hooks.json` in a trusted project, then review the hook with `/hooks` in Codex, which runs no hook it has not trusted:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "sentinel-codex-hook user-prompt-submit", "timeout": 10 }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "sentinel-codex-hook pre-tool-use", "timeout": 45 }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "sentinel-codex-hook post-tool-use", "timeout": 10 }] }
+    ]
+  }
+}
+```
+
+`sentinel-codex-hook` shares the detectors, approval config, local audit (`Source` is `codex`), severity settings, local Rego policy and fail-closed behaviour of `sentinel-hook`. Codex cannot ask from a hook and cannot replace a tool result, so an ask is a deny with instructions and nothing is redacted. Every new setting is optional and off by default; the adapter adds none. The events, the outcome table and the sources are on the [Codex CLI page](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/codex).
+
 ### MCP proxy
 
 For any MCP-speaking agent (Cursor, Continue, Cline, Windsurf, Copilot's MCP path), install the proxy and point your MCP host at it instead of at the target server directly:
@@ -940,7 +967,7 @@ A hook decision has one of five outcomes, strictest first: deny, ask, guidance, 
 
 ### Local Rego policy
 
-`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files, and `sentinel-hook` and `sentinel-copilot-hook` evaluate it against each `PreToolUse` call, with no server. **Every new setting is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset the hooks behave exactly as before.**
+`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files, and `sentinel-hook`, `sentinel-codex-hook` and `sentinel-copilot-hook` evaluate it against each `PreToolUse` call, with no server. **Every new setting is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset the hooks behave exactly as before.**
 
 | Variable | Default | Values |
 |---|---|---|
