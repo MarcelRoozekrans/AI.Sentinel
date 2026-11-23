@@ -20,7 +20,7 @@ internal sealed class FakeOidcServer : HttpMessageHandler
 
     public bool IssueRefreshToken { get; set; } = true;
 
-    public int AccessLifetimeSeconds { get; set; } = 3600;
+    public int? AccessLifetimeSeconds { get; set; } = 3600;
 
     public int DeviceLifetimeSeconds { get; set; } = 600;
 
@@ -28,6 +28,12 @@ internal sealed class FakeOidcServer : HttpMessageHandler
 
     /// <summary>The refresh token the provider accepts; a refresh with another one answers invalid_grant.</summary>
     public string? ValidRefreshToken { get; set; }
+
+    /// <summary>The first this many polls time out, as an HttpClient timeout does: a TaskCanceledException that is not a cancellation.</summary>
+    public int PollTimeouts { get; set; }
+
+    /// <summary>When set, a refresh answers this OAuth error (400).</summary>
+    public string? RefreshError { get; set; }
 
     /// <summary>When true the token endpoint is down for a refresh (503).</summary>
     public bool RefreshUnavailable { get; set; }
@@ -114,6 +120,12 @@ internal sealed class FakeOidcServer : HttpMessageHandler
         }
 
         var index = _polls++;
+        if (index < PollTimeouts)
+        {
+            throw new TaskCanceledException("timed out", new TimeoutException());
+        }
+
+        index -= PollTimeouts;
         if (index < PollErrors.Count)
         {
             return Json(HttpStatusCode.BadRequest, new { error = PollErrors[index] });
@@ -127,6 +139,11 @@ internal sealed class FakeOidcServer : HttpMessageHandler
         if (RefreshUnavailable)
         {
             return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
+        }
+
+        if (RefreshError is not null)
+        {
+            return Json(HttpStatusCode.BadRequest, new { error = RefreshError });
         }
 
         if (ValidRefreshToken is null || !string.Equals(form.GetValueOrDefault("refresh_token"), ValidRefreshToken, StringComparison.Ordinal))

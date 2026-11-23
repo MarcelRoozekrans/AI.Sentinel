@@ -11,4 +11,8 @@ internal enum ResidentStart
 
     /// <summary>No process runs and none could be started.</summary>
     Failed,
+
+    /// <summary>The state folder cannot be used, for it could not be prepared private. Nothing is started and nothing is sent to its
+    /// socket, for a socket there may belong to another user.</summary>
+    Unusable,
 }

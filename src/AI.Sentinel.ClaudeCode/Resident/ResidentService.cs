@@ -62,6 +62,16 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
                 return new ResidentResponse { Error = "a sign-in carries tokens", SignIn = "sign_in_needed" };
             }
 
+            // A refresh token goes to the token endpoint of the issuer the resident was started for, so tokens of another issuer are refused.
+            if (!tokens.Accepts(request.Issuer, request.ClientId))
+            {
+                return new ResidentResponse
+                {
+                    Error = "the resident process is signed in at another identity provider; restart it to use this sign-in",
+                    SignIn = "issuer_mismatch",
+                };
+            }
+
             tokens.Set(request.Tokens);
         }
 

@@ -45,7 +45,7 @@ internal static class SignInCommand
     public static async Task<int> RunAsync(
         IReadOnlyDictionary<string, string?> env, TextWriter stdout, TextWriter stderr, HttpMessageHandler? handler = null,
         ITokenStore? store = null, Func<TimeSpan, CancellationToken, Task>? delay = null, ResidentLaunch? launch = null,
-        Func<ResidentLaunch, bool>? start = null, CancellationToken ct = default)
+        Func<ResidentLaunch, bool>? start = null, TimeProvider? time = null, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(env);
         ArgumentNullException.ThrowIfNull(stdout);
@@ -59,12 +59,13 @@ internal static class SignInCommand
             return 1;
         }
 
+        time ??= TimeProvider.System;
         store ??= TokenStores.ForCurrentOs(settings, line => stderr.WriteLine(line));
         using var http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
         SignInOutcome outcome;
         try
         {
-            outcome = await new DeviceCodeSignIn(new OidcDeviceClient(http, settings, TimeProvider.System, delay), http, settings)
+            outcome = await new DeviceCodeSignIn(new OidcDeviceClient(http, settings, time, delay), http, settings)
                 .RunAsync(a => Show(stdout, a), ct).ConfigureAwait(false);
         }
         catch (SignInException e)
@@ -78,12 +79,24 @@ internal static class SignInCommand
         ResidentState.Open(resident).WritePinnedKeys(outcome.Organisation, outcome.Keys);
 
         var kept = outcome.Tokens.RefreshToken is { } refresh && store is not null && store.Save(refresh);
-        var handedOver = await HandOverAsync(env, resident, outcome.Tokens, launch, start, ct).ConfigureAwait(false);
+        if (!kept && store is not null && !store.Delete())
+        {
+            await stderr.WriteLineAsync($"the {store.Name} still holds the refresh token of an earlier sign-in; it could not be removed").ConfigureAwait(false);
+        }
+
+        var handedOver = await HandOverAsync(env, resident, settings, outcome.Tokens, launch, start, ct).ConfigureAwait(false);
         if (!handedOver && !kept)
         {
             await stderr.WriteLineAsync(
                 $"sign-in is not kept: there is no keychain and the resident process did not take it. Set {ResidentSettings.EnableVariable}=on and sign in again.").ConfigureAwait(false);
             return 1;
+        }
+
+        if (!handedOver)
+        {
+            await stdout.WriteLineAsync(
+                $"The sign-in to {outcome.Organisation} is in the keychain, and {outcome.Keys.Count} server key(s) are pinned. The resident process did not take it: it uses the sign-in after it restarts.").ConfigureAwait(false);
+            return 0;
         }
 
         await stdout.WriteLineAsync($"Signed in to {outcome.Organisation}; {outcome.Keys.Count} server key(s) pinned.").ConfigureAwait(false);
@@ -106,7 +119,7 @@ internal static class SignInCommand
 
     // The tokens go over the private local socket, only to the resident process of this user.
     private static async Task<bool> HandOverAsync(
-        IReadOnlyDictionary<string, string?> env, ResidentSettings resident, TokenSet tokens, ResidentLaunch? launch,
+        IReadOnlyDictionary<string, string?> env, ResidentSettings resident, SignInSettings settings, TokenSet tokens, ResidentLaunch? launch,
         Func<ResidentLaunch, bool>? start, CancellationToken ct)
     {
         if (ResidentOff(env, resident))
@@ -118,7 +131,7 @@ internal static class SignInCommand
         var client = new ResidentClient(resident);
         for (var attempt = 0; attempt < 50 && !ct.IsCancellationRequested; attempt++)
         {
-            var response = await client.SendAsync(new ResidentRequest { Op = ResidentOps.SignIn, Tokens = tokens }, TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+            var response = await client.SendAsync(new ResidentRequest { Op = ResidentOps.SignIn, Tokens = tokens, Issuer = settings.Issuer.AbsoluteUri, ClientId = settings.ClientId }, TimeSpan.FromSeconds(2)).ConfigureAwait(false);
             if (response is not null)
             {
                 return response.Ok;

@@ -129,14 +129,20 @@ public class ResidentProcessStateTests : IDisposable
             }
         }, TestContext.Current.CancellationToken);
 
-        for (var i = 0; i < 1500; i++)
+        try
         {
-            var seen = State().ReadPauses();
-            Assert.True(seen.Count is 1 or 2000, $"a reader saw {seen.Count} pauses");
+            for (var i = 0; i < 1500; i++)
+            {
+                var seen = State().ReadPauses();
+                Assert.True(seen.Count is 1 or 2000, $"a reader saw {seen.Count} pauses");
+            }
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            await writer;
         }
 
-        await stop.CancelAsync();
-        await writer;
         Assert.DoesNotContain(Directory.GetFiles(ResidentPaths.Directory(new ResidentSettings(_dir, TimeSpan.Zero, TimeSpan.Zero))), f => f.EndsWith(".tmp", StringComparison.Ordinal));
     }
 
@@ -156,6 +162,30 @@ public class ResidentProcessStateTests : IDisposable
         Assert.Throws<InvalidDataException>(() => State().FindPause("any-other-session", Now));
         File.WriteAllText(path, "not a state file");
         Assert.Throws<InvalidDataException>(() => State().ReadPauses());
+    }
+
+    [Fact]
+    public void A_pause_file_that_cannot_be_reached_is_an_error_and_not_a_missing_one()
+    {
+        if (OperatingSystem.IsWindows() || string.Equals(Environment.UserName, "root", StringComparison.Ordinal))
+        {
+            Assert.Skip("Needs Unix directory modes and a non-root user.");
+            return;
+        }
+
+        var state = State();
+        state.WritePauses([new PausedSession("s-1", null, null)]);
+        var folder = ResidentPaths.Directory(new ResidentSettings(_dir, TimeSpan.Zero, TimeSpan.Zero));
+        File.SetUnixFileMode(folder, UnixFileMode.None);
+        try
+        {
+            Assert.Throws<InvalidDataException>(() => state.ReadPauses());
+            Assert.Throws<InvalidDataException>(() => state.FindPause("s-1", Now));
+        }
+        finally
+        {
+            File.SetUnixFileMode(folder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
     }
 
     [Fact]
@@ -265,6 +295,19 @@ public class ResidentProcessStateTests : IDisposable
         Assert.Equal(["recursive delete"], denied.Decision.Reasons);
         Assert.Equal(ProfileRejection.None, denied.Rejection);
         Assert.Equal(DecisionOutcome.Defer, untouched.Decision!.Outcome);
+    }
+
+    [Fact]
+    public void A_module_folder_whose_file_is_not_the_signed_text_is_never_evaluated()
+    {
+        var cache = RegoPolicyTestSupport.SharedCache;
+        State().StoreProfile(Sign(), Pinned(), Org, Repo, Now);
+        ProfileDecider.Decide(State(), Pinned(), Org, Repo, Now, Input("ls"), cache, RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()));
+        var file = Directory.GetFiles(Path.Combine(State().Directory, "modules"), "profile.rego", SearchOption.AllDirectories).Single();
+        File.WriteAllText(file, "package sentinel\n");
+
+        Assert.Throws<InvalidDataException>(() =>
+            ProfileDecider.Decide(State(), Pinned(), Org, Repo, Now, Input("rm -rf build"), cache, RegoPolicyTestSupport.Compilers(new ChildProcessCompiler())));
     }
 
     [Fact]

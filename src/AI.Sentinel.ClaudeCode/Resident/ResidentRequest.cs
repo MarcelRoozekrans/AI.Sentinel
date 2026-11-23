@@ -29,4 +29,12 @@ internal sealed record ResidentRequest
     /// <summary>For <see cref="ResidentOps.SignIn"/>: the tokens. They never print, and are never written to a file.</summary>
     [JsonPropertyName("tokens")]
     public SignIn.TokenSet? Tokens { get; init; }
+
+    /// <summary>For <see cref="ResidentOps.SignIn"/>: the issuer that issued the tokens. The resident takes them only for its own issuer.</summary>
+    [JsonPropertyName("issuer")]
+    public string? Issuer { get; init; }
+
+    /// <summary>For <see cref="ResidentOps.SignIn"/>: the OIDC client the tokens were issued to.</summary>
+    [JsonPropertyName("client_id")]
+    public string? ClientId { get; init; }
 }
