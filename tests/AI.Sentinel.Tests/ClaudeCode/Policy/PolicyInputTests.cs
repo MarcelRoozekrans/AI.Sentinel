@@ -8,6 +8,8 @@ public class PolicyInputTests
 {
     private static readonly string Root = OperatingSystem.IsWindows() ? @"C:\work\repo" : "/work/repo";
 
+    private static readonly string JsonEncodedRoot = Root.Replace("\\", "\\\\", StringComparison.Ordinal);
+
     private static JsonElement Build(string cli, string tool, string inputJson, params PolicyFinding[] findings)
     {
         using var doc = JsonDocument.Parse(inputJson);
@@ -100,13 +102,34 @@ public class PolicyInputTests
     [InlineData("Read", """{"file_path":"~/.ssh/id_rsa"}""", "read", "~/.ssh/id_rsa", false)]
     public void File_kinds_give_each_path_with_an_inside_repository_flag(string tool, string input, string kind, string path, bool inside)
     {
-        var json = Build(PolicyClis.ClaudeCode, tool, input.Replace("{R}", Root, StringComparison.Ordinal));
+        var json = Build(PolicyClis.ClaudeCode, tool, input.Replace("{R}", JsonEncodedRoot, StringComparison.Ordinal));
         var entry = Assert.Single(json.GetProperty("details").GetProperty("paths").EnumerateArray());
 
         Assert.Equal(kind, json.GetProperty("kind").GetString());
         Assert.Equal(inside, entry.GetProperty("in_repository").GetBoolean());
         var expected = path.Replace("{R}", Root, StringComparison.Ordinal);
         Assert.Equal(expected.StartsWith('~') ? expected : Path.GetFullPath(expected), entry.GetProperty("path").GetString());
+    }
+
+    [Theory]
+    [InlineData("""{"command":"\uD800"}""")]
+    [InlineData("\"\\uD800\"")]
+    public void Undecodable_json_strings_count_as_missing_input(string inputJson)
+    {
+        var json = Build(PolicyClis.ClaudeCode, "Bash", inputJson);
+
+        Assert.True(json.GetProperty("details").GetProperty("shell").GetProperty("unparseable").GetBoolean());
+    }
+
+    [Theory]
+    [InlineData(@"\\?\C:\repo\notes.txt", @"C:\repo\notes.txt")]
+    [InlineData(@"\\?\c:\repo", @"c:\repo")]
+    [InlineData(@"\\?\UNC\server\share\a", @"\\?\UNC\server\share\a")]
+    [InlineData(@"\\.\C:\repo", @"\\.\C:\repo")]
+    [InlineData("/work/repo", "/work/repo")]
+    public void Extended_drive_paths_compare_as_ordinary_drive_paths(string path, string expected)
+    {
+        Assert.Equal(expected, PolicyInputBuilder.ComparisonForm(path));
     }
 
     [Fact]

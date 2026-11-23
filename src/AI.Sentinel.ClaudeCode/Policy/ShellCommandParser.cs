@@ -12,12 +12,17 @@ internal static class ShellCommandParser
     private static readonly HashSet<string> ReservedWords = new(StringComparer.Ordinal)
     {
         "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac", "in", "select",
-        "function", "{", "}", "!", "[[", "]]", "coproc",
+        "function", "{", "}", "!", "[[", "]]", "coproc", "time",
     };
 
     public static ShellParse Parse(string commandLine)
     {
         ArgumentNullException.ThrowIfNull(commandLine);
+        if (commandLine.Contains('\0', StringComparison.Ordinal))
+        {
+            return ShellParse.Failed;
+        }
+
         var tokens = ShellLexer.Lex(commandLine);
         return tokens is null ? ShellParse.Failed : Group(tokens);
     }

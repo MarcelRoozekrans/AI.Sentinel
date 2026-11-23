@@ -1112,5 +1112,246 @@
     "input": "echo hi > | cat",
     "unparseable": true,
     "commands": []
+  },
+  {
+    "name": "time keyword",
+    "input": "time printf hi",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "time keyword in a pipeline",
+    "input": "echo a | time cat",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "quoted time is a command",
+    "input": "\"time\" printf hi",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "time",
+        "args": [
+          "printf",
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "time as an argument",
+    "input": "echo time",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "time"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "carriage return is word data",
+    "input": "printf %s a\rb",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "printf",
+        "args": [
+          "%s",
+          "a\rb"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "braced expansion with semicolon",
+    "input": "echo ${VALUE:-a;b}",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "${VALUE:-a;b}"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "braced expansion hides no command",
+    "input": "echo ${VALUE:-a;#} ; rm -rf /",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "${VALUE:-a;#}"
+        ],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": ";",
+        "name": "rm",
+        "args": [
+          "-rf",
+          "/"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "braced expansion without closing brace",
+    "input": "echo ${VALUE:-a;b",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced expansion with quotes",
+    "input": "echo ${VALUE:-\"a;b\"}",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced expansion in double quotes",
+    "input": "echo \"${VALUE:-a;b}\"",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "${VALUE:-a;b}"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "braced expansion with quotes in double quotes",
+    "input": "echo \"${VALUE:-\"a;b\"}\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "line continuation inside an append operator",
+    "input": "echo hi >\\\n> out",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">>",
+            "target": "out"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "line continuation inside an and operator",
+    "input": "a &\\\n& b",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "a",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "&&",
+        "name": "b",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "line continuation inside an or operator",
+    "input": "a |\\\n| b",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "a",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "||",
+        "name": "b",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "line continuation inside command substitution",
+    "input": "echo $\\\n(date)",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "named descriptor redirect",
+    "input": "{fd}>out printf hi",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "quoted named descriptor is a word",
+    "input": "\"{fd}\">out printf hi",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "{fd}",
+        "args": [
+          "printf",
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "out"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "NUL byte",
+    "input": "a\u0000b",
+    "unparseable": true,
+    "commands": []
   }
 ]

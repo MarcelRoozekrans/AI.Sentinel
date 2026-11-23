@@ -38,7 +38,7 @@ internal sealed class ShellLexer
         var c = _s[_i];
         switch (c)
         {
-            case ' ' or '\t' or '\r':
+            case ' ' or '\t':
                 Flush();
                 _i++;
                 return true;
@@ -61,13 +61,12 @@ internal sealed class ShellLexer
             case '`' or '(' or ')':
                 return false;
             case '$':
-                if (_i + 1 < _s.Length && _s[_i + 1] is '(' or '\'')
+                if (Peek(1) is '(' or '\'')
                 {
                     return false;
                 }
 
-                Append(c);
-                return true;
+                return Peek(1) == '{' ? BracedExpansion() : Append1(c);
             case '#' when !_inWord:
                 while (_i < _s.Length && _s[_i] != '\n')
                 {
@@ -89,7 +88,56 @@ internal sealed class ShellLexer
         }
     }
 
-    private char Peek(int offset) => _i + offset < _s.Length ? _s[_i + offset] : '\0';
+    // Index of the offset-th character after the current one, with backslash-newline pairs skipped as Bash removes them.
+    private int Ahead(int offset)
+    {
+        var j = _i;
+        for (var k = 0; k < offset; k++)
+        {
+            j++;
+            while (j + 1 < _s.Length && _s[j] == '\\' && _s[j + 1] == '\n')
+            {
+                j += 2;
+            }
+        }
+
+        return j;
+    }
+
+    private char Peek(int offset)
+    {
+        var j = Ahead(offset);
+        return j < _s.Length ? _s[j] : '\0';
+    }
+
+    private bool Append1(char c)
+    {
+        Append(c);
+        return true;
+    }
+
+    // ${...} stays one word. Only a plain body is read: anything that could nest or quote inside it is left unparsed.
+    private bool BracedExpansion()
+    {
+        var end = _s.IndexOf('}', _i + 2);
+        if (end < 0)
+        {
+            return false;
+        }
+
+        for (var k = _i + 2; k < end; k++)
+        {
+            if (_s[k] is '\'' or '"' or '\\' or '`' or '$' or '{' or '\n' or '\0')
+            {
+                return false;
+            }
+        }
+
+        _inWord = true;
+        _word.Append(_s, _i, end - _i + 1);
+        _i = end + 1;
+        return true;
+    }
 
     private void Append(char c)
     {
@@ -102,7 +150,7 @@ internal sealed class ShellLexer
     {
         Flush();
         AddOperator(op);
-        _i += op.Length;
+        _i = Ahead(op.Length);
         return true;
     }
 
@@ -113,12 +161,12 @@ internal sealed class ShellLexer
         {
             var redirect = Peek(2) == '>' ? "&>>" : "&>";
             _tokens.Add(new ShellToken(ShellTokenKind.Redirect, redirect, true, false));
-            _i += redirect.Length;
+            _i = Ahead(redirect.Length);
             return true;
         }
 
         AddOperator(Peek(1) == '&' ? "&&" : "&");
-        _i += _tokens[^1].Text.Length;
+        _i = Ahead(_tokens[^1].Text.Length);
         return true;
     }
 
@@ -172,6 +220,16 @@ internal sealed class ShellLexer
                 return false;
             }
 
+            if (c == '$' && Peek(1) == '{')
+            {
+                if (!BracedExpansion())
+                {
+                    return false;
+                }
+
+                continue;
+            }
+
             if (c == '\\' && _i + 1 < _s.Length)
             {
                 var n = _s[_i + 1];
@@ -199,6 +257,11 @@ internal sealed class ShellLexer
     private bool Redirect()
     {
         var fd = "";
+        if (_inWord && _plain && IsNamedDescriptor())
+        {
+            return false; // {name}>file opens a descriptor, which the parser does not model
+        }
+
         if (_inWord && _plain && IsDigits())
         {
             fd = _word.ToString();
@@ -221,15 +284,33 @@ internal sealed class ShellLexer
         if (next == c || (c == '>' && next is '|' or '&') || (c == '<' && next == '&'))
         {
             op = new string([c, next]);
-            _i += 2;
+            _i = Ahead(2);
         }
         else
         {
             op = c.ToString();
-            _i++;
+            _i = Ahead(1);
         }
 
         _tokens.Add(new ShellToken(ShellTokenKind.Redirect, fd + op, true, false));
+        return true;
+    }
+
+    private bool IsNamedDescriptor()
+    {
+        if (_word.Length < 3 || _word[0] != '{' || _word[^1] != '}' || char.IsAsciiDigit(_word[1]))
+        {
+            return false;
+        }
+
+        for (var k = 1; k < _word.Length - 1; k++)
+        {
+            if (!(char.IsAsciiLetterOrDigit(_word[k]) || _word[k] == '_'))
+            {
+                return false;
+            }
+        }
+
         return true;
     }
 

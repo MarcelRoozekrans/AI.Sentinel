@@ -97,6 +97,8 @@ internal static class PolicyInputBuilder
     private static bool IsInside(string full, string root)
     {
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        full = ComparisonForm(full);
+        root = ComparisonForm(root);
         var trimmed = root.Length > 1 ? root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) : root;
         if (string.Equals(full, trimmed, comparison))
         {
@@ -107,8 +109,25 @@ internal static class PolicyInputBuilder
         return full.StartsWith(prefix, comparison);
     }
 
+    // \\?\C:\dir and C:\dir name the same file. Only that drive form is rewritten; other device paths stay as they are.
+    internal static string ComparisonForm(string path) =>
+        path.Length >= 6 && path.StartsWith(@"\\?\", StringComparison.Ordinal) && char.IsAsciiLetter(path[4]) && path[5] == ':' ? path[4..] : path;
+
     private static string? String(JsonElement args, string key) =>
-        args.ValueKind == JsonValueKind.Object && args.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+        args.ValueKind == JsonValueKind.Object && args.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? Decode(v) : null;
+
+    // A string with a lone surrogate parses but cannot be decoded. It counts as missing.
+    private static string? Decode(JsonElement value)
+    {
+        try
+        {
+            return value.GetString();
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
 
     // An object, or default when the input is missing or is not an object. A string holding a JSON object is read too.
     private static JsonElement ReadObject(JsonElement input)
@@ -118,7 +137,7 @@ internal static class PolicyInputBuilder
             return input;
         }
 
-        if (input.ValueKind != JsonValueKind.String || input.GetString() is not { } text)
+        if (input.ValueKind != JsonValueKind.String || Decode(input) is not { } text)
         {
             return default;
         }

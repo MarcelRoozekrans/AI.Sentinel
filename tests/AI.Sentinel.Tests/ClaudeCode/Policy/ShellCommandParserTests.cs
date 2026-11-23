@@ -67,10 +67,8 @@ public class ShellCommandParserTests
         {
             var parsed = ShellCommandParser.Parse(input);
             Assert.NotNull(parsed);
-            if (parsed.Unparseable)
-            {
-                Assert.Empty(parsed.Commands);
-            }
+            Assert.True(parsed.Unparseable);
+            Assert.Empty(parsed.Commands);
         }
     }
 
