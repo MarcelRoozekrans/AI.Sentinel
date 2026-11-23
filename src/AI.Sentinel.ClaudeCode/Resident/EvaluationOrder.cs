@@ -32,6 +32,6 @@ internal sealed class EvaluationOrder(IReadOnlyList<IPolicyEvaluator> evaluators
         }
 
         firstFailure?.Throw();
-        throw new InvalidOperationException("no place could evaluate the policy: the resident process did not answer and the hook has no module to run");
+        throw new NoEvaluatorAnsweredException();
     }
 }
