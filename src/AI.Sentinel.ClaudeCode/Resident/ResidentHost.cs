@@ -23,7 +23,7 @@ internal static class ResidentHost
         ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
-        var dir = ResidentPaths.Prepare(settings);
+        ResidentPaths.Prepare(settings);
         using var instance = TryTakeLock(ResidentPaths.Lock(settings));
         if (instance is null)
         {
@@ -58,7 +58,7 @@ internal static class ResidentHost
         await File.WriteAllTextAsync(pidPath, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), CancellationToken.None).ConfigureAwait(false);
         try
         {
-            return await ServeAsync(listener, settings, new ResidentService(dir, compilers), ct, listening).ConfigureAwait(false);
+            return await ServeAsync(listener, settings, new ResidentService(compilers), ct, listening).ConfigureAwait(false);
         }
         finally
         {

@@ -1,4 +1,8 @@
+using System.Diagnostics;
+using AI.Sentinel.ClaudeCode.Policy.Rego;
 using AI.Sentinel.ClaudeCode.Resident;
+using AI.Sentinel.Tests.ClaudeCode.Policy;
+using AI.Sentinel.Tests.Helpers;
 using Xunit;
 
 namespace AI.Sentinel.Tests.ClaudeCode.Resident;
@@ -159,5 +163,86 @@ public class ResidentProcessLifecycleTests : IDisposable
         Assert.Equal("--resident", ResidentCommand.Verb);
         Assert.True(ResidentCommand.Matches(["--resident"]));
         Assert.False(ResidentCommand.Matches(["pre-tool-use"]));
+    }
+
+    /// <summary>The real thing: a hook process that finds no resident process starts one, detached with its stdio not inherited, so the
+    /// hook exits at once and the process stays; the next hook is answered by it. Whatever happens, the test stops the process.</summary>
+    [Fact]
+    public async Task A_hook_process_starts_the_resident_process_detached_and_the_next_hook_is_answered_by_it()
+    {
+        var folder = RegoPolicyTestSupport.StandardFolder();
+        var work = Path.Combine(Path.GetTempPath(), "sr-e2e-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(work);
+        var audit = Path.Combine(work, "audit.ndjson");
+        var cache = Path.Combine(work, "cache");
+        var settings = new ResidentSettings(_dir, ResidentSettings.DefaultIdleTimeout, TimeSpan.FromSeconds(10));
+        try
+        {
+            var environment = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                [ResidentSettings.EnableVariable] = "on",
+                [ResidentSettings.DirectoryVariable] = _dir,
+                [HookAuditTestSupport.NdjsonVar] = audit,
+            };
+            const string Json = """{"session_id":"cc-658","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}""";
+
+            var first = await RegoPolicyTestSupport.RunHookProcessAsync(folder, cache, Json, environment);
+            await WaitForAsync(async () => await new ResidentClient(settings).PingAsync());
+            // The module is loaded in the process by now or soon: ask until it answers within the real budget.
+            var warm = new ResidentClient(settings);
+            var policy = PolicySources.Load(folder);
+            await WaitForAsync(() => Task.FromResult(warm.Evaluate(folder, policy.Version, cache, "{}") is not null));
+            var second = await RegoPolicyTestSupport.RunHookProcessAsync(folder, cache, Json, environment);
+
+            Assert.Equal(2, first.Exit);
+            Assert.Contains("recursive delete", first.Stderr, StringComparison.Ordinal);
+            Assert.Equal(2, second.Exit);
+            Assert.Contains("recursive delete", second.Stderr, StringComparison.Ordinal);
+            var lines = await File.ReadAllTextAsync(audit, TestContext.Current.CancellationToken);
+            Assert.Contains("decided=in-process", lines, StringComparison.Ordinal);
+            Assert.Contains("decided=resident", lines, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await StopResidentAsync(settings);
+            RegoPolicyTestSupport.Delete(folder);
+            RegoPolicyTestSupport.Delete(work);
+        }
+    }
+
+    private static async Task WaitForAsync(Func<Task<bool>> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (!await condition())
+        {
+            Assert.True(DateTime.UtcNow < deadline, "the resident process did not come up");
+            await Task.Delay(100, TestContext.Current.CancellationToken);
+        }
+    }
+
+    /// <summary>Asks the process to stop and, if it does not, kills it by the pid it wrote, so no test leaves a process behind.</summary>
+    private static async Task StopResidentAsync(ResidentSettings settings)
+    {
+        var pidFile = ResidentPaths.Pid(settings);
+        int? pid = File.Exists(pidFile) && int.TryParse(File.ReadAllText(pidFile), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var parsed) ? parsed : null;
+        await new ResidentClient(settings).ShutdownAsync();
+        if (pid is null)
+        {
+            return;
+        }
+
+        try
+        {
+            using var process = Process.GetProcessById(pid.Value);
+            if (!process.WaitForExit(TimeSpan.FromSeconds(10)))
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit();
+            }
+        }
+        catch (ArgumentException)
+        {
+            // Already gone.
+        }
     }
 }

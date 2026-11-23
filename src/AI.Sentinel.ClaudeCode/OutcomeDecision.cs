@@ -21,6 +21,12 @@ internal sealed record OutcomeDecision(
     /// <summary>The decision was made in the hook process.</summary>
     public const string InProcess = "in-process";
 
+    /// <summary>The decision was made by the resident local process (#658).</summary>
+    public const string Resident = "resident";
+
+    /// <summary>The decision was made by the server, when neither the resident process nor the hook could evaluate the module.</summary>
+    public const string Server = "server";
+
     /// <summary>The strictest of <paramref name="decisions"/>. When several share the strictest outcome their sources are
     /// joined, in order and without repeats, and their reasons are joined with a semicolon. The policy version and place
     /// are those of the first of them.</summary>

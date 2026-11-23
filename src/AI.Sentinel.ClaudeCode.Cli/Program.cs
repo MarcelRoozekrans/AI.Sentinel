@@ -391,8 +391,8 @@ public static class Program
         LocalAuditSession audit, List<string> auditProblems, TextWriter stderr)
     {
         // With SENTINEL_HOOK_RESIDENT=on a hook that finds no resident process starts one, detached, and goes on in-process.
-        _ = evt == HookEvent.PreToolUse ? ResidentSession.Open(hookEnv, residentStart) : null;
-        var (policy, folder, error) = TryLoadPolicy(evt, hookEnv, compilers);
+        var resident = evt == HookEvent.PreToolUse ? ResidentSession.Open(hookEnv, residentStart) : null;
+        var (policy, folder, error) = TryLoadPolicy(evt, hookEnv, compilers, resident);
         if (error is null)
         {
             return (policy, null);
@@ -408,7 +408,7 @@ public static class Program
     /// otherwise. A failure of any kind, an unreadable folder, a policy that does not compile or use a refused builtin, or a
     /// platform without the Wasmtime library, is returned rather than thrown, so the caller blocks.</summary>
     private static (LocalPolicy? Policy, string? Folder, Exception? Error) TryLoadPolicy(
-        HookEvent evt, IReadOnlyDictionary<string, string?> env, IReadOnlyList<IRegoCompiler>? compilers)
+        HookEvent evt, IReadOnlyDictionary<string, string?> env, IReadOnlyList<IRegoCompiler>? compilers, ResidentSession? resident)
     {
         if (evt != HookEvent.PreToolUse || LocalPolicy.FolderFrom(env) is not { } folder)
         {
@@ -417,7 +417,7 @@ public static class Program
 
         try
         {
-            return (LocalPolicy.Load(folder, env, compilers: compilers), folder, null);
+            return (LocalPolicy.Load(folder, env, compilers: compilers, resident: resident), folder, null);
         }
 #pragma warning disable CA1031 // Every load failure is reported; on PreToolUse it blocks the call.
         catch (Exception ex)

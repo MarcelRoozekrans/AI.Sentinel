@@ -6,6 +6,7 @@ namespace AI.Sentinel.Tests.ClaudeCode.Resident;
 internal sealed class HostedResident : IAsyncDisposable
 {
     private readonly CancellationTokenSource _stop = new();
+    private bool _disposed;
     private readonly TaskCompletionSource _listening = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     public HostedResident(string stateDir, TimeSpan? idle = null, IReadOnlyList<AI.Sentinel.ClaudeCode.Policy.Rego.IRegoCompiler>? compilers = null)
@@ -35,6 +36,12 @@ internal sealed class HostedResident : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
         await _stop.CancelAsync();
         try
         {

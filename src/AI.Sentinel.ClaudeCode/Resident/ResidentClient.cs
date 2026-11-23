@@ -13,6 +13,27 @@ internal sealed class ResidentClient(ResidentSettings settings)
 
     public async Task<bool> ShutdownAsync() => (await SendAsync(new ResidentRequest { Op = ResidentOps.Shutdown }, Settings.Budget).ConfigureAwait(false))?.Ok == true;
 
+    /// <summary>Asks the process to evaluate a policy folder. <see langword="null"/> when no answer came within the budget or the process
+    /// could not evaluate it; the hook then evaluates in-process.</summary>
+    /// <param name="folder">The policy folder.</param>
+    /// <param name="version">The version of the folder the hook read.</param>
+    /// <param name="cacheDirectory">Where the compiled forms are kept.</param>
+    /// <param name="inputJson">The policy input.</param>
+    public Policy.Rego.RegoDecision? Evaluate(string folder, string version, string cacheDirectory, string inputJson)
+    {
+        var request = new ResidentRequest
+        {
+            Op = ResidentOps.Evaluate,
+            Folder = folder,
+            Version = version,
+            CacheDirectory = cacheDirectory,
+            Input = inputJson,
+        };
+        // The exchange is bounded by the budget inside SendAsync, so waiting for it here cannot hang.
+        var response = Task.Run(() => SendAsync(request, Settings.Budget)).GetAwaiter().GetResult();
+        return response is null ? null : ResidentDecisionWire.FromResponse(response);
+    }
+
     /// <summary>Sends one request and returns the answer, or <see langword="null"/> when none came within <paramref name="budget"/>.</summary>
     public async Task<ResidentResponse?> SendAsync(ResidentRequest request, TimeSpan budget)
     {
