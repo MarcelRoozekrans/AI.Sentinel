@@ -133,6 +133,9 @@ public class PolicyInputTests
     [InlineData(@"\\?\UNC\server\share\repo\..\other\a", @"\\server\share\other\a")]
     [InlineData(@"\\?\UNC\server\share\..\..\a", @"\\server\share\a")]
     [InlineData(@"\\?\UNC\server\share", @"\\server\share")]
+    [InlineData(@"\\?\UNC\server\share\", @"\\server\share")]
+    [InlineData(@"\\?\UNC\server\share\repo\", @"\\server\share\repo\")]
+    [InlineData(@"\\?\UNC\server", @"\\server")]
     [InlineData(@"\\server\share\a", @"\\server\share\a")]
     [InlineData(@"\\.\C:\repo", @"\\.\C:\repo")]
     [InlineData("/work/repo", "/work/repo")]
@@ -155,6 +158,17 @@ public class PolicyInputTests
 
         Assert.True(Assert.Single(inside.Details.Paths!).InRepository);
         Assert.False(Assert.Single(neighbour.Details.Paths!).InRepository);
+    }
+
+    [Theory]
+    [InlineData(AI.Sentinel.Detection.Severity.None, "none")]
+    [InlineData(AI.Sentinel.Detection.Severity.Low, "low")]
+    [InlineData(AI.Sentinel.Detection.Severity.Medium, "medium")]
+    [InlineData(AI.Sentinel.Detection.Severity.High, "high")]
+    [InlineData(AI.Sentinel.Detection.Severity.Critical, "critical")]
+    public void A_finding_carries_its_severity_in_lower_case(AI.Sentinel.Detection.Severity severity, string expected)
+    {
+        Assert.Equal(expected, AI.Sentinel.ClaudeCode.HookPipelineRunner.SeverityName(severity));
     }
 
     private static JsonElement Json(string text)
