@@ -25,9 +25,11 @@ public class RegoSeverityActionTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
-    private SeverityActions Severities(string rego)
+    private SeverityActions Severities(string rego) => SeveritiesOf(("p/severity.rego", rego));
+
+    private SeverityActions SeveritiesOf(params (string Path, string Rego)[] bundles)
     {
-        var folder = RegoPolicyTestSupport.Folder(("p/severity.rego", "package sentinel\nimport rego.v1\n" + rego));
+        var folder = RegoPolicyTestSupport.Folder(bundles.Select(b => (b.Path, "package sentinel\nimport rego.v1\n" + b.Rego)).ToArray());
         _folders.Add(folder);
         using var policy = LocalPolicy.Load(
             folder, RegoPolicyTestSupport.Env(), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()));
@@ -51,7 +53,7 @@ public class RegoSeverityActionTests : IDisposable
     [Fact]
     public void A_policy_that_sets_guidance_for_high_gives_guidance_when_the_variable_is_not_set()
     {
-        var config = Config(Severities("severity_actions.high := \"guidance\"\n"));
+        var config = Config(Severities("severity_actions contains {\"severity\": \"high\", \"outcome\": \"guidance\"}\n"));
 
         var output = Decide(config, Severity.High);
 
@@ -69,7 +71,7 @@ public class RegoSeverityActionTests : IDisposable
     public void When_the_policy_and_a_variable_both_set_a_severity_the_stricter_applies(
         string policyAction, string variable, string value, string expected)
     {
-        var config = Config(Severities($"severity_actions.high := \"{policyAction}\"\n"), (variable, value));
+        var config = Config(Severities($"severity_actions contains {{\"severity\": \"high\", \"outcome\": \"{policyAction}\"}}\n"), (variable, value));
 
         var output = Decide(config, Severity.High);
 
@@ -79,7 +81,7 @@ public class RegoSeverityActionTests : IDisposable
     [Fact]
     public void A_severity_the_policy_does_not_set_keeps_the_variable_or_the_built_in_default()
     {
-        var config = Config(Severities("severity_actions.high := \"guidance\"\n"), ("SENTINEL_HOOK_ON_MEDIUM", "Block"));
+        var config = Config(Severities("severity_actions contains {\"severity\": \"high\", \"outcome\": \"guidance\"}\n"), ("SENTINEL_HOOK_ON_MEDIUM", "Block"));
 
         Assert.Equal(DecisionOutcome.Deny, OutcomeOf(Decide(config, Severity.Critical)));
         Assert.Equal(DecisionOutcome.Deny, OutcomeOf(Decide(config, Severity.Medium)));
@@ -99,7 +101,7 @@ public class RegoSeverityActionTests : IDisposable
     [Fact]
     public void A_severity_set_to_ask_asks_and_one_set_to_allow_approves_with_the_outcome_on_the_output()
     {
-        var config = Config(Severities("severity_actions.medium := \"ask\"\nseverity_actions.low := \"allow\"\n"));
+        var config = Config(Severities("severity_actions contains {\"severity\": \"medium\", \"outcome\": \"ask\"}\nseverity_actions contains {\"severity\": \"low\", \"outcome\": \"allow\"}\n"));
 
         var ask = Decide(config, Severity.Medium);
         var allow = Decide(config, Severity.Low);
@@ -112,16 +114,29 @@ public class RegoSeverityActionTests : IDisposable
     [Fact]
     public void An_alert_finding_is_at_most_guidance_whatever_the_policy_sets()
     {
-        var config = Config(Severities("severity_actions.high := \"deny\"\n"));
+        var config = Config(Severities("severity_actions contains {\"severity\": \"high\", \"outcome\": \"deny\"}\n"));
 
         Assert.Equal(DecisionOutcome.Guidance, OutcomeOf(Decide(config, Severity.High, SentinelAction.Alert)));
     }
 
     [Fact]
+    public void Two_bundles_that_set_one_severity_to_different_outcomes_give_the_strictest()
+    {
+        var set = SeveritiesOf(
+            ("org/severity.rego", "severity_actions contains {\"severity\": \"high\", \"outcome\": \"guidance\"}\n"),
+            ("team/severity.rego", "severity_actions contains {\"severity\": \"high\", \"outcome\": \"deny\"}\nseverity_actions contains {\"severity\": \"low\", \"outcome\": \"ask\"}\n"));
+
+        Assert.True(set.TryGet(Severity.High, out var high));
+        Assert.True(set.TryGet(Severity.Low, out var low));
+        Assert.Equal(DecisionOutcome.Deny, high);
+        Assert.Equal(DecisionOutcome.Ask, low);
+    }
+
+    [Fact]
     public void A_policy_that_names_a_severity_or_an_outcome_that_does_not_exist_is_refused()
     {
-        var severity = Assert.Throws<FormatException>(() => Severities("severity_actions.severe := \"deny\"\n"));
-        var action = Assert.Throws<FormatException>(() => Severities("severity_actions.high := \"stop\"\n"));
+        var severity = Assert.Throws<FormatException>(() => Severities("severity_actions contains {\"severity\": \"severe\", \"outcome\": \"deny\"}\n"));
+        var action = Assert.Throws<FormatException>(() => Severities("severity_actions contains {\"severity\": \"high\", \"outcome\": \"stop\"}\n"));
 
         Assert.Contains("severe", severity.Message, StringComparison.Ordinal);
         Assert.Contains("stop", action.Message, StringComparison.Ordinal);
@@ -148,7 +163,7 @@ public class RegoSeverityActionTests : IDisposable
     public void A_profile_and_a_policy_combine_strictest_wins()
     {
         var profile = SeverityActions.Parse(new Dictionary<string, string>(StringComparer.Ordinal) { ["high"] = "block", ["medium"] = "alert" });
-        var policy = Severities("severity_actions.high := \"guidance\"\nseverity_actions.medium := \"ask\"\nseverity_actions.low := \"guidance\"\n");
+        var policy = Severities("severity_actions contains {\"severity\": \"high\", \"outcome\": \"guidance\"}\nseverity_actions contains {\"severity\": \"medium\", \"outcome\": \"ask\"}\nseverity_actions contains {\"severity\": \"low\", \"outcome\": \"guidance\"}\n");
 
         var both = SeverityActions.Strictest(profile, policy);
 

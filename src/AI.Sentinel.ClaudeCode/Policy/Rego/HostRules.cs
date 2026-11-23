@@ -3,7 +3,7 @@ namespace AI.Sentinel.ClaudeCode.Policy.Rego;
 /// <summary>
 /// The rules the host adds to every policy: they combine what the bundles say into one decision, strictest first. A bundle
 /// adds reasons with <c>deny contains "why" if ...</c>, and likewise <c>ask</c>, <c>guidance</c> and <c>allow</c>; a bundle sets the outcome of a finding severity with
-/// <c>severity_actions.high := "guidance"</c>; the host owns <c>outcome</c>, <c>reasons</c> and <c>decision</c>.
+/// <c>severity_actions contains {"severity": "high", "outcome": "guidance"}</c>; the host owns <c>outcome</c>, <c>reasons</c> and <c>decision</c>.
 /// </summary>
 internal static class HostRules
 {
@@ -23,8 +23,9 @@ internal static class HostRules
 
         allow contains "" if false
 
-        # Declares the severity outcomes a policy may set, such as severity_actions.high := "guidance"; read by the host.
-        severity_actions[""] := "" if false
+        # Declares the severity outcomes a policy may set, such as
+        # severity_actions contains {"severity": "high", "outcome": "guidance"}; the host takes the strictest per severity.
+        severity_actions contains {"severity": "", "outcome": ""} if false
 
         default outcome := "defer"
 

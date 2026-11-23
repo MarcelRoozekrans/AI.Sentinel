@@ -156,11 +156,13 @@ internal sealed class WasmEvaluator : IDisposable
         }
 
         var severities = new List<KeyValuePair<string, string>>();
-        if (result.TryGetProperty("severity_actions", out var actions) && actions.ValueKind == JsonValueKind.Object)
+        if (result.TryGetProperty("severity_actions", out var actions) && actions.ValueKind == JsonValueKind.Array)
         {
-            foreach (var action in actions.EnumerateObject())
+            foreach (var action in actions.EnumerateArray())
             {
-                severities.Add(new(action.Name, action.Value.GetString() ?? string.Empty));
+                severities.Add(new(
+                    action.GetProperty("severity").GetString() ?? string.Empty,
+                    action.GetProperty("outcome").GetString() ?? string.Empty));
             }
         }
 
