@@ -1,3 +1,5 @@
+using AI.Sentinel.ClaudeCode.Policy;
+
 namespace AI.Sentinel.ClaudeCode.Resident;
 
 /// <summary>
@@ -12,6 +14,9 @@ internal sealed class ResidentSession
         Client = new ResidentClient(settings);
         Start = start;
     }
+
+    /// <summary>The source a pause is named by.</summary>
+    public const string PauseSource = "pause";
 
     public ResidentSettings Settings { get; }
 
@@ -33,5 +38,29 @@ internal sealed class ResidentSession
         }
 
         return new ResidentSession(settings, ResidentLauncher.EnsureStarted(settings, ResidentLaunch.ForThisHook(), start));
+    }
+
+    /// <summary>
+    /// <paramref name="output"/> with the pause state applied: a call of a paused session is denied, whatever else was decided, and
+    /// <paramref name="output"/> is returned as it is for any other session. The pause is read from the state folder, so this needs no
+    /// network and no running process. A state folder that cannot be used throws, and the hook blocks the call.
+    /// </summary>
+    /// <param name="output">What the other checks decided.</param>
+    /// <param name="sessionId">The session of the call.</param>
+    /// <param name="now">The current time.</param>
+    public HookOutput ApplyPause(HookOutput output, string sessionId, DateTimeOffset now)
+    {
+        ArgumentNullException.ThrowIfNull(output);
+        if (string.IsNullOrEmpty(sessionId) || ResidentState.Open(Settings).FindPause(sessionId, now) is not { } pause)
+        {
+            return output;
+        }
+
+        var reason = string.IsNullOrWhiteSpace(pause.Reason)
+            ? "AI.Sentinel is paused for this session."
+            : $"AI.Sentinel is paused for this session: {pause.Reason}";
+        var paused = new OutcomeDecision(DecisionOutcome.Deny, reason, [PauseSource]);
+        var existing = output.Outcome ?? OutcomeDecision.FromHook(output.Decision, output.Reason, LocalPolicy.ChecksSource);
+        return OutcomeDecision.Strictest([existing, paused]).ToHookOutput(canAsk: true);
     }
 }

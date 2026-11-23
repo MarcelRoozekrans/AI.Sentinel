@@ -123,7 +123,7 @@ public static class Program
         }
 
         // A local Rego policy (SENTINEL_HOOK_POLICY_DIR) judges a PreToolUse; one that cannot be loaded blocks the call.
-        var (policy, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, policyCompilers, residentStart, config, audit, auditProblems, stderr).ConfigureAwait(false);
+        var (policy, resident, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, policyCompilers, residentStart, config, audit, auditProblems, stderr).ConfigureAwait(false);
         if (blocked is { } blockedExit) return blockedExit;
         using var policyScope = policy;
         HookOutput output;
@@ -133,7 +133,7 @@ public static class Program
         {
             (output, semanticWarning) = await EvaluateAsync(
                 evt, input, WithFindingSink(config, policy), hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
-            output = DecideWithPolicy(policy, output, input);
+            output = DecideWithPolicy(policy, resident, output, input);
         }
         catch (Exception ex) when (evt == HookEvent.PreToolUse)
         {
@@ -386,7 +386,7 @@ public static class Program
 
     /// <summary>Loads the policy, see <see cref="TryLoadPolicy"/>. One that cannot be loaded blocks the call as an internal
     /// error, and its exit code is returned; running without it would skip every rule it holds.</summary>
-    private static async Task<(LocalPolicy? Policy, int? Exit)> OpenPolicyAsync(
+    private static async Task<(LocalPolicy? Policy, ResidentSession? Resident, int? Exit)> OpenPolicyAsync(
         string[] args, HookEvent evt, HookInput input, IReadOnlyDictionary<string, string?> hookEnv, IReadOnlyList<IRegoCompiler>? compilers, Func<ResidentLaunch, bool>? residentStart, HookConfig config,
         LocalAuditSession audit, List<string> auditProblems, TextWriter stderr)
     {
@@ -395,13 +395,13 @@ public static class Program
         var (policy, folder, error) = TryLoadPolicy(evt, hookEnv, compilers, resident);
         if (error is null)
         {
-            return (policy, null);
+            return (policy, resident, null);
         }
 
         var exit = await BlockOnInternalErrorAsync(
             args, input.ToolName, input.SessionId, HookInternalError.PolicyReason(folder!, error),
             audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
-        return (null, exit);
+        return (null, resident, exit);
     }
 
     /// <summary>Loads the policy folder when the event is PreToolUse and <c>SENTINEL_HOOK_POLICY_DIR</c> is set; all null
@@ -427,15 +427,18 @@ public static class Program
         }
     }
 
-    /// <summary>The decision of <paramref name="policy"/> combined with <paramref name="output"/>, the strictest winning;
-    /// <paramref name="output"/> as it is when no policy is loaded.</summary>
-    private static HookOutput DecideWithPolicy(LocalPolicy? policy, HookOutput output, HookInput input) =>
-        policy is null
+    /// <summary>The decision of <paramref name="policy"/> combined with <paramref name="output"/>, the strictest winning, and then the
+    /// pause state of the resident process (#658) applied; <paramref name="output"/> as it is when neither is on.</summary>
+    private static HookOutput DecideWithPolicy(LocalPolicy? policy, ResidentSession? resident, HookOutput output, HookInput input)
+    {
+        var decided = policy is null
             ? output
             : policy.Decide(
                 output, PolicyClis.ClaudeCode,
                 string.IsNullOrWhiteSpace(input.ToolName) ? throw new InvalidOperationException("PreToolUse input has no tool name") : input.ToolName,
                 input.ToolInput ?? default, input.SessionId);
+        return resident is null ? decided : resident.ApplyPause(decided, input.SessionId, DateTimeOffset.UtcNow);
+    }
 
     /// <summary>Loads <c>SENTINEL_APPROVAL_CONFIG</c> when it is set. A failure of any kind is returned rather than
     /// thrown, with the path, so the caller decides whether it blocks.</summary>
