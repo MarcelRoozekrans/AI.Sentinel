@@ -29,8 +29,17 @@ public class FailModeTests
     private static FailModeContext Profile(string failMode) =>
         FailModeContext.From(ProfileVerification.Accepted(new PolicyProfile
         {
-            Organisation = "acme", Repository = "github.com/acme/app", Node = "n", ConfigurationVersion = 1, ModuleHash = "h", Module = "m",
-            FailMode = failMode, SeverityDefaults = new Dictionary<string, string>(StringComparer.Ordinal), LoggingSwitches = new Dictionary<string, bool>(StringComparer.Ordinal), IssuedAt = DateTimeOffset.UnixEpoch, ExpiresAt = DateTimeOffset.UnixEpoch.AddDays(1),
+            Organisation = "acme",
+            Repository = "github.com/acme/app",
+            Node = "n",
+            ConfigurationVersion = 1,
+            ModuleHash = "h",
+            Module = "m",
+            FailMode = failMode,
+            SeverityDefaults = new Dictionary<string, string>(StringComparer.Ordinal),
+            LoggingSwitches = new Dictionary<string, bool>(StringComparer.Ordinal),
+            IssuedAt = DateTimeOffset.UnixEpoch,
+            ExpiresAt = DateTimeOffset.UnixEpoch.AddDays(1),
         }));
 
     [Fact]
