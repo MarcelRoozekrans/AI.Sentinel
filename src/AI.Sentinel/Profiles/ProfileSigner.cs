@@ -6,15 +6,23 @@ internal sealed class ProfileSigner
     /// <summary>How long a profile lives unless the organisation sets another lifetime: 7 days.</summary>
     public static readonly TimeSpan DefaultLifetime = TimeSpan.FromDays(7);
 
-    private readonly ProfileSigningKey _key;
+    private readonly ProfileSigningKeys _keys;
+    private readonly IReadOnlyList<KeyEndorsement> _endorsements;
     private readonly TimeProvider _time;
 
-    /// <summary>Signs with <paramref name="key"/>, which the deployment provided at startup.</summary>
-    public ProfileSigner(ProfileSigningKey key, TimeProvider? time = null)
+    /// <summary>Signs with the keys the deployment provided at startup.</summary>
+    public ProfileSigner(ProfileSigningKeys keys, TimeProvider? time = null)
     {
-        ArgumentNullException.ThrowIfNull(key);
-        _key = key;
+        ArgumentNullException.ThrowIfNull(keys);
+        _keys = keys;
+        _endorsements = keys.Previous is null ? [] : [KeyEndorsement.Create(keys.Previous, keys.Current)];
         _time = time ?? TimeProvider.System;
+    }
+
+    /// <summary>Signs with one key and no rotation under way.</summary>
+    public ProfileSigner(ProfileSigningKey key, TimeProvider? time = null)
+        : this(new ProfileSigningKeys(key), time)
+    {
     }
 
     /// <summary>
@@ -33,7 +41,7 @@ internal sealed class ProfileSigner
         return Sign(profile with { IssuedAt = issued, ExpiresAt = issued + life });
     }
 
-    /// <summary>Signs <paramref name="profile"/> as it is.</summary>
+    /// <summary>Signs <paramref name="profile"/> as it is. During a rotation the envelope carries the endorsement of the signing key.</summary>
     public SignedProfile Sign(PolicyProfile profile)
     {
         ArgumentNullException.ThrowIfNull(profile);
@@ -41,8 +49,9 @@ internal sealed class ProfileSigner
         return new SignedProfile
         {
             Profile = Convert.ToBase64String(bytes),
-            KeyId = _key.KeyId,
-            Signature = Convert.ToBase64String(_key.Sign(bytes)),
+            KeyId = _keys.Current.KeyId,
+            Signature = Convert.ToBase64String(_keys.Current.Sign(bytes)),
+            Endorsements = _endorsements,
         };
     }
 }

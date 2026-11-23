@@ -35,6 +35,16 @@ internal static class ProfileProbe
         var now = DateTimeOffset.UtcNow;
         var accepted = ProfileVerifier.Verify(cached, pins, "acme", "github.com/acme/widgets", now);
         var wrongKey = ProfileVerifier.Verify(cached, PinnedProfileKeys.Empty, "acme", "github.com/acme/widgets", now);
-        return accepted.IsAccepted && wrongKey.Rejection == ProfileRejection.UnknownKey;
+
+        // Rotation: a plugin that pinned only the old key accepts a profile signed by the new key and endorsed by the old.
+        var newKey = ProfileSigningKey.Generate();
+        var rotated = new ProfileSigner(new ProfileSigningKeys(newKey, key)).Issue(profile);
+        var endorsed = ProfileVerifier.Verify(
+            SignedProfile.Parse(rotated.ToJson())!, pins, "acme", "github.com/acme/widgets", now);
+
+        return accepted.IsAccepted
+            && wrongKey.Rejection == ProfileRejection.UnknownKey
+            && endorsed.IsAccepted
+            && endorsed.EndorsedKey is not null;
     }
 }

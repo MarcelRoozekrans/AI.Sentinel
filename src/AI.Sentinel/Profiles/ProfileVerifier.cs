@@ -1,7 +1,7 @@
 namespace AI.Sentinel.Profiles;
 
 /// <summary>
-/// The plugin side: accepts a <see cref="SignedProfile"/> only when a pinned key signed it, its bytes are intact and
+/// The plugin side: accepts a <see cref="SignedProfile"/> only when a pinned key signed it or endorsed the key that did, its bytes are intact and
 /// canonical, it has not expired, and it was issued for the organisation signed in to and the repository asked for.
 /// Cached profiles go through the same check, so a cache that fails it is unusable and one that passes is usable
 /// offline until it expires.
@@ -30,9 +30,16 @@ internal static class ProfileVerifier
         {
             return ProfileVerification.Rejected(ProfileRejection.Malformed);
         }
+        byte[]? endorsedKey = null;
         if (!pinned.TryGet(signed.KeyId, out var publicKey))
         {
-            return ProfileVerification.Rejected(ProfileRejection.UnknownKey);
+            // Not pinned: accept it only when a pinned key endorses it. One level, an endorsed key cannot endorse.
+            endorsedKey = FindEndorsedKey(signed, pinned);
+            if (endorsedKey is null)
+            {
+                return ProfileVerification.Rejected(ProfileRejection.UnknownKey);
+            }
+            publicKey = endorsedKey;
         }
         if (!Ed25519Crypto.Verify(publicKey, bytes, signature))
         {
@@ -56,7 +63,19 @@ internal static class ProfileVerifier
         {
             return ProfileVerification.Rejected(ProfileRejection.Expired);
         }
-        return ProfileVerification.Accepted(profile);
+        return ProfileVerification.Accepted(profile, endorsedKey);
+    }
+
+    private static byte[]? FindEndorsedKey(SignedProfile signed, PinnedProfileKeys pinned)
+    {
+        foreach (var endorsement in signed.Endorsements)
+        {
+            if (endorsement.TryAccept(signed.KeyId, pinned) is { } key)
+            {
+                return key;
+            }
+        }
+        return null;
     }
 
     private static bool TryFromBase64(string text, out byte[] bytes)

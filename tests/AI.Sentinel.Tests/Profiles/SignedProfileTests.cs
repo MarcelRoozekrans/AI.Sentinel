@@ -106,6 +106,11 @@ public sealed class SignedProfileTests
     {
         Assert.Null(ProfileCanonicalJson.Deserialize("not json"u8.ToArray()));
         Assert.Null(ProfileCanonicalJson.Deserialize("{}"u8.ToArray()));
+        var json = Encoding.UTF8.GetString(ProfileCanonicalJson.Serialize(Sample()));
+        Assert.Null(ProfileCanonicalJson.Deserialize(Encoding.UTF8.GetBytes(json.Replace("\"fail_mode\":\"closed\"", "\"fail_mode\":\"maybe\"", StringComparison.Ordinal))));
+        Assert.Null(ProfileCanonicalJson.Deserialize(Encoding.UTF8.GetBytes(json.Replace("\"module_hash\":\"sha256:abc\"", "\"module_hash\":null", StringComparison.Ordinal))));
+        Assert.Null(ProfileCanonicalJson.Deserialize(Encoding.UTF8.GetBytes(json.Replace("\"expires_at\":\"2026-11-30T10:00:00Z\"", "\"expires_at\":\"2026-11-20T10:00:00Z\"", StringComparison.Ordinal))));
+        Assert.Null(ProfileCanonicalJson.Deserialize(Encoding.UTF8.GetBytes(json.Replace("{\"c", "{\"extra\":1,\"c", StringComparison.Ordinal))));
     }
 
     private static readonly DateTimeOffset Now = new(2026, 11, 23, 10, 0, 0, TimeSpan.Zero);

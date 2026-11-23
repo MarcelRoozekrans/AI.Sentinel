@@ -90,6 +90,8 @@ internal static class ProfileCanonicalJson
         !string.IsNullOrEmpty(p.Organisation)
         && !string.IsNullOrEmpty(p.Repository)
         && !string.IsNullOrEmpty(p.Node)
+        && p.Module is not null
+        && p.ModuleHash is not null
         && p.SeverityDefaults is not null
         && p.LoggingSwitches is not null
         && ProfileFailModes.IsValid(p.FailMode)

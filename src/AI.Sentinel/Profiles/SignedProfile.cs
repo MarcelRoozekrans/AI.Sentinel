@@ -21,6 +21,13 @@ internal sealed record SignedProfile
     [JsonPropertyName("signature")]
     public required string Signature { get; init; }
 
+    /// <summary>
+    /// Endorsements of the signing key by older keys, present during a key rotation. Plugins that pinned only an old key
+    /// accept the signing key through one of them.
+    /// </summary>
+    [JsonPropertyName("endorsements")]
+    public IReadOnlyList<KeyEndorsement> Endorsements { get; init; } = [];
+
     /// <summary>The envelope as JSON.</summary>
     public string ToJson() => JsonSerializer.Serialize(this, ProfileJsonContext.Default.SignedProfile);
 
@@ -30,7 +37,18 @@ internal sealed record SignedProfile
         ArgumentNullException.ThrowIfNull(json);
         try
         {
-            return JsonSerializer.Deserialize(json, ProfileJsonContext.Default.SignedProfile);
+            var parsed = JsonSerializer.Deserialize(json, ProfileJsonContext.Default.SignedProfile);
+            if (parsed is null)
+            {
+                return null;
+            }
+            // For a type with required members the generated reader leaves an absent member at null, not at its
+            // initializer, and lets an explicit null through: both mean no endorsements. A null entry is refused.
+            if (parsed.Endorsements is null)
+            {
+                return parsed with { Endorsements = [] };
+            }
+            return parsed.Endorsements.Any(e => e is null) ? null : parsed;
         }
         catch (JsonException)
         {
