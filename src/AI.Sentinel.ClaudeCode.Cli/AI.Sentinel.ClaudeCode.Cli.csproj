@@ -23,8 +23,7 @@
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" Condition="'$(InteropCompilerRid)' == 'true'" />
-    <ProjectReference Include="..\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" Condition="'$(InteropCompilerRid)' != 'true'" AdditionalProperties="UseInteropCompiler=false" />
+    <ProjectReference Include="..\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Approvals.Sqlite\AI.Sentinel.Approvals.Sqlite.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Sqlite\AI.Sentinel.Sqlite.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Approvals.EntraPim\AI.Sentinel.Approvals.EntraPim.csproj" />

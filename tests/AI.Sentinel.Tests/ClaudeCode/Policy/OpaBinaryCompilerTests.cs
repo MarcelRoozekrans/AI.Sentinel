@@ -66,6 +66,71 @@ public class OpaBinaryCompilerTests
         Assert.Equal("some other error", RegoCompileException.From("some other error\n").Message);
     }
 
+    // A stand-in for opa, a shell script, so the process handling is tested where no opa binary is installed.
+    [System.Runtime.Versioning.UnsupportedOSPlatform("windows")]
+    private static string Stub(string dir, string script)
+    {
+        var stub = Path.Combine(dir, "opa");
+        File.WriteAllText(stub, "#!/bin/sh\n" + script);
+        File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return stub;
+    }
+
+    private static readonly PolicySources Sources = new([new PolicyFile("a.rego", "package sentinel\n")], ["a"], new string('a', 64));
+
+    [Fact]
+    public void An_opa_build_that_fails_is_a_compile_error_with_what_opa_printed()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // the stub is a shell script
+        }
+
+        var dir = Directory.CreateTempSubdirectory("sentinel-opa-stub-").FullName;
+        try
+        {
+            var stub = Stub(dir, "echo '1 error occurred: a.rego:1: rego_parse_error: unexpected eof'\necho 'warning' >&2\nexit 1\n");
+            var compiler = new OpaBinaryCompiler(stub, TimeSpan.FromSeconds(30));
+
+            var error = Assert.Throws<RegoCompileException>(() => compiler.CompileWasm(Sources, restrictBuiltins: false));
+
+            Assert.Equal("1 error occurred: a.rego:1: rego_parse_error: unexpected eof\nwarning", error.Message);
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(dir);
+        }
+    }
+
+    [Fact]
+    public void The_module_is_read_from_the_bundle_opa_build_wrote_to_its_output_argument()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // the stub is a shell script
+        }
+
+        var dir = Directory.CreateTempSubdirectory("sentinel-opa-stub-").FullName;
+        try
+        {
+            var prepared = Path.Combine(dir, "prepared.tar.gz");
+            using (var bundle = Bundle(("/policy.wasm", [0, 97, 115, 109, 1])))
+            {
+                File.WriteAllBytes(prepared, bundle.ToArray());
+            }
+
+            // opa build -t wasm -e <entrypoint> -o <bundle> [--capabilities <file>] <root>: the output is the seventh argument.
+            var stub = Stub(dir, $"cp '{prepared}' \"$7\"\n");
+            var compiler = new OpaBinaryCompiler(stub, TimeSpan.FromSeconds(30));
+
+            Assert.Equal([0, 97, 115, 109, 1], compiler.CompileWasm(Sources, restrictBuiltins: true));
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(dir);
+        }
+    }
+
     [Fact]
     public void An_opa_that_stalls_is_stopped_at_the_deadline()
     {
