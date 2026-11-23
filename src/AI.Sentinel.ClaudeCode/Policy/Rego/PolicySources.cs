@@ -29,6 +29,11 @@ internal sealed record PolicySources(IReadOnlyList<PolicyFile> Files, IReadOnlyL
         foreach (var path in Directory.EnumerateFiles(root, "*.rego", SearchOption.AllDirectories))
         {
             var relative = System.IO.Path.GetRelativePath(root, path).Replace('\\', '/');
+            if (ClimbsOut(relative))
+            {
+                throw new InvalidDataException($"{relative}: a file name must not climb out of the folder");
+            }
+
             if (relative.StartsWith(HostBundle + "/", StringComparison.Ordinal))
             {
                 throw new InvalidDataException($"{relative}: the folder name {HostBundle} is reserved for the host");
@@ -47,6 +52,19 @@ internal sealed record PolicySources(IReadOnlyList<PolicyFile> Files, IReadOnlyL
         found.Add(new PolicyFile($"{HostBundle}/decision.rego", HostRules.Text));
         found.Sort((a, b) => string.CompareOrdinal(a.Path, b.Path));
         return new PolicySources(found, bundles, ComputeHash(found));
+    }
+
+    private static bool ClimbsOut(string relative)
+    {
+        foreach (var segment in relative.Split('/'))
+        {
+            if (segment is ".." or ".")
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string BundleOf(string path)

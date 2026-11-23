@@ -48,4 +48,29 @@ public class PolicySourcesTests : IDisposable
         Assert.Equal(["extras", "org-baseline", "team-guidance"], sources.Bundles);
         Assert.Contains(sources.Files, f => string.Equals(f.Path, "_sentinel_host/decision.rego", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void A_file_name_with_backslashes_cannot_climb_out_of_the_folder()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // a backslash is a separator there, and the file system already refuses such a name
+        }
+
+        File.WriteAllText(Path.Combine(_folder, "..\\..\\outside.rego"), "package sentinel\n");
+
+        var error = Assert.Throws<InvalidDataException>(() => PolicySources.Load(_folder));
+        Assert.Contains("outside", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Writing_refuses_a_destination_outside_the_staging_folder()
+    {
+        var staging = Path.Combine(_folder, "staging");
+        var escaped = Path.Combine(_folder, "escaped.rego");
+        var sources = new PolicySources([new PolicyFile("../escaped.rego", "package sentinel\n")], ["x"], new string('a', 64));
+
+        Assert.Throws<InvalidDataException>(() => SourceFolder.Write(sources, staging));
+        Assert.False(File.Exists(escaped));
+    }
 }
