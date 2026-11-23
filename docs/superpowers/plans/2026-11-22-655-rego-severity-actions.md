@@ -33,20 +33,20 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Severity outcomes from policy
 
-- [ ] Read the outcome per severity from the policy result; combine with `SENTINEL_HOOK_ON_*` strictest-wins. Keep whether each variable was set, since `HookConfig.FromEnvironment` fills in defaults such as Block for High; a default must not override the policy.
-- [ ] Test a policy that sets **guidance** for High with `SENTINEL_HOOK_ON_HIGH` unset: the outcome is **guidance**.
-- [ ] Failing tests first in `RegoSeverityActionTests`.
-- [ ] Commit.
+- [x] Read the outcome per severity from the policy result; combine with `SENTINEL_HOOK_ON_*` strictest-wins. Keep whether each variable was set, since `HookConfig.FromEnvironment` fills in defaults such as Block for High; a default must not override the policy.
+- [x] Test a policy that sets **guidance** for High with `SENTINEL_HOOK_ON_HIGH` unset: the outcome is **guidance**.
+- [x] Failing tests first in `RegoSeverityActionTests`.
+- [x] Commit.
 
 ### Task 2: Profile severity defaults
 
-- [ ] Read severity defaults from a #671 profile the same way.
-- [ ] Commit.
+- [x] Read severity defaults from a #671 profile the same way.
+- [x] Commit.
 
 ### Task 3: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
