@@ -10,7 +10,7 @@ namespace RegoAot;
 /// </summary>
 internal sealed class WasmtimeRoute(ICompiler compiler) : IRoute
 {
-    public string Name => "wasmtime";
+    public string Name => "wasmtime+" + compiler.Name;
 
     public IReadOnlyList<string> Modes => ["cached", "cached-native", "cold", "warm"];
 

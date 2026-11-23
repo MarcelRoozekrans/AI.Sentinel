@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace RegoAot;
 
-internal sealed record Case(string Name, string Expected, string InputJson);
+internal sealed record Case(string Name, string Expected, IReadOnlyList<string> ExpectedReasons, string InputJson);
 
 internal static class Cases
 {
@@ -20,7 +20,7 @@ internal static class Cases
                 throw new InvalidDataException($"{file}: '{parsed.Expected}' is not one of the five outcomes");
             }
 
-            cases.Add(new Case(Path.GetFileNameWithoutExtension(file), parsed.Expected, parsed.Input.GetRawText()));
+            cases.Add(new Case(Path.GetFileNameWithoutExtension(file), parsed.Expected, parsed.ExpectedReasons, parsed.Input.GetRawText()));
         }
 
         return cases;

@@ -1,6 +1,11 @@
 using System.Formats.Tar;
 using System.IO.Compression;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging.Abstractions;
+using OpaDotNet.Compilation.Abstractions;
+using OpaDotNet.Compilation.Interop;
 
 namespace RegoAot;
 
@@ -52,7 +57,7 @@ internal sealed class OpaCliCompiler : ICompiler
         }
     }
 
-    private static byte[] ReadWasm(Stream tarGz)
+    internal static byte[] ReadWasm(Stream tarGz)
     {
         using var gz = new GZipStream(tarGz, CompressionMode.Decompress);
         using var tar = new TarReader(gz);
@@ -67,6 +72,44 @@ internal sealed class OpaCliCompiler : ICompiler
         }
 
         throw new RegoCompileException("the bundle holds no policy.wasm");
+    }
+}
+
+/// <summary>
+/// The interop compiler of OpaDotNet: the OPA compiler as a native library, called in process. No opa
+/// binary has to be installed. The package ships the library for linux-x64 and win-x64 only.
+/// </summary>
+internal sealed class InteropCompiler : ICompiler
+{
+    public string Name => "interop";
+
+    public string? Unavailable() =>
+        RuntimeInformation.ProcessArchitecture == Architecture.X64 && (OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
+            ? null
+            : $"the package has no native library for {RuntimeInformation.OSDescription} {RuntimeInformation.ProcessArchitecture}";
+
+    public byte[] CompileWasm(BundleSet set, string? capabilitiesJson = null)
+    {
+        var compiler = new RegoInteropCompiler(NullLogger<RegoInteropCompiler>.Instance);
+        var parameters = new CompilationParameters
+        {
+            IsBundle = true,
+            Entrypoints = [BundleSet.Entrypoint],
+        };
+        if (capabilitiesJson is not null)
+        {
+            parameters.CapabilitiesBytes = Encoding.UTF8.GetBytes(capabilitiesJson);
+        }
+
+        try
+        {
+            using var bundle = compiler.Compile(set.Root, parameters, CancellationToken.None).GetAwaiter().GetResult();
+            return OpaCliCompiler.ReadWasm(bundle);
+        }
+        catch (RegoCompilationException e)
+        {
+            throw new RegoCompileException(e.Message);
+        }
     }
 }
 

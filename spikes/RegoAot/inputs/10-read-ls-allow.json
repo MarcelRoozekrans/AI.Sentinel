@@ -1,4 +1,28 @@
 {
   "expected": "allow",
-  "input": {"kind":"shell","tool":"Bash","shell":{"commands":[{"name":"ls","args":[]},{"name":"pwd","args":[]}]},"files":[],"cli": "claude-code", "repository": "example/repo", "node": "dev-1", "session": "s-1", "findings": []}
+  "expected_reasons": [
+    "read-only shell command"
+  ],
+  "input": {
+    "kind": "shell",
+    "tool": "Bash",
+    "shell": {
+      "commands": [
+        {
+          "name": "ls",
+          "args": []
+        },
+        {
+          "name": "pwd",
+          "args": []
+        }
+      ]
+    },
+    "files": [],
+    "cli": "claude-code",
+    "repository": "example/repo",
+    "node": "dev-1",
+    "session": "s-1",
+    "findings": []
+  }
 }

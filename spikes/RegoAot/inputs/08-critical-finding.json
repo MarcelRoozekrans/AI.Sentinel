@@ -1,4 +1,32 @@
 {
   "expected": "deny",
-  "input": {"kind":"shell","tool":"Bash","shell":{"commands":[{"name":"ls","args":["-la"]}]},"files":[],"cli":"copilot","repository":"example/repo","node":"dev-1","session":"s-1","findings":[{"detector":"SEC-01","severity":"critical"}]}
+  "expected_reasons": [
+    "critical finding from SEC-01",
+    "read-only shell command"
+  ],
+  "input": {
+    "kind": "shell",
+    "tool": "Bash",
+    "shell": {
+      "commands": [
+        {
+          "name": "ls",
+          "args": [
+            "-la"
+          ]
+        }
+      ]
+    },
+    "files": [],
+    "cli": "copilot",
+    "repository": "example/repo",
+    "node": "dev-1",
+    "session": "s-1",
+    "findings": [
+      {
+        "detector": "SEC-01",
+        "severity": "critical"
+      }
+    ]
+  }
 }

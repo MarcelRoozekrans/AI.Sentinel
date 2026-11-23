@@ -26,12 +26,17 @@ internal interface IRoute
 
 internal static class Routes
 {
+    public static IEnumerable<ICompiler> Compilers() => [new InteropCompiler(), new OpaCliCompiler()];
+
     public static IEnumerable<IRoute> All()
     {
-        ICompiler compiler = new OpaCliCompiler();
-        yield return new WasmtimeRoute(compiler);
+        foreach (var compiler in Compilers())
+        {
+            yield return new WasmtimeRoute(compiler);
+        }
         yield return new OpaEvalRoute();
         yield return new OpaServerRoute();
+        yield return new RegoCppRoute();
     }
 }
 

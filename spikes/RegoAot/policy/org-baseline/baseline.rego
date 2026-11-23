@@ -18,7 +18,7 @@ deny contains "write outside the repository" if {
 	not p.inside_repo
 }
 
-deny contains sprintf("critical finding from %s", [f.detector]) if {
+deny contains concat(" ", ["critical finding from", f.detector]) if {
 	some f in input.findings
 	f.severity == "critical"
 }

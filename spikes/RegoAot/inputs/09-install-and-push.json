@@ -1,4 +1,34 @@
 {
   "expected": "ask",
-  "input": {"kind":"shell","tool":"Bash","shell":{"commands":[{"name":"npm","args":["install","left-pad"]},{"name":"git","args":["push"]}]},"files":[],"cli":"codex","repository":"example/repo","node":"dev-1","session":"s-1","findings":[]}
+  "expected_reasons": [
+    "git push needs a person",
+    "pin the package version when installing"
+  ],
+  "input": {
+    "kind": "shell",
+    "tool": "Bash",
+    "shell": {
+      "commands": [
+        {
+          "name": "npm",
+          "args": [
+            "install",
+            "left-pad"
+          ]
+        },
+        {
+          "name": "git",
+          "args": [
+            "push"
+          ]
+        }
+      ]
+    },
+    "files": [],
+    "cli": "codex",
+    "repository": "example/repo",
+    "node": "dev-1",
+    "session": "s-1",
+    "findings": []
+  }
 }

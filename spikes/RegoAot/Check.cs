@@ -80,8 +80,9 @@ internal static class Check
             foreach (var c in cases)
             {
                 var actual = eval.Evaluate(c.InputJson);
-                var ok = string.Equals(actual.Outcome, c.Expected, StringComparison.Ordinal);
-                Console.WriteLine($"  [{route.Name}/{mode}] {c.Name}: expected {c.Expected}, got {actual.Outcome}{(ok ? "" : "  <-- MISMATCH")}");
+                var sameReasons = actual.Reasons.Order(StringComparer.Ordinal).SequenceEqual(c.ExpectedReasons.Order(StringComparer.Ordinal), StringComparer.Ordinal);
+                var ok = string.Equals(actual.Outcome, c.Expected, StringComparison.Ordinal) && sameReasons;
+                Console.WriteLine($"  [{route.Name}/{mode}] {c.Name}: expected {c.Expected}, got {actual.Outcome}{(ok ? "" : $"  <-- MISMATCH, reasons: {string.Join("; ", actual.Reasons)}")}");
                 failures += ok ? 0 : 1;
             }
         }

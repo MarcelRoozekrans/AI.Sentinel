@@ -44,6 +44,8 @@ internal static class Measure
         }
 
         PrintTable(rows);
+        PrintCompilers(set, runs);
+        PrintSizes();
         return 0;
     }
 
@@ -101,7 +103,7 @@ internal static class Measure
 
     private static Row MeasureWarm(IRoute route, BundleSet set, List<Case> cases)
     {
-        using var eval = route.Create(set, route.Modes.First(m => m != "cold" && m != "warm"), Cache.Dir(set));
+        using var eval = route.Create(set, route.Modes.FirstOrDefault(m => m != "cold" && m != "warm") ?? "cold", Cache.Dir(set));
         for (var i = 0; i < 50; i++)
         {
             eval.Evaluate(cases[i % cases.Count].InputJson);
@@ -130,6 +132,47 @@ internal static class Measure
             sb.Append(CultureInfo.InvariantCulture, $"| {r.Route} | {r.Mode} | {r.InProcess.Count} | {Ms(Percentile(r.InProcess, 50))} | {Ms(Percentile(r.InProcess, 95))} | {Ms(r.InProcess.Max())} |");
             sb.Append(r.Wall is null ? " n/a | n/a |" : $" {Ms(Percentile(r.Wall, 50))} | {Ms(Percentile(r.Wall, 95))} |");
             Console.WriteLine(sb.ToString());
+        }
+    }
+
+    /// <summary>Compiling Rego to wasm: the first call of a process, then repeated calls.</summary>
+    private static void PrintCompilers(BundleSet set, int runs)
+    {
+        Console.WriteLine();
+        Console.WriteLine("| compiler | first call ms | p50 ms | p95 ms | calls |");
+        Console.WriteLine("|---|---|---|---|---|");
+        foreach (var compiler in Routes.Compilers())
+        {
+            var why = compiler.Unavailable();
+            if (why is not null)
+            {
+                Console.WriteLine($"| {compiler.Name} | unavailable: {why} | | | |");
+                continue;
+            }
+
+            var first = Stopwatch.GetTimestamp();
+            compiler.CompileWasm(set);
+            var firstMicros = Stopwatch.GetElapsedTime(first).TotalMicroseconds;
+            var times = new List<double>();
+            for (var i = 0; i < runs; i++)
+            {
+                var start = Stopwatch.GetTimestamp();
+                compiler.CompileWasm(set);
+                times.Add(Stopwatch.GetElapsedTime(start).TotalMicroseconds);
+            }
+
+            Console.WriteLine($"| {compiler.Name} | {Ms(firstMicros)} | {Ms(Percentile(times, 50))} | {Ms(Percentile(times, 95))} | {times.Count} |");
+        }
+    }
+
+    private static void PrintSizes()
+    {
+        Console.WriteLine();
+        Console.WriteLine("| file in the publish directory | MB |");
+        Console.WriteLine("|---|---|");
+        foreach (var file in new DirectoryInfo(Check.AppDir).EnumerateFiles().Where(f => !f.Name.EndsWith(".dbg", StringComparison.Ordinal)).OrderBy(f => f.Name, StringComparer.Ordinal))
+        {
+            Console.WriteLine(string.Create(CultureInfo.InvariantCulture, $"| {file.Name} | {file.Length / 1048576.0:F2} |"));
         }
     }
 

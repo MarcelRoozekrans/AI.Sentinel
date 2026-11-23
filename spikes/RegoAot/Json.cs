@@ -9,6 +9,9 @@ internal sealed class CaseFile
     [JsonPropertyName("expected")]
     public string Expected { get; set; } = "";
 
+    [JsonPropertyName("expected_reasons")]
+    public List<string> ExpectedReasons { get; set; } = [];
+
     [JsonPropertyName("input")]
     public JsonElement Input { get; set; }
 }

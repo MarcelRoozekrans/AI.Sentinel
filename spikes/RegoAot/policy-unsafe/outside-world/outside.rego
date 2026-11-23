@@ -9,8 +9,3 @@ deny contains "reached the network" if {
 	resp.status_code == 200
 }
 
-guidance contains sprintf("resolved %v", [addrs]) if {
-	addrs := net.lookup_ip_addr("example.com")
-}
-
-ask contains sprintf("runtime %v", [opa.runtime()]) if input.kind == "shell"

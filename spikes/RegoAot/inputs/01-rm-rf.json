@@ -1,4 +1,27 @@
 {
   "expected": "deny",
-  "input": {"kind":"shell","tool":"Bash","shell":{"commands":[{"name":"rm","args":["-rf","build"]}]},"files":[],"cli": "claude-code", "repository": "example/repo", "node": "dev-1", "session": "s-1", "findings": []}
+  "expected_reasons": [
+    "recursive delete"
+  ],
+  "input": {
+    "kind": "shell",
+    "tool": "Bash",
+    "shell": {
+      "commands": [
+        {
+          "name": "rm",
+          "args": [
+            "-rf",
+            "build"
+          ]
+        }
+      ]
+    },
+    "files": [],
+    "cli": "claude-code",
+    "repository": "example/repo",
+    "node": "dev-1",
+    "session": "s-1",
+    "findings": []
+  }
 }
