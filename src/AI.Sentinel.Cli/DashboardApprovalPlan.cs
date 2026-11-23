@@ -46,6 +46,8 @@ internal sealed record DashboardApprovalPlan(DashboardApprovalMode Mode, string?
                 return new DashboardApprovalPlan(DashboardApprovalMode.Sqlite, config.DatabasePath, null);
             case ApprovalBackendKind.EntraPim:
                 return new DashboardApprovalPlan(DashboardApprovalMode.EntraPim, null, null);
+            case ApprovalBackendKind.Http:
+                return new DashboardApprovalPlan(DashboardApprovalMode.Off, null, "the http approval backend is decided on the server");
             case ApprovalBackendKind.InMemory when settings.ApprovalConfigExplicit:
                 await stderr.WriteLineAsync(
                     $"The approval config {path} uses the in-memory backend, which keeps nothing between processes. Use the sqlite backend to approve from the dashboard.").ConfigureAwait(false);

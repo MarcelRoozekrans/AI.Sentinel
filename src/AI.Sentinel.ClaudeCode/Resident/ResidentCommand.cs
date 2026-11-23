@@ -34,8 +34,14 @@ internal static class ResidentCommand
 
         // Sign-in is optional: without its settings the process holds no token (#659).
         using var http = new HttpClient();
-        var tokens = SignIn.SignInCommand.OpenSession(ResidentSettings.ProcessEnvironment(), http, stderr);
-        var exit = await ResidentHost.RunAsync(settings, compilers, CancellationToken.None, listening: null, tokens).ConfigureAwait(false);
+        var env = ResidentSettings.ProcessEnvironment();
+        var tokens = SignIn.SignInCommand.OpenSession(env, http, stderr);
+        // The approval endpoints (#662) are asked with the token of this process, so the server settings and the sign-in go together.
+        using var serverHttp = tokens is not null && SignIn.SignInSettings.FromEnvironment(env, out _) is { } sign
+            ? ServerApprovals.ApprovalServerClients.NewHttpClient(tokens, sign.ServerUrl)
+            : null;
+        var approvals = serverHttp is null ? null : new ServerApprovals.ApprovalServerClient(serverHttp);
+        var exit = await ResidentHost.RunAsync(settings, compilers, CancellationToken.None, listening: null, tokens, approvals).ConfigureAwait(false);
         return exit == ResidentExit.Failed ? 1 : 0;
     }
 }

@@ -9,10 +9,10 @@ internal sealed class HostedResident : IAsyncDisposable
     private bool _disposed;
     private readonly TaskCompletionSource _listening = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    public HostedResident(string stateDir, TimeSpan? idle = null, IReadOnlyList<AI.Sentinel.ClaudeCode.Policy.Rego.IRegoCompiler>? compilers = null, AI.Sentinel.ClaudeCode.SignIn.TokenSession? tokens = null)
+    public HostedResident(string stateDir, TimeSpan? idle = null, IReadOnlyList<AI.Sentinel.ClaudeCode.Policy.Rego.IRegoCompiler>? compilers = null, AI.Sentinel.ClaudeCode.SignIn.TokenSession? tokens = null, AI.Sentinel.ClaudeCode.ServerApprovals.IApprovalChannel? approvals = null)
     {
         Settings = new ResidentSettings(stateDir, idle ?? ResidentSettings.DefaultIdleTimeout, TimeSpan.FromMilliseconds(500));
-        Run = Task.Run(() => ResidentHost.RunAsync(Settings, compilers, _stop.Token, () => _listening.TrySetResult(), tokens));
+        Run = Task.Run(() => ResidentHost.RunAsync(Settings, compilers, _stop.Token, () => _listening.TrySetResult(), tokens, approvals));
     }
 
     public ResidentSettings Settings { get; }
