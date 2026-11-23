@@ -65,7 +65,8 @@ jobs:
           curl -fsSL -o "$RUNNER_TEMP/$ASSET" "$base/$ASSET"
           curl -fsSL -o "$RUNNER_TEMP/$ASSET.sha256" "$base/$ASSET.sha256"
           expected=$(cut -d' ' -f1 "$RUNNER_TEMP/$ASSET.sha256")
-          actual=$(if command -v sha256sum >/dev/null; then sha256sum "$RUNNER_TEMP/$ASSET"; else shasum -a 256 "$RUNNER_TEMP/$ASSET"; fi | cut -d' ' -f1)
+          # Hash from stdin: GNU sha256sum escapes a path with a backslash, as on Windows, and prefixes the hash with one.
+          actual=$(if command -v sha256sum >/dev/null; then sha256sum < "$RUNNER_TEMP/$ASSET"; else shasum -a 256 < "$RUNNER_TEMP/$ASSET"; fi | cut -d' ' -f1)
           if [ "$expected" != "$actual" ]; then echo "sha256 mismatch for $ASSET: expected $expected, got $actual"; exit 1; fi
           mv "$RUNNER_TEMP/$ASSET" "$RUNNER_TEMP/${{ matrix.opa_exe }}"
           chmod +x "$RUNNER_TEMP/${{ matrix.opa_exe }}"
