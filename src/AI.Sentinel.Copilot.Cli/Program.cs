@@ -108,7 +108,7 @@ public static class Program
                 args, input.ToolName, input.SessionId, HookInternalError.Reason(ex), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
         }
 
-        result = CopilotWireOutput.Resolve(result);
+        result = CopilotWireOutput.Resolve(evt, result);
         return await WriteDecisionAsync(args, evt, input, result, semanticWarning, config, audit, auditProblems, approvalWarnings, stdout, stderr).ConfigureAwait(false);
     }
 

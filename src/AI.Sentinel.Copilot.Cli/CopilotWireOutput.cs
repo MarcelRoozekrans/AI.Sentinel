@@ -40,10 +40,12 @@ internal sealed record CopilotWireOutput
     private const string SuccessResultType = "success";
 
     /// <summary>Settles a decision that carries an outcome for Copilot CLI (ADR-234). Copilot cannot ask on any event,
-    /// so an ask becomes a deny with instructions. Guidance has no context channel, so it behaves as a Warn does today:
-    /// the reason on stderr and the call runs. Allow and defer are Allow, which emits no permission decision. A decision
-    /// without an outcome is returned as it is.</summary>
-    public static CopilotHookResult Resolve(CopilotHookResult result)
+    /// so an ask becomes a deny with instructions. On postToolUse and userPromptTransformed a block exits zero, so the
+    /// deny also carries the withheld text as the replacement result or prompt, as a Block from a severity does; on
+    /// preToolUse exit code 2 blocks. Guidance has no context channel, so it behaves as a Warn does today: the reason on
+    /// stderr and the call runs. Allow and defer are Allow, which emits no permission decision. A decision without an
+    /// outcome is returned as it is.</summary>
+    public static CopilotHookResult Resolve(CopilotHookEvent evt, CopilotHookResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
         var output = result.Output;
@@ -52,7 +54,17 @@ internal sealed record CopilotWireOutput
             return result;
         }
 
-        return result with { Output = ask.ToHookOutput(canAsk: false) with { UpdatedToolOutput = output.UpdatedToolOutput, Redactions = output.Redactions } };
+        var denied = ask.ToHookOutput(canAsk: false) with { UpdatedToolOutput = output.UpdatedToolOutput, Redactions = output.Redactions };
+        var withheld = HookPipelineRunner.WithheldText(denied.Reason);
+        return evt switch
+        {
+            CopilotHookEvent.PostToolUse => result with
+            {
+                Output = denied with { UpdatedToolOutput = HookPipelineRunner.JsonString(withheld), Redactions = null },
+            },
+            CopilotHookEvent.UserPromptTransformed => result with { Output = denied, ModifiedTransformedPrompt = withheld },
+            _ => result with { Output = denied },
+        };
     }
 
     /// <summary>Maps <paramref name="result"/> for <paramref name="evt"/>. A rewrite is written for its own event only.</summary>

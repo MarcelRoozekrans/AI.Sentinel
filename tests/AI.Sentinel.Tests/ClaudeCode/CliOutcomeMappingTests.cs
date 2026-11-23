@@ -87,6 +87,21 @@ public class CliOutcomeMappingTests
     }
 
     [Fact]
+    public void ClaudeCode_GuidanceOnPostToolUse_KeepsTheRedactedOutputAndNamesTheRedactedTypes()
+    {
+        var output = D("Guidance", "careful").ToHookOutput(canAsk: true) with
+        {
+            UpdatedToolOutput = JsonSerializer.SerializeToElement("a [EMAIL_1_k3f9x2] b"),
+            Redactions = new Dictionary<string, int>(StringComparer.Ordinal) { ["EMAIL"] = 1 },
+        };
+
+        var json = Claude(HookEvent.PostToolUse, output);
+
+        Assert.Contains("\"updatedToolOutput\":\"a [EMAIL_1_k3f9x2] b\"", json, StringComparison.Ordinal);
+        Assert.Contains("careful\\nAI.Sentinel redacted 1 EMAIL in this tool output", json, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ClaudeCode_Ask_UsesThePermissionAskOnPreToolUse()
     {
         var json = Claude(HookEvent.PreToolUse, D("Ask", "pushes to main").ToHookOutput(canAsk: true));
@@ -141,7 +156,8 @@ public class CliOutcomeMappingTests
 
     // --- Copilot CLI --------------------------------------------------------------------------
 
-    private static CopilotHookResult Copilot(HookOutput output) => CopilotWireOutput.Resolve(new CopilotHookResult(output, null));
+    private static CopilotHookResult Copilot(HookOutput output, CopilotHookEvent evt = CopilotHookEvent.PreToolUse) =>
+        CopilotWireOutput.Resolve(evt, new CopilotHookResult(output, null));
 
     [Fact]
     public void Copilot_Ask_BecomesADenyWithInstructions_OnEveryEvent()
@@ -184,6 +200,55 @@ public class CliOutcomeMappingTests
     {
         var original = new CopilotHookResult(new HookOutput { Decision = HookDecision.Warn, Reason = "r" }, null);
 
-        Assert.Same(original, CopilotWireOutput.Resolve(original));
+        Assert.Same(original, CopilotWireOutput.Resolve(CopilotHookEvent.PostToolUse, original));
+    }
+
+    [Fact]
+    public void Copilot_AskOnPostToolUse_WithholdsTheResult_SinceExitZeroKeepsNothingBack()
+    {
+        var result = Copilot(D("Ask", "pushes to main").ToHookOutput(canAsk: true), CopilotHookEvent.PostToolUse);
+        var wire = CopilotWireOutput.From(CopilotHookEvent.PostToolUse, result);
+
+        Assert.Equal(HookDecision.Block, wire.Decision);
+        Assert.NotNull(wire.ModifiedResult);
+        Assert.StartsWith("withheld by AI.Sentinel: ", wire.ModifiedResult!.TextResultForLlm, StringComparison.Ordinal);
+        Assert.Contains("pushes to main", wire.ModifiedResult.TextResultForLlm, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Copilot_AskOnUserPromptTransformed_WithholdsThePrompt()
+    {
+        var result = Copilot(D("Ask", "pushes to main").ToHookOutput(canAsk: true), CopilotHookEvent.UserPromptTransformed);
+        var wire = CopilotWireOutput.From(CopilotHookEvent.UserPromptTransformed, result);
+
+        Assert.Equal(HookDecision.Block, wire.Decision);
+        Assert.StartsWith("withheld by AI.Sentinel: ", wire.ModifiedTransformedPrompt, StringComparison.Ordinal);
+        Assert.Contains("pushes to main", wire.ModifiedTransformedPrompt, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Copilot_AskOnPreToolUse_NeedsNoReplacement_SinceExitTwoBlocks()
+    {
+        var result = Copilot(D("Ask").ToHookOutput(canAsk: true), CopilotHookEvent.PreToolUse);
+        var wire = CopilotWireOutput.From(CopilotHookEvent.PreToolUse, result);
+
+        Assert.Null(wire.ModifiedResult);
+        Assert.Null(wire.ModifiedTransformedPrompt);
+    }
+
+    // --- decision names and the audit summary --------------------------------------------------
+
+    [Theory]
+    [InlineData("Deny", "deny")]
+    [InlineData("Ask", "ask")]
+    [InlineData("Guidance", "guidance")]
+    [InlineData("Allow", "allow")]
+    [InlineData("Defer", "defer")]
+    public void OutcomeName_IsLowerCase_AndStartsTheAuditSummary(string outcome, string name)
+    {
+        var parsed = Enum.Parse<DecisionOutcome>(outcome);
+
+        Assert.Equal(name, DecisionOutcomes.Name(parsed));
+        Assert.StartsWith(name + ": why;", D(outcome).Summary(), StringComparison.Ordinal);
     }
 }

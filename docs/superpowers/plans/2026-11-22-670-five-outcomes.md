@@ -29,7 +29,7 @@ From the issue. Each has a test or check named after it.
 - **allow** and **defer** emit no permission decision, so the CLI's own permission prompt still applies. `CliOutcomeMappingTests`.
 - **guidance** lets the call run and passes the advice to the agent where the CLI can return context; where it cannot, the hook behaves as today for Warn. `CliOutcomeMappingTests`.
 - **ask** uses the CLI's own ask where it has one. Where the CLI cannot ask, or the run is headless, **ask** becomes **deny** with instructions: explain the command and why it is needed, then let the developer run it or a policy owner allow it. `CliOutcomeMappingTests`.
-- Every decision carries a reason, the sources that caused it, and a policy version field (empty until policy exists). The local audit records them. `DecisionOutcomeTests`.
+- Every decision carries a reason, the sources that caused it, and a policy version field (empty until policy exists). The local audit records them as an `OUTCOME` entry for every decision that carries an outcome. A severity action on its own keeps today's audit, because an entry per call would change its volume with no setting turned on. `DecisionOutcomeTests`.
 - The docs give a table per CLI (Claude Code, Copilot CLI) of how each outcome is expressed. Docs.
 - With none of the new settings, each hook gives the same output for the same input as before; the existing tests pass unchanged. Existing suite.
 
