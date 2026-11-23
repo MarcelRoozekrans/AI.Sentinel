@@ -932,6 +932,10 @@ are **not** supported in v1.1 — see the deferred items in `docs/BACKLOG.md` if
 (was a `char` count, which double-counted for multi-byte characters). ASCII content
 is unchanged; emoji / CJK / accented text reaches the cap sooner.
 
+### Decision outcomes
+
+A hook decision has one of five outcomes, strictest first: deny, ask, guidance, allow and defer; the strictest wins. `Block` is deny, `Warn` is guidance and `Allow` is defer, and the variables below keep their effect. Allow and defer emit no permission decision, so the CLI's own prompt still applies. Where the CLI cannot ask, or the run is headless, ask becomes a deny with instructions. Claude Code expresses ask and guidance through `permissionDecision` and `additionalContext`; Copilot CLI can do neither, so ask is a deny and guidance acts as `Warn` does today. See the [Claude Code](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#decision-outcomes) and [Copilot](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/copilot#decision-outcomes) pages for a table per CLI. Every new setting is optional and off by default; `SENTINEL_HOOK_HEADLESS=on` marks a Claude Code run as unable to ask.
+
 ### Severity → action mapping
 
 Both adapters share the same env-var contract — configure once, applies to both:

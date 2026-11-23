@@ -108,6 +108,7 @@ public static class Program
                 args, input.ToolName, input.SessionId, HookInternalError.Reason(ex), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
         }
 
+        result = CopilotWireOutput.Resolve(evt, result);
         return await WriteDecisionAsync(args, evt, input, result, semanticWarning, config, audit, auditProblems, approvalWarnings, stdout, stderr).ConfigureAwait(false);
     }
 
@@ -127,6 +128,9 @@ public static class Program
         // On Block and Warn stderr carries the reason fed back to the model, so audit and semantic
         // diagnostics stay off it. An audit failure never changes the decision.
         var allowed = output.Decision == HookDecision.Allow;
+        // A decision that carries an outcome is recorded with its reason, sources, policy version and place. A severity
+        // action alone writes no such entry, which keeps today's audit.
+        await OutcomeAudit.RecordAsync(audit.Store, audit.Forwarders, output, input.SessionId, CancellationToken.None).ConfigureAwait(false);
         var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || allowed, stderr).ConfigureAwait(false);
         // Webhook warnings follow the audit problems: kept off the stderr that carries a block reason, unless verbose.
         if (config.Verbose || allowed)

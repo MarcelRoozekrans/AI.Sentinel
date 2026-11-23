@@ -46,6 +46,11 @@ public sealed record HookConfig
     /// </para></summary>
     public bool RedactToolResults { get; init; }
 
+    /// <summary>When true, the run cannot ask the developer, so an <c>ask</c> outcome becomes a deny with instructions.
+    /// Off by default. Set by <c>SENTINEL_HOOK_HEADLESS=on</c>, for a run such as <c>claude -p</c>, whose hook payload
+    /// does not say it is headless.</summary>
+    internal bool Headless { get; init; }
+
     /// <summary>
     /// Resolves the caller identity from the hook input. When <c>null</c> (the default),
     /// <see cref="AnonymousSecurityContext.Instance"/> is used for authorization checks.
@@ -65,6 +70,7 @@ public sealed record HookConfig
             SuppressSemanticWarning = ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"),
             EnableComplianceDetectors = ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE") ?? false,
             RedactToolResults = ParseSwitch(env, "SENTINEL_HOOK_REDACT") ?? true,
+            Headless = ParseSwitch(env, "SENTINEL_HOOK_HEADLESS") ?? false,
         };
     }
 
