@@ -18,6 +18,32 @@ internal sealed class RegoCppRoute : IRoute
 
     public string? Unavailable() => null;
 
+    /// <summary>rego-cpp evaluates opa.runtime itself, so only validation keeps it out.</summary>
+    public IReadOnlyList<string> RuntimeGaps => ["opa.runtime"];
+
+    /// <summary>rego-cpp has no capabilities document, so validation scans the sources for the names.</summary>
+    public IReadOnlyList<string> Validate(BundleSet set) => OutsideBuiltins.Scan(set);
+
+    /// <summary>
+    /// With strict builtin errors an unavailable builtin fails the query. Without them the rule is silently
+    /// undefined and the policy defers, which would fail open. The error names no builtin, so the reason
+    /// names the ones the sources use.
+    /// </summary>
+    public Decision RunUnvalidated(BundleSet set, string inputJson)
+    {
+        var rego = Load(set);
+        rego.StrictBuiltInErrors = true;
+        rego.SetInputTerm(inputJson);
+        var output = rego.Query(Query);
+        if (output.Ok)
+        {
+            var expressions = JsonNode.Parse(output.Expressions().ToJson())!;
+            return OpaResult.Parse(expressions is JsonArray array ? array[0] : expressions);
+        }
+
+        return new Decision("deny", [$"builtin {string.Join(", ", OutsideBuiltins.Scan(set))} reaches outside the process or is unsupported, the evaluation failed"]);
+    }
+
     public void Prepare(BundleSet set, string cacheDir)
     {
         Directory.CreateDirectory(cacheDir);

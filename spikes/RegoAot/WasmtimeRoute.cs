@@ -36,6 +36,30 @@ internal sealed class WasmtimeRoute(ICompiler compiler) : IRoute
         return new WasmEvaluator(engine, module);
     }
 
+    public IReadOnlyList<string> RuntimeGaps => [];
+
+    /// <summary>The compiler is given the capabilities without the outside builtins and refuses the bundle.</summary>
+    public IReadOnlyList<string> Validate(BundleSet set)
+    {
+        try
+        {
+            compiler.CompileWasm(set, OutsideBuiltins.Capabilities());
+            return [];
+        }
+        catch (RegoCompileException e) when (OutsideBuiltins.NamedIn(e.Message).Count > 0)
+        {
+            return OutsideBuiltins.NamedIn(e.Message);
+        }
+    }
+
+    /// <summary>The module compiled with every builtin: the host meets the call and denies, naming it.</summary>
+    public Decision RunUnvalidated(BundleSet set, string inputJson)
+    {
+        var engine = new Engine();
+        using var evaluator = new WasmEvaluator(engine, Module.FromBytes(engine, "policy", compiler.CompileWasm(set)));
+        return evaluator.Evaluate(inputJson);
+    }
+
     /// <summary>Writes the precompiled artifacts, named by the module hash: the wasm and the native code of Wasmtime.</summary>
     public void Prepare(BundleSet set, string cacheDir)
     {
@@ -140,8 +164,11 @@ internal sealed class WasmEvaluator : IEvaluator
         }
         catch (Exception) when (_refused is not null)
         {
-            // A builtin that reaches outside the process was met: the call is denied, and the reason names it.
-            return new Decision("deny", [$"builtin {_refused} reaches outside the process and is refused"]);
+            // A builtin the host does not run was met, one that reaches outside the process or one it has not implemented: the call is denied, and the reason names it.
+            var why = Array.IndexOf(OutsideBuiltins.Names, _refused) >= 0
+                ? "reaches outside the process and is refused"
+                : "is not implemented by the host";
+            return new Decision("deny", [$"builtin {_refused} {why}"]);
         }
     }
 

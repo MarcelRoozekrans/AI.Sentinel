@@ -34,6 +34,7 @@ internal static class Check
 
             available++;
             failures += CheckRoute(route, set, cases);
+            failures += CheckBuiltins(route, set);
         }
 
         if (available == 0)
@@ -85,6 +86,56 @@ internal static class Check
                 Console.WriteLine($"  [{route.Name}/{mode}] {c.Name}: expected {c.Expected}, got {actual.Outcome}{(ok ? "" : $"  <-- MISMATCH, reasons: {string.Join("; ", actual.Reasons)}")}");
                 failures += ok ? 0 : 1;
             }
+        }
+
+        return failures;
+    }
+
+    private static readonly (string Kind, string Builtin)[] Probes =
+    [
+        ("probe-http", "http.send"),
+        ("probe-dns", "net.lookup_ip_addr"),
+        ("probe-runtime", "opa.runtime"),
+    ];
+
+    /// <summary>
+    /// A bundle that calls builtins reaching outside the process must be refused when validated. A bundle
+    /// that was not validated must deny at runtime, with a reason that names the builtin.
+    /// </summary>
+    private static int CheckBuiltins(IRoute route, BundleSet safe)
+    {
+        var failures = 0;
+        failures += Expect(route.Validate(safe).Count == 0, $"[{route.Name}] the sample bundles pass validation");
+
+        var tmp = Path.Combine(Path.GetTempPath(), "regoaot-unsafe-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            CopyDirectory(safe.Root, tmp);
+            CopyDirectory(Path.Combine(AppDir, "policy-unsafe"), tmp);
+            var unsafeSet = BundleSet.Load(tmp);
+            var refused = route.Validate(unsafeSet);
+            foreach (var (_, builtin) in Probes)
+            {
+                failures += Expect(refused.Contains(builtin, StringComparer.Ordinal), $"[{route.Name}] validation refuses {builtin}");
+            }
+
+            foreach (var (kind, builtin) in Probes)
+            {
+                var decision = route.RunUnvalidated(unsafeSet, $"{{\"kind\":\"{kind}\",\"findings\":[],\"files\":[]}}");
+                var named = decision.Reasons.Any(r => r.Contains(builtin, StringComparison.Ordinal));
+                var denied = decision.Outcome == "deny" && named;
+                if (!denied && route.RuntimeGaps.Contains(builtin, StringComparer.Ordinal))
+                {
+                    Console.WriteLine($"  gap  [{route.Name}] {builtin} is evaluated at runtime, got {decision.Outcome}; only validation keeps it out");
+                    continue;
+                }
+
+                failures += Expect(denied, $"[{route.Name}] runtime call of {builtin} denies naming it ({string.Join("; ", decision.Reasons)})");
+            }
+        }
+        finally
+        {
+            Directory.Delete(tmp, recursive: true);
         }
 
         return failures;

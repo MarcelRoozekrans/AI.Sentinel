@@ -17,6 +17,6 @@
     <PackageReference Include="OpaDotNet.Compilation.Interop" Version="2.3.4" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="policy\**\*.rego;policy-unsafe\**\*.rego;inputs\*.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="policy\**\*.rego;policy-unsafe\**\*.rego;inputs\*.json;capabilities.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

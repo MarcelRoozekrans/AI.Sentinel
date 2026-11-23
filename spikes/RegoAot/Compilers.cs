@@ -2,7 +2,6 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpaDotNet.Compilation.Abstractions;
 using OpaDotNet.Compilation.Interop;
@@ -43,10 +42,11 @@ internal sealed class OpaCliCompiler : ICompiler
             }
 
             args.Add(set.Root);
-            var (exit, _, err) = OpaTool.Run(args);
+            var (exit, output, err) = OpaTool.Run(args);
             if (exit != 0)
             {
-                throw new RegoCompileException(err.Trim());
+                // opa build prints its compile errors on stdout.
+                throw new RegoCompileException((output + err).Trim());
             }
 
             return ReadWasm(File.OpenRead(bundle));
@@ -120,25 +120,81 @@ internal static class OutsideBuiltins
 {
     public static readonly string[] Names = ["http.send", "net.lookup_ip_addr", "opa.runtime"];
 
-    /// <summary>The current capabilities of OPA without the builtins that reach outside.</summary>
-    public static string Capabilities()
-    {
-        var (exit, json, err) = OpaTool.Run(["capabilities", "--current"]);
-        if (exit != 0)
-        {
-            throw new InvalidOperationException(err);
-        }
+    /// <summary>
+    /// The capabilities document of OPA v1.22.4 without the builtins above, read from capabilities.json.
+    /// It was made with: opa capabilities --current, then dropping the three builtins from the list.
+    /// A compiler given this document reports every use of a dropped builtin as an undefined function.
+    /// </summary>
+    public static string Capabilities() => File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "capabilities.json"));
 
-        var doc = JsonNode.Parse(json)!.AsObject();
-        var builtins = doc["builtins"]!.AsArray();
-        for (var i = builtins.Count - 1; i >= 0; i--)
+    public static List<string> NamedIn(string message) => Names.Where(n => message.Contains(n, StringComparison.Ordinal)).ToList();
+
+    /// <summary>
+    /// A lexical scan for engines that have no capabilities document: the names that occur in the sources
+    /// outside comments and string literals. It over-refuses (a name in a rule head would count) and cannot
+    /// see anything a compiler would resolve, so a compiler with capabilities is the better check.
+    /// </summary>
+    public static List<string> Scan(BundleSet set)
+    {
+        var found = new List<string>();
+        foreach (var file in set.Files)
         {
-            if (Array.IndexOf(Names, builtins[i]!["name"]!.GetValue<string>()) >= 0)
+            var code = StripCommentsAndStrings(File.ReadAllText(Path.Combine(set.Root, file)));
+            foreach (var name in Names)
             {
-                builtins.RemoveAt(i);
+                for (var at = code.IndexOf(name, StringComparison.Ordinal); at >= 0; at = code.IndexOf(name, at + 1, StringComparison.Ordinal))
+                {
+                    var before = at == 0 ? ' ' : code[at - 1];
+                    var after = at + name.Length < code.Length ? code[at + name.Length] : ' ';
+                    if (!IsNameChar(before) && !IsNameChar(after) && !found.Contains(name, StringComparer.Ordinal))
+                    {
+                        found.Add(name);
+                    }
+                }
             }
         }
 
-        return doc.ToJsonString();
+        return found;
+    }
+
+    private static bool IsNameChar(char c) => char.IsLetterOrDigit(c) || c is '_' or '.';
+
+    private static string StripCommentsAndStrings(string source)
+    {
+        var sb = new StringBuilder(source.Length);
+        for (var i = 0; i < source.Length; i++)
+        {
+            var c = source[i];
+            if (c == '#')
+            {
+                while (i < source.Length && source[i] != '\n')
+                {
+                    i++;
+                }
+
+                sb.Append('\n');
+            }
+            else if (c == '"')
+            {
+                for (i++; i < source.Length && source[i] != '"'; i++)
+                {
+                    i += source[i] == '\\' ? 1 : 0;
+                }
+
+                sb.Append("\"\"");
+            }
+            else if (c == '`')
+            {
+                i = source.IndexOf('`', i + 1);
+                i = i < 0 ? source.Length : i;
+                sb.Append("``");
+            }
+            else
+            {
+                sb.Append(c);
+            }
+        }
+
+        return sb.ToString();
     }
 }

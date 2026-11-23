@@ -20,15 +20,55 @@ internal static class OpaResult
         return new Decision(node["outcome"]!.GetValue<string>(), reasons);
     }
 
+    /// <summary>
+    /// opa check with the capabilities document names the outside builtins as undefined functions, and
+    /// opa eval with it fails the same way. A process cannot deny one call: the whole bundle fails to load.
+    /// </summary>
+    public static IReadOnlyList<string> Validate(BundleSet set)
+    {
+        var (exit, output, err) = WithCapabilities(caps => ["check", "--capabilities", caps, set.Root]);
+        return exit == 0 ? [] : OutsideBuiltins.NamedIn(output + err);
+    }
+
+    public static Decision RunUnvalidated(BundleSet set, string inputJson)
+    {
+        var (exit, output, err) = WithCapabilities(
+            caps => ["eval", "--capabilities", caps, "--stdin-input", "--format", "raw", "-d", set.Root, "data.sentinel.decision"],
+            inputJson);
+        if (exit == 0)
+        {
+            return Parse(JsonNode.Parse(output));
+        }
+
+        var names = OutsideBuiltins.NamedIn(output + err);
+        return names.Count > 0
+            ? new Decision("deny", [$"builtin {string.Join(", ", names)} reaches outside the process and is refused"])
+            : throw new InvalidOperationException("opa failed: " + (output + err).Trim());
+    }
+
+    private static (int Exit, string Out, string Err) WithCapabilities(Func<string, string[]> args, string? stdin = null)
+    {
+        var caps = Path.Combine(Path.GetTempPath(), "regoaot-caps-" + Guid.NewGuid().ToString("N") + ".json");
+        File.WriteAllText(caps, OutsideBuiltins.Capabilities());
+        try
+        {
+            return OpaTool.Run(args(caps), stdin);
+        }
+        finally
+        {
+            File.Delete(caps);
+        }
+    }
+
     public static string BundlePath(BundleSet set, string cacheDir) => Path.Combine(cacheDir, set.Hash + ".tar.gz");
 
     public static void BuildBundle(BundleSet set, string cacheDir)
     {
         Directory.CreateDirectory(cacheDir);
-        var (exit, _, err) = OpaTool.Run(["build", "-o", BundlePath(set, cacheDir), set.Root]);
+        var (exit, output, err) = OpaTool.Run(["build", "-o", BundlePath(set, cacheDir), set.Root]);
         if (exit != 0)
         {
-            throw new RegoCompileException(err.Trim());
+            throw new RegoCompileException((output + err).Trim());
         }
     }
 }
@@ -43,6 +83,12 @@ internal sealed class OpaEvalRoute : IRoute
     public string? Unavailable() => OpaTool.Unavailable();
 
     public void Prepare(BundleSet set, string cacheDir) => OpaResult.BuildBundle(set, cacheDir);
+
+    public IReadOnlyList<string> RuntimeGaps => [];
+
+    public IReadOnlyList<string> Validate(BundleSet set) => OpaResult.Validate(set);
+
+    public Decision RunUnvalidated(BundleSet set, string inputJson) => OpaResult.RunUnvalidated(set, inputJson);
 
     public IEvaluator Create(BundleSet set, string mode, string cacheDir) =>
         new Evaluator(mode == "cold" ? ["-d", set.Root] : ["-b", OpaResult.BundlePath(set, cacheDir)]);
@@ -79,6 +125,12 @@ internal sealed class OpaServerRoute : IRoute
     public string? Unavailable() => OpaTool.Unavailable();
 
     public void Prepare(BundleSet set, string cacheDir) => OpaResult.BuildBundle(set, cacheDir);
+
+    public IReadOnlyList<string> RuntimeGaps => [];
+
+    public IReadOnlyList<string> Validate(BundleSet set) => OpaResult.Validate(set);
+
+    public Decision RunUnvalidated(BundleSet set, string inputJson) => OpaResult.RunUnvalidated(set, inputJson);
 
     public IEvaluator Create(BundleSet set, string mode, string cacheDir) =>
         new Evaluator(mode == "cold" ? set.Root : OpaResult.BundlePath(set, cacheDir));

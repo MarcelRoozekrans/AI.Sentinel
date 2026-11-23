@@ -5,6 +5,15 @@ import rego.v1
 # Host-provided: combines the outcomes of every bundle. Strictest first:
 # deny, ask, guidance, allow, defer. The strictest outcome wins across bundles.
 
+# Declares every outcome set, so a configuration whose bundles define only some of them still compiles.
+deny contains "" if false
+
+ask contains "" if false
+
+guidance contains "" if false
+
+allow contains "" if false
+
 default outcome := "defer"
 
 outcome := "deny" if count(deny) > 0

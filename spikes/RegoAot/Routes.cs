@@ -22,6 +22,15 @@ internal interface IRoute
 
     /// <summary>Writes the precompiled artifacts of the module into the cache directory.</summary>
     void Prepare(BundleSet set, string cacheDir);
+
+    /// <summary>The builtins that reach outside the process which the set uses and the route refuses when it validates the set. Empty when the set is accepted.</summary>
+    IReadOnlyList<string> Validate(BundleSet set);
+
+    /// <summary>Evaluates a set that was not validated, as if a bundle had slipped past validation.</summary>
+    Decision RunUnvalidated(BundleSet set, string inputJson);
+
+    /// <summary>Builtins the route evaluates at runtime instead of refusing; a documented gap that validation has to cover.</summary>
+    IReadOnlyList<string> RuntimeGaps { get; }
 }
 
 internal static class Routes
