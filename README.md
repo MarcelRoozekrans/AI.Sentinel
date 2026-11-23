@@ -955,6 +955,18 @@ The first call after a policy change compiles the folder in a child process of t
 
 A folder that cannot be read, compiled or loaded blocks `PreToolUse` with a `Sentinel internal error: policy '<folder>' could not be evaluated` reason, so an unreadable policy never lets a call through. That includes a platform without the Wasmtime library, which has no build for musl (Alpine), and a machine with neither a compiler for the policy nor a cached module. See [Local Rego policy](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#local-rego-policy) for the input, an example and the platform notes.
 
+### Resident local process
+
+`SENTINEL_HOOK_RESIDENT=on` lets `sentinel-hook` and `sentinel-copilot-hook` use one resident process per user, started from the hook binary itself with `--resident`. **Every new setting is optional and off by default: without `SENTINEL_HOOK_RESIDENT` no process is started and the hooks behave exactly as before; `SENTINEL_HOOK_POLICY_DIR` alone does not turn it on.** It keeps the compiled policy module warm and answers the policy evaluation of each `PreToolUse` over a per-user Unix domain socket, and it writes the pause state and the signed profile cache to its private state folder, which a hook reads without network traffic. A hook that finds no process starts one, detached, and evaluates that call in-process; the process exits after 30 idle minutes, and no OS service is installed. The order is resident process, then in-process, then the server once there is one, within 50 ms per call, and each decision records `decided=resident`, `decided=in-process` or `decided=server` in its audit entry.
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_RESIDENT` | `off` | `on` / `1` / `true` / `yes` → use the resident process |
+| `SENTINEL_HOOK_RESIDENT_DIR` | `ai-sentinel/resident` under the user's local application data | The per-user state folder; keep the path short, as a Unix socket path is limited to about 100 characters |
+| `SENTINEL_HOOK_RESIDENT_BUDGET_MS` | `15` | How long a hook waits for the process to answer before it evaluates in-process |
+
+A paused session has every tool call denied with the reason. See [Resident local process](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#resident-local-process) for the channel, the state files and what fails closed.
+
 ### Severity → action mapping
 
 Both adapters share the same env-var contract — configure once, applies to both:

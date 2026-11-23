@@ -244,6 +244,26 @@ Platforms:
 - **Wasmtime.** Its native library has builds for linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64 and win-arm64, and none for musl. On Alpine, `SENTINEL_HOOK_POLICY_DIR` blocks every `PreToolUse` with a reason that names the platform, so leave it unset there.
 - **Size.** The hook packages carry the Wasmtime library, about 30 MB, and on linux-x64 and win-x64 the compiler library, about 24 MB.
 
+## Resident local process
+
+`SENTINEL_HOOK_RESIDENT=on` lets the hooks use one resident process per user, started from the hook binary itself: `sentinel-hook --resident`, or `sentinel-copilot-hook --resident`, the same process for both. **It is optional and off by default. Every new setting here is optional and off by default: without `SENTINEL_HOOK_RESIDENT` no process is started, nothing is written to a state folder and the hooks behave exactly as before.** Setting `SENTINEL_HOOK_POLICY_DIR` does not turn it on, so a local policy keeps working as it did until you opt in.
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_RESIDENT` | `off` | `on` / `1` / `true` / `yes` → use the resident process |
+| `SENTINEL_HOOK_RESIDENT_DIR` | `ai-sentinel/resident` under the user's local application data | The per-user state folder. Keep the path short: a Unix socket path is limited to about 100 characters |
+| `SENTINEL_HOOK_RESIDENT_BUDGET_MS` | `15` | How long a hook waits for the resident process to answer before it evaluates in-process |
+
+- **What it does.** It keeps the compiled policy module loaded and answers the policy evaluation of each `PreToolUse`, so a hook does not load the module itself. It holds the pause state and the signed profile cache in its state folder. It has no connection to a server yet, and forwards nothing.
+- **Starting and stopping.** A hook that finds no resident process starts one, detached, with its standard streams not inherited, so the hook exits when it has decided; that call is evaluated in-process. A lock file opened without sharing in the state folder keeps it to one process per user, and the operating system releases the lock when the process ends, however it ends. It exits after 30 idle minutes. No OS service is installed.
+- **The channel.** A Unix domain socket in the state folder, which works on Linux, macOS and Windows 10 and later. The folder is private to the user (mode 700 on Unix, an ACL for the user alone on Windows) and the socket is mode 600, so another user cannot connect. A folder that already exists and is open to others is not used: the process moves to a `.private` sibling, as the policy cache does.
+- **Evaluation order.** The resident process answers first. When it does not answer within the budget, or fails, the hook evaluates the module in-process; the budget is spent once per call. When that fails too the call is blocked as an internal error, as it is without the resident process, and once a server exists it is asked at that point. The whole decision stays within 50 ms per call.
+- **Where a decision was made.** The audit entry of a decision that carries an outcome ends in `decided=resident`, `decided=in-process` or `decided=server`.
+- **Pause state.** The process writes the paused sessions to `pause.json` in its state folder. A hook reads that file, with no network traffic and no running process, and denies every tool call of a paused session with the reason, whatever else it decided. A pause names a session and can have an end.
+- **Profile cache.** The process writes the last valid signed profile to `profile.json`. It is stored only after the signature, the expiry, the organisation and the repository check as described under [Signed policy profile](#signed-policy-profile-groundwork-not-wired-in); a profile that fails does not replace the last valid one, and the cache is checked again on every read. A cached profile is used offline until it expires. Nothing sends the process a profile or pins keys yet, so no hook reads the cache; that comes with the sign-in and the server connection.
+- **Files.** Every file is written whole under a temporary name and moved onto its name, with the sha256 of its content in front, so a reader sees the old file or the new one and never half of one; a damaged file reads as absent.
+- **Fails closed.** A state folder that cannot be used blocks `PreToolUse` as an internal error. A resident process that is missing, slow or broken is not an error: the hook evaluates in-process.
+
 ## When the hook itself fails
 
 The hook fails closed on `PreToolUse`. When it cannot evaluate a tool call, it blocks the call with exit 2 and a reason that starts with `Sentinel internal error:` on stderr. This covers:
@@ -259,7 +279,7 @@ On `UserPromptSubmit` and `PostToolUse` the same failures exit 1 with the error 
 
 ## Signed policy profile (groundwork, not wired in)
 
-When the PC is later controlled by an organisation's server, it will enforce only policy the server signed (ADR-233). The building blocks are in the core library as internal types. Nothing reads them yet: no hook, setting or environment variable uses a profile, and every new setting this work adds is optional and off by default, so hook behaviour is unchanged.
+When the PC is later controlled by an organisation's server, it will enforce only policy the server signed (ADR-233). The building blocks are in the core library as internal types. No hook, setting or environment variable uses a profile yet, and every new setting this work adds is optional and off by default, so hook behaviour is unchanged. The [resident local process](#resident-local-process) can hold a verified profile in its state folder, but nothing hands it one.
 
 - **Profile.** Organisation, repository, node, configuration version, module hash and module, `fail_mode`, severity defaults, logging switches, issue time and expiry.
 - **Canonical form.** The server signs the profile as canonical JSON: one UTF-8 object with keys sorted by ordinal comparison, no whitespace, default System.Text.Json string escaping, integers in plain decimal and times as UTC to the whole second (`yyyy-MM-ddTHH:mm:ssZ`). The same profile always gives the same bytes.
