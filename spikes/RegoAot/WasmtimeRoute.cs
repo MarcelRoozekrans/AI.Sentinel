@@ -26,10 +26,10 @@ internal sealed class WasmtimeRoute(ICompiler compiler) : IRoute
                 module = Module.FromBytes(engine, "policy", compiler.CompileWasm(set));
                 break;
             case "cached-native":
-                module = Module.DeserializeFile(engine, "policy", Path.Combine(cacheDir, set.Hash + ".cwasm"));
+                module = Module.Deserialize(engine, "policy", Cache.ReadVerified(Path.Combine(cacheDir, set.Hash + ".cwasm")));
                 break;
             default:
-                module = Module.FromFile(engine, Path.Combine(cacheDir, set.Hash + ".wasm"));
+                module = Module.FromBytes(engine, "policy", Cache.ReadVerified(Path.Combine(cacheDir, set.Hash + ".wasm")));
                 break;
         }
 
@@ -63,12 +63,12 @@ internal sealed class WasmtimeRoute(ICompiler compiler) : IRoute
     /// <summary>Writes the precompiled artifacts, named by the module hash: the wasm and the native code of Wasmtime.</summary>
     public void Prepare(BundleSet set, string cacheDir)
     {
-        Directory.CreateDirectory(cacheDir);
+        Cache.Create(cacheDir);
         var wasm = compiler.CompileWasm(set);
-        File.WriteAllBytes(Path.Combine(cacheDir, set.Hash + ".wasm"), wasm);
+        Cache.WriteVerified(Path.Combine(cacheDir, set.Hash + ".wasm"), wasm);
         using var engine = new Engine();
         using var module = Module.FromBytes(engine, "policy", wasm);
-        File.WriteAllBytes(Path.Combine(cacheDir, set.Hash + ".cwasm"), module.Serialize());
+        Cache.WriteVerified(Path.Combine(cacheDir, set.Hash + ".cwasm"), module.Serialize());
     }
 }
 

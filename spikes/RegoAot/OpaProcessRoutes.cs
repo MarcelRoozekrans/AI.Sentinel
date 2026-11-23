@@ -20,20 +20,44 @@ internal static class OpaResult
         return new Decision(node["outcome"]!.GetValue<string>(), reasons);
     }
 
+    private static readonly Lazy<string> CapabilitiesFile = new(() =>
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "regoaot-caps-" + Guid.NewGuid().ToString("N"));
+        Cache.Create(dir);
+        var path = Path.Combine(dir, "capabilities.json");
+        File.WriteAllText(path, OutsideBuiltins.Capabilities());
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => Directory.Delete(dir, recursive: true);
+        return path;
+    });
+
+    /// <summary>
+    /// The capabilities document without the outside builtins, written once per process. Every opa command
+    /// that loads the policy gets it, because without it OPA would run http.send for real.
+    /// </summary>
+    public static string[] CapabilitiesArgs() => ["--capabilities", CapabilitiesFile.Value];
+
     /// <summary>
     /// opa check with the capabilities document names the outside builtins as undefined functions, and
     /// opa eval with it fails the same way. A process cannot deny one call: the whole bundle fails to load.
+    /// A failed check that names none of them is not a verdict on the builtins, so it is an error and the
+    /// bundle is not accepted.
     /// </summary>
     public static IReadOnlyList<string> Validate(BundleSet set)
     {
-        var (exit, output, err) = WithCapabilities(caps => ["check", "--capabilities", caps, set.Root]);
-        return exit == 0 ? [] : OutsideBuiltins.NamedIn(output + err);
+        var (exit, output, err) = OpaTool.Run(["check", .. CapabilitiesArgs(), set.Root]);
+        if (exit == 0)
+        {
+            return [];
+        }
+
+        var names = OutsideBuiltins.NamedIn(output + err);
+        return names.Count > 0 ? names : throw new RegoCompileException((output + err).Trim());
     }
 
     public static Decision RunUnvalidated(BundleSet set, string inputJson)
     {
-        var (exit, output, err) = WithCapabilities(
-            caps => ["eval", "--capabilities", caps, "--stdin-input", "--format", "raw", "-d", set.Root, "data.sentinel.decision"],
+        var (exit, output, err) = OpaTool.Run(
+            ["eval", .. CapabilitiesArgs(), "--stdin-input", "--format", "raw", "-d", set.Root, "data.sentinel.decision"],
             inputJson);
         if (exit == 0)
         {
@@ -46,26 +70,12 @@ internal static class OpaResult
             : throw new InvalidOperationException("opa failed: " + (output + err).Trim());
     }
 
-    private static (int Exit, string Out, string Err) WithCapabilities(Func<string, string[]> args, string? stdin = null)
-    {
-        var caps = Path.Combine(Path.GetTempPath(), "regoaot-caps-" + Guid.NewGuid().ToString("N") + ".json");
-        File.WriteAllText(caps, OutsideBuiltins.Capabilities());
-        try
-        {
-            return OpaTool.Run(args(caps), stdin);
-        }
-        finally
-        {
-            File.Delete(caps);
-        }
-    }
-
     public static string BundlePath(BundleSet set, string cacheDir) => Path.Combine(cacheDir, set.Hash + ".tar.gz");
 
     public static void BuildBundle(BundleSet set, string cacheDir)
     {
-        Directory.CreateDirectory(cacheDir);
-        var (exit, output, err) = OpaTool.Run(["build", "-o", BundlePath(set, cacheDir), set.Root]);
+        Cache.Create(cacheDir);
+        var (exit, output, err) = OpaTool.Run(["build", .. CapabilitiesArgs(), "-o", BundlePath(set, cacheDir), set.Root]);
         if (exit != 0)
         {
             throw new RegoCompileException((output + err).Trim());
@@ -98,6 +108,7 @@ internal sealed class OpaEvalRoute : IRoute
         public Decision Evaluate(string inputJson)
         {
             var args = new List<string> { "eval", "--stdin-input", "--format", "raw" };
+            args.AddRange(OpaResult.CapabilitiesArgs());
             args.AddRange(source);
             args.Add("data.sentinel.decision");
             var (exit, output, err) = OpaTool.Run(args, stdin: inputJson);
@@ -130,10 +141,36 @@ internal sealed class OpaServerRoute : IRoute
 
     public IReadOnlyList<string> Validate(BundleSet set) => OpaResult.Validate(set);
 
-    public Decision RunUnvalidated(BundleSet set, string inputJson) => OpaResult.RunUnvalidated(set, inputJson);
+    /// <summary>
+    /// opa run has no capabilities flag, so the server cannot refuse a builtin at runtime. The guard sits in front
+    /// of it: Create validates a source directory before it starts the server, and the cached bundle was built
+    /// with the capabilities document. Here the set is not validated, so Create refuses it and the call denies.
+    /// </summary>
+    public Decision RunUnvalidated(BundleSet set, string inputJson)
+    {
+        try
+        {
+            using var evaluator = Create(set, "cold", "");
+            return evaluator.Evaluate(inputJson);
+        }
+        catch (RegoCompileException e) when (OutsideBuiltins.NamedIn(e.Message).Count > 0)
+        {
+            return new Decision("deny", [e.Message]);
+        }
+    }
 
-    public IEvaluator Create(BundleSet set, string mode, string cacheDir) =>
-        new Evaluator(mode == "cold" ? set.Root : OpaResult.BundlePath(set, cacheDir));
+    public IEvaluator Create(BundleSet set, string mode, string cacheDir)
+    {
+        if (mode != "cold")
+        {
+            return new Evaluator(OpaResult.BundlePath(set, cacheDir));
+        }
+
+        var refused = Validate(set);
+        return refused.Count == 0
+            ? new Evaluator(set.Root)
+            : throw new RegoCompileException($"builtin {string.Join(", ", refused)} reaches outside the process and is refused");
+    }
 
     private sealed class Evaluator : IEvaluator
     {
@@ -153,16 +190,25 @@ internal sealed class OpaServerRoute : IRoute
                 RedirectStandardError = true,
                 UseShellExecute = false,
             };
-            foreach (var a in new[] { "run", "--server", "--addr", $"127.0.0.1:{port}", "--log-level", "error", source })
+            foreach (var a in (string[])["run", "--server", "--addr", $"127.0.0.1:{port}", "--log-level", "error", source])
             {
                 psi.ArgumentList.Add(a);
             }
 
             _process = Process.Start(psi)!;
-            _process.OutputDataReceived += (_, _) => { };
-            _process.BeginOutputReadLine();
             _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/") };
-            WaitUntilReady();
+            try
+            {
+                _process.OutputDataReceived += (_, _) => { };
+                _process.BeginOutputReadLine();
+                WaitUntilReady();
+            }
+            catch
+            {
+                // The constructor does not return, so nobody can dispose this: release the child and the client here.
+                Dispose();
+                throw;
+            }
         }
 
         public Decision Evaluate(string inputJson)

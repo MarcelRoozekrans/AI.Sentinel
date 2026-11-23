@@ -51,6 +51,60 @@ internal static class Routes
 
 internal static class Cache
 {
-    /// <summary>Precompiled artifacts live under a directory named by the module hash.</summary>
-    public static string Dir(BundleSet set) => Path.Combine(Path.GetTempPath(), "regoaot-cache", set.Hash);
+    /// <summary>
+    /// Precompiled artifacts live under a per-user directory named by the module hash, never in the shared
+    /// temp directory: the native code is loaded and run, so another user must not be able to plant it.
+    /// </summary>
+    public static string Dir(BundleSet set)
+    {
+        var baseDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrEmpty(baseDir))
+        {
+            baseDir = Path.Combine(Path.GetTempPath(), "regoaot-" + Environment.UserName);
+        }
+
+        return Path.Combine(baseDir, "regoaot-cache", set.Hash);
+    }
+
+    /// <summary>Creates the directory owner-only on Unix and refuses one that anyone else can write.</summary>
+    public static void Create(string dir)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Directory.CreateDirectory(dir);
+            return;
+        }
+
+        const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+        Directory.CreateDirectory(dir, OwnerOnly);
+        var parent = Path.GetDirectoryName(dir)!;
+        foreach (var d in Path.GetFileName(parent) == "regoaot-cache" ? new[] { dir, parent } : [dir])
+        {
+            if ((File.GetUnixFileMode(d) & ~OwnerOnly) != 0)
+            {
+                File.SetUnixFileMode(d, OwnerOnly);
+            }
+        }
+    }
+
+    /// <summary>Writes the artifact and the digest of it. The digest is the integrity check made before the bytes are loaded.</summary>
+    public static void WriteVerified(string path, byte[] bytes)
+    {
+        File.WriteAllBytes(path, bytes);
+        File.WriteAllText(path + ".sha256", Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)));
+    }
+
+    /// <summary>
+    /// Reads the artifact and checks it against its digest. A missing file, a missing digest or a mismatch
+    /// throws, and the caller decides what that means. The bytes that were hashed are the bytes that are loaded.
+    /// </summary>
+    public static byte[] ReadVerified(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var expected = File.ReadAllText(path + ".sha256").Trim();
+        var actual = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+        return string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase)
+            ? bytes
+            : throw new InvalidDataException($"{Path.GetFileName(path)} does not match its recorded digest");
+    }
 }

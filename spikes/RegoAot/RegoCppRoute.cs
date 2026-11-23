@@ -25,28 +25,16 @@ internal sealed class RegoCppRoute : IRoute
     public IReadOnlyList<string> Validate(BundleSet set) => OutsideBuiltins.Scan(set);
 
     /// <summary>
-    /// With strict builtin errors an unavailable builtin fails the query. Without them the rule is silently
-    /// undefined and the policy defers, which would fail open. The error names no builtin, so the reason
-    /// names the ones the sources use.
+    /// The shipped evaluator, on a bundle that was not validated. With strict builtin errors an unavailable
+    /// builtin fails the query and the evaluator denies. The error names no builtin, so the reason names the
+    /// ones the sources use.
     /// </summary>
-    public Decision RunUnvalidated(BundleSet set, string inputJson)
-    {
-        var rego = Load(set);
-        rego.StrictBuiltInErrors = true;
-        rego.SetInputTerm(inputJson);
-        var output = rego.Query(Query);
-        if (output.Ok)
-        {
-            var expressions = JsonNode.Parse(output.Expressions().ToJson())!;
-            return OpaResult.Parse(expressions is JsonArray array ? array[0] : expressions);
-        }
-
-        return new Decision("deny", [$"builtin {string.Join(", ", OutsideBuiltins.Scan(set))} reaches outside the process or is unsupported, the evaluation failed"]);
-    }
+    public Decision RunUnvalidated(BundleSet set, string inputJson) =>
+        new Evaluator(Load(set), null, set).Evaluate(inputJson);
 
     public void Prepare(BundleSet set, string cacheDir)
     {
-        Directory.CreateDirectory(cacheDir);
+        Cache.Create(cacheDir);
         var rego = Load(set);
         rego.SaveBundle(BundlePath(set, cacheDir), rego.Build(Query), BundleFormat.Binary);
     }
@@ -55,16 +43,16 @@ internal sealed class RegoCppRoute : IRoute
     {
         if (mode == "cold")
         {
-            return new Evaluator(Load(set), null);
+            return new Evaluator(Load(set), null, set);
         }
 
-        var rego = new Interpreter();
-        return new Evaluator(rego, rego.LoadBundle(BundlePath(set, cacheDir), BundleFormat.Binary));
+        var rego = new Interpreter { StrictBuiltInErrors = true };
+        return new Evaluator(rego, rego.LoadBundle(BundlePath(set, cacheDir), BundleFormat.Binary), set);
     }
 
     private static Interpreter Load(BundleSet set)
     {
-        var rego = new Interpreter();
+        var rego = new Interpreter { StrictBuiltInErrors = true };
         foreach (var file in set.Files)
         {
             rego.AddModule(file, File.ReadAllText(Path.Combine(set.Root, file)));
@@ -75,13 +63,18 @@ internal sealed class RegoCppRoute : IRoute
 
     private static string BundlePath(BundleSet set, string cacheDir) => Path.Combine(cacheDir, set.Hash + ".rego-bundle");
 
-    private sealed class Evaluator(Interpreter rego, Bundle? bundle) : IEvaluator
+    private sealed class Evaluator(Interpreter rego, Bundle? bundle, BundleSet set) : IEvaluator
     {
         public Decision Evaluate(string inputJson)
         {
             rego.SetInputTerm(inputJson);
             var output = bundle is null ? rego.Query(Query) : rego.QueryBundle(bundle);
-            if (!output.Ok || output.Count == 0)
+            if (!output.Ok)
+            {
+                return new Decision("deny", [$"builtin {string.Join(", ", OutsideBuiltins.Scan(set))} reaches outside the process or is unsupported, the evaluation failed"]);
+            }
+
+            if (output.Count == 0)
             {
                 return new Decision("defer", []);
             }
