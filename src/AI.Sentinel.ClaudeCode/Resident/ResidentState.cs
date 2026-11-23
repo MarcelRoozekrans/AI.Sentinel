@@ -38,18 +38,14 @@ internal sealed class ResidentState(string directory)
     public IReadOnlyList<PausedSession> ReadPauses()
     {
         var path = Path.Combine(Directory, PauseFile);
-        if (!File.Exists(path))
-        {
-            return [];
-        }
-
         try
         {
+            // Absence is told by the read itself: File.Exists says false for a file it cannot get at, which would read as nobody paused.
             var bytes = PolicyCache.TryRead(path);
             if (bytes is null)
             {
-                // TryRead says absent for a file that vanished since the check, and for one that is short or fails its digest.
-                return File.Exists(path) ? throw new InvalidDataException("fails its digest") : [];
+                // TryRead says absent for a missing file, and for one that is short or fails its digest.
+                return IsMissing(path) ? [] : throw new InvalidDataException("fails its digest");
             }
 
             return JsonSerializer.Deserialize(bytes, ResidentStateJsonContext.Default.PausedSessionArray)?.Where(p => p?.Session is not null).ToArray()
@@ -58,6 +54,21 @@ internal sealed class ResidentState(string directory)
         catch (Exception e) when (e is InvalidDataException or JsonException or IOException or UnauthorizedAccessException)
         {
             throw new InvalidDataException($"the pause state is unreadable ({e.Message}); every session is treated as paused until it is rewritten", e);
+        }
+    }
+
+    // Opening is what separates a file that is not there from one that is there and cannot be read: the second throws
+    // UnauthorizedAccessException or IOException, which the caller turns into an error.
+    private static bool IsMissing(string path)
+    {
+        try
+        {
+            using var _ = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            return false;
+        }
+        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return true;
         }
     }
 

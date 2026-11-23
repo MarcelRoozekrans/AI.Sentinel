@@ -25,7 +25,7 @@ internal static class ResidentLauncher
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
-            return ResidentStart.Failed;
+            return ResidentStart.Unusable;
         }
 
         return (start ?? StartDetached)(launch) ? ResidentStart.Started : ResidentStart.Failed;
