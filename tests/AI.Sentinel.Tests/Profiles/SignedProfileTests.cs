@@ -287,6 +287,31 @@ public sealed class SignedProfileTests
         Assert.Null(SignedProfile.Parse("{}"));
     }
 
+    [Theory]
+    [InlineData("profile")]
+    [InlineData("key_id")]
+    [InlineData("signature")]
+    public void An_envelope_with_a_null_member_does_not_parse(string member)
+    {
+        var (signer, _) = Server();
+        var json = System.Text.Json.Nodes.JsonNode.Parse(signer.Issue(Sample()).ToJson())!.AsObject();
+        json[member] = null;
+
+        Assert.Null(SignedProfile.Parse(json.ToJsonString()));
+    }
+
+    [Fact]
+    public void A_signed_profile_with_a_null_severity_action_is_refused_as_malformed()
+    {
+        var (signer, pins) = Server();
+        var profile = Sample() with
+        {
+            SeverityDefaults = new Dictionary<string, string>(StringComparer.Ordinal) { ["high"] = null! },
+        };
+
+        Assert.Equal(ProfileRejection.Malformed, Check(signer.Issue(profile), pins).Rejection);
+    }
+
     [Fact]
     public void No_pinned_keys_means_no_profile_is_accepted()
     {

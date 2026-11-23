@@ -93,6 +93,7 @@ internal static class ProfileCanonicalJson
         && p.Module is not null
         && p.ModuleHash is not null
         && p.SeverityDefaults is not null
+        && p.SeverityDefaults.Values.All(action => action is not null)
         && p.LoggingSwitches is not null
         && ProfileFailModes.IsValid(p.FailMode)
         && p.ExpiresAt > p.IssuedAt;

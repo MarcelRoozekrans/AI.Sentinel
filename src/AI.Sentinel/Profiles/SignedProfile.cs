@@ -42,6 +42,11 @@ internal sealed record SignedProfile
             {
                 return null;
             }
+            // `required` checks that a member is present, not that it is non-null: an explicit null is not an envelope.
+            if (parsed.Profile is null || parsed.KeyId is null || parsed.Signature is null)
+            {
+                return null;
+            }
             // For a type with required members the generated reader leaves an absent member at null, not at its
             // initializer, and lets an explicit null through: both mean no endorsements. A null entry is refused.
             if (parsed.Endorsements is null)
