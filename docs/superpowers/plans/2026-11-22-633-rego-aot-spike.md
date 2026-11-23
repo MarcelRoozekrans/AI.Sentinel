@@ -38,46 +38,46 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Spike app skeleton
 
-- [ ] Create `spikes/RegoAot/RegoAot.csproj`, a `net10.0` console app with `PublishAot=true`, outside `AI.Sentinel.slnx`, with its own `Directory.Build.props` if the repo one gets in the way.
-- [ ] Add `spikes/RegoAot/policy/` with at least two bundles in package `sentinel` that read an input shaped like the design's policy input and return the design's five outcomes: a deny on a `shell` command, an ask, a guidance, an allow.
-- [ ] Add `spikes/RegoAot/inputs/*.json` with at least six tool-call inputs and their expected outcomes.
-- [ ] Add a `--check` mode that evaluates every input on every available route and exits non-zero when an outcome differs from the expected one. With no route available it says so and exits zero, so the spike can still report that none works.
-- [ ] Commit.
+- [x] Create `spikes/RegoAot/RegoAot.csproj`, a `net10.0` console app with `PublishAot=true`, outside `AI.Sentinel.slnx`, with its own `Directory.Build.props` if the repo one gets in the way.
+- [x] Add `spikes/RegoAot/policy/` with at least two bundles in package `sentinel` that read an input shaped like the design's policy input and return the design's five outcomes: a deny on a `shell` command, an ask, a guidance, an allow.
+- [x] Add `spikes/RegoAot/inputs/*.json` with at least six tool-call inputs and their expected outcomes.
+- [x] Add a `--check` mode that evaluates every input on every available route and exits non-zero when an outcome differs from the expected one. With no route available it says so and exits zero, so the spike can still report that none works.
+- [x] Commit.
 
 ### Task 2: WebAssembly route
 
-- [ ] Compile the bundles into one module, identified by its hash, and run it with a .NET WebAssembly runtime such as OpaDotNet.Wasm or Wasmtime.
-- [ ] Measure p50 and p95 over at least 200 runs each: cold (new process, no cache), cached-precompiled (new process, module precompiled to disk) and warm (same process). Record the binary size added.
-- [ ] Commit.
+- [x] Compile the bundles into one module, identified by its hash, and run it with a .NET WebAssembly runtime such as OpaDotNet.Wasm or Wasmtime.
+- [x] Measure p50 and p95 over at least 200 runs each: cold (new process, no cache), cached-precompiled (new process, module precompiled to disk) and warm (same process). Record the binary size added.
+- [x] Commit.
 
 ### Task 3: OPA process route
 
-- [ ] Run OPA as a local process and query it; measure the same three modes, counting OPA startup for cold.
-- [ ] Commit.
+- [x] Run OPA as a local process and query it; measure the same three modes, counting OPA startup for cold.
+- [x] Commit.
 
 ### Task 4: Pure .NET route and the compiler
 
-- [ ] Look for a Rego engine written in .NET; if one is complete enough for the sample bundles, add it as a route and measure it, otherwise record why not.
-- [ ] Compile the bundles from .NET without the `opa` binary, for example with OpaDotNet's interop compiler, and record whether it works under AOT and on which platforms.
-- [ ] Commit.
+- [x] Look for a Rego engine written in .NET; if one is complete enough for the sample bundles, add it as a route and measure it, otherwise record why not.
+- [x] Compile the bundles from .NET without the `opa` binary, for example with OpaDotNet's interop compiler, and record whether it works under AOT and on which platforms.
+- [x] Commit.
 
 ### Task 5: Builtins that reach outside
 
-- [ ] Add a bundle that calls `http.send`, `net.lookup_ip_addr` and `opa.runtime`. Show per route how validation refuses it before evaluation, and that a call met at runtime denies with a reason naming the builtin.
-- [ ] Commit.
+- [x] Add a bundle that calls `http.send`, `net.lookup_ip_addr` and `opa.runtime`. Show per route how validation refuses it before evaluation, and that a call met at runtime denies with a reason naming the builtin.
+- [x] Commit.
 
 ### Task 6: CI matrix on three platforms
 
-- [ ] Add `.github/workflows/rego-spike.yml`, triggered on pull requests that touch `spikes/RegoAot/**`, with a matrix of `ubuntu-latest`, `windows-latest` and `macos-latest` that AOT-publishes the app, runs `--check`, and prints p50 and p95 per mode for the chosen route and the compiler. When no route or no compiler works, the job prints that and skips the measurement instead of invoking it.
-- [ ] Follow the repo's workflow conventions for action pinning and permissions.
-- [ ] Commit as `ci`.
+- [x] Add `.github/workflows/rego-spike.yml`, triggered on pull requests that touch `spikes/RegoAot/**`, with a matrix of `ubuntu-latest`, `windows-latest` and `macos-latest` that AOT-publishes the app, runs `--check`, and prints p50 and p95 per mode for the chosen route and the compiler. When no route or no compiler works, the job prints that and skips the measurement instead of invoking it.
+- [x] Follow the repo's workflow conventions for action pinning and permissions.
+- [x] Commit as `ci`.
 
 ### Task 7: Write-up
 
-- [ ] Write `docs/plans/2026-11-22-rego-aot-spike.md` with the table per route, mode and OS, the builtin results and the chosen route, or that none works.
-- [ ] The budget is 50 ms per call for the whole decision. If no route fits it, say so in the first paragraph: #654 then waits for review.
-- [ ] Add a short paragraph for ADR-236 naming the route; the maintainer copies it into the ADR.
-- [ ] Commit as `docs`.
+- [x] Write `docs/plans/2026-11-22-rego-aot-spike.md` with the table per route, mode and OS, the builtin results and the chosen route, or that none works.
+- [x] The budget is 50 ms per call for the whole decision. If no route fits it, say so in the first paragraph: #654 then waits for review.
+- [x] Add a short paragraph for ADR-236 naming the route; the maintainer copies it into the ADR.
+- [x] Commit as `docs`.
 
 
 ## Checks
