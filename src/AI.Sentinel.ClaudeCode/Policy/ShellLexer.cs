@@ -61,7 +61,7 @@ internal sealed class ShellLexer
             case '`' or '(' or ')':
                 return false;
             case '$':
-                if (Peek(1) is '(' or '\'')
+                if (Peek(1) is '(' or '\'' or '"')
                 {
                     return false;
                 }
@@ -371,7 +371,7 @@ internal sealed class ShellLexer
         _plainEnd = -1;
     }
 
-    // NAME=value where NAME is a plain identifier typed without quotes or escapes.
+    // NAME=value or NAME+=value where NAME is a plain identifier typed without quotes or escapes.
     private static bool IsAssignment(string text, int plainEnd)
     {
         var eq = text.IndexOf('=', StringComparison.Ordinal);
@@ -380,7 +380,13 @@ internal sealed class ShellLexer
             return false;
         }
 
-        for (var k = 0; k < eq; k++)
+        var nameEnd = text[eq - 1] == '+' ? eq - 1 : eq;
+        if (nameEnd == 0)
+        {
+            return false;
+        }
+
+        for (var k = 0; k < nameEnd; k++)
         {
             if (!(char.IsAsciiLetterOrDigit(text[k]) || text[k] == '_'))
             {

@@ -4,7 +4,8 @@ namespace AI.Sentinel.ClaudeCode.Policy;
 /// Parses a POSIX style command line into simple commands joined by <c>|</c>, <c>&amp;&amp;</c>, <c>||</c>, <c>;</c> and
 /// <c>&amp;</c>, with quoting, escapes and redirections. It does no expansion. Anything it cannot read with certainty gives
 /// <see cref="ShellParse.Failed"/> instead of a guess: command and process substitution, subshells, here documents,
-/// compound commands, an unterminated quote. The corpus in <c>tests/AI.Sentinel.Tests/Corpus/shell-commands.json</c>
+/// compound commands, locale and ANSI-C quoting, subscript assignments, brace expansion in the command name, an
+/// unterminated quote. The corpus in <c>tests/AI.Sentinel.Tests/Corpus/shell-commands.json</c>
 /// defines the behaviour, so another parser can be checked against it.
 /// </summary>
 internal static class ShellCommandParser
@@ -78,13 +79,18 @@ internal static class ShellCommandParser
             }
             else if (name is null && token.Assignment)
             {
-                assignments.Add(token.Text[..token.Text.IndexOf('=', StringComparison.Ordinal)]);
+                assignments.Add(token.Text[..token.Text.IndexOf('=', StringComparison.Ordinal)].TrimEnd('+'));
             }
             else if (name is null)
             {
                 if (token.Plain && ReservedWords.Contains(token.Text))
                 {
                     return null;
+                }
+
+                if (IsSubscriptAssignment(token.Text) || IsBraceExpansion(token.Text))
+                {
+                    return null; // a[0]=x is an assignment and {a,b} expands into several words: neither is modelled
                 }
 
                 name = token.Text;
@@ -102,4 +108,28 @@ internal static class ShellCommandParser
 
         return new ShellCommand(joiner, name ?? "", args, assignments, redirects);
     }
+
+    // NAME[subscript]=value and NAME[subscript]+=value.
+    private static bool IsSubscriptAssignment(string text)
+    {
+        var open = text.IndexOf('[', StringComparison.Ordinal);
+        if (open <= 0 || char.IsAsciiDigit(text[0]))
+        {
+            return false;
+        }
+
+        for (var k = 0; k < open; k++)
+        {
+            if (!(char.IsAsciiLetterOrDigit(text[k]) || text[k] == '_'))
+            {
+                return false;
+            }
+        }
+
+        return text.Contains("]=", StringComparison.Ordinal) || text.Contains("]+=", StringComparison.Ordinal);
+    }
+
+    private static bool IsBraceExpansion(string text) =>
+        text.Contains('{', StringComparison.Ordinal)
+        && (text.Contains(',', StringComparison.Ordinal) || text.Contains("..", StringComparison.Ordinal));
 }
