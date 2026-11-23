@@ -13,6 +13,7 @@ using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Sqlite.Local;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.ClaudeCode.Policy;
 
 namespace AI.Sentinel.ClaudeCode.Cli;
 
@@ -93,13 +94,18 @@ public static class Program
             return 1;
         }
 
+        // A local Rego policy (SENTINEL_HOOK_POLICY_DIR) judges a PreToolUse; one that cannot be loaded blocks the call.
+        var (policy, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, config, audit, auditProblems, stderr).ConfigureAwait(false);
+        if (blocked is { } blockedExit) return blockedExit;
+        using var policyScope = policy;
         HookOutput output;
         string? semanticWarning;
         var approvalWarnings = new List<string>();
         try
         {
             (output, semanticWarning) = await EvaluateAsync(
-                evt, input, config, hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
+                evt, input, WithFindingSink(config, policy), hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
+            output = DecideWithPolicy(policy, output, input);
         }
         catch (Exception ex) when (evt == HookEvent.PreToolUse)
         {
@@ -344,6 +350,60 @@ public static class Program
             .Cast<System.Collections.DictionaryEntry>()
             .Where(e => e.Key is string key && key.StartsWith("SENTINEL_HOOK_", StringComparison.Ordinal))
             .ToDictionary(e => (string)e.Key, e => e.Value as string, StringComparer.Ordinal);
+
+    /// <summary><paramref name="config"/> with the policy collecting the findings of the scan; as it is when no policy is loaded.</summary>
+    private static HookConfig WithFindingSink(HookConfig config, LocalPolicy? policy) =>
+        policy is null ? config : config with { FindingSink = policy.FindingSink };
+
+    /// <summary>Loads the policy, see <see cref="TryLoadPolicy"/>. One that cannot be loaded blocks the call as an internal
+    /// error, and its exit code is returned; running without it would skip every rule it holds.</summary>
+    private static async Task<(LocalPolicy? Policy, int? Exit)> OpenPolicyAsync(
+        string[] args, HookEvent evt, HookInput input, IReadOnlyDictionary<string, string?> hookEnv, HookConfig config,
+        LocalAuditSession audit, List<string> auditProblems, TextWriter stderr)
+    {
+        var (policy, folder, error) = TryLoadPolicy(evt, hookEnv);
+        if (error is null)
+        {
+            return (policy, null);
+        }
+
+        var exit = await BlockOnInternalErrorAsync(
+            args, input.ToolName, input.SessionId, HookInternalError.PolicyReason(folder!, error),
+            audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
+        return (null, exit);
+    }
+
+    /// <summary>Loads the policy folder when the event is PreToolUse and <c>SENTINEL_HOOK_POLICY_DIR</c> is set; all null
+    /// otherwise. A failure of any kind, an unreadable folder, a policy that does not compile or use a refused builtin, or a
+    /// platform without the Wasmtime library, is returned rather than thrown, so the caller blocks.</summary>
+    private static (LocalPolicy? Policy, string? Folder, Exception? Error) TryLoadPolicy(HookEvent evt, IReadOnlyDictionary<string, string?> env)
+    {
+        if (evt != HookEvent.PreToolUse || LocalPolicy.FolderFrom(env) is not { } folder)
+        {
+            return (null, null, null);
+        }
+
+        try
+        {
+            return (LocalPolicy.Load(folder, env), folder, null);
+        }
+#pragma warning disable CA1031 // Every load failure is reported; on PreToolUse it blocks the call.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            return (null, folder, ex);
+        }
+    }
+
+    /// <summary>The decision of <paramref name="policy"/> combined with <paramref name="output"/>, the strictest winning;
+    /// <paramref name="output"/> as it is when no policy is loaded.</summary>
+    private static HookOutput DecideWithPolicy(LocalPolicy? policy, HookOutput output, HookInput input) =>
+        policy is null
+            ? output
+            : policy.Decide(
+                output, PolicyClis.ClaudeCode,
+                string.IsNullOrWhiteSpace(input.ToolName) ? throw new InvalidOperationException("PreToolUse input has no tool name") : input.ToolName,
+                input.ToolInput ?? default, input.SessionId);
 
     /// <summary>Loads <c>SENTINEL_APPROVAL_CONFIG</c> when it is set. A failure of any kind is returned rather than
     /// thrown, with the path, so the caller decides whether it blocks.</summary>

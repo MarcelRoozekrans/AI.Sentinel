@@ -51,6 +51,11 @@ public sealed record HookConfig
     /// does not say it is headless.</summary>
     internal bool Headless { get; init; }
 
+    /// <summary>Receives every finding of a scan, as detector id and severity name, before the decision is taken. Set by a
+    /// hook CLI that evaluates a local policy, which matches on the findings; <see langword="null"/> otherwise, and then
+    /// nothing changes.</summary>
+    internal Action<string, string>? FindingSink { get; init; }
+
     /// <summary>
     /// Resolves the caller identity from the hook input. When <c>null</c> (the default),
     /// <see cref="AnonymousSecurityContext.Instance"/> is used for authorization checks.
