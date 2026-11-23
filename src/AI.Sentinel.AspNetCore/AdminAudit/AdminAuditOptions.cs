@@ -11,4 +11,8 @@ public sealed class AdminAuditOptions
     /// <summary>The deployment's Ed25519 signing key: the base64 of a 32 byte seed. It signs the head of each export.
     /// It reaches the server through the deployment at startup and is never stored. Required.</summary>
     public string? SigningKey { get; set; }
+
+    /// <summary>The organisation the dashboard's approve and deny decisions are recorded under. The dashboard has no
+    /// organisation of its own, so a single-tenant host names it here. Defaults to <c>default</c>.</summary>
+    public string Organisation { get; set; } = "default";
 }

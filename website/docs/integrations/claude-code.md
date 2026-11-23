@@ -276,6 +276,7 @@ services.AddAISentinelAdminAudit(o =>
 {
     o.SigningKey = signingKeyBase64;      // base64 of the 32 byte Ed25519 seed, from the deployment
     o.PolicyName = "AISentinelAdminAudit"; // the host's authorization policy; the organisation is the resource
+    o.Organisation = "acme";               // optional: where dashboard approve and deny decisions are recorded
 });
 app.MapAISentinelAdminAudit();            // GET /ai-sentinel/admin-audit/{organisation}/export
 ```
@@ -287,6 +288,8 @@ sentinel audit-verify export.json --organisation acme --public-key <base64>
 ```
 
 An export with its newest entries cut off fails, because the signed count no longer matches. The command prints the signed count and export time. Pass them back with `--checkpoint-count`, `--checkpoint-hash` and `--checkpoint-time` on a later run, and an export that is older than the checkpoint or does not contain it is rejected, as is an export for another organisation. Exit codes: `0` verified, `1` usage error, `2` verification failed.
+
+When the audit is registered, an approve or deny made through the dashboard is recorded on the web channel under `Organisation` (default `default`), once the store reports that the decision took effect. Without the registration nothing is recorded and the dashboard behaves as before. An export without entries prints `last_hash=-`; `--checkpoint-count 0 --checkpoint-hash -` is the matching empty checkpoint and is accepted.
 
 Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelAdminAudit` and `MapAISentinelAdminAudit`.
 

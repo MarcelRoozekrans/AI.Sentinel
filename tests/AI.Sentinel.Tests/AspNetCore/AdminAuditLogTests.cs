@@ -1,6 +1,7 @@
 using System.Net;
 using System.Security.Claims;
 using System.Text.Json;
+using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.AspNetCore;
 using AI.Sentinel.AspNetCore.AdminAudit;
@@ -8,6 +9,7 @@ using AI.Sentinel.Profiles;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -207,6 +209,64 @@ public sealed class AdminAuditLogTests
             .StartAsync(Ct);
         var response = await host.GetTestClient().GetAsync("/ai-sentinel/admin-audit/org-a/export", Ct);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Dashboard_ApproveIsRecordedOnTheWebChannel()
+    {
+        var (store, id) = await PendingApprovalAsync();
+        using var host = await DashboardApprovalsTests.BuildHostAsync(
+            store, authenticatedAs: "ops-bob", configure: s => AddAudit(s, Ed25519Crypto.NewSeed()));
+
+        var resp = await host.GetTestClient().PostAsync($"/sentinel/api/approvals/{id}/approve", new StringContent(""), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var entry = Assert.Single(await host.Services.GetRequiredService<IAdminAuditStore>().ReadAsync("org-a", Ct));
+        Assert.Equal(("approve", "ops-bob", id, "web"), (entry.Action, entry.Actor, entry.Target, entry.Channel));
+    }
+
+    [Fact]
+    public async Task Dashboard_DenyIsRecordedOnTheWebChannel()
+    {
+        var (store, id) = await PendingApprovalAsync();
+        using var host = await DashboardApprovalsTests.BuildHostAsync(
+            store, authenticatedAs: "ops-bob", configure: s => AddAudit(s, Ed25519Crypto.NewSeed()));
+
+        var resp = await host.GetTestClient().PostAsync($"/sentinel/api/approvals/{id}/deny", new StringContent(""), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var entry = Assert.Single(await host.Services.GetRequiredService<IAdminAuditStore>().ReadAsync("org-a", Ct));
+        Assert.Equal(("deny", "ops-bob", id, "web"), (entry.Action, entry.Actor, entry.Target, entry.Channel));
+    }
+
+    [Fact]
+    public async Task Dashboard_ADecisionThatDidNotApplyIsNotRecorded()
+    {
+        var (store, id) = await PendingApprovalAsync();
+        using var host = await DashboardApprovalsTests.BuildHostAsync(
+            store, authenticatedAs: "ops-bob", configure: s => AddAudit(s, Ed25519Crypto.NewSeed()));
+        var client = host.GetTestClient();
+        await client.PostAsync($"/sentinel/api/approvals/{id}/approve", new StringContent(""), Ct);
+
+        var second = await client.PostAsync($"/sentinel/api/approvals/{id}/deny", new StringContent(""), Ct);
+
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+        Assert.Single(await host.Services.GetRequiredService<IAdminAuditStore>().ReadAsync("org-a", Ct));
+    }
+
+    private static void AddAudit(IServiceCollection s, byte[] seed) =>
+        s.AddAISentinelAdminAudit(o =>
+        {
+            o.SigningKey = Convert.ToBase64String(seed);
+            o.Organisation = "org-a";
+        });
+
+    private static async Task<(InMemoryApprovalStore Store, string Id)> PendingApprovalAsync()
+    {
+        var store = new InMemoryApprovalStore();
+        var state = (ApprovalState.Pending)await store.EnsureRequestAsync(
+            new DashboardApprovalsTests.TestSec("alice"), DashboardApprovalsTests.MakeSpec(), DashboardApprovalsTests.MakeCtx(), Ct);
+        return (store, state.RequestId);
     }
 
     private static async Task<IHost> StartAsync(byte[] seed, string policy = "AISentinelAdminAudit")
