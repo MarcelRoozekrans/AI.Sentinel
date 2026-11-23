@@ -154,6 +154,68 @@ public class EvaluationOrderTests : IDisposable
     }
 
     [Fact]
+    public void The_budget_runs_from_the_call_and_a_spent_budget_asks_nobody()
+    {
+        RegoPolicyTestSupport.Prime(_folder);
+        var settings = ResidentSettings.FromEnvironment(Env())!;
+        using var silent = new SilentListener(settings);
+        var client = new ResidentClient(settings);
+
+        var watch = Stopwatch.StartNew();
+        var none = client.Evaluate(_folder, "v", RegoPolicyTestSupport.SharedCache, "{}", TimeSpan.FromMilliseconds(50));
+        watch.Stop();
+        var spent = new ResidentPolicyEvaluator(new ResidentClient(settings with { Budget = TimeSpan.Zero }), _folder, "v", RegoPolicyTestSupport.SharedCache);
+
+        Assert.Null(none);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"the exchange took {watch.Elapsed.TotalMilliseconds:F0} ms");
+        Assert.Null(spent.Evaluate("{}"));
+    }
+
+    [Fact]
+    public void A_policy_folder_that_changed_since_it_was_read_is_not_evaluated_in_place_of_the_recorded_version()
+    {
+        RegoPolicyTestSupport.Prime(_folder);
+        var cache = RegoPolicyTestSupport.SharedCache;
+        var compilers = RegoPolicyTestSupport.Compilers(new ChildProcessCompiler());
+        var recorded = PolicySources.Load(_folder).Version;
+        using (LocalPolicy.LoadRecorded(_folder, cache, compilers, recorded))
+        {
+        }
+
+        File.AppendAllText(Directory.GetFiles(_folder, "*.rego", SearchOption.AllDirectories).First(), "\n# changed\n");
+
+        Assert.Throws<InvalidOperationException>(() => LocalPolicy.LoadRecorded(_folder, cache, compilers, recorded));
+    }
+
+    [Fact]
+    public void A_state_folder_that_is_open_to_others_is_not_talked_to()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Skip("Needs Unix directory modes.");
+            return;
+        }
+
+        RegoPolicyTestSupport.Prime(_folder);
+        var sibling = _state + ".private";
+        Directory.CreateDirectory(sibling);
+        File.SetUnixFileMode(sibling, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
+        try
+        {
+            var session = ResidentSession.Open(Env(), _ => throw new InvalidOperationException("nothing is started"))!;
+            using var policy = LocalPolicy.Load(_folder, Env(), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()), session);
+            var output = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
+
+            Assert.Equal(ResidentStart.Unusable, session.Start);
+            Assert.Equal(OutcomeDecision.InProcess, output.Outcome?.DecidedAt ?? OutcomeDecision.InProcess);
+        }
+        finally
+        {
+            ResidentTestSupport.Delete(sibling);
+        }
+    }
+
+    [Fact]
     public async Task A_resident_process_that_fails_the_request_is_no_answer()
     {
         RegoPolicyTestSupport.Prime(_folder);
