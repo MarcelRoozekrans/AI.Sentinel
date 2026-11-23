@@ -38,26 +38,26 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Read the folder
 
-- [ ] Read bundles and node configuration from a configured folder; watch it for changes and debounce them. Resolve the real path once, read every file into memory, compile from that copy, and publish only when a second read matches the copy. Run reloads one at a time; a failed read or a change during a pass schedules another pass with bounded backoff.
-- [ ] Failing tests first in `PolicyFolderTests`, including a file changed during the read and a symlinked folder swapped twice during compilation: nothing mixed is published; the old folder removed during a read, after which the new one is published; a reload overtaken by a newer change, after which the newer version stays in force.
-- [ ] Commit.
+- [x] Read bundles and node configuration from a configured folder; watch it for changes and debounce them. Resolve the real path once, read every file into memory, compile from that copy, and publish only when a second read matches the copy. Run reloads one at a time; a failed read or a change during a pass schedules another pass with bounded backoff.
+- [x] Failing tests first in `PolicyFolderTests`, including a file changed during the read and a symlinked folder swapped twice during compilation: nothing mixed is published; the old folder removed during a read, after which the new one is published; a reload overtaken by a newer change, after which the newer version stays in force.
+- [x] Commit.
 
 ### Task 2: Compile and validate
 
-- [ ] Compile all bundles of a configuration version into one module with its hash; refuse outside-reaching builtins and allow rules below the organisation; keep the last good configuration; write publish and rejected publish to #672's log.
-- [ ] Tests in `PolicyValidationTests`.
-- [ ] Commit.
+- [x] Compile all bundles of a configuration version into one module with its hash; refuse outside-reaching builtins and allow rules below the organisation; keep the last good configuration; write publish and rejected publish to #672's log.
+- [x] Tests in `PolicyValidationTests`.
+- [x] Commit.
 
 ### Task 3: Sign and serve
 
-- [ ] Sign a profile per repository with the deployment's key and serve it to a signed-in developer; no endpoint accepts policy.
-- [ ] Tests in `ProfileServingTests`.
-- [ ] Commit.
+- [x] Sign a profile per repository with the deployment's key and serve it to a signed-in developer; no endpoint accepts policy.
+- [x] Tests in `ProfileServingTests`.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
