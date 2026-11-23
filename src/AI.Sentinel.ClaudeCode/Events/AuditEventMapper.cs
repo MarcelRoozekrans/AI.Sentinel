@@ -29,74 +29,51 @@ internal static class AuditEventMapper
 
         var node = string.IsNullOrEmpty(entry.Node) ? null : entry.Node;
         var detailed = detailedLogging(node);
-        var id = Guid.TryParse(entry.Id, out var guid) ? guid.ToString("D", CultureInfo.InvariantCulture) : entry.Id;
-        var at = entry.Timestamp.UtcDateTime.ToString("O", CultureInfo.InvariantCulture);
-        var session = string.IsNullOrEmpty(entry.SessionId) ? null : entry.SessionId;
-        if (string.Equals(entry.DetectorId, OutcomeAudit.DetectorId, StringComparison.Ordinal) && Outcome(entry.Summary) is { } o)
+        if (string.Equals(entry.DetectorId, OutcomeAudit.DetectorId, StringComparison.Ordinal) && Outcome(entry.Summary) is { } parsed)
         {
-            return new ForwardedEvent
-            {
-                EventId = id,
-                At = at,
-                ToolKind = entry.ToolKind,
-                Outcome = o.Name,
-                Policies = o.Sources.Count == 0 ? null : o.Sources,
-                PolicyVersion = NullIfEmpty(o.PolicyVersion),
-                Decided = NullIfEmpty(o.Decided),
-                Node = node,
-                Cli = entry.Source,
-                Session = session,
-                Reason = detailed ? ReasonRedactor.Redact(o.Reason) : null,
-            };
+            return Decision(entry, node, parsed, detailed);
         }
 
         if (string.Equals(entry.PolicyCode, AuditEntryRedactionExtensions.RedactedPolicyCode, StringComparison.Ordinal))
         {
-            return new ForwardedEvent
-            {
-                EventId = id,
-                At = at,
-                ToolKind = entry.ToolKind,
-                Outcome = RedactedOutcome,
-                Detector = entry.DetectorId,
-                Node = node,
-                Cli = entry.Source,
-                Session = session,
-                Redactions = Counts(entry.Summary),
-            };
+            return Plain(entry, node, RedactedOutcome) with { Redactions = Counts(entry.Summary) };
         }
 
         if (string.Equals(entry.DetectorId, AuthorizationDenyDetector, StringComparison.Ordinal))
         {
             // The summary names the caller and the tool, so it is never sent; the code says whether this asked for an approval.
             var asked = string.Equals(entry.PolicyCode, ApprovalRequiredCode, StringComparison.Ordinal);
-            return new ForwardedEvent
-            {
-                EventId = id,
-                At = at,
-                ToolKind = entry.ToolKind,
-                Outcome = asked ? "ask" : "deny",
-                Detector = entry.DetectorId,
-                Node = node,
-                Cli = entry.Source,
-                Session = session,
-            };
+            return Plain(entry, node, asked ? "ask" : "deny");
         }
 
-        return new ForwardedEvent
+        return Plain(entry, node, FindingOutcome) with
         {
-            EventId = id,
-            At = at,
-            ToolKind = entry.ToolKind,
-            Outcome = FindingOutcome,
-            Detector = entry.DetectorId,
             Severity = entry.Severity.ToString().ToLowerInvariant(),
-            Node = node,
-            Cli = entry.Source,
-            Session = session,
             Reason = detailed ? ReasonRedactor.Redact(entry.Summary) : null,
         };
     }
+
+    private static ForwardedEvent Plain(AuditEntry entry, string? node, string outcome) => new()
+    {
+        EventId = Guid.TryParse(entry.Id, out var guid) ? guid.ToString("D", CultureInfo.InvariantCulture) : entry.Id,
+        At = entry.Timestamp.UtcDateTime.ToString("O", CultureInfo.InvariantCulture),
+        ToolKind = entry.ToolKind!,
+        Outcome = outcome,
+        Detector = entry.DetectorId,
+        Node = node,
+        Cli = entry.Source,
+        Session = string.IsNullOrEmpty(entry.SessionId) ? null : entry.SessionId,
+    };
+
+    private static ForwardedEvent Decision(AuditEntry entry, string? node, ParsedOutcome o, bool detailed) =>
+        Plain(entry, node, o.Name) with
+        {
+            Detector = null,
+            Policies = o.Sources.Count == 0 ? null : o.Sources,
+            PolicyVersion = NullIfEmpty(o.PolicyVersion),
+            Decided = NullIfEmpty(o.Decided),
+            Reason = detailed ? ReasonRedactor.Redact(o.Reason) : null,
+        };
 
     private sealed record ParsedOutcome(string Name, string Reason, List<string> Sources, string PolicyVersion, string Decided);
 

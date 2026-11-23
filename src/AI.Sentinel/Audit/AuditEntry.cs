@@ -34,8 +34,10 @@ public sealed record AuditEntry(
     /// <summary>The shared kind of the tool call the entry belongs to, such as <c>shell</c>. Set by a hook only when it forwards
     /// events to a server (#661); <see langword="null"/> otherwise, and then the entry is never forwarded. Not part of the hash:
     /// it routes the entry and is not evidence.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? ToolKind { get; init; }
 
-    /// <summary>The node that owns the repository of the call. Set together with <see cref="ToolKind"/>; not part of the hash.</summary>
+    /// <summary>The node that owns the repository of the call. Set together with <see cref="ToolKind"/>; not part of the hash or of the JSON the NDJSON copy and the exports write.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? Node { get; init; }
 }

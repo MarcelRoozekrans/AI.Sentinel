@@ -4,7 +4,7 @@ namespace AI.Sentinel.ClaudeCode.Events;
 
 /// <summary>One event as the server's ingest endpoint reads it (#660, ADR-240): the allowlisted fields and nothing else. There is
 /// no member for a command, a path or tool input, so none can be sent.</summary>
-internal sealed class ForwardedEvent
+internal sealed record ForwardedEvent
 {
     [JsonPropertyName("event_id")]
     public required string EventId { get; init; }
