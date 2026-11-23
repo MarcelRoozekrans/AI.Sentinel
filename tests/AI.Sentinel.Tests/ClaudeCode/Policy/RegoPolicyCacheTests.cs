@@ -18,12 +18,22 @@ public class RegoPolicyCacheTests : IDisposable
     public void Dispose()
     {
         RegoPolicyTestSupport.Delete(_cache);
+        RegoPolicyTestSupport.Delete(_cache + ".private");
         RegoPolicyTestSupport.Delete(_folder);
         GC.SuppressFinalize(this);
     }
 
-    private LocalPolicy Load(params IRegoCompiler[] compilers) =>
-        LocalPolicy.Load(_folder, RegoPolicyTestSupport.Env(_cache), "/work/repo", [.. compilers, new OpaBinaryCompiler()]);
+    private int _compiles;
+
+    // Every compiler is counted, the opa fallback too, so the count does not depend on which one the machine can run.
+    private LocalPolicy Load(string? cache = null, params IRegoCompiler[] compilers) =>
+        LocalPolicy.Load(
+            _folder,
+            RegoPolicyTestSupport.Env(cache ?? _cache),
+            "/work/repo",
+            [.. compilers.Append(new OpaBinaryCompiler()).Select(c => (IRegoCompiler)new CountingCompiler(c, () => ++_compiles))]);
+
+    private LocalPolicy Load(params IRegoCompiler[] compilers) => Load(null, compilers);
 
     private static HookOutput Decide(LocalPolicy policy) =>
         policy.Decide(new HookOutput { Decision = HookDecision.Allow }, PolicyClis.ClaudeCode, "Bash", JsonDocument.Parse("""{"command":"rm x"}""").RootElement, "s");
@@ -45,7 +55,7 @@ public class RegoPolicyCacheTests : IDisposable
             Assert.Equal("no rm", Decide(second).Reason);
         }
 
-        Assert.Equal(1, compiler.Compiles);
+        Assert.Equal(1, _compiles);
         Assert.Single(Files("*.wasm"));
         var native = Assert.Single(Files("*.cwasm"));
         Assert.Contains("wasmtime", Path.GetFileName(native), StringComparison.Ordinal);
@@ -65,7 +75,7 @@ public class RegoPolicyCacheTests : IDisposable
         {
         }
 
-        Assert.Equal(2, compiler.Compiles);
+        Assert.Equal(2, _compiles);
         Assert.Equal(2, Files("*.cwasm").Length);
     }
 
@@ -85,7 +95,7 @@ public class RegoPolicyCacheTests : IDisposable
         using var policy = Load(compiler);
 
         Assert.Equal("no rm", Decide(policy).Reason);
-        Assert.Equal(1, compiler.Compiles);
+        Assert.Equal(1, _compiles);
         Assert.NotNull(PolicyCache.TryRead(native));
     }
 
@@ -105,7 +115,7 @@ public class RegoPolicyCacheTests : IDisposable
         using var policy = Load(compiler);
 
         Assert.Equal("no rm", Decide(policy).Reason);
-        Assert.Equal(2, compiler.Compiles);
+        Assert.Equal(2, _compiles);
     }
 
     [Fact]
@@ -122,29 +132,17 @@ public class RegoPolicyCacheTests : IDisposable
             File.WriteAllBytes(file, bytes);
         }
 
-        Assert.Throws<InvalidOperationException>(() => Load(new MissingCompiler()));
+        Assert.Throws<InvalidOperationException>(() =>
+            LocalPolicy.Load(_folder, RegoPolicyTestSupport.Env(_cache), "/work/repo", [new MissingCompiler()]));
     }
 
-    [Fact]
-    public void The_cache_directory_is_owner_only_on_unix_even_when_it_was_created_open()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
+    private static readonly UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+    private static readonly UnixFileMode Open = OwnerOnly | UnixFileMode.GroupWrite | UnixFileMode.OtherRead;
 
-        Directory.CreateDirectory(_cache);
-        File.SetUnixFileMode(_cache, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupWrite | UnixFileMode.OtherWrite | UnixFileMode.OtherRead);
-
-        using (Load(new ChildProcessCompiler()))
-        {
-        }
-
-        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(_cache));
-    }
+    private string PrivateSibling => _cache + ".private";
 
     [Fact]
-    public void An_open_cache_directory_loses_its_entries_because_another_user_could_have_written_them()
+    public void An_open_cache_directory_is_never_used_and_never_changed_the_policy_is_cached_in_a_private_sibling()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -154,12 +152,141 @@ public class RegoPolicyCacheTests : IDisposable
         Directory.CreateDirectory(_cache);
         var planted = Path.Combine(_cache, "planted.cwasm");
         PolicyCache.Write(planted, [1, 2, 3]);
-        File.SetUnixFileMode(_cache, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupWrite);
+        File.SetUnixFileMode(_cache, Open);
 
-        PolicyCache.Prepare(_cache);
+        try
+        {
+            using (Load(new ChildProcessCompiler()))
+            {
+            }
 
-        Assert.False(File.Exists(planted));
-        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(_cache));
+            Assert.Equal(Open, File.GetUnixFileMode(_cache));
+            Assert.Equal([1, 2, 3], PolicyCache.TryRead(planted));
+            Assert.Equal(OwnerOnly, File.GetUnixFileMode(PrivateSibling));
+            Assert.Single(Directory.GetFiles(PrivateSibling, "*.cwasm"));
+            Assert.Equal([planted], Directory.GetFiles(_cache));
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(PrivateSibling);
+        }
+    }
+
+    [Fact]
+    public void A_native_entry_with_a_valid_digest_in_an_open_cache_directory_is_not_loaded()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var source = _cache + ".source";
+        try
+        {
+            using (Load(source, new ChildProcessCompiler()))
+            {
+            }
+
+            Assert.Equal(1, _compiles);
+            Directory.CreateDirectory(_cache);
+            foreach (var file in Directory.GetFiles(source))
+            {
+                File.Copy(file, Path.Combine(_cache, Path.GetFileName(file)));
+            }
+
+            File.SetUnixFileMode(_cache, Open);
+
+            using var policy = Load(new ChildProcessCompiler());
+
+            Assert.Equal("no rm", Decide(policy).Reason);
+            Assert.Equal(2, _compiles);
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(source);
+            RegoPolicyTestSupport.Delete(PrivateSibling);
+        }
+    }
+
+    [Fact]
+    public void A_directory_that_was_open_stays_unused_after_it_is_made_private()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(_cache);
+        File.SetUnixFileMode(_cache, Open);
+        try
+        {
+            var first = PolicyCache.Prepare(_cache);
+            File.SetUnixFileMode(_cache, OwnerOnly);
+
+            Assert.Equal(PrivateSibling, first);
+            Assert.Equal(PrivateSibling, PolicyCache.Prepare(_cache));
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(PrivateSibling);
+        }
+    }
+
+    [Fact]
+    public void Hooks_that_start_together_all_get_the_private_directory_and_none_reads_the_open_one()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(_cache);
+        File.SetUnixFileMode(_cache, Open);
+        try
+        {
+            var dirs = Enumerable.Range(0, 16).AsParallel().WithDegreeOfParallelism(16).Select(_ => PolicyCache.Prepare(_cache)).ToArray();
+
+            Assert.All(dirs, d => Assert.Equal(PrivateSibling, d));
+            Assert.Equal(OwnerOnly, File.GetUnixFileMode(PrivateSibling));
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(PrivateSibling);
+        }
+    }
+
+    [Fact]
+    public void A_private_sibling_that_is_open_blocks_instead_of_being_used()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(_cache);
+        File.SetUnixFileMode(_cache, Open);
+        Directory.CreateDirectory(PrivateSibling);
+        File.SetUnixFileMode(PrivateSibling, Open);
+        try
+        {
+            Assert.Throws<UnauthorizedAccessException>(() => PolicyCache.Prepare(_cache));
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(PrivateSibling);
+        }
+    }
+
+    [Fact]
+    public void A_new_cache_directory_is_created_owner_only()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Assert.Equal(_cache, PolicyCache.Prepare(_cache));
+        Assert.Equal(OwnerOnly, File.GetUnixFileMode(_cache));
     }
 
     [Fact]
@@ -170,11 +297,11 @@ public class RegoPolicyCacheTests : IDisposable
             return;
         }
 
-        PolicyCache.Prepare(_cache);
+        Assert.Equal(_cache, PolicyCache.Prepare(_cache));
         var kept = Path.Combine(_cache, "kept.cwasm");
         PolicyCache.Write(kept, [1, 2, 3]);
 
-        PolicyCache.Prepare(_cache);
+        Assert.Equal(_cache, PolicyCache.Prepare(_cache));
 
         Assert.Equal([1, 2, 3], PolicyCache.TryRead(kept));
     }

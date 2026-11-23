@@ -945,7 +945,7 @@ A hook decision has one of five outcomes, strictest first: deny, ask, guidance, 
 | Variable | Default | Values |
 |---|---|---|
 | `SENTINEL_HOOK_POLICY_DIR` | unset | A folder of `.rego` files in `package sentinel`. A subfolder is one bundle, and every file is compiled into one module |
-| `SENTINEL_HOOK_POLICY_CACHE_DIR` | `ai-sentinel/policy-cache` under the user's local application data | Where the compiled policy is kept. Per user and owner-only on Unix |
+| `SENTINEL_HOOK_POLICY_CACHE_DIR` | `ai-sentinel/policy-cache` under the user's local application data | Where the compiled policy is kept. Per user and owner-only on Unix. A directory that is open to others is not used: the cache goes to a `.private` sibling |
 
 A bundle adds a reason to `deny`, `ask`, `guidance` or `allow`, for example `deny contains "recursive delete" if { ... }`; the host owns `outcome`, `reasons` and `decision`, and the folder name `_sentinel_host`. The strictest outcome of the policy wins, and then the strictest of the policy and the other checks (detectors, approval rules, the placeholder guard); a shell command line the parser cannot read asks at least, even when the policy allows. The agent sees the reason, and the local audit records it as an `OUTCOME` entry with the bundles that caused it and the policy version, the first 16 characters of the sha256 of the sources. Copilot CLI cannot ask, so there an ask is a deny with instructions, and a PowerShell command, which the parser does not read, always asks.
 

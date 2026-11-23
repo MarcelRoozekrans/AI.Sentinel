@@ -174,6 +174,19 @@ public class PolicyInputTests
         AssertPatchPaths(PolicyInputBuilder.Build(PolicyClis.Copilot, "apply_patch", asObject, "s", [], Root));
     }
 
+    [Fact]
+    public void An_apply_patch_call_sent_as_a_json_string_holding_an_object_gets_its_targets_from_the_object()
+    {
+        const string patch = "*** Begin Patch\r\n*** Update File: src/a.cs\n@@\n-x\n+y\n*** Add File: docs/new.md\n+hi\n*** Delete File: old.txt\n*** Move to: moved/old.txt\n*** End Patch";
+        foreach (var key in new[] { "input", "patch" })
+        {
+            var text = JsonSerializer.Serialize(new Dictionary<string, string>(StringComparer.Ordinal) { [key] = patch });
+            var asEncodedObject = JsonSerializer.SerializeToElement(text);
+
+            AssertPatchPaths(PolicyInputBuilder.Build(PolicyClis.Copilot, "apply_patch", asEncodedObject, "s", [], Root));
+        }
+    }
+
     private static void AssertPatchPaths(PolicyInput input)
     {
         var paths = input.Details.Paths!.Select(p => Path.GetRelativePath(Root, p.Path).Replace("\\", "/", StringComparison.Ordinal)).ToArray();

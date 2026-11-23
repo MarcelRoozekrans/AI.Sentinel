@@ -15,12 +15,14 @@ namespace AI.Sentinel.ClaudeCode.Policy.Rego;
 /// <remarks>
 /// The digest guards against damage and against a partly written file. It does not stop someone who can write to the
 /// directory, because that person can write the digest too. The owner-only directory is what keeps other users out. A
-/// directory that already exists and is open to others is not trusted: its entries could have been written by them, so they
-/// are removed before the permissions are tightened, and the policy is compiled again.
+/// directory that already exists and is open to others is not trusted: its entries could have been written by them. It is left
+/// alone and a private sibling is used instead, where the policy is compiled again. The entries are never deleted, because
+/// removing them in place would leave a window in which another hook could load one.
 /// </remarks>
 internal static class PolicyCache
 {
     private const int DigestLength = 32;
+    private const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
     /// <summary>The cache directory: <c>SENTINEL_HOOK_POLICY_CACHE_DIR</c> when set, otherwise one under the user's local
     /// application data.</summary>
@@ -41,48 +43,84 @@ internal static class PolicyCache
         return Path.Combine(baseDir, "ai-sentinel", "policy-cache");
     }
 
-    /// <summary>Creates the directory, private to the user: mode 700 on Unix, a protected ACL on Windows. A directory that is
-    /// not ours to restrict throws. A directory that already existed and was open to others loses its entries, which could
-    /// have been planted.</summary>
-    public static void Prepare(string dir)
+    /// <summary>The directory the cache uses, private to the user: mode 700 on Unix, a protected ACL on Windows. A
+    /// directory that is missing is created private, in one step. One that exists and is private is used. One that exists and
+    /// is open to others is never used, changed or emptied: its entries could have been written by them, and tightening it
+    /// would leave them there. The cache moves to a sibling named <c>&lt;dir&gt;.private</c>, created private in one step, and
+    /// stays there, also after the open directory is later made private. A sibling that exists and is not private throws.</summary>
+    /// <remarks>Every step is an atomic creation or a check of a directory that only its owner can change, so processes that
+    /// start together reach the same directory and none of them reads an entry from a directory that was ever open. No lock
+    /// and no purge are needed.</remarks>
+    public static string Prepare(string dir)
     {
         ArgumentException.ThrowIfNullOrEmpty(dir);
+        var sibling = Path.TrimEndingDirectorySeparator(dir) + ".private";
+        if (!Directory.Exists(sibling))
+        {
+            CreatePrivate(dir);
+            if (IsPrivate(dir))
+            {
+                return dir;
+            }
+        }
+
+        CreatePrivate(sibling);
+        return IsPrivate(sibling)
+            ? sibling
+            : throw new UnauthorizedAccessException($"the policy cache directory '{sibling}' exists and is open to other users");
+    }
+
+    private static void CreatePrivate(string dir)
+    {
         if (OperatingSystem.IsWindows())
         {
-            PrepareWindows(dir);
+            CreatePrivateWindows(dir);
             return;
         }
 
-        const UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
         Directory.CreateDirectory(dir, OwnerOnly);
-        if ((File.GetUnixFileMode(dir) & ~OwnerOnly) != UnixFileMode.None)
+    }
+
+    private static bool IsPrivate(string dir)
+    {
+        if (OperatingSystem.IsWindows())
         {
-            File.SetUnixFileMode(dir, OwnerOnly);
-            Purge(dir); // after the mode change, so nobody can plant a file while the old ones are removed
+            return IsPrivateWindows(dir);
+        }
+
+        return (File.GetUnixFileMode(dir) & ~OwnerOnly) == UnixFileMode.None;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void CreatePrivateWindows(string dir)
+    {
+        var user = WindowsIdentity.GetCurrent().User ?? throw new InvalidOperationException("the current Windows user has no SID");
+        var info = new DirectoryInfo(dir);
+        if (info.Exists)
+        {
+            return;
+        }
+
+        if (info.Parent is { Exists: false } parent)
+        {
+            Directory.CreateDirectory(parent.FullName);
+        }
+
+        try
+        {
+            info.Create(PrivateSecurity(user));
+        }
+        catch (IOException) when (Directory.Exists(dir))
+        {
+            // Another hook created it first, with the same private ACL or another one, which IsPrivate checks.
         }
     }
 
     [SupportedOSPlatform("windows")]
-    private static void PrepareWindows(string dir)
+    private static bool IsPrivateWindows(string dir)
     {
         var user = WindowsIdentity.GetCurrent().User ?? throw new InvalidOperationException("the current Windows user has no SID");
-        var info = new DirectoryInfo(dir);
-        if (!info.Exists)
-        {
-            if (info.Parent is { Exists: false } parent)
-            {
-                Directory.CreateDirectory(parent.FullName);
-            }
-
-            info.Create(PrivateSecurity(user));
-            return;
-        }
-
-        if (!IsPrivate(info.GetAccessControl(), user))
-        {
-            info.SetAccessControl(PrivateSecurity(user));
-            Purge(dir);
-        }
+        return IsPrivate(new DirectoryInfo(dir).GetAccessControl(), user);
     }
 
     // Full control for the user alone, inherited by what is created inside, and nothing inherited from the parent.
@@ -121,21 +159,6 @@ internal static class PolicyCache
         }
 
         return true;
-    }
-
-    private static void Purge(string dir)
-    {
-        foreach (var entry in Directory.EnumerateFileSystemEntries(dir))
-        {
-            if (Directory.Exists(entry) && (File.GetAttributes(entry) & FileAttributes.ReparsePoint) != FileAttributes.ReparsePoint)
-            {
-                Directory.Delete(entry, recursive: true);
-            }
-            else
-            {
-                File.Delete(entry);
-            }
-        }
     }
 
     /// <summary>Writes <paramref name="payload"/> with its digest in front, whole, under a temporary name first.</summary>

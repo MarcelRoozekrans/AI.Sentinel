@@ -80,7 +80,7 @@ internal sealed class RegoPolicy : IDisposable
 
     private static WasmEvaluator LoadEvaluator(PolicySources sources, string cacheDir, IReadOnlyList<IRegoCompiler> compilers)
     {
-        PolicyCache.Prepare(cacheDir);
+        cacheDir = PolicyCache.Prepare(cacheDir);
         var wasmKey = $"{sources.Hash}-{CapabilitiesKey()}";
         var nativePath = Path.Combine(cacheDir, $"{wasmKey}-wasmtime{WasmEngine.Version}-{WasmEngine.Settings}.cwasm");
         if (PolicyCache.TryRead(nativePath) is { } cached && TryLoadNative(cached) is { } fromCache)
