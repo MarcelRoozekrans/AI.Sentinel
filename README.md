@@ -842,7 +842,7 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
       { "type": "command", "bash": "sentinel-copilot-hook user-prompt-submitted", "timeoutSec": 10 }
     ],
     "preToolUse": [
-      { "type": "command", "bash": "sentinel-copilot-hook pre-tool-use", "timeoutSec": 10 }
+      { "type": "command", "bash": "sentinel-copilot-hook pre-tool-use", "timeoutSec": 45 }
     ],
     "postToolUse": [
       { "type": "command", "bash": "sentinel-copilot-hook post-tool-use", "timeoutSec": 10 }
@@ -850,6 +850,8 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
   }
 }
 ```
+
+`preToolUse` has a longer timeout than the other hooks: with a local policy folder the first call after a policy change compiles it in a child process for up to 30 s, and Copilot discards the hook's block when its own timeout fires first. Keep it above 30 s plus `SENTINEL_REVIEW_TIMEOUT_MS` and scan time.
 
 Both hooks map each tool onto a shared tool kind (`shell`, `read`, `search`, `write`, `edit`, `fetch`, `mcp`, `agent` or `other`) and build the policy input for it, with a parsed command line for shell calls. It is the input of the [local Rego policy](#local-rego-policy), read only when `SENTINEL_HOOK_POLICY_DIR` is set; the hooks behave as before without it. See [Tool kinds and policy input](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#tool-kinds-and-policy-input).
 

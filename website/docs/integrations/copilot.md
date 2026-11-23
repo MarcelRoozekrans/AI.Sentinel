@@ -30,7 +30,7 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
       { "type": "command", "bash": "sentinel-copilot-hook user-prompt-transformed", "timeoutSec": 10 }
     ],
     "preToolUse": [
-      { "type": "command", "bash": "sentinel-copilot-hook pre-tool-use", "timeoutSec": 10 }
+      { "type": "command", "bash": "sentinel-copilot-hook pre-tool-use", "timeoutSec": 45 }
     ],
     "postToolUse": [
       { "type": "command", "bash": "sentinel-copilot-hook post-tool-use", "timeoutSec": 10 }
@@ -54,7 +54,7 @@ Wiring both prompt verbs scans the prompt twice, so without an embedding endpoin
 
 **PascalCase event names.** A hook configured with a PascalCase event name, such as `PostToolUse`, gets the VS Code compatible payload, with `session_id`, `tool_name`, `tool_input` and `tool_result`. The hook reads that format too, and the [placeholder guard](#redaction) then checks the Claude Code tool names as well as the Copilot ones. Whether Copilot honours the hook's output for that configuration is not verified yet.
 
-The `timeoutSec: 10` is recommended — gives the hook plenty of headroom even on a cold start with semantic detection enabled. If you lower it, keep it above `SENTINEL_REVIEW_TIMEOUT_MS` (5 s by default) plus scan time whenever a reviewer is configured, because a hook can wait the full review timeout for the judge.
+The `timeoutSec: 10` is recommended for the other hooks — it gives plenty of headroom even on a cold start with semantic detection enabled. `preToolUse` uses `timeoutSec: 45` instead: with a local policy folder, the first call after a policy change compiles it in a child process that may take up to 30 s, and when Copilot's own timeout fires first it stops waiting for the hook and lets the tool call continue, discarding the hook's block. Keep the `preToolUse` timeout above 30 s plus `SENTINEL_REVIEW_TIMEOUT_MS` and scan time, and never lower it below the compile limit. If you lower it, keep it above `SENTINEL_REVIEW_TIMEOUT_MS` (5 s by default) plus scan time whenever a reviewer is configured, because a hook can wait the full review timeout for the judge.
 
 ## Severity → action
 
@@ -117,7 +117,7 @@ How each outcome is expressed for Copilot CLI:
 
 - Copilot CLI cannot ask, so an **ask** from the policy, or from the parser for a command line it cannot read, is a deny with instructions.
 - The parser reads POSIX quoting, so every `powershell` call is marked `unparseable` and asks, which for Copilot CLI means it is denied under a local policy.
-- A policy that cannot be read, compiled or loaded, or a compiler process that crashes or times out, blocks `preToolUse` with exit 2 and `Sentinel internal error: policy '<folder>' could not be evaluated`. The Copilot hook has no musl build of the Wasmtime library either, so on Alpine a set folder blocks every call.
+- A policy that cannot be read, compiled or loaded, or a compiler process that crashes or exceeds its 30 s limit, blocks `preToolUse` with exit 2 (Copilot discards that exit code when its own `timeoutSec` expires first, so keep it at 45 or more) and `Sentinel internal error: policy '<folder>' could not be evaluated`. The Copilot hook has no musl build of the Wasmtime library either, so on Alpine a set folder blocks every call.
 
 ## When the hook itself fails
 
