@@ -34,5 +34,7 @@
     <PackageReference Include="ZeroAlloc.Serialisation" Version="3.0.1" />
     <PackageReference Include="ZeroAlloc.Telemetry" Version="2.0.1" />
     <PackageReference Include="ZeroAlloc.Authorization" Version="3.0.1" />
+    <!-- Ed25519 for signed policy profiles (ADR-233). Managed, so no per-OS native library; the .NET BCL has no Ed25519. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
   </ItemGroup>
 </Project>

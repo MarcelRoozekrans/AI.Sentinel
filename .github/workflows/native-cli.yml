@@ -176,3 +176,42 @@ jobs:
           name: native-${{ matrix.cli.id }}-${{ matrix.target.rid }}
           path: upload/
           if-no-files-found: error
+
+  # Signed policy profiles use Ed25519 from the managed BouncyCastle library. No shipped CLI calls them yet, so the
+  # Aot.Probe project signs and verifies a profile; publishing it with warnings as errors proves the code compiles
+  # under Native AOT without trim or AOT warnings, and running it proves it works, on each operating system.
+  probe:
+    name: Aot.Probe ${{ matrix.target.rid }}
+    runs-on: ${{ matrix.target.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { rid: linux-x64, os: ubuntu-latest }
+          - { rid: osx-arm64, os: macos-latest }
+          - { rid: win-x64, os: windows-latest }
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          dotnet-version: 10.0.x
+
+      - name: Publish the probe with Native AOT
+        shell: pwsh
+        run: |
+          dotnet publish tests/AI.Sentinel.Aot.Probe/AI.Sentinel.Aot.Probe.csproj -c Release -r ${{ matrix.target.rid }} -warnaserror -o probe
+          if ($LASTEXITCODE -ne 0) { throw "Probe publish failed" }
+
+      - name: Run the probe
+        shell: pwsh
+        run: |
+          $ext = if ($IsWindows) { '.exe' } else { '' }
+          $out = & "./probe/AI.Sentinel.Aot.Probe$ext"
+          if ($LASTEXITCODE -ne 0) { throw "Probe exited with $LASTEXITCODE" }
+          if ("$out" -ne 'ok') { throw "Probe printed '$out', expected 'ok'" }

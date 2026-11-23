@@ -107,4 +107,201 @@ public sealed class SignedProfileTests
         Assert.Null(ProfileCanonicalJson.Deserialize("not json"u8.ToArray()));
         Assert.Null(ProfileCanonicalJson.Deserialize("{}"u8.ToArray()));
     }
+
+    private static readonly DateTimeOffset Now = new(2026, 11, 23, 10, 0, 0, TimeSpan.Zero);
+
+    private static (ProfileSigner Signer, PinnedProfileKeys Pins) Server(TimeSpan? offset = null)
+    {
+        var key = ProfileSigningKey.Generate();
+        var time = new FakeTime(Now + (offset ?? TimeSpan.Zero));
+        return (new ProfileSigner(key, time), PinnedProfileKeys.Create([key.PublicKey]));
+    }
+
+    private static ProfileVerification Check(SignedProfile s, PinnedProfileKeys pins, DateTimeOffset? at = null,
+        string org = "acme", string repo = "github.com/acme/widgets") =>
+        ProfileVerifier.Verify(s, pins, org, repo, at ?? Now);
+
+    [Fact]
+    public void A_profile_signed_by_a_pinned_key_is_accepted_and_comes_back_intact()
+    {
+        var (signer, pins) = Server();
+        var signed = signer.Issue(Sample());
+
+        var result = Check(signed, pins);
+
+        Assert.True(result.IsAccepted);
+        Assert.Equal(ProfileRejection.None, result.Rejection);
+        Assert.Equal("node-1", result.Profile!.Node);
+        Assert.Equal(Now, result.Profile.IssuedAt);
+    }
+
+    [Fact]
+    public void The_same_profile_signs_to_the_same_signature()
+    {
+        var key = ProfileSigningKey.Generate();
+        var signer = new ProfileSigner(key);
+        Assert.Equal(signer.Sign(Sample()), signer.Sign(Sample()));
+    }
+
+    [Fact]
+    public void The_default_lifetime_is_seven_days()
+    {
+        Assert.Equal(TimeSpan.FromDays(7), ProfileSigner.DefaultLifetime);
+        var (signer, pins) = Server();
+        var profile = Check(signer.Issue(Sample()), pins).Profile!;
+        Assert.Equal(Now.AddDays(7), profile.ExpiresAt);
+    }
+
+    [Fact]
+    public void An_organisation_can_set_its_own_lifetime()
+    {
+        var (signer, pins) = Server();
+        var profile = Check(signer.Issue(Sample(), TimeSpan.FromHours(12)), pins).Profile!;
+        Assert.Equal(Now.AddHours(12), profile.ExpiresAt);
+    }
+
+    [Fact]
+    public void A_lifetime_under_a_second_is_refused()
+    {
+        var (signer, _) = Server();
+        Assert.Throws<ArgumentOutOfRangeException>(() => signer.Issue(Sample(), TimeSpan.Zero));
+    }
+
+    [Fact]
+    public void A_profile_stays_usable_until_it_expires_and_not_after()
+    {
+        var (signer, pins) = Server();
+        var signed = signer.Issue(Sample());
+        Assert.True(Check(signed, pins, Now.AddDays(7).AddSeconds(-1)).IsAccepted);
+        Assert.Equal(ProfileRejection.Expired, Check(signed, pins, Now.AddDays(7)).Rejection);
+        Assert.Equal(ProfileRejection.Expired, Check(signed, pins, Now.AddDays(30)).Rejection);
+    }
+
+    [Fact]
+    public void A_signature_from_a_key_that_is_not_pinned_is_refused()
+    {
+        var (_, pins) = Server();
+        var stranger = new ProfileSigner(ProfileSigningKey.Generate());
+        Assert.Equal(ProfileRejection.UnknownKey, Check(stranger.Issue(Sample()), pins).Rejection);
+    }
+
+    [Fact]
+    public void A_signature_from_another_key_under_a_pinned_key_id_is_refused()
+    {
+        var (_, pins) = Server();
+        var pinnedId = ProfileKeyId.Of(PinnedPublicKey(pins));
+        var forged = new ProfileSigner(ProfileSigningKey.Generate()).Issue(Sample()) with { KeyId = pinnedId };
+        Assert.Equal(ProfileRejection.BadSignature, Check(forged, pins).Rejection);
+    }
+
+    [Fact]
+    public void A_changed_byte_is_refused()
+    {
+        var (signer, pins) = Server();
+        var signed = signer.Issue(Sample());
+        var bytes = Convert.FromBase64String(signed.Profile);
+        bytes[bytes.Length / 2] ^= 0x01;
+        var tampered = signed with { Profile = Convert.ToBase64String(bytes) };
+
+        Assert.Equal(ProfileRejection.BadSignature, Check(tampered, pins).Rejection);
+    }
+
+    [Fact]
+    public void A_changed_signature_byte_is_refused()
+    {
+        var (signer, pins) = Server();
+        var signed = signer.Issue(Sample());
+        var sig = Convert.FromBase64String(signed.Signature);
+        sig[10] ^= 0x01;
+
+        Assert.Equal(ProfileRejection.BadSignature, Check(signed with { Signature = Convert.ToBase64String(sig) }, pins).Rejection);
+    }
+
+    [Fact]
+    public void A_profile_for_another_organisation_is_refused()
+    {
+        var (signer, pins) = Server();
+        Assert.Equal(ProfileRejection.OrganisationMismatch, Check(signer.Issue(Sample()), pins, org: "other").Rejection);
+    }
+
+    [Fact]
+    public void A_profile_for_another_repository_is_refused()
+    {
+        var (signer, pins) = Server();
+        Assert.Equal(ProfileRejection.RepositoryMismatch, Check(signer.Issue(Sample()), pins, repo: "github.com/acme/other").Rejection);
+    }
+
+    [Fact]
+    public void Garbled_envelopes_are_refused_as_malformed()
+    {
+        var (signer, pins) = Server();
+        var signed = signer.Issue(Sample());
+        Assert.Equal(ProfileRejection.Malformed, Check(signed with { Profile = "!!!" }, pins).Rejection);
+        Assert.Equal(ProfileRejection.Malformed, Check(signed with { Signature = "!!!" }, pins).Rejection);
+    }
+
+    [Fact]
+    public void Signed_bytes_that_are_not_canonical_are_refused_as_malformed()
+    {
+        var key = ProfileSigningKey.Generate();
+        var pins = PinnedProfileKeys.Create([key.PublicKey]);
+        var loose = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(ProfileCanonicalJson.Serialize(Sample())).Replace("{\"c", "{ \"c", StringComparison.Ordinal));
+        var signed = new SignedProfile
+        {
+            Profile = Convert.ToBase64String(loose),
+            KeyId = key.KeyId,
+            Signature = Convert.ToBase64String(key.Sign(loose)),
+        };
+
+        Assert.Equal(ProfileRejection.Malformed, Check(signed, pins).Rejection);
+    }
+
+    [Fact]
+    public void A_cached_profile_is_used_offline_until_it_expires()
+    {
+        var (signer, pins) = Server();
+        var cached = SignedProfile.Parse(signer.Issue(Sample()).ToJson())!;
+        Assert.True(Check(cached, pins, Now.AddDays(6)).IsAccepted);
+        Assert.Equal(ProfileRejection.Expired, Check(cached, pins, Now.AddDays(8)).Rejection);
+    }
+
+    [Fact]
+    public void A_cache_that_fails_its_signature_check_is_unusable()
+    {
+        var (signer, pins) = Server();
+        var json = signer.Issue(Sample()).ToJson();
+        var damaged = SignedProfile.Parse(json.Replace("\"signature\":\"", "\"signature\":\"A", StringComparison.Ordinal));
+        Assert.NotNull(damaged);
+        Assert.False(Check(damaged, pins).IsAccepted);
+    }
+
+    [Fact]
+    public void Text_that_is_not_an_envelope_does_not_parse()
+    {
+        Assert.Null(SignedProfile.Parse("nope"));
+        Assert.Null(SignedProfile.Parse("{}"));
+    }
+
+    [Fact]
+    public void No_pinned_keys_means_no_profile_is_accepted()
+    {
+        var signer = new ProfileSigner(ProfileSigningKey.Generate());
+        Assert.Equal(ProfileRejection.UnknownKey, Check(signer.Issue(Sample()), PinnedProfileKeys.Empty).Rejection);
+    }
+
+    [Fact]
+    public void A_signing_key_never_prints_its_seed()
+    {
+        var seed = Ed25519Crypto.NewSeed();
+        var key = new ProfileSigningKey(seed);
+        Assert.DoesNotContain(Convert.ToBase64String(seed), key.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(Convert.ToHexStringLower(seed), key.ToString(), StringComparison.Ordinal);
+    }
+
+    private static byte[] PinnedPublicKey(PinnedProfileKeys pins) => Convert.FromBase64String(pins.ToBase64()[0]);
+
+    private sealed class FakeTime(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
 }
