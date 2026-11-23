@@ -30,6 +30,8 @@ internal static class Routes
     {
         ICompiler compiler = new OpaCliCompiler();
         yield return new WasmtimeRoute(compiler);
+        yield return new OpaEvalRoute();
+        yield return new OpaServerRoute();
     }
 }
 
