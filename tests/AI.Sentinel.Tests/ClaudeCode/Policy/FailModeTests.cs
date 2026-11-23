@@ -141,6 +141,30 @@ public class FailModeTests
     [Theory]
     [InlineData(ProfileFailModes.Closed)]
     [InlineData(ProfileFailModes.Ask)]
+    public void A_bundle_that_errors_while_the_severities_are_read_denies_by_name_instead_of_throwing(string failMode)
+    {
+        using var policy = Policy(Profile(failMode), Failing());
+
+        var severities = policy.Severities();
+        var output = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
+
+        Assert.Same(SeverityActions.None, severities);
+        Assert.Equal(DecisionOutcome.Deny, output.Outcome!.Outcome);
+        Assert.Contains("org-baseline", output.Reason, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret-in-the-input", output.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Without_a_fail_mode_a_bundle_that_errors_while_the_severities_are_read_still_throws()
+    {
+        using var policy = Policy(null, Failing());
+
+        Assert.Throws<InvalidOperationException>(() => policy.Severities());
+    }
+
+    [Theory]
+    [InlineData(ProfileFailModes.Closed)]
+    [InlineData(ProfileFailModes.Ask)]
     public void Read_and_search_inside_the_repository_stay_allowed_when_no_decision_can_be_made(string failMode)
     {
         using var policy = Policy(Profile(failMode), Silent());
