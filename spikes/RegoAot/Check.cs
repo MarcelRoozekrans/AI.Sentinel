@@ -8,7 +8,7 @@ internal static class Check
     {
         if (!args.Contains("--check", StringComparer.Ordinal))
         {
-            Console.WriteLine("usage: RegoAot --check | --measure [--runs N] [--routes a,b]");
+            Console.WriteLine("usage: RegoAot --check | --choose | --measure [--runs N] [--routes a,b]");
             return 2;
         }
 

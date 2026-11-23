@@ -1,0 +1,94 @@
+name: Rego AOT spike
+
+# Measures local Rego evaluation under Native AOT on Windows, Linux and macOS (issue 633). The spike
+# is outside AI.Sentinel.slnx and does not ship. It runs only when the spike or this file changes.
+# When no route or no compiler works on a platform, the job says so and skips the measurement
+# instead of failing: that is a result of the spike, not a broken build.
+
+on:
+  pull_request:
+    paths:
+      - 'spikes/RegoAot/**'
+      - '.github/workflows/rego-spike.yml'
+
+permissions:
+  contents: read
+
+env:
+  OPA_VERSION: v1.22.4
+
+jobs:
+  measure:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            rid: linux-x64
+            opa_asset: opa_linux_amd64_static
+            exe: RegoAot
+            opa_exe: opa
+          - os: windows-latest
+            rid: win-x64
+            opa_asset: opa_windows_amd64.exe
+            exe: RegoAot.exe
+            opa_exe: opa.exe
+          - os: macos-latest
+            rid: osx-arm64
+            opa_asset: opa_darwin_arm64_static
+            exe: RegoAot
+            opa_exe: opa
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # global.json pins SDK 11; the spike targets net10.0 and its Native AOT publish needs the .NET 10 runtime pack.
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            10.0.x
+            11.0.x
+
+      # The opa binary serves the OPA process routes and, where the OpaDotNet interop compiler has no native
+      # library (macOS), the compile step. It is checked against the sha256 that the release publishes.
+      - name: Install opa
+        env:
+          ASSET: ${{ matrix.opa_asset }}
+        run: |
+          base="https://github.com/open-policy-agent/opa/releases/download/${OPA_VERSION}"
+          curl -fsSL -o "$RUNNER_TEMP/$ASSET" "$base/$ASSET"
+          curl -fsSL -o "$RUNNER_TEMP/$ASSET.sha256" "$base/$ASSET.sha256"
+          expected=$(cut -d' ' -f1 "$RUNNER_TEMP/$ASSET.sha256")
+          actual=$(if command -v sha256sum >/dev/null; then sha256sum "$RUNNER_TEMP/$ASSET"; else shasum -a 256 "$RUNNER_TEMP/$ASSET"; fi | cut -d' ' -f1)
+          if [ "$expected" != "$actual" ]; then echo "sha256 mismatch for $ASSET: expected $expected, got $actual"; exit 1; fi
+          mv "$RUNNER_TEMP/$ASSET" "$RUNNER_TEMP/${{ matrix.opa_exe }}"
+          chmod +x "$RUNNER_TEMP/${{ matrix.opa_exe }}"
+          echo "OPA_BIN=$RUNNER_TEMP/${{ matrix.opa_exe }}" >> "$GITHUB_ENV"
+
+      - name: Publish with Native AOT
+        run: dotnet publish spikes/RegoAot/RegoAot.csproj -c Release -r ${{ matrix.rid }} -warnaserror
+
+      - name: Check every route
+        working-directory: spikes/RegoAot/bin/Release/net10.0/${{ matrix.rid }}/publish
+        run: ./${{ matrix.exe }} --check
+
+      - name: Measure the chosen route and the compiler
+        working-directory: spikes/RegoAot/bin/Release/net10.0/${{ matrix.rid }}/publish
+        run: |
+          chosen=$(./${{ matrix.exe }} --choose)
+          {
+            echo "### ${{ matrix.os }} (${{ matrix.rid }})"
+            if [ -z "$chosen" ]; then
+              echo "No route is available on this platform, so none was chosen and nothing was measured."
+            else
+              echo "Chosen route: $chosen"
+              echo
+              ./${{ matrix.exe }} --measure --runs 200 --routes "$chosen"
+            fi
+          } | tee -a "$GITHUB_STEP_SUMMARY"
