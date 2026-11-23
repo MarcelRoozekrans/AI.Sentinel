@@ -967,6 +967,12 @@ A folder that cannot be read, compiled or loaded blocks `PreToolUse` with a `Sen
 
 A paused session has every tool call denied with the reason. See [Resident local process](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#resident-local-process) for the channel, the state files and what fails closed.
 
+### Which policy applies
+
+The policy of a tool call is the policy of the node that owns the repository, not of the developer's team (ADR-232, ADR-246). The repository is the git remote of the working directory, read from `.git/config` with no `git` process and no network, through worktrees and submodules. The url is normalised, so the ssh and https forms and a `.git` suffix or different case name one repository, and credentials in a url are dropped before the policy input or the audit sees it. The input's `repository` and `node` fields carry the result. **Every new setting is optional and off by default: without a cached node map, which needs `SENTINEL_HOOK_RESIDENT=on` and a server, the input names no repository and the hooks behave exactly as before.**
+
+Strict repository mode is on by default once a node map is cached. A repository no node owns, or a folder outside git, gets only the organisation's top-level rules and sends no events, and `sentinel-hook session-start` says so. `SENTINEL_HOOK_STRICT_REPOSITORY=off` turns it off. A local `SENTINEL_HOOK_POLICY_DIR` is evaluated next to the organisation's rules and the node's bundle, strictest wins, so it can only tighten. See [Which policy applies](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#which-policy-applies).
+
 ### Severity → action mapping
 
 Both adapters share the same env-var contract — configure once, applies to both:
