@@ -23,6 +23,9 @@ internal static class ResidentCommand
     {
         ArgumentNullException.ThrowIfNull(compilers);
         ArgumentNullException.ThrowIfNull(stderr);
+        // First of all, so the process is out of the group of the hook before it can be killed with it. Best effort: a process that
+        // is a group leader already, or a platform without setsid, goes on as it is.
+        _ = ProcessGroup.Detach();
         if (ResidentSettings.FromEnvironment(ResidentSettings.ProcessEnvironment()) is not { } settings)
         {
             await stderr.WriteLineAsync($"the resident process is off: set {ResidentSettings.EnableVariable}=on").ConfigureAwait(false);

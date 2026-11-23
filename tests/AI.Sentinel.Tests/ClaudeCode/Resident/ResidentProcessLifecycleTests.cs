@@ -201,6 +201,7 @@ public class ResidentProcessLifecycleTests : IDisposable
             var lines = await File.ReadAllTextAsync(audit, TestContext.Current.CancellationToken);
             Assert.Contains("decided=in-process", lines, StringComparison.Ordinal);
             Assert.Contains("decided=resident", lines, StringComparison.Ordinal);
+            AssertLeftTheSessionOfThisProcess(ResidentPaths.Pid(settings));
         }
         finally
         {
@@ -208,6 +209,39 @@ public class ResidentProcessLifecycleTests : IDisposable
             RegoPolicyTestSupport.Delete(folder);
             RegoPolicyTestSupport.Delete(work);
         }
+    }
+
+    /// <summary>The resident process called setsid, so it is the leader of a session of its own: a CLI that kills the process group of
+    /// the hook does not reach it. On Linux this reads the session and the group from /proc, on macOS only the session id differs.</summary>
+    private static void AssertLeftTheSessionOfThisProcess(string pidFile)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var pid = int.Parse(File.ReadAllText(pidFile), System.Globalization.CultureInfo.InvariantCulture);
+        Assert.NotEqual(ProcessGroup.SessionOf(0), ProcessGroup.SessionOf(pid));
+        Assert.Equal(pid, ProcessGroup.SessionOf(pid));
+        if (OperatingSystem.IsLinux())
+        {
+            // pid (comm) state ppid pgrp session: the name may hold spaces, so count from the last bracket.
+            var stat = File.ReadAllText($"/proc/{pid}/stat");
+            var fields = stat[(stat.LastIndexOf(')') + 2)..].Split(' ');
+            Assert.Equal(pid, int.Parse(fields[2], System.Globalization.CultureInfo.InvariantCulture));
+            Assert.Equal(pid, int.Parse(fields[3], System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
+    [Fact]
+    public void Detaching_ignores_a_process_that_is_already_a_group_leader_and_does_nothing_on_windows()
+    {
+        const int Eperm = 1;
+
+        Assert.Equal(ProcessGroupResult.Detached, ProcessGroup.Detach(() => (123, 0)));
+        Assert.Equal(ProcessGroupResult.AlreadyLeader, ProcessGroup.Detach(() => (-1, Eperm)));
+        Assert.Equal(ProcessGroupResult.Failed, ProcessGroup.Detach(() => (-1, 12)));
+        Assert.Equal(ProcessGroupResult.NotApplicable, ProcessGroup.Detach(() => throw new InvalidOperationException("not called"), isWindows: true));
     }
 
     private static async Task WaitForAsync(Func<Task<bool>> condition)
