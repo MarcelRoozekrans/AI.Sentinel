@@ -194,6 +194,10 @@ Each GitHub release carries `sentinel-copilot-hook-<version>-<rid>` archives. Do
 
 The shared env-var contract (`SENTINEL_HOOK_ON_*`) means you configure once and both adapters honor it identically.
 
+## Tool kinds
+
+The Copilot tools map onto the same shared tool kinds as the Claude Code tools, such as `bash` and `powershell` to `shell` and `view` to `read`. The table and the policy input are on the [Claude Code page](./claude-code#tool-kinds-and-policy-input). Nothing reads the input yet, so the hook behaves as before and no setting is added.
+
 ## Programmatic use
 
 `AI.Sentinel.Copilot` (the library, not the `.Cli` tool) exposes `CopilotHookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Use this when bundling AI.Sentinel inside a custom Copilot-compatible agent.

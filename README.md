@@ -851,6 +851,8 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
 }
 ```
 
+Both hooks map each tool onto a shared tool kind (`shell`, `read`, `search`, `write`, `edit`, `fetch`, `mcp`, `agent` or `other`) and build the policy input for it, with a parsed command line for shell calls. Nothing reads that input yet, so there is no new setting and the hooks behave as before; a later setting that uses it will be optional and off by default. See [Tool kinds and policy input](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#tool-kinds-and-policy-input).
+
 ### MCP proxy
 
 For any MCP-speaking agent (Cursor, Continue, Cline, Windsurf, Copilot's MCP path), install the proxy and point your MCP host at it instead of at the target server directly:

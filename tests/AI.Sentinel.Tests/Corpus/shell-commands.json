@@ -1,0 +1,1423 @@
+[
+  {
+    "name": "empty",
+    "input": "",
+    "unparseable": false,
+    "commands": []
+  },
+  {
+    "name": "whitespace",
+    "input": "   \t ",
+    "unparseable": false,
+    "commands": []
+  },
+  {
+    "name": "simple",
+    "input": "ls",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "arguments",
+    "input": "ls -la /tmp",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [
+          "-la",
+          "/tmp"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "extra whitespace",
+    "input": "  git   status  ",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "git",
+        "args": [
+          "status"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "pipe",
+    "input": "cat a.txt | grep foo",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "cat",
+        "args": [
+          "a.txt"
+        ],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "|",
+        "name": "grep",
+        "args": [
+          "foo"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "pipe chain",
+    "input": "a | b | c",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "a",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "|",
+        "name": "b",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "|",
+        "name": "c",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "and",
+    "input": "make && make test",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "make",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "&&",
+        "name": "make",
+        "args": [
+          "test"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "or",
+    "input": "test -f x || echo missing",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "test",
+        "args": [
+          "-f",
+          "x"
+        ],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "||",
+        "name": "echo",
+        "args": [
+          "missing"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "semicolon",
+    "input": "cd /tmp; ls",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "cd",
+        "args": [
+          "/tmp"
+        ],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": ";",
+        "name": "ls",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "mixed operators",
+    "input": "a && b || c; d | e",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "a",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "&&",
+        "name": "b",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "||",
+        "name": "c",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": ";",
+        "name": "d",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "|",
+        "name": "e",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "no spaces around operators",
+    "input": "a&&b||c;d|e",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "a",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "&&",
+        "name": "b",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "||",
+        "name": "c",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": ";",
+        "name": "d",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "|",
+        "name": "e",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "trailing semicolon",
+    "input": "ls;",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "background",
+    "input": "sleep 1 &",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "sleep",
+        "args": [
+          "1"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "background then command",
+    "input": "sleep 1 & echo hi",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "sleep",
+        "args": [
+          "1"
+        ],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "&",
+        "name": "echo",
+        "args": [
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "newline separates",
+    "input": "ls\npwd",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": ";",
+        "name": "pwd",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "blank lines",
+    "input": "\nls\n\n\npwd\n",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": ";",
+        "name": "pwd",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "newline after and",
+    "input": "a &&\nb",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "a",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "&&",
+        "name": "b",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "backslash newline continuation",
+    "input": "ls \\\n -la",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [
+          "-la"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "single quotes",
+    "input": "echo 'a b  c'",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "a b  c"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "single quotes keep specials",
+    "input": "echo 'a && b; $(c) `d`'",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "a && b; $(c) `d`"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "double quotes",
+    "input": "echo \"a b\"",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "a b"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "double quotes keep operators",
+    "input": "echo \"a && b | c; d\"",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "a && b | c; d"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "double quotes escapes",
+    "input": "echo \"say \\\"hi\\\" \\\\ \\$HOME\"",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "say \"hi\" \\ $HOME"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "double quotes keep other backslash",
+    "input": "echo \"a\\nb\"",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "a\\nb"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "adjacent quoting joins",
+    "input": "echo a\"b c\"'d e'f",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "ab cd ef"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "empty quoted argument",
+    "input": "grep \"\" file",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "grep",
+        "args": [
+          "",
+          "file"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "backslash space",
+    "input": "ls my\\ dir",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [
+          "my dir"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "backslash operator",
+    "input": "echo a\\;b",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "a;b"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "quoted command name",
+    "input": "\"git\" status",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "git",
+        "args": [
+          "status"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "variable stays literal",
+    "input": "echo $HOME ${PATH}",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "$HOME",
+          "${PATH}"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "glob and tilde stay literal",
+    "input": "ls ~/src/*.cs",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [
+          "~/src/*.cs"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "brace expansion word",
+    "input": "echo {a,b}",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "{a,b}"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "assignment prefix",
+    "input": "FOO=bar BAZ=\"q x\" make",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "make",
+        "args": [],
+        "assignments": [
+          "FOO",
+          "BAZ"
+        ],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "assignment only",
+    "input": "FOO=bar",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "",
+        "args": [],
+        "assignments": [
+          "FOO"
+        ],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "equals in argument",
+    "input": "dotnet test --filter a=b",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "dotnet",
+        "args": [
+          "test",
+          "--filter",
+          "a=b"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "quoted assignment-looking name",
+    "input": "\"FOO=bar\" x",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "FOO=bar",
+        "args": [
+          "x"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "comment",
+    "input": "ls # list\npwd",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": ";",
+        "name": "pwd",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "hash inside word",
+    "input": "echo a#b",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "a#b"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "hash in quotes",
+    "input": "echo '# no'",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "# no"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "output redirect",
+    "input": "echo hi > out.txt",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "out.txt"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "append redirect",
+    "input": "echo hi >> out.txt",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">>",
+            "target": "out.txt"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "redirect without spaces",
+    "input": "echo hi>out.txt",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "out.txt"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "input redirect",
+    "input": "sort < in.txt",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "sort",
+        "args": [],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": "<",
+            "target": "in.txt"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "stderr redirect",
+    "input": "make 2> err.log",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "make",
+        "args": [],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": "2>",
+            "target": "err.log"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "stderr to stdout",
+    "input": "make 2>&1 | tee log",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "make",
+        "args": [],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": "2>&",
+            "target": "1"
+          }
+        ]
+      },
+      {
+        "operator": "|",
+        "name": "tee",
+        "args": [
+          "log"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "both to file",
+    "input": "make &> all.log",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "make",
+        "args": [],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": "&>",
+            "target": "all.log"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "digit argument is not a redirect",
+    "input": "echo 2 > f",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "2"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "f"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "redirect in quotes is an argument",
+    "input": "echo '>' x",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          ">",
+          "x"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "unterminated single quote",
+    "input": "echo 'abc",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "unterminated double quote",
+    "input": "echo \"abc",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "trailing backslash",
+    "input": "echo abc\\",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "command substitution",
+    "input": "echo $(whoami)",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "command substitution in double quotes",
+    "input": "echo \"$(whoami)\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "backticks",
+    "input": "echo `whoami`",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "backticks in double quotes",
+    "input": "echo \"`whoami`\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "arithmetic",
+    "input": "echo $((1+2))",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "ansi c quoting",
+    "input": "echo $'a\\nb'",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "process substitution",
+    "input": "diff <(a) <(b)",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "output process substitution",
+    "input": "tee >(cat)",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "subshell",
+    "input": "(cd /tmp && ls)",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "stray closing paren",
+    "input": "ls )",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "brace group",
+    "input": "{ ls; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "heredoc",
+    "input": "cat <<EOF\nhi\nEOF",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "here string",
+    "input": "cat <<< hi",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "if statement",
+    "input": "if true; then ls; fi",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "for loop",
+    "input": "for f in a b; do echo $f; done",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "while loop",
+    "input": "while true; do sleep 1; done",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "case statement",
+    "input": "case x in a) ls;; esac",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "function definition",
+    "input": "function f { ls; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "negation",
+    "input": "! false",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "double bracket test",
+    "input": "[[ -f x ]] && ls",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "leading operator",
+    "input": "&& ls",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "trailing and",
+    "input": "ls &&",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "trailing pipe",
+    "input": "ls |",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "double semicolon",
+    "input": "ls ;; pwd",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "empty between operators",
+    "input": "a && || b",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "redirect without target",
+    "input": "echo hi >",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "redirect target is operator",
+    "input": "echo hi > | cat",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "time keyword",
+    "input": "time printf hi",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "time keyword in a pipeline",
+    "input": "echo a | time cat",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "quoted time is a command",
+    "input": "\"time\" printf hi",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "time",
+        "args": [
+          "printf",
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "time as an argument",
+    "input": "echo time",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "time"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "carriage return is word data",
+    "input": "printf %s a\rb",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "printf",
+        "args": [
+          "%s",
+          "a\rb"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "braced expansion with semicolon",
+    "input": "echo ${VALUE:-a;b}",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "${VALUE:-a;b}"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "braced expansion hides no command",
+    "input": "echo ${VALUE:-a;#} ; rm -rf /",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "${VALUE:-a;#}"
+        ],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": ";",
+        "name": "rm",
+        "args": [
+          "-rf",
+          "/"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "braced expansion without closing brace",
+    "input": "echo ${VALUE:-a;b",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced expansion with quotes",
+    "input": "echo ${VALUE:-\"a;b\"}",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced expansion in double quotes",
+    "input": "echo \"${VALUE:-a;b}\"",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "${VALUE:-a;b}"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "braced expansion with quotes in double quotes",
+    "input": "echo \"${VALUE:-\"a;b\"}\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced command substitution with a space",
+    "input": "echo ${ printf hidden; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced command substitution with a tab",
+    "input": "echo ${\tprintf hidden; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced command substitution with a newline",
+    "input": "echo ${\nprintf hidden; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced value substitution",
+    "input": "echo ${| REPLY=x; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced command substitution in double quotes",
+    "input": "echo \"${ printf hidden; }\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced value substitution in double quotes",
+    "input": "echo \"${| REPLY=x; }\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced input process substitution",
+    "input": "echo ${value/a/<(id)}",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced output process substitution",
+    "input": "echo ${value/a/>(id)}",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced process substitution in double quotes",
+    "input": "echo \"${value/a/<(id)}\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced output process substitution in double quotes",
+    "input": "echo \"${value/a/>(id)}\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced command substitution after a word",
+    "input": "echo ${ id; }x",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "line continuation inside an append operator",
+    "input": "echo hi >\\\n> out",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">>",
+            "target": "out"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "line continuation inside an and operator",
+    "input": "a &\\\n& b",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "a",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "&&",
+        "name": "b",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "line continuation inside an or operator",
+    "input": "a |\\\n| b",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "a",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      },
+      {
+        "operator": "||",
+        "name": "b",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "line continuation inside command substitution",
+    "input": "echo $\\\n(date)",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "named descriptor redirect",
+    "input": "{fd}>out printf hi",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "quoted named descriptor is a word",
+    "input": "\"{fd}\">out printf hi",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "{fd}",
+        "args": [
+          "printf",
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">",
+            "target": "out"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "NUL byte",
+    "input": "a\u0000b",
+    "unparseable": true,
+    "commands": []
+  }
+]

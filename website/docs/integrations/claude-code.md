@@ -277,6 +277,31 @@ With `SENTINEL_HOOK_ON_HIGH=Block` and a typical Claude Code workflow:
 
 Tune via env vars to match your risk appetite.
 
+## Tool kinds and policy input
+
+The hook CLIs map each tool of the CLI onto one shared tool kind, so one policy rule can cover the same kind of tool in every CLI (ADR-235). This is the input that the policy work of the central server milestone evaluates against. **Nothing reads it yet**: it adds no setting and changes no decision, so with every existing setting as it was, the hooks behave exactly as before. A later setting that uses it will be optional and off by default.
+
+| Kind | Claude Code tools | Copilot CLI tools |
+|---|---|---|
+| `shell` | `Bash` | `bash`, `powershell` |
+| `read` | `Read`, `NotebookRead` | `view` |
+| `search` | `Glob`, `Grep`, `LS` | `glob`, `grep` |
+| `write` | `Write` | `create` |
+| `edit` | `Edit`, `MultiEdit`, `NotebookEdit` | `edit`, `str_replace_editor`, `apply_patch` |
+| `fetch` | `WebFetch`, `WebSearch` | `web_fetch` |
+| `mcp` | `mcp__<server>__<tool>` | `mcp__<server>__<tool>` |
+| `agent` | `Task`, `Agent` | `task` |
+| `other` | every other tool, such as `TodoWrite` | every other tool |
+
+The input has `kind`, `cli` (`claude-code` or `copilot`), the CLI's own `tool` name, `details`, `findings` (`detector`, `severity`), `repository`, `node` and `session`. `repository` and `node` are empty until the issues that resolve them land. The details depend on the kind:
+
+- `shell`: the command line parsed into commands with their arguments, assigned variable names and redirections, joined by `|`, `&&`, `||`, `;` or `&`, with quoting and escapes resolved and nothing expanded. A command line the parser cannot read with certainty, such as one with command substitution, a subshell, a here document, a compound command, the `time` keyword, a named descriptor redirection such as `{fd}>file` or an unterminated quote, is marked `unparseable` instead of guessed. The outcome for it will be **ask** ([#670](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/670)). PowerShell is always marked `unparseable`, because the parser reads POSIX quoting.
+- `mcp`: `server`, `endpoint` and `tool`. The endpoint stays empty, because no hook payload carries it.
+- `read`, `search`, `write`, `edit`: each path from the `file_path`, `path` or `notebook_path` argument, made absolute, with `in_repository` telling whether it lies inside the repository root. A path is kept as written, with `in_repository` false, when it starts with `~`, when it is relative and no repository root is known, or when the platform rejects it as a path. Paths are resolved lexically, symbolic links are not followed, and a path starting with `~` is never inside. Paths inside a Copilot `apply_patch` patch text are not read.
+- `fetch`: the `url` argument.
+
+The shell parser is checked in CI against a corpus of command lines with their expected parses, `tests/AI.Sentinel.Tests/Corpus/shell-commands.json`, so another parser can be tested against the same file.
+
 ## Programmatic use
 
 The underlying library `AI.Sentinel.ClaudeCode` exposes `HookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Reference the library package (not the `.Cli` tool package) to write your own host integration in C# — useful when you want to bundle AI.Sentinel inside a different agent framework or custom CLI.
