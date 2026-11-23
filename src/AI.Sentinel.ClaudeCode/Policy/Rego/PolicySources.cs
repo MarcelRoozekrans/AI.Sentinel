@@ -29,6 +29,22 @@ internal sealed record PolicySources(IReadOnlyList<PolicyFile> Files, IReadOnlyL
         foreach (var path in Directory.EnumerateFiles(root, "*.rego", SearchOption.AllDirectories))
         {
             var relative = System.IO.Path.GetRelativePath(root, path).Replace('\\', '/');
+            found.Add(new PolicyFile(relative, File.ReadAllText(path)));
+        }
+
+        return FromFiles(found);
+    }
+
+    /// <summary>The sources of files that are already in memory, as <see cref="Load"/> reads them from a folder: so a caller that
+    /// read a folder once compiles exactly what it read.</summary>
+    /// <param name="files">Each file with its path below the folder, forward slashes, and its text.</param>
+    public static PolicySources FromFiles(IEnumerable<PolicyFile> files)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+        var found = new List<PolicyFile>();
+        foreach (var file in files)
+        {
+            var relative = file.Path;
             if (ClimbsOut(relative))
             {
                 throw new InvalidDataException($"{relative}: a file name must not climb out of the folder");
@@ -40,7 +56,7 @@ internal sealed record PolicySources(IReadOnlyList<PolicyFile> Files, IReadOnlyL
             }
 
             // Line endings are normalised so a Windows checkout hashes like a Linux one.
-            found.Add(new PolicyFile(relative, File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal)));
+            found.Add(new PolicyFile(relative, file.Text.Replace("\r\n", "\n", StringComparison.Ordinal)));
         }
 
         if (found.Count == 0)
