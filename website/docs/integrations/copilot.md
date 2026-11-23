@@ -111,6 +111,14 @@ How each outcome is expressed for Copilot CLI:
 | allow | `{"decision":"Allow","reason":null}`, no permission decision | the same |
 | defer | `{"decision":"Allow","reason":null}`, no permission decision | the same |
 
+## Local Rego policy
+
+`SENTINEL_HOOK_POLICY_DIR` names a folder of Rego files that `sentinel-copilot-hook` evaluates on every `preToolUse` call, the same way `sentinel-hook` does; the input, the example, the cache and the platform notes are on the [Claude Code page](./claude-code#local-rego-policy). **Both `SENTINEL_HOOK_POLICY_DIR` and `SENTINEL_HOOK_POLICY_CACHE_DIR` are optional and off by default: without the folder the hook behaves exactly as before.** What differs for Copilot CLI:
+
+- Copilot CLI cannot ask, so an **ask** from the policy, or from the parser for a command line it cannot read, is a deny with instructions.
+- The parser reads POSIX quoting, so every `powershell` call is marked `unparseable` and asks, which for Copilot CLI means it is denied under a local policy.
+- A policy that cannot be read, compiled or loaded blocks `preToolUse` with exit 2 and `Sentinel internal error: policy '<folder>' could not be evaluated`. The Copilot hook has no musl build of the Wasmtime library either, so on Alpine a set folder blocks every call.
+
 ## When the hook itself fails
 
 The hook fails closed on `preToolUse`. When it cannot evaluate a tool call, it blocks the call with exit 2 and a reason that starts with `Sentinel internal error:` on stderr. This covers:
@@ -196,7 +204,7 @@ The shared env-var contract (`SENTINEL_HOOK_ON_*`) means you configure once and 
 
 ## Tool kinds
 
-The Copilot tools map onto the same shared tool kinds as the Claude Code tools, such as `bash` and `powershell` to `shell` and `view` to `read`. The table and the policy input are on the [Claude Code page](./claude-code#tool-kinds-and-policy-input). Nothing reads the input yet, so the hook behaves as before and no setting is added.
+The Copilot tools map onto the same shared tool kinds as the Claude Code tools, such as `bash` and `powershell` to `shell` and `view` to `read`. The table and the policy input are on the [Claude Code page](./claude-code#tool-kinds-and-policy-input). The input is read only when `SENTINEL_HOOK_POLICY_DIR` is set, see [Local Rego policy](#local-rego-policy); without it the hook behaves as before.
 
 ## Programmatic use
 
