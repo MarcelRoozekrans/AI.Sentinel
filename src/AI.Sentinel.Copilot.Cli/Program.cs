@@ -368,9 +368,10 @@ public static class Program
             .Where(e => e.Key is string key && key.StartsWith("SENTINEL_HOOK_", StringComparison.Ordinal))
             .ToDictionary(e => (string)e.Key, e => e.Value as string, StringComparer.Ordinal);
 
-    /// <summary><paramref name="config"/> with the policy collecting the findings of the scan; as it is when no policy is loaded.</summary>
+    /// <summary><paramref name="config"/> with the policy collecting the findings of the scan and the severity outcomes it sets;
+    /// as it is when no policy is loaded.</summary>
     private static CopilotHookConfig WithFindingSink(CopilotHookConfig config, LocalPolicy? policy) =>
-        policy is null ? config : config with { FindingSink = policy.FindingSink };
+        policy is null ? config : config with { FindingSink = policy.FindingSink, SeverityOutcomes = policy.Severities() };
 
     /// <summary>Loads the policy, see <see cref="TryLoadPolicy"/>. One that cannot be loaded blocks the call as an internal
     /// error, and its exit code is returned; running without it would skip every rule it holds.</summary>

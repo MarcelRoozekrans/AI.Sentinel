@@ -155,7 +155,16 @@ internal sealed class WasmEvaluator : IDisposable
             reasons.Add(reason.GetString() ?? string.Empty);
         }
 
-        return new RegoDecision(outcome, reasons);
+        var severities = new List<KeyValuePair<string, string>>();
+        if (result.TryGetProperty("severity_actions", out var actions) && actions.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var action in actions.EnumerateObject())
+            {
+                severities.Add(new(action.Name, action.Value.GetString() ?? string.Empty));
+            }
+        }
+
+        return new RegoDecision(outcome, reasons, SeverityActions: SeverityActions.Parse(severities));
     }
 
     private string DumpExport(Function export) => _memory.ReadNullTerminatedString(Call(_jsonDump, Call(export)));
