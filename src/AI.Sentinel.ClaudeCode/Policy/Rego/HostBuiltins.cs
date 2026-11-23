@@ -37,6 +37,7 @@ internal static class HostBuiltins
     {
         var sb = new StringBuilder();
         var next = 0;
+        var reordered = false;
         for (var i = 0; i < format.Length; i++)
         {
             if (format[i] != '%')
@@ -55,6 +56,20 @@ internal static class HostBuiltins
             {
                 sb.Append("%!(NOVERB)");
             }
+            else if (spec.Index != 0)
+            {
+                // %[n]verb takes the n-th argument, and the verbs after it go on from there. A number outside the arguments is bad.
+                reordered = true;
+                if (spec.Index < 1 || spec.Index > args.Count)
+                {
+                    sb.Append("%!").Append(spec.Verb).Append("(BADINDEX)");
+                }
+                else
+                {
+                    next = spec.Index;
+                    sb.Append(Pad(Verb(spec, args[next - 1]), spec));
+                }
+            }
             else if (next >= args.Count)
             {
                 sb.Append("%!").Append(spec.Verb).Append("(MISSING)");
@@ -65,7 +80,7 @@ internal static class HostBuiltins
             }
         }
 
-        if (next < args.Count)
+        if (!reordered && next < args.Count)
         {
             sb.Append("%!(EXTRA ").AppendJoin(", ", args.Skip(next).Select(Describe)).Append(')');
         }
@@ -73,7 +88,7 @@ internal static class HostBuiltins
         return sb.ToString();
     }
 
-    private sealed record Spec(bool Minus, bool Plus, bool Space, bool Zero, int Width, int Precision, char Verb);
+    private sealed record Spec(bool Minus, bool Plus, bool Space, bool Zero, int Width, int Precision, char Verb, int Index = 0);
 
     private static Spec ReadSpec(string f, ref int i)
     {
@@ -86,6 +101,7 @@ internal static class HostBuiltins
             zero |= f[i] == '0';
         }
 
+        var index = ReadIndex(f, ref i);
         var width = ReadNumber(f, ref i);
         var precision = -1;
         if (i < f.Length && f[i] == '.')
@@ -94,7 +110,29 @@ internal static class HostBuiltins
             precision = Math.Max(ReadNumber(f, ref i), 0);
         }
 
-        return new Spec(minus, plus, space, zero, Math.Max(width, 0), precision, i < f.Length ? f[i] : '\0');
+        var last = ReadIndex(f, ref i);
+        index = last != 0 ? last : index;
+        return new Spec(minus, plus, space, zero, Math.Max(width, 0), precision, i < f.Length ? f[i] : '\0', index);
+    }
+
+    // [n] before the verb: n, or -1 for a bracket that is not a number, 0 when there is no bracket.
+    private static int ReadIndex(string f, ref int i)
+    {
+        if (i >= f.Length || f[i] != '[')
+        {
+            return 0;
+        }
+
+        var close = f.IndexOf(']', i + 1);
+        if (close < 0)
+        {
+            i++;
+            return -1;
+        }
+
+        var digits = f.AsSpan(i + 1, close - i - 1);
+        i = close + 1;
+        return digits.Length > 0 && digits.Length < 6 && int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : -1;
     }
 
     private static int ReadNumber(string f, ref int i)

@@ -22,6 +22,10 @@ public class RegoHostBuiltinsTests
     [InlineData("\"%v\"", "[[\"a\", 1, {\"k\": true}]]", "[\"a\", 1, {\"k\": true}]")]
     [InlineData("\"%.3s\"", "[\"abcdef\"]", "abc")]
     [InlineData("\"%s\"", "[\"naïve ü\"]", "naïve ü")]
+    [InlineData("\"%[1]s\"", "[\"rm\"]", "rm")]
+    [InlineData("\"%[2]s %[1]s\"", "[\"a\", \"b\"]", "b a")]
+    [InlineData("\"%[1]s %s\"", "[\"a\", \"b\"]", "a b")]
+    [InlineData("\"%[1]d|%[1]5d|%[1]x\"", "[255]", "255|  255|ff")]
     public void Sprintf_formats_like_opa(string format, string args, string expected)
     {
         var json = HostBuiltins.Sprintf(format, args);
@@ -37,6 +41,9 @@ public class RegoHostBuiltinsTests
     [InlineData("\"%d\"", "[1.5]", "%!d(float64=1.5)")]
     [InlineData("\"%z\"", "[1]", "%!z(int=1)")]
     [InlineData("\"50%\"", "[]", "50%!(NOVERB)")]
+    [InlineData("\"%[3]s\"", "[\"a\"]", "%!s(BADINDEX)")]
+    [InlineData("\"%[0]s\"", "[\"a\"]", "%!s(BADINDEX)")]
+    [InlineData("\"%[x]s\"", "[\"a\"]", "%!s(BADINDEX)")]
     public void Sprintf_marks_a_mismatch_the_way_go_does(string format, string args, string expected)
     {
         var json = HostBuiltins.Sprintf(format, args);
