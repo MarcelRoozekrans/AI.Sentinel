@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using AI.Sentinel.AspNetCore.AdminAudit;
 using AI.Sentinel.Approvals;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
@@ -690,6 +692,7 @@ internal static class DashboardHandlers
         if (target is null) return;
 
         var outcome = await target.Admin.ApproveAsync(target.RequestId, target.ApproverId, note: null, ctx.RequestAborted).ConfigureAwait(false);
+        await RecordDecisionAsync(ctx, outcome, AdminAuditAction.Approve, target).ConfigureAwait(false);
         await RespondToDecisionAsync(ctx, outcome).ConfigureAwait(false);
     }
 
@@ -710,7 +713,30 @@ internal static class DashboardHandlers
         }
 
         var outcome = await target.Admin.DenyAsync(target.RequestId, target.ApproverId, reason, ctx.RequestAborted).ConfigureAwait(false);
+        await RecordDecisionAsync(ctx, outcome, AdminAuditAction.Deny, target).ConfigureAwait(false);
         await RespondToDecisionAsync(ctx, outcome).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes a decision this call made to the administrative audit log, when the host registered one.
+    /// With no log registered nothing changes. An approver name the log cannot hold is recorded as <c>unknown</c>.</summary>
+    private static async Task RecordDecisionAsync(HttpContext ctx, ApprovalDecisionOutcome outcome, AdminAuditAction action, DecisionTarget target)
+    {
+        if (outcome != ApprovalDecisionOutcome.Applied || ctx.RequestServices.GetService<AdminAuditLog>() is not { } log)
+        {
+            return;
+        }
+        var organisation = ctx.RequestServices.GetRequiredService<IOptions<AdminAuditOptions>>().Value.Organisation;
+        var actor = target.ApproverId;
+        try
+        {
+            AdminAuditEntry.CheckField(actor, nameof(actor));
+        }
+        catch (ArgumentException)
+        {
+            actor = "unknown";
+        }
+        // The decision is already committed: a client that disconnects must not lose its record.
+        await log.RecordAsync(organisation, action, actor, target.RequestId, AdminAuditChannel.Web, CancellationToken.None).ConfigureAwait(false);
     }
 
     private static Task RespondToDecisionAsync(HttpContext ctx, ApprovalDecisionOutcome outcome) => outcome switch
