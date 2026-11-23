@@ -444,6 +444,69 @@ When the audit is registered, an approve or deny made through the dashboard is r
 
 Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelAdminAudit` and `MapAISentinelAdminAudit`.
 
+## Policy folder and signed profiles (server part)
+
+The server part in `AI.Sentinel.AspNetCore` reads policy and node configuration from a folder (ADR-107). It never accepts either over HTTP: no endpoint takes a request body. A central product fills the folder from the protected branch of a git repository; a standalone deployment keeps a git checkout of that branch there, for example with a git-sync sidecar.
+
+```csharp
+services.AddAISentinelAdminAudit(o => o.SigningKey = signingKeyBase64);
+services.AddAISentinelPolicyFolder(o =>
+{
+    o.Path = "/policy/current";           // the folder, or a link to it, as git-sync keeps it
+    o.SigningKey = signingKeyBase64;      // base64 of the 32 byte Ed25519 seed, from the deployment
+    o.PreviousSigningKey = null;          // set during a key rotation
+    o.OpaPath = null;                     // the opa executable; looked up on the PATH when unset
+    o.PolicyName = "AISentinelDeveloper"; // the host's policy; the organisation is the resource
+});
+app.MapAISentinelPolicyServer();          // GET /.well-known/ai-sentinel/profile-keys,
+                                          // GET /ai-sentinel/policy/profile?repository=, GET /ai-sentinel/policy/node-map
+```
+
+### The folder
+
+```
+nodes.json            organisation, nodes, repositories, roles
+acme.rego             the bundle of the organisation node (a file named after the node id, or a folder)
+team-a/rules.rego     the bundle of the node team-a
+```
+
+```json
+{
+  "organisation": "acme",
+  "nodes": [
+    {"id": "acme", "kind": "organisation", "settings": {"fail_mode": "closed", "profile_lifetime_hours": 168}},
+    {"id": "team-a", "kind": "team", "settings": {"detailed_logging": true}}
+  ],
+  "repositories": {"github.com/acme/widgets": "team-a"},
+  "roles": [{"group": "security", "role": "administrator", "node": "acme"},
+            {"group": "team-a-leads", "role": "team_lead", "node": "team-a"}]
+}
+```
+
+A team inherits the settings it leaves out from the organisation. `fail_mode` is `closed` or `open`; the profile lifetime defaults to 7 days. `version` is optional: without it the server counts its publishes. Bundles are written in `package sentinel` and add reasons with `deny contains`, `ask contains` and the other outcome sets. A bundle below the organisation cannot define an `allow` rule (ADR-232). A link inside the folder is not followed and refuses the folder.
+
+### Reading is one complete version
+
+Whatever fills the folder has to swap it atomically, as git-sync does with a link. The server waits for changes to settle, resolves the real path once, reads every file into memory and compiles from that copy. It then reads the files again and compares them with the copy, and checks that the folder still resolves to the same place. On any difference, or when a read fails, nothing is published and the pass is tried again with bounded backoff. Reloads run one at a time, so an older version never replaces a newer one. A link swap raises no file event, so the folder is also looked at every `PollInterval` (30 seconds by default).
+
+### Compiling and validating
+
+All bundles of a version are merged into one Rego module, identified by its sha256, which is also what the plugin compiles. The server compiles it in a child process with the `opa` binary, with a capabilities document that leaves out the builtins that reach outside the process (`http.send`, `net.lookup_ip_addr`, `opa.runtime`). The Rego engine is the one of the hook adapter, referenced by the server part; where it finally lives is tracked in #694. A configuration that fails validation is not published, the last good one stays in force, and a `rejected_publish` entry is written to the [audit log](#administrative-audit-log-server-part) on the git channel; a `publish` entry is written for each published version. Entries hold a short reason code and the hash of what was read, never file content. A compiler that cannot run is not a rejection: nothing is published, the pass is retried and the failure is logged.
+
+### Signed profiles
+
+The server signs one profile per repository with the deployment key and serves it to a signed-in developer of the organisation. All three endpoints use the host's authorization policy with the organisation as the resource, and answer `503` until a first configuration is published.
+
+| Endpoint | Answers |
+|---|---|
+| `GET /.well-known/ai-sentinel/profile-keys` | `{"organisation": "...", "keys": ["base64 Ed25519 public key"]}`, the keys the sign-in pins |
+| `GET {prefix}/profile?repository=` | the signed profile of the repository; `404` when no node owns it |
+| `GET {prefix}/node-map` | repository to node id, the map the hooks cache |
+
+While the server is unreachable a hook still denies a call that matches a deny rule of the last valid cached profile.
+
+Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelPolicyFolder` and `MapAISentinelPolicyServer`.
+
 ## Tool kinds and policy input
 
 The hook CLIs map each tool of the CLI onto one shared tool kind, so one policy rule can cover the same kind of tool in every CLI (ADR-235). This is the input that the policy work of the central server milestone evaluates against. It is read only when [`SENTINEL_HOOK_POLICY_DIR`](#local-rego-policy) is set, an optional setting that is off by default: without it the input is not built and the hooks behave exactly as before.
