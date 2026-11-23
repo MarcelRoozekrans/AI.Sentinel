@@ -90,7 +90,7 @@ public class RegoPolicyLoadFailureTests : IDisposable
         _folders.Add(cache);
 
         var error = Assert.Throws<RegoCompileException>(
-            () => LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler()]));
+            () => LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler())));
 
         Assert.Contains("rego_parse_error", error.Message, StringComparison.Ordinal);
         Assert.Empty(Directory.GetFiles(cache));
@@ -191,7 +191,7 @@ public class RegoPolicyLoadFailureTests : IDisposable
         _folders.Add(cache);
 
         var error = Assert.Throws<RegoCompileException>(
-            () => LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler()]));
+            () => LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler())));
 
         Assert.Contains($"{builtin}, which reaches outside the process and is refused", error.Message, StringComparison.Ordinal);
         Assert.Empty(Directory.GetFiles(cache));
@@ -208,7 +208,7 @@ public class RegoPolicyLoadFailureTests : IDisposable
         var folder = Folder(("p/outside.rego", Rule($"deny contains \"x\" if {{\n\t_ = {call}\n}}")));
         var cache = Path.Combine(_work, "unrestricted-cache");
         _folders.Add(cache);
-        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler(unrestricted: true)]);
+        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler(unrestricted: true)));
 
         var output = policy.Decide(new HookOutput { Decision = HookDecision.Allow }, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
 
@@ -223,7 +223,7 @@ public class RegoPolicyLoadFailureTests : IDisposable
         var folder = Folder(("p/ok.rego", Rule("deny contains \"x\" if {\n\tinput.tool == \"never\"\n\t_ = opa.runtime()\n}")));
         var cache = Path.Combine(_work, "unrestricted-cache-2");
         _folders.Add(cache);
-        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler(unrestricted: true)]);
+        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler(unrestricted: true)));
 
         // The call sits behind a condition that is false, so the module never meets the builtin for this input.
         var output = policy.Decide(new HookOutput { Decision = HookDecision.Allow }, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
@@ -237,7 +237,7 @@ public class RegoPolicyLoadFailureTests : IDisposable
         var folder = Folder(("p/clash.rego", Rule("decision := {\"outcome\": \"allow\", \"reasons\": [\"mine\"]}")));
         var cache = Path.Combine(_work, "clash-cache");
         _folders.Add(cache);
-        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler()]);
+        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()));
 
         // OPA reports two different values for one complete rule as a conflict while evaluating, so the call fails and
         // the hooks turn the exception into an internal-error block. It is never an allow.

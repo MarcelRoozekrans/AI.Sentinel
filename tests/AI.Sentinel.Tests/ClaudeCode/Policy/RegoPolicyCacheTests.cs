@@ -23,7 +23,7 @@ public class RegoPolicyCacheTests : IDisposable
     }
 
     private LocalPolicy Load(params IRegoCompiler[] compilers) =>
-        LocalPolicy.Load(_folder, RegoPolicyTestSupport.Env(_cache), "/work/repo", compilers);
+        LocalPolicy.Load(_folder, RegoPolicyTestSupport.Env(_cache), "/work/repo", [.. compilers, new OpaBinaryCompiler()]);
 
     private static HookOutput Decide(LocalPolicy policy) =>
         policy.Decide(new HookOutput { Decision = HookDecision.Allow }, PolicyClis.ClaudeCode, "Bash", JsonDocument.Parse("""{"command":"rm x"}""").RootElement, "s");

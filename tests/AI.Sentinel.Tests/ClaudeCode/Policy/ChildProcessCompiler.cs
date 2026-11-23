@@ -10,7 +10,7 @@ namespace AI.Sentinel.Tests.ClaudeCode.Policy;
 /// </summary>
 internal sealed class ChildProcessCompiler(bool unrestricted = false) : IRegoCompiler
 {
-    private readonly ChildProcessRegoCompiler _inner = new(RegoPolicyTestSupport.DotnetHost(), [RegoPolicyTestSupport.HookAssembly]);
+    private readonly ChildProcessRegoCompiler _inner = new(RegoPolicyTestSupport.DotnetHost(), [RegoPolicyTestSupport.HookAssembly], InteropRegoCompiler.Unavailable());
 
     public int Compiles { get; private set; }
 

@@ -98,11 +98,15 @@ internal static class RegoPolicyTestSupport
     public static Dictionary<string, string?> Env(string? cache = null) =>
         new(StringComparer.Ordinal) { ["SENTINEL_HOOK_POLICY_CACHE_DIR"] = cache ?? SharedCache };
 
+    /// <summary>The compilers a hook has, in its order: the child process, then the <c>opa</c> binary where the interop
+    /// compiler has no native library, as on arm64.</summary>
+    public static IReadOnlyList<IRegoCompiler> Compilers(ChildProcessCompiler child) => [child, new OpaBinaryCompiler()];
+
     /// <summary>Compiles the policy in a child process and leaves the result in the shared cache, so a hook run in this
     /// process finds it there and never loads the Go runtime of the interop compiler itself.</summary>
     public static void Prime(string folder, string? cache = null)
     {
-        using var policy = RegoPolicy.Load(folder, cache ?? SharedCache, [new ChildProcessCompiler()]);
+        using var policy = RegoPolicy.Load(folder, cache ?? SharedCache, Compilers(new ChildProcessCompiler()));
     }
 
     /// <summary>The <c>sentinel-hook</c> assembly in its own output folder, which compiles a policy when started with
@@ -148,13 +152,25 @@ internal static class RegoPolicyTestSupport
         psi.Environment[HookAuditTestSupport.SqliteVar] = "off";
         psi.Environment.Remove("SENTINEL_HOOK_AUDIT_NDJSON");
         using var process = Process.Start(psi)!;
-        var stdout = process.StandardOutput.ReadToEndAsync();
-        var stderr = process.StandardError.ReadToEndAsync();
-        await process.StandardInput.WriteAsync(json);
-        process.StandardInput.Close();
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-        await process.WaitForExitAsync(timeout.Token);
-        return (process.ExitCode, await stdout, await stderr);
+        try
+        {
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            await process.StandardInput.WriteAsync(json);
+            process.StandardInput.Close();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            await process.WaitForExitAsync(timeout.Token);
+            return (process.ExitCode, await stdout, await stderr);
+        }
+        finally
+        {
+            // A timeout or a failure leaves the hook running, and the using only releases the handle: stop it and reap it.
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
     }
 
     public static void Delete(string dir)

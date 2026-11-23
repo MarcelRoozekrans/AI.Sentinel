@@ -28,7 +28,7 @@ public class RegoPolicyDenyTests : IDisposable
     private LocalPolicy Load(string root = "/work/repo") => LoadOf(_folder, root);
 
     private static LocalPolicy LoadOf(string folder, string root = "/work/repo") =>
-        LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(), root, [new ChildProcessCompiler()]);
+        LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(), root, RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()));
 
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement;
 
