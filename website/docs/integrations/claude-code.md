@@ -535,6 +535,14 @@ While the server is unreachable a hook still denies a call that matches a deny r
 
 Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelPolicyFolder` and `MapAISentinelPolicyServer`.
 
+### Roles on nodes
+
+The `roles` list of `nodes.json` binds identity-provider groups to roles on nodes. There are three roles: an administrator, bound on the organisation, a team lead, bound on a team, and everyone else, who is a developer. A role applies to its node and the nodes below it, so an administrator holds it on every node and a team lead on their team. The server reads the signed-in user from the validated token: the developer is its `sub` claim and the groups are its `groups` claim, either as one claim per group or as one claim holding a JSON array. `PolicyFolderOptions.DeveloperClaim` and `PolicyFolderOptions.GroupsClaim` rename them. The bindings are read from the configuration that is current at each check, so a change of the policy folder changes them without a restart.
+
+A team lead approves, denies, pauses and releases only sessions of repositories on their node, and a developer reads their own decisions. Nobody decides their own approval request, whatever the role. A repository that no node owns is the organisation's to settle, so only an administrator is allowed on it. The check goes through the host's ASP.NET Core authorization, after the host policy named in `PolicyName`, and uses the node configuration for the role. With the policy folder registered, `GET /ai-sentinel/admin-audit/{organisation}/export` also needs the administrator role on the organisation. The roles are for the whole server part; which sessions each team sees in the dashboard is a separate item.
+
+Every new setting is optional and off by default. Without `AddAISentinelPolicyFolder` there are no roles and the host policy decides alone.
+
 ## Tool kinds and policy input
 
 The hook CLIs map each tool of the CLI onto one shared tool kind, so one policy rule can cover the same kind of tool in every CLI (ADR-235). This is the input that the policy work of the central server milestone evaluates against. It is read only when [`SENTINEL_HOOK_POLICY_DIR`](#local-rego-policy) is set, an optional setting that is off by default: without it the input is not built and the hooks behave exactly as before.
