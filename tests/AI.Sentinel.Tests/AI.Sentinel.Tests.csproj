@@ -24,6 +24,7 @@
     <ProjectReference Include="..\..\src\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Copilot\AI.Sentinel.Copilot.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Mcp\AI.Sentinel.Mcp.csproj" />
+    <ProjectReference Include="..\..\samples\AI.Sentinel.ServerSample\AI.Sentinel.ServerSample.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Tests.NdjsonWriter\AI.Sentinel.Tests.NdjsonWriter.csproj" />
     <PackageReference Include="xunit.v3" Version="4.0.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
