@@ -188,7 +188,7 @@ public class EvaluationOrderTests : IDisposable
     }
 
     [Fact]
-    public void A_state_folder_that_is_open_to_others_is_not_talked_to()
+    public void A_state_folder_that_is_open_to_others_is_not_talked_to_and_fails_the_load_closed()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -203,11 +203,12 @@ public class EvaluationOrderTests : IDisposable
         try
         {
             var session = ResidentSession.Open(Env(), _ => throw new InvalidOperationException("nothing is started"))!;
-            using var policy = LocalPolicy.Load(_folder, Env(), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()), session);
-            var output = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
 
+            // The same folder holds the node map of the repository (#656). One that is open to others is never read, and a map that
+            // cannot be read blocks the call rather than reading as no map, so the load fails closed instead of running in this process.
             Assert.Equal(ResidentStart.Unusable, session.Start);
-            Assert.Equal(OutcomeDecision.InProcess, output.Outcome?.DecidedAt ?? OutcomeDecision.InProcess);
+            Assert.Throws<UnauthorizedAccessException>(() => LocalPolicy.Load(
+                _folder, Env(), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()), session));
         }
         finally
         {
