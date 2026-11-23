@@ -735,7 +735,8 @@ internal static class DashboardHandlers
         {
             actor = "unknown";
         }
-        await log.RecordAsync(organisation, action, actor, target.RequestId, AdminAuditChannel.Web, ctx.RequestAborted).ConfigureAwait(false);
+        // The decision is already committed: a client that disconnects must not lose its record.
+        await log.RecordAsync(organisation, action, actor, target.RequestId, AdminAuditChannel.Web, CancellationToken.None).ConfigureAwait(false);
     }
 
     private static Task RespondToDecisionAsync(HttpContext ctx, ApprovalDecisionOutcome outcome) => outcome switch

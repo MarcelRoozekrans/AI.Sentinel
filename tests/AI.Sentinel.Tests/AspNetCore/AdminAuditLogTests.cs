@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Xunit;
+using ZeroAlloc.Authorization;
 using static AI.Sentinel.Tests.AspNetCore.AdminAuditTestSupport;
 
 namespace AI.Sentinel.Tests.AspNetCore;
@@ -252,6 +253,67 @@ public sealed class AdminAuditLogTests
 
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
         Assert.Single(await host.Services.GetRequiredService<IAdminAuditStore>().ReadAsync("org-a", Ct));
+    }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("deny")]
+    public async Task Dashboard_ADecisionIsRecordedEvenWhenTheRequestAbortsAfterItApplied(string verb)
+    {
+        var (inner, id) = await PendingApprovalAsync();
+        using var abort = new CancellationTokenSource();
+        var store = new AbortingApprovalStore(inner, abort);
+        using var host = await DashboardApprovalsTests.BuildHostAsync(
+            store, authenticatedAs: "ops-bob",
+            configure: s =>
+            {
+                AddAudit(s, Ed25519Crypto.NewSeed());
+                s.AddSingleton<IStartupFilter>(new AbortableRequestFilter(abort));
+            });
+
+        await host.GetTestClient().PostAsync($"/sentinel/api/approvals/{id}/{verb}", new StringContent(""), Ct);
+
+        var entry = Assert.Single(await host.Services.GetRequiredService<IAdminAuditStore>().ReadAsync("org-a", Ct));
+        Assert.Equal((verb, id), (entry.Action, entry.Target));
+    }
+
+    private sealed class AbortableRequestFilter(CancellationTokenSource abort) : IStartupFilter
+    {
+        public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) => app =>
+        {
+            app.Use((ctx, nxt) =>
+            {
+                ctx.RequestAborted = abort.Token;
+                return nxt(ctx);
+            });
+            next(app);
+        };
+    }
+
+    /// <summary>Applies the decision, then aborts the request, as a client that disconnects right after the commit.</summary>
+    private sealed class AbortingApprovalStore(InMemoryApprovalStore inner, CancellationTokenSource abort) : IApprovalStore, IApprovalAdmin
+    {
+        public ValueTask<ApprovalState> EnsureRequestAsync(ISecurityContext caller, ApprovalSpec spec, ApprovalContext context, CancellationToken ct) =>
+            inner.EnsureRequestAsync(caller, spec, context, ct);
+
+        public ValueTask<ApprovalState> WaitForDecisionAsync(string requestId, TimeSpan timeout, CancellationToken ct) =>
+            inner.WaitForDecisionAsync(requestId, timeout, ct);
+
+        public async ValueTask<ApprovalDecisionOutcome> ApproveAsync(string requestId, string approverId, string? note, CancellationToken ct)
+        {
+            var outcome = await inner.ApproveAsync(requestId, approverId, note, ct);
+            await abort.CancelAsync();
+            return outcome;
+        }
+
+        public async ValueTask<ApprovalDecisionOutcome> DenyAsync(string requestId, string approverId, string reason, CancellationToken ct)
+        {
+            var outcome = await inner.DenyAsync(requestId, approverId, reason, ct);
+            await abort.CancelAsync();
+            return outcome;
+        }
+
+        public IAsyncEnumerable<PendingRequest> ListPendingAsync(CancellationToken ct) => inner.ListPendingAsync(ct);
     }
 
     private static void AddAudit(IServiceCollection s, byte[] seed) =>
