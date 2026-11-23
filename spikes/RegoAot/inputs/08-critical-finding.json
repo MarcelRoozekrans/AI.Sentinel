@@ -1,0 +1,4 @@
+{
+  "expected": "deny",
+  "input": {"kind":"shell","tool":"Bash","shell":{"commands":[{"name":"ls","args":["-la"]}]},"files":[],"cli":"copilot","repository":"example/repo","node":"dev-1","session":"s-1","findings":[{"detector":"SEC-01","severity":"critical"}]}
+}

@@ -1,0 +1,4 @@
+{
+  "expected": "ask",
+  "input": {"kind":"fetch","tool":"WebFetch","files":[],"cli": "claude-code", "repository": "example/repo", "node": "dev-1", "session": "s-1", "findings": []}
+}

@@ -1,0 +1,4 @@
+{
+  "expected": "guidance",
+  "input": {"kind":"mcp","tool":"mcp__github__list_issues","mcp":{"server":"github","endpoint":"https://api.example.com/mcp","tool":"list_issues"},"files":[],"cli": "claude-code", "repository": "example/repo", "node": "dev-1", "session": "s-1", "findings": []}
+}

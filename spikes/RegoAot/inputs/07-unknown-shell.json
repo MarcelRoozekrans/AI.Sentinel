@@ -1,0 +1,4 @@
+{
+  "expected": "defer",
+  "input": {"kind":"shell","tool":"Bash","shell":{"commands":[{"name":"dotnet","args":["build"]}]},"files":[],"cli": "claude-code", "repository": "example/repo", "node": "dev-1", "session": "s-1", "findings": []}
+}
