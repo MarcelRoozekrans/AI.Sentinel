@@ -120,7 +120,11 @@ internal static class PolicyCache
     private static bool IsPrivateWindows(string dir)
     {
         var user = WindowsIdentity.GetCurrent().User ?? throw new InvalidOperationException("the current Windows user has no SID");
-        return IsPrivate(new DirectoryInfo(dir).GetAccessControl(), user);
+        var security = new DirectoryInfo(dir).GetAccessControl();
+        var owner = security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+        var rules = security.GetAccessRules(true, true, typeof(SecurityIdentifier)).Cast<FileSystemAccessRule>()
+            .Select(rule => new AccessRule(rule.AccessControlType == AccessControlType.Allow, (rule.IdentityReference as SecurityIdentifier)?.Value));
+        return IsPrivate(owner?.Value, user.Value, rules);
     }
 
     // Full control for the user alone, inherited by what is created inside, and nothing inherited from the parent.
@@ -136,29 +140,23 @@ internal static class PolicyCache
         return security;
     }
 
-    // Owned by the user, and no one but the user, the system and the administrators may be allowed anything.
-    [SupportedOSPlatform("windows")]
-    internal static bool IsPrivate(DirectorySecurity security, SecurityIdentifier user)
+    /// <summary>One access rule of a Windows ACL: whether it allows, and the SID it is for, <see langword="null"/> when the
+    /// identity is not a SID.</summary>
+    internal readonly record struct AccessRule(bool Allows, string? Sid);
+
+    private const string LocalSystemSid = "S-1-5-18";
+    private const string AdministratorsSid = "S-1-5-32-544";
+
+    /// <summary>Whether a Windows ACL is private to <paramref name="userSid"/>: owned by the user, and no one but the user,
+    /// the system and the administrators is allowed anything. A deny rule never opens a directory.</summary>
+    internal static bool IsPrivate(string? ownerSid, string userSid, IEnumerable<AccessRule> rules)
     {
-        if (security.GetOwner(typeof(SecurityIdentifier)) is not SecurityIdentifier owner || !owner.Equals(user))
-        {
-            return false;
-        }
-
-        foreach (FileSystemAccessRule rule in security.GetAccessRules(true, true, typeof(SecurityIdentifier)))
-        {
-            if (rule.AccessControlType != AccessControlType.Allow || rule.IdentityReference is not SecurityIdentifier who)
-            {
-                continue;
-            }
-
-            if (!who.Equals(user) && !who.IsWellKnown(WellKnownSidType.LocalSystemSid) && !who.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid))
-            {
-                return false;
-            }
-        }
-
-        return true;
+        ArgumentNullException.ThrowIfNull(rules);
+        return string.Equals(ownerSid, userSid, StringComparison.OrdinalIgnoreCase)
+            && rules.All(rule => !rule.Allows || rule.Sid is null
+                || string.Equals(rule.Sid, userSid, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(rule.Sid, LocalSystemSid, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(rule.Sid, AdministratorsSid, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Writes <paramref name="payload"/> with its digest in front, whole, under a temporary name first.</summary>

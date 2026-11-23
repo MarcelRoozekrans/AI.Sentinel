@@ -24,14 +24,6 @@
          wrappers give AOT warnings. -->
     <PackageReference Include="Wasmtime" Version="48.0.2" />
   </ItemGroup>
-  <!-- The interop compiler ships an x64 assembly and native library for linux-x64 and win-x64 only. A library is built
-       without a runtime identifier, so the tools that publish for another one pass UseInteropCompiler=false when they
-       reference this project (AdditionalProperties). The code then leaves the interop compiler out, and the compiler that
-       is left is the opa binary. The package stays referenced either way: NuGet restores a library once, and its assets
-       only reach a RID that has them. -->
-  <PropertyGroup Condition="'$(UseInteropCompiler)' != 'false'">
-    <DefineConstants>$(DefineConstants);INTEROP_COMPILER</DefineConstants>
-  </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="OpaDotNet.Compilation.Interop" Version="2.3.4" />
   </ItemGroup>
