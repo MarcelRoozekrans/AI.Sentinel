@@ -12,6 +12,8 @@ internal sealed class ShellLexer
     private bool _inWord;
     private bool _plain = true;
     private int _plainEnd = -1;
+    private bool _expands;
+    private int _bracket = -1;
 
     private ShellLexer(string s) => _s = s;
 
@@ -61,12 +63,18 @@ internal sealed class ShellLexer
             case '`' or '(' or ')':
                 return false;
             case '$':
-                if (Peek(1) is '(' or '\'' or '"')
+                if (Peek(1) is '(' or '\'' or '"' or '[')
                 {
-                    return false;
+                    return false; // $[1+2] is the legacy arithmetic expansion of Bash
                 }
 
-                return Peek(1) == '{' ? BracedExpansion() : Append1(c);
+                if (Peek(1) == '{')
+                {
+                    return BracedExpansion();
+                }
+
+                NoteDollar();
+                return Append1(c);
             case '#' when !_inWord:
                 while (_i < _s.Length && _s[_i] != '\n')
                 {
@@ -83,8 +91,36 @@ internal sealed class ShellLexer
             case '<' or '>':
                 return Redirect();
             default:
+                NoteExpansion(c);
                 Append(c);
                 return true;
+        }
+    }
+
+    // An unquoted *, ? or a [..] pair globs, and a ~ at the start of a word is a tilde expansion.
+    private void NoteExpansion(char c)
+    {
+        if (c is '*' or '?' || (c == '~' && !_inWord))
+        {
+            _expands = true;
+        }
+        else if (c == '[' && _bracket < 0)
+        {
+            _bracket = _word.Length;
+        }
+        else if (c == ']' && _bracket >= 0 && _word.Length > _bracket + 1)
+        {
+            _expands = true;
+        }
+    }
+
+    // A $ followed by a name, a digit or a special parameter expands.
+    private void NoteDollar()
+    {
+        var n = Peek(1);
+        if (char.IsAsciiLetterOrDigit(n) || n is '_' or '@' or '*' or '#' or '?' or '-' or '$' or '!')
+        {
+            _expands = true;
         }
     }
 
@@ -145,6 +181,7 @@ internal sealed class ShellLexer
         }
 
         _inWord = true;
+        _expands = true;
         _word.Append(_s, _i, end - _i + 1);
         _i = end + 1;
         return true;
@@ -226,9 +263,14 @@ internal sealed class ShellLexer
                 return true;
             }
 
-            if (c == '`' || (c == '$' && Peek(1) == '('))
+            if (c == '`' || (c == '$' && Peek(1) is '(' or '['))
             {
                 return false;
+            }
+
+            if (c == '$')
+            {
+                NoteDollar();
             }
 
             if (c == '$' && Peek(1) == '{')
@@ -364,8 +406,10 @@ internal sealed class ShellLexer
         }
 
         var text = _word.ToString();
-        _tokens.Add(new ShellToken(ShellTokenKind.Word, text, _plain, IsAssignment(text, _plainEnd)));
+        _tokens.Add(new ShellToken(ShellTokenKind.Word, text, _plain, IsAssignment(text, _plainEnd), _expands));
         _word.Clear();
+        _expands = false;
+        _bracket = -1;
         _inWord = false;
         _plain = true;
         _plainEnd = -1;
