@@ -267,6 +267,29 @@ With `SENTINEL_HOOK_ON_HIGH=Block` and a typical Claude Code workflow:
 
 Tune via env vars to match your risk appetite.
 
+## Administrative audit log (server part)
+
+The server part in `AI.Sentinel.AspNetCore` can record every administrative action (approve, deny, pause, release, publish, rejected publish, rollback) with its actor, time, target and channel (web, MCP or git). The log is hash-chained per organisation, append-only, and holds identifiers only, never file contents or secrets. It is kept in memory in this version.
+
+```csharp
+services.AddAISentinelAdminAudit(o =>
+{
+    o.SigningKey = signingKeyBase64;      // base64 of the 32 byte Ed25519 seed, from the deployment
+    o.PolicyName = "AISentinelAdminAudit"; // the host's authorization policy; the organisation is the resource
+});
+app.MapAISentinelAdminAudit();            // GET /ai-sentinel/admin-audit/{organisation}/export
+```
+
+An export ends with a head signed with the deployment key: entry count, last hash, export time and organisation. Verify one offline with the pinned public key:
+
+```
+sentinel audit-verify export.json --organisation acme --public-key <base64>
+```
+
+An export with its newest entries cut off fails, because the signed count no longer matches. The command prints the signed count and export time. Pass them back with `--checkpoint-count`, `--checkpoint-hash` and `--checkpoint-time` on a later run, and an export that is older than the checkpoint or does not contain it is rejected, as is an export for another organisation. Exit codes: `0` verified, `1` usage error, `2` verification failed.
+
+Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelAdminAudit` and `MapAISentinelAdminAudit`.
+
 ## Programmatic use
 
 The underlying library `AI.Sentinel.ClaudeCode` exposes `HookAdapter` and the vendor-agnostic `HookPipelineRunner` as public types. Reference the library package (not the `.Cli` tool package) to write your own host integration in C# — useful when you want to bundle AI.Sentinel inside a different agent framework or custom CLI.
