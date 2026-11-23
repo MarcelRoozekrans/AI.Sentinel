@@ -2,7 +2,7 @@
 
 Updated 2026-11-23, morning. Branch `docs/plan-central-server-milestone`, PR #668.
 
-Done 2026-11-23: all 18 CodeRabbit threads on PR #668 handled. Fixes are in the plans and the issue bodies; four design choices went to Marcel and are in the design page and the Decisions below.
+Done 2026-11-23: three CodeRabbit rounds on PR #668 (18, 6 and 7 threads) all fixed or answered and resolved; no thread is open. Rounds 2 and 3 tightened the same decisions: ingest and audit export bound to their organisation, ordered folder reloads, profile refresh that never goes backwards. CodeRabbit has not switched its review to approved; the merge needs Marcel's call. Fixes are in the plans and the issue bodies; four design choices went to Marcel and are in the design page and the Decisions below.
 
 ## Current Position
 
