@@ -1,0 +1,28 @@
+{
+  "expected": "ask",
+  "expected_reasons": [
+    "git push needs a person"
+  ],
+  "input": {
+    "kind": "shell",
+    "tool": "Bash",
+    "shell": {
+      "commands": [
+        {
+          "name": "git",
+          "args": [
+            "push",
+            "origin",
+            "main"
+          ]
+        }
+      ]
+    },
+    "files": [],
+    "cli": "claude-code",
+    "repository": "example/repo",
+    "node": "dev-1",
+    "session": "s-1",
+    "findings": []
+  }
+}

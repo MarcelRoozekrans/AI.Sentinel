@@ -237,6 +237,17 @@ Tool calls stay blocked for as long as the cause persists. Fix the config file, 
 
 On `UserPromptSubmit` and `PostToolUse` the same failures exit 1 with the error on stderr. Claude Code shows it and goes on: exit 1 is not a block. A detector that fails, for example because the embedding endpoint is down, does not block on any event: it is skipped for that scan, reported on stderr, and the other detectors still run.
 
+## Signed policy profile (groundwork, not wired in)
+
+When the PC is later controlled by an organisation's server, it will enforce only policy the server signed (ADR-233). The building blocks are in the core library as internal types. Nothing reads them yet: no hook, setting or environment variable uses a profile, and every new setting this work adds is optional and off by default, so hook behaviour is unchanged.
+
+- **Profile.** Organisation, repository, node, configuration version, module hash and module, `fail_mode`, severity defaults, logging switches, issue time and expiry.
+- **Canonical form.** The server signs the profile as canonical JSON: one UTF-8 object with keys sorted by ordinal comparison, no whitespace, default System.Text.Json string escaping, integers in plain decimal and times as UTC to the whole second (`yyyy-MM-ddTHH:mm:ssZ`). The same profile always gives the same bytes.
+- **Signature.** Ed25519 (RFC 8032) over those bytes. The .NET base library has no Ed25519, so the core package uses the managed BouncyCastle.Cryptography library: no native library per operating system, and it publishes under Native AOT without warnings on Windows, Linux and macOS.
+- **Verification.** The plugin pins the server public keys at sign-in. It accepts a profile only when a pinned key signed it, or a pinned key endorsed the new key that did. It refuses, each with its own reason, an unknown key, a bad signature (including one changed byte), bytes that are not in canonical form, an expired profile, a profile for another organisation than the sign-in and a profile for another repository than the one asked for.
+- **Lifetime.** 7 days by default; the organisation can set another lifetime. A cached profile is used offline until it expires. A cache that fails the signature check is unusable.
+- **Keys.** The signing key reaches the server at startup through the deployment, as a base64 Ed25519 seed. It is never fetched at runtime and never stored (ADR-230). For a rotation the deployment passes the old and the new key side by side: profiles are signed by the new key and carry an endorsement of it by the old key, so plugins that pinned only the old key accept it and pin the new one. When every plugin has pinned the new key, the deployment drops the old one.
+
 ## Diagnostics — did the hook fire?
 
 `SENTINEL_HOOK_VERBOSE=1` produces a stderr line on every invocation, including `Allow` outcomes:

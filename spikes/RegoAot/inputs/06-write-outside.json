@@ -1,0 +1,21 @@
+{
+  "expected": "deny",
+  "expected_reasons": [
+    "write outside the repository"
+  ],
+  "input": {
+    "kind": "write",
+    "tool": "Write",
+    "files": [
+      {
+        "path": "/etc/hosts",
+        "inside_repo": false
+      }
+    ],
+    "cli": "claude-code",
+    "repository": "example/repo",
+    "node": "dev-1",
+    "session": "s-1",
+    "findings": []
+  }
+}

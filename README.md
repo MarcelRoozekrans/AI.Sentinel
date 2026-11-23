@@ -1028,6 +1028,10 @@ Useful when wiring the hook for the first time ("did it run?") or when a block w
 
 An audit failure never changes a decision. `sentinel-hook` prints it to stderr with the prefix `[sentinel-hook] audit:` unless the decision is a Block that exits 2, `sentinel-copilot-hook` only on Allow, and both on any decision when `SENTINEL_HOOK_VERBOSE` is set; the MCP proxy logs it as the `audit_unavailable` event.
 
+### Signed policy profile (groundwork)
+
+Groundwork for control by an organisation's server: a policy profile that the server signs with Ed25519 over a canonical JSON form, and that the plugin accepts only when a pinned server key signed it, or a pinned key endorsed the new key that did (key rotation). A profile expires after 7 days unless the organisation sets another lifetime; a cached one is used offline until then. These are internal types and nothing uses them yet: **every new setting is optional and off by default, and hook behaviour is unchanged.** Details are in the [Claude Code integration page](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#signed-policy-profile-groundwork-not-wired-in).
+
 ### Native binary
 
 `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` are .NET 10 RID-specific tools. `dotnet tool install` needs the .NET 10 SDK, and on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64 it installs the Native AOT build, which skips the ~190 ms JIT startup on every hook call. Other platforms get a framework-dependent build.
