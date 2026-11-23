@@ -267,6 +267,95 @@ public sealed class AdminAuditVerifyCommandTests : IDisposable
         Assert.Contains("checkpoint", stderr, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData("not base64 at all!")]
+    [InlineData("AAAA")]
+    public async Task Verify_ReportsAPinnedKeyThatIsNotAnEd25519KeyAsAUsageError(string key)
+    {
+        var (log, _) = NewLogAt(T0);
+        await SeedAsync(log, "org-a", 1, Ct);
+        var file = await WriteAsync(log, "org-a");
+
+        var (exit, _, stderr) = await RunAsync(file, "org-a", key);
+
+        Assert.Equal(1, exit);
+        Assert.Contains("--public-key", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Verify_RejectsASignatureThatIsNotBase64()
+    {
+        var (log, _) = NewLogAt(T0);
+        await SeedAsync(log, "org-a", 1, Ct);
+        var file = await WriteAsync(log, "org-a", node =>
+        {
+            node["head"]!["signature"] = "not base64!";
+            return node;
+        });
+
+        var (exit, _, stderr) = await RunAsync(file, "org-a");
+
+        Assert.Equal(2, exit);
+        Assert.Contains("signature", stderr, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("action", "launch")]
+    [InlineData("channel", "carrier-pigeon")]
+    [InlineData("timestamp", "yesterday")]
+    [InlineData("organisation", "org-b")]
+    public async Task Verify_RejectsAnEntryWithAnUnknownOrMalformedField(string field, string value)
+    {
+        var (log, _) = NewLogAt(T0);
+        await SeedAsync(log, "org-a", 2, Ct);
+        var file = await WriteAsync(log, "org-a", node =>
+        {
+            node["entries"]![1]![field] = value;
+            return node;
+        });
+
+        var (exit, _, stderr) = await RunAsync(file, "org-a");
+
+        Assert.Equal(2, exit);
+        Assert.Contains("not a valid audit log export", stderr, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("organisation")]
+    [InlineData("exported_at")]
+    [InlineData("signature")]
+    [InlineData("key_id")]
+    public async Task Verify_RejectsAHeadWithAMissingField(string field)
+    {
+        var (log, _) = NewLogAt(T0);
+        await SeedAsync(log, "org-a", 1, Ct);
+        var file = await WriteAsync(log, "org-a", node =>
+        {
+            node["head"]!.AsObject().Remove(field);
+            return node;
+        });
+
+        var (exit, _, stderr) = await RunAsync(file, "org-a");
+
+        Assert.Equal(2, exit);
+        Assert.Contains("not a valid audit log export", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Verify_RejectsANegativeCheckpointCount()
+    {
+        var (log, _) = NewLogAt(T0);
+        await SeedAsync(log, "org-a", 2, Ct);
+        var file = await WriteAsync(log, "org-a");
+        var head = JsonNode.Parse(await File.ReadAllTextAsync(file, Ct))!["head"]!;
+
+        var (exit, _, stderr) = await RunAsync(file, "org-a", extra:
+            ["--checkpoint-count", "-1", "--checkpoint-hash", "abc", "--checkpoint-time", head["exported_at"]!.GetValue<string>()]);
+
+        Assert.Equal(2, exit);
+        Assert.Contains("does not contain the checkpoint", stderr, StringComparison.Ordinal);
+    }
+
     private (AdminAuditLog Log, SettableTime Time) NewLogAt(DateTimeOffset now)
     {
         var time = new SettableTime(now);
