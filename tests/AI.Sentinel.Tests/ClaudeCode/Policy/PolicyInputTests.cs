@@ -129,12 +129,38 @@ public class PolicyInputTests
     [InlineData(@"\\?\C:\repo\src\..", @"C:\repo")]
     [InlineData(@"\\?\C:\..\..\x", @"C:\x")]
     [InlineData(@"\\?\C:\repo\sub\", @"C:\repo\sub\")]
-    [InlineData(@"\\?\UNC\server\share\a", @"\\?\UNC\server\share\a")]
+    [InlineData(@"\\?\UNC\server\share\a", @"\\server\share\a")]
+    [InlineData(@"\\?\UNC\server\share\repo\..\other\a", @"\\server\share\other\a")]
+    [InlineData(@"\\?\UNC\server\share\..\..\a", @"\\server\share\a")]
+    [InlineData(@"\\?\UNC\server\share", @"\\server\share")]
+    [InlineData(@"\\server\share\a", @"\\server\share\a")]
     [InlineData(@"\\.\C:\repo", @"\\.\C:\repo")]
     [InlineData("/work/repo", "/work/repo")]
     public void Extended_drive_paths_compare_as_ordinary_drive_paths(string path, string expected)
     {
         Assert.Equal(expected, PolicyInputBuilder.ComparisonForm(path));
+    }
+
+    [Fact]
+    public void An_extended_unc_path_is_inside_a_unc_repository_and_a_neighbour_on_the_share_is_not()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // the comparison above covers the form on every platform; this checks the flag with the Windows path rules
+        }
+
+        const string root = @"\\host\share\repo";
+        var inside = PolicyInputBuilder.Build(PolicyClis.Copilot, "view", Json("""{"path":"\\\\?\\UNC\\host\\share\\repo\\a.cs"}"""), "s", [], root);
+        var neighbour = PolicyInputBuilder.Build(PolicyClis.Copilot, "view", Json("""{"path":"\\\\?\\UNC\\host\\share\\repo2\\a.cs"}"""), "s", [], root);
+
+        Assert.True(Assert.Single(inside.Details.Paths!).InRepository);
+        Assert.False(Assert.Single(neighbour.Details.Paths!).InRepository);
+    }
+
+    private static JsonElement Json(string text)
+    {
+        using var doc = JsonDocument.Parse(text);
+        return doc.RootElement.Clone();
     }
 
     [Fact]

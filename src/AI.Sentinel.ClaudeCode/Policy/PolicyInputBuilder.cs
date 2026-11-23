@@ -109,10 +109,16 @@ internal static class PolicyInputBuilder
         return full.StartsWith(prefix, comparison);
     }
 
-    // \\?\C:\dir and C:\dir name the same file. Only that drive form is rewritten; other device paths stay as they are.
-    // Windows does not resolve . and .. in an extended path, so they are resolved here, lexically and never above the drive root.
+    // \\?\C:\dir and C:\dir name the same file, and so do \\?\UNC\host\share\dir and \\host\share\dir. Only those two forms are
+    // rewritten; other device paths stay as they are. Windows does not resolve . and .. in an extended path, so they are
+    // resolved here, lexically and never above the drive root or the share.
     internal static string ComparisonForm(string path)
     {
+        if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) && path.Length > 8)
+        {
+            return ResolveUnc(path[8..]);
+        }
+
         if (path.Length < 6 || !path.StartsWith(@"\\?\", StringComparison.Ordinal) || !char.IsAsciiLetter(path[4]) || path[5] != ':')
         {
             return path;
@@ -120,6 +126,35 @@ internal static class PolicyInputBuilder
 
         var drive = path[4..];
         return drive.Length > 2 && drive[2] == '\\' ? ResolveDotSegments(drive) : drive;
+    }
+
+    private static string ResolveUnc(string hostAndShare)
+    {
+        var segments = hostAndShare.Split('\\');
+        if (segments.Length < 2)
+        {
+            return @"\\" + hostAndShare;
+        }
+
+        var root = @"\\" + segments[0] + '\\' + segments[1];
+        var kept = new List<string>();
+        for (var k = 2; k < segments.Length; k++)
+        {
+            if (string.Equals(segments[k], "..", StringComparison.Ordinal))
+            {
+                if (kept.Count > 0)
+                {
+                    kept.RemoveAt(kept.Count - 1);
+                }
+            }
+            else if (segments[k] is not ("." or ""))
+            {
+                kept.Add(segments[k]);
+            }
+        }
+
+        var resolved = kept.Count == 0 ? root : root + '\\' + string.Join('\\', kept);
+        return hostAndShare.EndsWith('\\') && kept.Count > 0 ? resolved + '\\' : resolved;
     }
 
     private static string ResolveDotSegments(string drivePath)
