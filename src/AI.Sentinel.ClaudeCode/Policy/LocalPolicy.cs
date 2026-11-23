@@ -183,35 +183,13 @@ internal sealed class LocalPolicy : IDisposable
         var input = PolicyInputBuilder.Build(
             cli, toolName, toolInput, session, _findings, _repositoryRoot, _repository?.Scope.Repository ?? "", _repository?.Scope.Node ?? "");
         var json = PolicyInputSerializer.Serialize(input);
-        var before = existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource);
-        if (_bundleFailed)
+        var (answer, early) = Ask(existing, input, json);
+        if (early is not null)
         {
-            return OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true);
+            return early;
         }
 
-        // Without a folder there is no module of this process to ask; the repository's decisions below are the whole policy.
-        PolicyAnswer? answer;
-        try
-        {
-            answer = _folderless
-                ? new PolicyAnswer(new RegoDecision(DecisionOutcome.Defer, []), OutcomeDecision.InProcess)
-                : _order.TryEvaluate(json);
-        }
-        catch (Exception) when (_failMode is not null)
-        {
-            // A place that failed ran the bundle and the bundle errored: that denies by name, whatever the fail mode.
-            return OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true);
-        }
-
-        if (answer is null)
-        {
-            // Nobody answered and nobody failed: the fail mode decides. Without one it is an internal error, as before.
-            return _failMode is null
-                ? throw new InvalidOperationException("no place could evaluate the policy: the resident process did not answer and the hook has no module to run")
-                : OutcomeDecision.Strictest([before, FailModeGate.Decide(_failMode, input, Version)]).ToHookOutput(canAsk: true);
-        }
-
-        var (policy, place) = answer;
+        var (policy, place) = answer!;
         var decisions = new List<OutcomeDecision>(3)
         {
             existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource),
@@ -246,6 +224,43 @@ internal sealed class LocalPolicy : IDisposable
 
         var combined = OutcomeDecision.Strictest(decisions) with { PolicyVersion = Version };
         return combined.ToHookOutput(canAsk: true);
+    }
+
+    // The answer of the places, or the output that stands instead when none answered: a bundle that errors, or the fail mode.
+    private (PolicyAnswer? Answer, HookOutput? Early) Ask(HookOutput existing, PolicyInput input, string json)
+    {
+        var before = existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource);
+        if (_bundleFailed)
+        {
+            return (null, OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true));
+        }
+
+        // Without a folder there is no module of this process to ask; the repository's decisions are the whole policy.
+        if (_folderless)
+        {
+            return (new PolicyAnswer(new RegoDecision(DecisionOutcome.Defer, []), OutcomeDecision.InProcess), null);
+        }
+
+        PolicyAnswer? answer;
+        try
+        {
+            answer = _order.TryEvaluate(json);
+        }
+        catch (Exception) when (_failMode is not null)
+        {
+            // A place that failed ran the bundle and the bundle errored: that denies by name, whatever the fail mode.
+            return (null, OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true));
+        }
+
+        if (answer is null)
+        {
+            // Nobody answered and nobody failed: the fail mode decides. Without one it is an internal error, as before.
+            return _failMode is null
+                ? throw new InvalidOperationException("no place could evaluate the policy: the resident process did not answer and the hook has no module to run")
+                : (null, OutcomeDecision.Strictest([before, FailModeGate.Decide(_failMode, input, Version)]).ToHookOutput(canAsk: true));
+        }
+
+        return (answer, null);
     }
 
     // The message of the exception is left out: a module that aborts may echo what it was given, and that is the tool input.
