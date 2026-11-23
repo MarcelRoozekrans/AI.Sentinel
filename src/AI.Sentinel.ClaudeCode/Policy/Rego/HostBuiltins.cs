@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Globalization;
+using System.Numerics;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -20,6 +21,9 @@ internal static class HostBuiltins
 
     /// <summary>Runs <c>sprintf</c> on the JSON of its two arguments, a format string and an array. Returns the JSON of the
     /// result, or <see langword="null"/> when an argument has the wrong type, which is undefined in Rego.</summary>
+    /// <remarks>OPA passes the arguments to Go's <c>fmt.Sprintf</c>, and so does this, with Go's verbs, flags, width,
+    /// precision, <c>%[n]</c> indexes and error markers. Not carried over: a <c>*</c> width or precision, which takes its
+    /// value from an argument, and <c>%w</c>, which Go reserves for errors.</remarks>
     public static string? Sprintf(string formatJson, string argsJson)
     {
         using var format = JsonDocument.Parse(formatJson);
@@ -35,9 +39,9 @@ internal static class HostBuiltins
 
     private static string Format(string format, List<JsonElement> args)
     {
+        var values = args.ConvertAll(Arg.From);
         var sb = new StringBuilder();
-        var next = 0;
-        var reordered = false;
+        var cursor = new Cursor(values.Count);
         for (var i = 0; i < format.Length; i++)
         {
             if (format[i] != '%')
@@ -47,92 +51,164 @@ internal static class HostBuiltins
             }
 
             i++;
-            var spec = ReadSpec(format, ref i);
-            if (spec.Verb == '%')
+            var spec = ReadSpec(format, ref i, cursor);
+            if (spec.Verb == 'v')
             {
-                sb.Append('%');
+                // Go reads %+v and %#v as forms of their own, and neither one signs or prefixes a value of these types.
+                spec = spec with { Plus = false, Sharp = false, PlusV = spec.Plus, Quoted = spec.Sharp };
             }
-            else if (spec.Verb == '\0')
+
+            if (spec.Verb == '\0')
             {
                 sb.Append("%!(NOVERB)");
             }
-            else if (spec.Index != 0)
+            else if (spec.Verb == '%')
             {
-                // %[n]verb takes the n-th argument, and the verbs after it go on from there. A number outside the arguments is bad.
-                reordered = true;
-                if (spec.Index < 1 || spec.Index > args.Count)
-                {
-                    sb.Append("%!").Append(spec.Verb).Append("(BADINDEX)");
-                }
-                else
-                {
-                    next = spec.Index;
-                    sb.Append(Pad(Verb(spec, args[next - 1]), spec));
-                }
+                sb.Append('%');
             }
-            else if (next >= args.Count)
+            else if (!spec.GoodIndex)
+            {
+                sb.Append("%!").Append(spec.Verb).Append("(BADINDEX)");
+            }
+            else if (cursor.Next >= values.Count)
             {
                 sb.Append("%!").Append(spec.Verb).Append("(MISSING)");
             }
             else
             {
-                sb.Append(Pad(Verb(spec, args[next++]), spec));
+                sb.Append(Verb(spec, values[cursor.Next++]));
             }
         }
 
-        if (!reordered && next < args.Count)
+        if (!cursor.Reordered && cursor.Next < values.Count)
         {
-            sb.Append("%!(EXTRA ").AppendJoin(", ", args.Skip(next).Select(Describe)).Append(')');
+            sb.Append("%!(EXTRA ").AppendJoin(", ", values.Skip(cursor.Next).Select(a => a.ExtraType + "=" + Verb(Spec.Plain, a))).Append(')');
         }
 
         return sb.ToString();
     }
 
-    private sealed record Spec(bool Minus, bool Plus, bool Space, bool Zero, int Width, int Precision, char Verb, int Index = 0);
-
-    private static Spec ReadSpec(string f, ref int i)
+    /// <summary>The next argument, and whether a <c>%[n]</c> index was seen, which turns the EXTRA marker off.</summary>
+    private sealed class Cursor(int count)
     {
-        bool minus = false, plus = false, space = false, zero = false;
+        public int Count { get; } = count;
+
+        public int Next { get; set; }
+
+        public bool Reordered { get; set; }
+    }
+
+    /// <summary>A <c>sprintf</c> argument the way OPA hands it to Go's <c>fmt</c>: a number that is an integer as an int64, or
+    /// as a big.Int when it does not fit one, any other number as a float64, a string as it is, and a boolean, null, array or
+    /// object as the string Rego prints for it.</summary>
+    private sealed record Arg(char Kind, BigInteger Integer, double Float, string Text)
+    {
+        public static Arg From(JsonElement e)
+        {
+            if (e.ValueKind == JsonValueKind.Number)
+            {
+                var raw = e.GetRawText();
+                return BigInteger.TryParse(raw, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var n)
+                    ? new Arg('i', n, 0, raw)
+                    : new Arg('f', BigInteger.Zero, e.GetDouble(), raw);
+            }
+
+            return new Arg('s', BigInteger.Zero, 0, Value(e));
+        }
+
+        private bool IsBig => Kind == 'i' && (Integer < long.MinValue || Integer > long.MaxValue);
+
+        /// <summary>The type name in a bad-verb marker.</summary>
+        public string Type => Kind switch { 'i' => IsBig ? "big.Int" : "int64", 'f' => "float64", _ => "string" };
+
+        /// <summary>The type name in the EXTRA marker, which Go takes from reflection.</summary>
+        public string ExtraType => IsBig ? "*big.Int" : Type;
+
+        public bool TakesString => Kind == 's' || IsBig;
+    }
+
+    private sealed record Spec(bool Minus, bool Plus, bool Space, bool Zero, bool Sharp, int Width, int Precision, char Verb, bool GoodIndex = true)
+    {
+        public static readonly Spec Plain = new(false, false, false, false, false, 0, -1, 'v');
+
+        /// <summary>%#v: a string prints as a Go string literal.</summary>
+        public bool Quoted { get; init; }
+
+        /// <summary>%+v: only a big.Int, which formats itself, still prints the plus sign.</summary>
+        public bool PlusV { get; init; }
+    }
+
+    // Go's order: flags, an index, a width, then a dot with an index and a precision, and an index before the verb when
+    // none came yet. An index right in front of a width or a dot, as in %[2]5d, is bad.
+    private static Spec ReadSpec(string f, ref int i, Cursor cursor)
+    {
+        bool minus = false, plus = false, space = false, zero = false, sharp = false;
         for (; i < f.Length && f[i] is '-' or '+' or ' ' or '0' or '#'; i++)
         {
             minus |= f[i] == '-';
             plus |= f[i] == '+';
             space |= f[i] == ' ';
             zero |= f[i] == '0';
+            sharp |= f[i] == '#';
         }
 
-        var index = ReadIndex(f, ref i);
+        var good = true;
+        var afterIndex = TakeIndex(f, ref i, cursor, ref good);
         var width = ReadNumber(f, ref i);
+        good &= !(afterIndex && width >= 0);
         var precision = -1;
-        if (i < f.Length && f[i] == '.')
+        if (i + 1 < f.Length && f[i] == '.')
         {
             i++;
+            good &= !afterIndex;
+            afterIndex = TakeIndex(f, ref i, cursor, ref good);
             precision = Math.Max(ReadNumber(f, ref i), 0);
         }
 
-        var last = ReadIndex(f, ref i);
-        index = last != 0 ? last : index;
-        return new Spec(minus, plus, space, zero, Math.Max(width, 0), precision, i < f.Length ? f[i] : '\0', index);
+        if (!afterIndex)
+        {
+            TakeIndex(f, ref i, cursor, ref good);
+        }
+
+        return new Spec(minus, plus, space, zero, sharp, Math.Max(width, 0), precision, i < f.Length ? f[i] : '\0', good);
     }
 
-    // [n] before the verb: n, or -1 for a bracket that is not a number, 0 when there is no bracket.
-    private static int ReadIndex(string f, ref int i)
+    // A [n] at i: the n-th argument becomes the next one. A number outside the arguments, or a bracket that holds no
+    // number, is bad. True when a bracket with a number was read.
+    private static bool TakeIndex(string f, ref int i, Cursor cursor, ref bool good)
     {
         if (i >= f.Length || f[i] != '[')
         {
-            return 0;
+            return false;
         }
 
+        cursor.Reordered = true;
         var close = f.IndexOf(']', i + 1);
-        if (close < 0)
+        if (f.Length - i < 3 || close < 0)
         {
             i++;
-            return -1;
+            good = false;
+            return false;
         }
 
         var digits = f.AsSpan(i + 1, close - i - 1);
         i = close + 1;
-        return digits.Length > 0 && digits.Length < 6 && int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var n) && n > 0 ? n : -1;
+        if (digits.Length is 0 or > 6 || !int.TryParse(digits, NumberStyles.None, CultureInfo.InvariantCulture, out var n))
+        {
+            good = false;
+            return false;
+        }
+
+        if (n >= 1 && n <= cursor.Count)
+        {
+            cursor.Next = n - 1;
+        }
+        else
+        {
+            good = false;
+        }
+
+        return true;
     }
 
     private static int ReadNumber(string f, ref int i)
@@ -148,91 +224,482 @@ internal static class HostBuiltins
         return any ? n : -1;
     }
 
-    private static string Pad(string text, Spec spec)
+    // One verb applied to one argument, padded to the width, as Go's fmt does for the verbs of the argument's type. A verb
+    // the type has no meaning for gives Go's bad-verb marker, which prints the argument with %v and the same flags.
+    private static string Verb(Spec spec, Arg arg) => (arg.Kind, spec.Verb) switch
     {
-        if (text.Length >= spec.Width)
+        ('i', 'd' or 'v' or 's') when spec.Verb != 's' || arg.TakesString => Integer(arg.Integer, spec with { Plus = spec.Plus || (spec.PlusV && arg.TakesString) }, 10),
+        ('i', 'b') => Integer(arg.Integer, spec, 2),
+        ('i', 'o') => Integer(arg.Integer, spec, 8),
+        ('i', 'O') => Integer(arg.Integer, spec with { Sharp = spec.Sharp && !arg.TakesString }, 8), // a big.Int ignores # for %O
+        ('i', 'x' or 'X') => Integer(arg.Integer, spec, 16),
+        ('i', 'c') when !arg.TakesString => Pad(ToRune(arg.Integer).ToString(), spec, zeroAfterSign: false),
+        ('i', 'q') when !arg.TakesString => Pad(GoQuote(ToRune(arg.Integer).ToString(), spec.Plus, '\''), spec, zeroAfterSign: false),
+        ('i', 'U') when !arg.TakesString => Pad(Unicode(arg.Integer, spec), spec with { Zero = false }, zeroAfterSign: false),
+        ('f', 'v' or 'b' or 'e' or 'E' or 'f' or 'F' or 'g' or 'G' or 'x' or 'X') => Float(arg.Float, spec),
+        ('s', 'v') when spec.Quoted => Pad(GoQuote(Truncate(arg.Text, spec.Precision), ascii: false, '"'), spec, zeroAfterSign: false),
+        ('s', 's' or 'v') => Pad(Truncate(arg.Text, spec.Precision), spec, zeroAfterSign: false),
+        ('s', 'q') => Pad(Quoted(Truncate(arg.Text, spec.Precision), spec), spec, zeroAfterSign: false),
+        ('s', 'x' or 'X') => Pad(Hex(arg.Text, spec), spec, zeroAfterSign: false),
+        // A big.Int formats itself, and prints its bad-verb marker without the flags.
+        ('i', _) when arg.TakesString => $"%!{spec.Verb}(big.Int={arg.Integer.ToString(CultureInfo.InvariantCulture)})",
+        _ => $"%!{spec.Verb}({arg.Type}={Verb(spec with { Verb = 'v' }, arg)})",
+    };
+
+    // Go's fmtInteger: the precision is a minimum number of digits, and without one the zero flag pads the digits to the
+    // width; the # prefix and the sign come after that, and the rest of the width is spaces.
+    private static string Integer(BigInteger value, Spec spec, int radix)
+    {
+        var magnitude = BigInteger.Abs(value);
+        if (spec.Precision == 0 && magnitude.IsZero)
+        {
+            return new string(' ', spec.Width); // Go prints nothing, not even a sign, for a zero with precision 0
+        }
+
+        var digits = ToRadix(magnitude, radix);
+        if (spec.Verb == 'X')
+        {
+            digits = digits.ToUpperInvariant();
+        }
+
+        var sign = Sign(value.Sign < 0, spec);
+        var minimum = spec.Precision >= 0 ? spec.Precision
+            : spec.Zero && !spec.Minus && spec.Width > 0 ? spec.Width - sign.Length
+            : 0;
+        digits = digits.PadLeft(minimum, '0');
+        var prefix = !spec.Sharp ? string.Empty
+            : radix switch
+            {
+                2 => "0b",
+                8 => digits.StartsWith('0') ? string.Empty : "0",
+                16 => spec.Verb == 'X' ? "0X" : "0x",
+                _ => string.Empty,
+            };
+        if (spec.Verb == 'O')
+        {
+            prefix = "0o" + prefix;
+        }
+
+        return Pad(sign + prefix + digits, spec with { Zero = false }, zeroAfterSign: false);
+    }
+
+    // %c and %q of a number take it as a code point; one that is not a valid one is U+FFFD.
+    private static Rune ToRune(BigInteger value) =>
+        value >= 0 && value <= 0x10FFFF && Rune.IsValid((int)value) ? new Rune((int)value) : Rune.ReplacementChar;
+
+    // %U: U+ and at least four hex digits, with # followed by the character in quotes when it is printable. A negative
+    // number is its 64-bit two's complement, as Go converts it to an unsigned integer.
+    private static string Unicode(BigInteger value, Spec spec)
+    {
+        var unsigned = value < 0 ? value + (BigInteger.One << 64) : value;
+        var text = "U+" + ToRadix(unsigned, 16).ToUpperInvariant().PadLeft(Math.Max(spec.Precision, 4), '0');
+        return spec.Sharp && unsigned <= 0x10FFFF && Rune.IsValid((int)unsigned) && IsPrint(new Rune((int)unsigned))
+            ? text + " '" + new Rune((int)unsigned) + "'"
+            : text;
+    }
+
+    private static string ToRadix(BigInteger magnitude, int radix)
+    {
+        if (radix == 10)
+        {
+            return magnitude.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (magnitude.IsZero)
+        {
+            return "0";
+        }
+
+        var sb = new StringBuilder();
+        for (; !magnitude.IsZero; magnitude /= radix)
+        {
+            sb.Insert(0, "0123456789abcdef"[(int)(magnitude % radix)]);
+        }
+
+        return sb.ToString();
+    }
+
+    // Go's strconv formatting of a float64, rounded half to even on the exact binary value: %e and %f with six decimals by
+    // default, %g and %v with the shortest digits that read back as the same value.
+    private static string Float(double value, Spec spec)
+    {
+        var verb = spec.Verb == 'v' ? 'g' : spec.Verb;
+        var magnitude = Math.Abs(value);
+        string body;
+        if (verb is 'b' or 'x' or 'X')
+        {
+            body = Binary(magnitude, verb, spec.Precision);
+        }
+        else if (verb is 'e' or 'E')
+        {
+            var precision = spec.Precision < 0 ? 6 : spec.Precision;
+            var (digits, point) = Round(magnitude, significant: precision + 1);
+            body = Exponent(digits, point, precision, verb);
+        }
+        else if (verb is 'f' or 'F')
+        {
+            var precision = spec.Precision < 0 ? 6 : spec.Precision;
+            var (digits, point) = Round(magnitude, significant: null, decimals: precision);
+            body = Fixed(digits, point, precision);
+        }
+        else
+        {
+            var (digits, point) = spec.Precision < 0 ? Shortest(magnitude) : Round(magnitude, significant: Math.Max(spec.Precision, 1));
+            var limit = spec.Precision < 0 ? 6 : Math.Max(spec.Precision, 1);
+            if (limit > digits.Length && digits.Length >= point && spec.Precision >= 0)
+            {
+                limit = digits.Length;
+            }
+
+            body = point - 1 < -4 || point - 1 >= limit
+                ? Exponent(digits, point, Math.Max(digits.Length - 1, 0), verb == 'G' ? 'E' : 'e')
+                : Fixed(digits, point, Math.Max(digits.Length - point, 0));
+        }
+
+        if (spec.Sharp && verb != 'b')
+        {
+            body = Alternate(body, verb, spec.Precision);
+        }
+
+        return Pad(Sign(double.IsNegative(value), spec) + body, spec, zeroAfterSign: true);
+    }
+
+    // Go's # flag for a float, ported as it is: the decimal point is always there, and %g, %v and %x keep their trailing
+    // zeros up to the precision, six by default. Like Go, it counts the x of a hex float as a digit, and leaves %X out.
+    private static string Alternate(string body, char verb, int precision)
+    {
+        var digits = verb is 'g' or 'G' or 'x' ? (precision < 0 ? 6 : precision) : 0;
+        var number = body;
+        var tail = string.Empty;
+        var hasPoint = false;
+        var sawNonzero = false;
+        for (var i = 0; i < number.Length; i++)
+        {
+            var c = number[i];
+            if (c == '.')
+            {
+                hasPoint = true;
+            }
+            else if (c is 'p' or 'P' || (c is 'e' or 'E' && verb is not ('x' or 'X')))
+            {
+                tail = number[i..];
+                number = number[..i];
+            }
+            else
+            {
+                sawNonzero |= c != '0';
+                digits -= sawNonzero ? 1 : 0;
+            }
+        }
+
+        if (!hasPoint)
+        {
+            digits -= string.Equals(number, "0", StringComparison.Ordinal) ? 1 : 0;
+            number += ".";
+        }
+
+        return number + new string('0', Math.Max(digits, 0)) + tail;
+    }
+
+    // %b of a float is the mantissa and the binary exponent, -ddddp±ddd, and %x the hex form -0x1.hhhp±dd, rounded to the
+    // precision in hex digits, half to even.
+    private static string Binary(double magnitude, char verb, int precision)
+    {
+        var bits = BitConverter.DoubleToInt64Bits(magnitude);
+        var biased = (int)((bits >> 52) & 0x7FF);
+        var mantissa = (ulong)(bits & 0xF_FFFF_FFFF_FFFFL);
+        var exponent = biased == 0 ? -1022 : biased - 1023;
+        if (biased != 0)
+        {
+            mantissa |= 1UL << 52;
+        }
+
+        if (verb == 'b')
+        {
+            var binaryExponent = exponent - 52;
+            return mantissa.ToString(CultureInfo.InvariantCulture) + "p" + (binaryExponent >= 0 ? "+" : string.Empty) + binaryExponent.ToString(CultureInfo.InvariantCulture);
+        }
+
+        return Hex(mantissa, exponent, verb, precision);
+    }
+
+    private static string Hex(ulong mantissa, int exponent, char verb, int precision)
+    {
+        if (mantissa == 0)
+        {
+            exponent = 0;
+        }
+
+        mantissa <<= 8;
+        while (mantissa != 0 && (mantissa & (1UL << 60)) == 0)
+        {
+            mantissa <<= 1;
+            exponent--;
+        }
+
+        if (precision is >= 0 and < 15)
+        {
+            var shift = precision * 4;
+            var extra = (mantissa << shift) & ((1UL << 60) - 1);
+            mantissa >>= 60 - shift;
+            if ((extra | (mantissa & 1)) > 1UL << 59)
+            {
+                mantissa++;
+            }
+
+            mantissa <<= 60 - shift;
+            if ((mantissa & (1UL << 61)) != 0)
+            {
+                mantissa >>= 1;
+                exponent++;
+            }
+        }
+
+        var hex = verb == 'X' ? "0123456789ABCDEF" : "0123456789abcdef";
+        var sb = new StringBuilder().Append('0').Append(verb).Append((char)('0' + (int)((mantissa >> 60) & 1)));
+        mantissa <<= 4;
+        if ((precision < 0 && mantissa != 0) || precision > 0)
+        {
+            sb.Append('.');
+            for (var i = 0; precision < 0 ? mantissa != 0 : i < precision; i++)
+            {
+                sb.Append(hex[(int)((mantissa >> 60) & 15)]);
+                mantissa <<= 4;
+            }
+        }
+
+        return sb.Append(verb == 'X' ? 'P' : 'p').Append(exponent < 0 ? '-' : '+')
+            .Append(Math.Abs(exponent).ToString("00", CultureInfo.InvariantCulture)).ToString();
+    }
+
+    // The digits of the value without leading or trailing zeros, and where the decimal point goes: value = 0.digits * 10^point.
+    private static (string Digits, int Point) Shortest(double magnitude)
+    {
+        var roundTrip = magnitude.ToString("R", CultureInfo.InvariantCulture);
+        var e = roundTrip.IndexOf('E', StringComparison.Ordinal);
+        var mantissa = e < 0 ? roundTrip : roundTrip[..e];
+        var exponent = e < 0 ? 0 : int.Parse(roundTrip.AsSpan(e + 1), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture);
+        var dot = mantissa.IndexOf('.', StringComparison.Ordinal);
+        var point = (dot < 0 ? mantissa.Length : dot) + exponent;
+        return Trim(mantissa.Replace(".", string.Empty, StringComparison.Ordinal), point);
+    }
+
+    // Rounds half to even to the given number of significant digits, or of decimals when significant is null.
+    private static (string Digits, int Point) Round(double magnitude, int? significant, int decimals = 0)
+    {
+        var bits = BitConverter.DoubleToInt64Bits(magnitude);
+        var biased = (int)((bits >> 52) & 0x7FF);
+        var fraction = bits & 0xF_FFFF_FFFF_FFFFL;
+        var mantissa = new BigInteger(biased == 0 ? fraction : fraction | (1L << 52));
+        var exponent = biased == 0 ? -1074 : biased - 1075;
+
+        // magnitude = mantissa * 2^exponent = exact * 10^scale
+        var exact = exponent >= 0 ? mantissa << exponent : mantissa * BigInteger.Pow(5, -exponent);
+        var scale = Math.Min(exponent, 0);
+        var all = exact.IsZero ? string.Empty : exact.ToString(CultureInfo.InvariantCulture);
+        var point = all.Length + scale;
+        var keep = significant ?? (point + decimals);
+        if (keep >= all.Length)
+        {
+            return Trim(all, point);
+        }
+
+        if (keep < 0)
+        {
+            return (string.Empty, 0);
+        }
+
+        var head = keep == 0 ? BigInteger.Zero : BigInteger.Parse(all.AsSpan(0, keep), NumberStyles.None, CultureInfo.InvariantCulture);
+        var first = all[keep];
+        var restZero = all.AsSpan(keep + 1).IndexOfAnyExcept('0') < 0;
+        if (first > '5' || (first == '5' && (!restZero || !head.IsEven)))
+        {
+            head += 1;
+        }
+
+        var rounded = head.IsZero ? string.Empty : head.ToString(CultureInfo.InvariantCulture);
+        return Trim(rounded, point + (rounded.Length - keep));
+    }
+
+    private static (string Digits, int Point) Trim(string digits, int point)
+    {
+        var lead = digits.Length - digits.TrimStart('0').Length;
+        digits = digits[lead..].TrimEnd('0');
+        return digits.Length == 0 ? (string.Empty, 0) : (digits, point - lead);
+    }
+
+    private static char DigitAt(string digits, int i) => i >= 0 && i < digits.Length ? digits[i] : '0';
+
+    private static string Exponent(string digits, int point, int decimals, char e)
+    {
+        var sb = new StringBuilder().Append(DigitAt(digits, 0));
+        if (decimals > 0)
+        {
+            sb.Append('.');
+            for (var i = 1; i <= decimals; i++)
+            {
+                sb.Append(DigitAt(digits, i));
+            }
+        }
+
+        var exponent = digits.Length == 0 ? 0 : point - 1;
+        return sb.Append(e).Append(exponent < 0 ? '-' : '+').Append(Math.Abs(exponent).ToString("00", CultureInfo.InvariantCulture)).ToString();
+    }
+
+    private static string Fixed(string digits, int point, int decimals)
+    {
+        var sb = new StringBuilder();
+        if (point <= 0)
+        {
+            sb.Append('0');
+        }
+
+        for (var i = 0; i < point; i++)
+        {
+            sb.Append(DigitAt(digits, i));
+        }
+
+        if (decimals > 0)
+        {
+            sb.Append('.');
+            for (var i = 0; i < decimals; i++)
+            {
+                sb.Append(DigitAt(digits, point + i));
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static string Sign(bool negative, Spec spec) => negative ? "-" : spec.Plus ? "+" : spec.Space ? " " : string.Empty;
+
+    // The width counts runes, as Go does. The zero flag pads with zeros: after the sign for a number, in front for a string.
+    private static string Pad(string text, Spec spec, bool zeroAfterSign)
+    {
+        var missing = spec.Width - Runes(text);
+        if (missing <= 0)
         {
             return text;
         }
 
         if (spec.Minus)
         {
-            return text.PadRight(spec.Width);
+            return text + new string(' ', missing);
         }
 
-        if (spec.Zero && spec.Verb is 'd' or 'f' or 'F' or 'e' or 'E' or 'g' or 'G' or 'x' or 'X' or 'o' or 'b')
+        if (!spec.Zero)
         {
-            var sign = text.Length > 0 && text[0] is '-' or '+' or ' ' ? text[..1] : string.Empty;
-            return sign + text[sign.Length..].PadLeft(spec.Width - sign.Length, '0');
+            return new string(' ', missing) + text;
         }
 
-        return text.PadLeft(spec.Width);
+        var sign = zeroAfterSign && text.Length > 0 && text[0] is '-' or '+' or ' ' ? text[..1] : string.Empty;
+        return sign + new string('0', missing) + text[sign.Length..];
     }
 
-    private static string Verb(Spec spec, JsonElement arg) => spec.Verb switch
-    {
-        's' or 'v' => Truncate(Value(arg), spec),
-        'q' => Quote(Value(arg)),
-        't' => arg.ValueKind is JsonValueKind.True or JsonValueKind.False ? Value(arg) : Bad(spec, arg),
-        'd' => Integer(arg, spec, 10),
-        'x' => arg.ValueKind == JsonValueKind.String ? Convert.ToHexStringLower(Encoding.UTF8.GetBytes(arg.GetString()!)) : Integer(arg, spec, 16),
-        'X' => arg.ValueKind == JsonValueKind.String ? Convert.ToHexString(Encoding.UTF8.GetBytes(arg.GetString()!)) : Integer(arg, spec, 16).ToUpperInvariant(),
-        'o' => Integer(arg, spec, 8),
-        'b' => Integer(arg, spec, 2),
-        'f' or 'F' or 'e' or 'E' or 'g' or 'G' => Float(arg, spec),
-        _ => Bad(spec, arg),
-    };
+    private static int Runes(string text) => text.EnumerateRunes().Count();
 
-    private static string Truncate(string text, Spec spec) => spec.Precision >= 0 && spec.Precision < text.Length ? text[..spec.Precision] : text;
-
-    private static string Integer(JsonElement arg, Spec spec, int radix)
+    // A precision is a number of runes for a string.
+    private static string Truncate(string text, int precision)
     {
-        if (arg.ValueKind != JsonValueKind.Number || !arg.TryGetInt64(out var n))
+        if (precision < 0)
         {
-            return Bad(spec, arg);
+            return text;
         }
 
-        var digits = radix switch
+        var sb = new StringBuilder();
+        foreach (var rune in text.EnumerateRunes().Take(precision))
         {
-            10 => Math.Abs((decimal)n).ToString(CultureInfo.InvariantCulture),
-            _ => Convert.ToString(Math.Abs(n), radix),
-        };
-        return Sign(n < 0, spec) + digits;
-    }
-
-    private static string Float(JsonElement arg, Spec spec)
-    {
-        if (arg.ValueKind != JsonValueKind.Number)
-        {
-            return Bad(spec, arg);
+            sb.Append(rune.ToString());
         }
 
-        var d = arg.GetDouble();
-        var precision = spec.Precision < 0 ? 6 : spec.Precision;
-        var body = spec.Verb switch
-        {
-            'f' or 'F' => Math.Abs(d).ToString("F" + precision.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture),
-            'e' => Math.Abs(d).ToString("0." + new string('0', precision) + "e+00", CultureInfo.InvariantCulture),
-            'E' => Math.Abs(d).ToString("0." + new string('0', precision) + "E+00", CultureInfo.InvariantCulture),
-            _ => spec.Precision < 0
-                ? Math.Abs(d).ToString("R", CultureInfo.InvariantCulture)
-                : Math.Abs(d).ToString("G" + precision.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture),
-        };
-        return Sign(d < 0, spec) + body;
+        return sb.ToString();
     }
 
-    private static string Sign(bool negative, Spec spec) => negative ? "-" : spec.Plus ? "+" : spec.Space ? " " : string.Empty;
-
-    private static string Bad(Spec spec, JsonElement arg) => $"%!{spec.Verb}({Describe(arg)})";
-
-    private static string Describe(JsonElement arg) => arg.ValueKind switch
+    // %x of a string: its UTF-8 bytes in hex, the precision a number of bytes; # puts 0x in front and a space flag spaces
+    // the bytes, each with its own 0x when # is set too.
+    private static string Hex(string text, Spec spec)
     {
-        JsonValueKind.String => "string=" + arg.GetString(),
-        JsonValueKind.Number => (arg.TryGetInt64(out _) ? "int=" : "float64=") + Value(arg),
-        JsonValueKind.True or JsonValueKind.False => "bool=" + Value(arg),
-        JsonValueKind.Null => "<nil>",
-        _ => "value=" + Value(arg),
-    };
+        var bytes = Encoding.UTF8.GetBytes(text);
+        var count = spec.Precision >= 0 ? Math.Min(spec.Precision, bytes.Length) : bytes.Length;
+        var prefix = spec.Verb == 'X' ? "0X" : "0x";
+        var sb = new StringBuilder();
+        for (var i = 0; i < count; i++)
+        {
+            if (spec.Space && i > 0)
+            {
+                sb.Append(' ');
+            }
+
+            if (spec.Sharp && (i == 0 || spec.Space))
+            {
+                sb.Append(prefix);
+            }
+
+            sb.Append(bytes[i].ToString(spec.Verb == 'X' ? "X2" : "x2", CultureInfo.InvariantCulture));
+        }
+
+        return sb.ToString();
+    }
+
+    // %q of a string: with # a raw string literal in backquotes when the text can be one, with + only ASCII.
+    private static string Quoted(string text, Spec spec) =>
+        spec.Sharp && CanBackquote(text) ? "`" + text + "`" : GoQuote(text, spec.Plus, '"');
+
+    private static bool CanBackquote(string text)
+    {
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (rune.Value is '`' or 0x7F or 0xFEFF || (rune.Value < ' ' && rune.Value != '\t'))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // A Go string literal, with \a, \b, \f, \n, \r, \t, \v, \\ and \" escaped, other control characters as
+    // \x, and a rune that is not printable, a separator other than the space or a format character, as \u or \U.
+    private static string GoQuote(string text, bool ascii, char quote)
+    {
+        var sb = new StringBuilder().Append(quote);
+        foreach (var rune in text.EnumerateRunes())
+        {
+            var escape = rune.Value switch
+            {
+                '\a' => @"\a",
+                '\b' => @"\b",
+                '\f' => @"\f",
+                '\n' => @"\n",
+                '\r' => @"\r",
+                '\t' => @"\t",
+                '\v' => @"\v",
+                '\\' => @"\\",
+                '"' or '\'' when rune.Value == quote => "\\" + quote,
+                < 0x20 or 0x7F => @"\x" + rune.Value.ToString("x2", CultureInfo.InvariantCulture),
+                _ when (ascii && rune.Value > 0x7E) || !IsPrint(rune) => rune.Value > 0xFFFF
+                        ? @"\U" + rune.Value.ToString("x8", CultureInfo.InvariantCulture)
+                        : @"\u" + rune.Value.ToString("x4", CultureInfo.InvariantCulture),
+                _ => null,
+            };
+            if (escape is null)
+            {
+                sb.Append(rune.ToString());
+            }
+            else
+            {
+                sb.Append(escape);
+            }
+        }
+
+        return sb.Append(quote).ToString();
+    }
+
+    // Go's unicode.IsPrint: letters, marks, numbers, punctuation, symbols and the ASCII space.
+    private static bool IsPrint(Rune rune) =>
+        rune.Value == ' ' || Rune.GetUnicodeCategory(rune) is not (UnicodeCategory.Control or UnicodeCategory.Format
+            or UnicodeCategory.SpaceSeparator or UnicodeCategory.LineSeparator or UnicodeCategory.ParagraphSeparator
+            or UnicodeCategory.PrivateUse or UnicodeCategory.OtherNotAssigned or UnicodeCategory.Surrogate);
 
     /// <summary>The text of a value: a string as it is, a number, a boolean or null in their JSON form, and an array or an
     /// object in the form Rego prints it, <c>["a", 1]</c> and <c>{"k": true}</c> with the keys in order.</summary>
@@ -243,7 +710,7 @@ internal static class HostBuiltins
             case JsonValueKind.String:
                 return e.GetString()!;
             case JsonValueKind.Number:
-                return e.TryGetInt64(out var l) ? l.ToString(CultureInfo.InvariantCulture) : e.GetDouble().ToString("R", CultureInfo.InvariantCulture);
+                return e.GetRawText();
             case JsonValueKind.True:
                 return "true";
             case JsonValueKind.False:

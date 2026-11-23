@@ -332,4 +332,41 @@ public class RegoPolicyCacheTests : IDisposable
         Assert.Null(PolicyCache.TryRead(path));
         Assert.Empty(Files("*.tmp"));
     }
+
+    private const string User = "S-1-5-21-1-2-3-1001";
+
+    [Fact]
+    public void A_windows_acl_is_private_when_the_user_owns_it_and_only_the_user_the_system_and_the_administrators_are_allowed()
+    {
+        PolicyCache.AccessRule[] rules =
+        [
+            new(Allows: true, Sid: User),
+            new(Allows: true, Sid: "S-1-5-18"),
+            new(Allows: true, Sid: "S-1-5-32-544"),
+            new(Allows: false, Sid: "S-1-1-0"), // a deny rule for Everyone never opens it
+            new(Allows: true, Sid: null),       // an identity that is not a SID is not counted
+        ];
+
+        Assert.True(PolicyCache.IsPrivate(User, User, rules));
+        Assert.True(PolicyCache.IsPrivate(User.ToLowerInvariant(), User, rules));
+    }
+
+    [Theory]
+    [InlineData("S-1-1-0")]      // Everyone
+    [InlineData("S-1-5-32-545")] // Users
+    [InlineData("S-1-5-11")]     // Authenticated Users
+    [InlineData("S-1-5-21-1-2-3-1002")]
+    public void A_windows_acl_that_allows_anyone_else_is_not_private(string other)
+    {
+        Assert.False(PolicyCache.IsPrivate(User, User, [new(true, User), new(true, other)]));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("S-1-5-32-544")]
+    [InlineData("S-1-5-21-1-2-3-1002")]
+    public void A_windows_directory_owned_by_someone_else_is_not_private(string? owner)
+    {
+        Assert.False(PolicyCache.IsPrivate(owner, User, [new(true, User)]));
+    }
 }
