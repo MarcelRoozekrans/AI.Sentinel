@@ -980,6 +980,10 @@ A paused session has every tool call denied with the reason. See [Resident local
 
 The refresh token goes into Windows Credential Manager, the macOS Keychain, or the Linux Secret Service through `secret-tool`. Where there is none, such as a headless Linux, it is kept in the memory of the resident process only, so sign in again after the process restarts; it is never written to a file. Tokens never appear in logs, the audit or the policy input. See [Sign-in](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#sign-in).
 
+### Fail mode
+
+When no policy decision can be made for a call, the `fail_mode` of the profile decides: **closed**, the default, denies it with guidance, and **ask** asks, mapped per CLI as for any ask. With a server configured and no profile, including a developer who has not signed in yet, the hook uses closed and says to sign in. A `read` or `search` call inside the repository stays allowed in both modes, a policy bundle that errors at runtime always denies and names the bundle, and an internal error in the hook still blocks. **Every new setting is optional and off by default: no hook reads a profile until the server connection exists, and the hooks behave exactly as before.** See [Fail mode](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#fail-mode).
+
 ### Severity → action mapping
 
 Both adapters share the same env-var contract — configure once, applies to both:

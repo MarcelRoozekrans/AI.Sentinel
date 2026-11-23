@@ -3,8 +3,9 @@ namespace AI.Sentinel.Profiles;
 /// <summary>The outcome of <see cref="ProfileVerifier.Verify"/>: the accepted profile, or the reason it was refused.</summary>
 internal sealed class ProfileVerification
 {
-    private ProfileVerification(PolicyProfile? profile, ProfileRejection rejection, byte[]? endorsedKey)
+    private ProfileVerification(PolicyProfile? profile, ProfileRejection rejection, byte[]? endorsedKey, string? failMode = null)
     {
+        FailMode = failMode;
         Profile = profile;
         Rejection = rejection;
         EndorsedKey = endorsedKey;
@@ -15,6 +16,11 @@ internal sealed class ProfileVerification
     /// <see cref="PinnedProfileKeys.With"/>, so later profiles verify without the endorsement.
     /// </summary>
     public byte[]? EndorsedKey { get; }
+
+    /// <summary>The <c>fail_mode</c> of a profile that was refused only because it expired: its signature checked out, so what it says
+    /// can still be trusted, and it decides what the hook does until a fresh profile arrives. <see langword="null"/> for any other
+    /// refusal and for an accepted profile, whose <see cref="Profile"/> carries it.</summary>
+    public string? FailMode { get; }
 
     /// <summary>The profile, only when it was accepted.</summary>
     public PolicyProfile? Profile { get; }
@@ -28,5 +34,5 @@ internal sealed class ProfileVerification
     internal static ProfileVerification Accepted(PolicyProfile profile, byte[]? endorsedKey = null) =>
         new(profile, ProfileRejection.None, endorsedKey);
 
-    internal static ProfileVerification Rejected(ProfileRejection reason) => new(null, reason, null);
+    internal static ProfileVerification Rejected(ProfileRejection reason, string? failMode = null) => new(null, reason, null, failMode);
 }

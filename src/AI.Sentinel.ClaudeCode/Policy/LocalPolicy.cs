@@ -30,11 +30,15 @@ internal sealed class LocalPolicy : IDisposable
     private readonly InProcessPolicyEvaluator _inProcess;
     private readonly string? _repositoryRoot;
     private readonly string _bundleSource;
+    private readonly string _bundleNames;
+    private readonly FailModeContext? _failMode;
     private readonly List<PolicyFinding> _findings = [];
     private SeverityActions? _severities;
 
-    private LocalPolicy(string version, IReadOnlyList<string> bundles, string? repositoryRoot, EvaluationOrder order, InProcessPolicyEvaluator inProcess)
+    private LocalPolicy(string version, IReadOnlyList<string> bundles, string? repositoryRoot, EvaluationOrder order, InProcessPolicyEvaluator inProcess, FailModeContext? failMode)
     {
+        _failMode = failMode;
+        _bundleNames = string.Join(", ", bundles);
         Version = version;
         _order = order;
         _inProcess = inProcess;
@@ -56,12 +60,14 @@ internal sealed class LocalPolicy : IDisposable
     /// of the hook when <see langword="null"/>.</param>
     /// <param name="compilers">The compilers to try; a hook passes <see cref="RegoPolicy.HookCompilers"/>, and
     /// <see cref="RegoPolicy.DefaultCompilers"/> is used when <see langword="null"/>.</param>
+    /// <param name="failMode">What the hook knows about its profile (#673). When it is given, a call that no place could evaluate gets the
+    /// fail mode, and a bundle that errors at runtime is denied by name; <see langword="null"/> keeps both as an internal error, which blocks.</param>
     /// <param name="resident">The resident process (#658), which is asked first for every evaluation and keeps the module warm; the
     /// module is then loaded in this process only when it does not answer in time. <see langword="null"/> when the resident
     /// process is not turned on, and then the module is loaded here, as before.</param>
     public static LocalPolicy Load(
         string folder, IReadOnlyDictionary<string, string?> env, string? repositoryRoot = null, IReadOnlyList<IRegoCompiler>? compilers = null,
-        ResidentSession? resident = null)
+        ResidentSession? resident = null, FailModeContext? failMode = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
         ArgumentNullException.ThrowIfNull(env);
@@ -71,7 +77,7 @@ internal sealed class LocalPolicy : IDisposable
         {
             var policy = RegoPolicy.Load(folder, cache, compilers);
             var only = new InProcessPolicyEvaluator(policy);
-            return new LocalPolicy(policy.Version, policy.Bundles, root, new EvaluationOrder([only]), only);
+            return new LocalPolicy(policy.Version, policy.Bundles, root, new EvaluationOrder([only]), only, failMode);
         }
 
         // Reading the sources throws for a folder that cannot be read, as loading the module does. The module is not loaded here:
@@ -79,7 +85,7 @@ internal sealed class LocalPolicy : IDisposable
         var sources = PolicySources.Load(folder);
         var inProcess = new InProcessPolicyEvaluator(() => RegoPolicy.Load(folder, cache, compilers));
         var residentEvaluator = new ResidentPolicyEvaluator(resident.Client, Path.GetFullPath(folder), sources.Version, Path.GetFullPath(cache));
-        var local = new LocalPolicy(sources.Version, sources.Bundles, root, new EvaluationOrder([residentEvaluator, inProcess]), inProcess);
+        var local = new LocalPolicy(sources.Version, sources.Bundles, root, new EvaluationOrder([residentEvaluator, inProcess]), inProcess, failMode);
         try
         {
             // Evaluated now so that a policy that cannot run fails the load, which blocks the call with the policy as its reason.
@@ -93,6 +99,11 @@ internal sealed class LocalPolicy : IDisposable
 
         return local;
     }
+
+    /// <summary>A policy over <paramref name="evaluators"/>, for a test that needs a place that is silent or fails.</summary>
+    internal static LocalPolicy ForEvaluators(
+        string version, IReadOnlyList<string> bundles, string? repositoryRoot, IReadOnlyList<IPolicyEvaluator> evaluators, FailModeContext? failMode) =>
+        new(version, bundles, repositoryRoot, new EvaluationOrder(evaluators), new InProcessPolicyEvaluator(() => throw new InvalidOperationException("no module")), failMode);
 
     /// <summary>Collects the findings of the scan, as detector id and severity name, for the policy to match on: set it as
     /// the <c>FindingSink</c> of the hook config before the scan runs.</summary>
@@ -121,8 +132,28 @@ internal sealed class LocalPolicy : IDisposable
     {
         ArgumentNullException.ThrowIfNull(existing);
         var input = PolicyInputBuilder.Build(cli, toolName, toolInput, session, _findings, _repositoryRoot);
-        var (policy, place) = _order.Evaluate(PolicyInputSerializer.Serialize(input));
+        var json = PolicyInputSerializer.Serialize(input);
+        var before = existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource);
+        PolicyAnswer? answer;
+        try
+        {
+            answer = _order.TryEvaluate(json);
+        }
+        catch (Exception) when (_failMode is not null)
+        {
+            // A place that failed ran the bundle and the bundle errored: that denies by name, whatever the fail mode.
+            return OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true);
+        }
 
+        if (answer is null)
+        {
+            // Nobody answered and nobody failed: the fail mode decides. Without one it is an internal error, as before.
+            return _failMode is null
+                ? throw new InvalidOperationException("no place could evaluate the policy: the resident process did not answer and the hook has no module to run")
+                : OutcomeDecision.Strictest([before, FailModeGate.Decide(_failMode, input, Version)]).ToHookOutput(canAsk: true);
+        }
+
+        var (policy, place) = answer;
         var decisions = new List<OutcomeDecision>(3)
         {
             existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource),
@@ -151,6 +182,13 @@ internal sealed class LocalPolicy : IDisposable
         var combined = OutcomeDecision.Strictest(decisions) with { PolicyVersion = Version };
         return combined.ToHookOutput(canAsk: true);
     }
+
+    // The message of the exception is left out: a module that aborts may echo what it was given, and that is the tool input.
+    private OutcomeDecision BundleError() =>
+        new(
+            DecisionOutcome.Deny,
+            $"The policy bundle {_bundleNames} failed while it ran, so this call is denied whatever the fail mode. Ask a policy owner to fix the bundle.",
+            [_bundleSource], Version);
 
     // A refused builtin is the host's doing, not a bundle's, so it names the builtin as its source.
     private string SourceOf(RegoDecision policy) => policy.Refused is { } builtin ? "builtin:" + builtin : _bundleSource;
