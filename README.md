@@ -990,6 +990,10 @@ The policy of a tool call is the policy of the node that owns the repository, no
 
 Strict repository mode is on by default once a node map is cached. A repository no node owns, or a folder outside git, gets only the organisation's top-level rules and sends no events, and `sentinel-hook session-start` says so. `SENTINEL_HOOK_STRICT_REPOSITORY=off` turns it off. A local `SENTINEL_HOOK_POLICY_DIR` is evaluated next to the organisation's rules and the node's bundle, strictest wins, so it can only tighten. See [Which policy applies](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#which-policy-applies). The repository policy applies whether or not `SENTINEL_HOOK_POLICY_DIR` is set; with no cached node map nothing changes.
 
+### Forward events to the server
+
+With a server configured, the developer signed in and `SENTINEL_HOOK_RESIDENT=on`, the resident process reads the local audit from a stored cursor and sends each decision, finding, approval request and redaction count to the server's `/ai-sentinel/events/ingest`. The hooks send nothing and a failed send never affects a decision. An event holds an allowlisted set of fields and never the command, paths or tool input; the event id is the audit entry's UUID, so a resend is stored once. Strict repository mode sends nothing. The queue is the audit file, bounded by `SENTINEL_HOOK_AUDIT_MAX_MB`, and entries pruned before they were sent are reported as a gap with a count. Reason text is sent only with detailed logging, after paths, URLs, emails and quoted values are replaced, and is dropped when it looks like it holds a secret. **Every new setting is optional and off by default; with `SENTINEL_HOOK_SERVER_URL` unset nothing is sent.** See [Forward events to the server](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#forward-events-to-the-server).
+
 ### Severity → action mapping
 
 Both adapters share the same env-var contract — configure once, applies to both:
