@@ -26,7 +26,7 @@ From the issue. Each has a test or check named after it.
 
 - The folder holds the Rego bundles and the node configuration: the nodes (organisation and teams in this version), which repositories belong to which node, which identity-provider groups bind to which role on which node, and per-node settings such as `fail_mode`, profile lifetime and detailed logging. `PolicyFolderTests`.
 - On every change of the folder, the server compiles all bundles of that configuration version into one module identified by its hash. `PolicyFolderTests`.
-- The server compiles only one complete version. It waits for changes to settle, resolves the folder's real path once, so a symlink swap such as git-sync's pins one version, and reads every file into memory. It compiles from that copy, then reads the files again and compares them with the copy; on any difference it retries and publishes nothing. The docs say the filler must swap the folder atomically, as git-sync does. `PolicyFolderTests`.
+- The server compiles only one complete version. It waits for changes to settle, resolves the folder's real path once, so a symlink swap such as git-sync's pins one version, and reads every file into memory. It compiles from that copy, then reads the files again and compares them with the copy; on any difference it retries and publishes nothing. A failed read discards the pass and retries with bounded backoff; a change during a pass schedules another pass. Reloads run one at a time, so an older version never replaces a newer one. The docs say the filler must swap the folder atomically, as git-sync does. `PolicyFolderTests`.
 - Validation refuses a bundle that uses a builtin reaching outside the process, and a bundle below the organisation that defines an allow rule. `PolicyValidationTests`.
 - A configuration that fails validation is not published; the last good one stays in force, and the rejection is written to the audit log of #672. A published configuration is written there too. `PolicyValidationTests`.
 - The server signs a profile per repository with the key the deployment gives it at startup, and serves it to a signed-in developer of the organisation. `ProfileServingTests`.
@@ -38,8 +38,8 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Read the folder
 
-- [ ] Read bundles and node configuration from a configured folder; watch it for changes and debounce them. Resolve the real path once, read every file into memory, compile from that copy, and publish only when a second read matches the copy.
-- [ ] Failing tests first in `PolicyFolderTests`, including a file changed during the read and a symlinked folder swapped twice during compilation: nothing mixed is published.
+- [ ] Read bundles and node configuration from a configured folder; watch it for changes and debounce them. Resolve the real path once, read every file into memory, compile from that copy, and publish only when a second read matches the copy. Run reloads one at a time; a failed read or a change during a pass schedules another pass with bounded backoff.
+- [ ] Failing tests first in `PolicyFolderTests`, including a file changed during the read and a symlinked folder swapped twice during compilation: nothing mixed is published; the old folder removed during a read, after which the new one is published; a reload overtaken by a newer change, after which the newer version stays in force.
 - [ ] Commit.
 
 ### Task 2: Compile and validate

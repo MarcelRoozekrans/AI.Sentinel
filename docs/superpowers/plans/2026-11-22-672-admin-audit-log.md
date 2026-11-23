@@ -27,9 +27,9 @@ From the issue. Each has a test or check named after it.
 - An entry records the action (approve, deny, pause, release, publish, rejected publish, rollback), who did it, when, the target, and the channel it came through (web, MCP, git). `AdminAuditLogTests`.
 - Entries are hash-chained per organisation, building on `AuditHashChain` and `AuditChainVerification` in `src/AI.Sentinel/Audit`. `AdminAuditLogTests`.
 - The store is append-only: an update or delete is refused, and a test shows it. `AdminAuditLogTests`.
-- The log can be exported per organisation over HTTP, behind the host's authorization. `AdminAuditLogTests`.
-- An export ends with a head, the entry count, the last hash and the export time, signed with the deployment's Ed25519 key as in #671. `AdminAuditLogTests`.
-- A `sentinel` command verifies an export offline, chain included, and names the first entry that breaks it. It checks the signed head against a pinned public key, so an export with its newest entries cut off fails. It prints the signed count and export time; given a checkpoint the auditor took earlier (a count and hash), it also rejects an export that is older than the checkpoint or does not contain it. `AdminAuditVerifyCommandTests`.
+- The log can be exported per organisation over HTTP, behind the host's authorization with the organisation as the resource, so a caller not allowed on that organisation is refused; #674 adds the administrator check. `AdminAuditLogTests`.
+- An export ends with a head, the entry count, the last hash, the export time and the organisation, signed with the deployment's Ed25519 key as in #671. `AdminAuditLogTests`.
+- A `sentinel` command verifies an export offline, chain included, and names the first entry that breaks it. It checks the signed head against a pinned public key, so an export with its newest entries cut off fails. It prints the signed count and export time; given a checkpoint the auditor took earlier (a count, hash and export time), it also rejects an export that is older than the checkpoint or does not contain it. It rejects an export for another organisation than the one asked for. `AdminAuditVerifyCommandTests`.
 - An entry never holds file contents or secrets. `AdminAuditLogTests`.
 - With none of the new settings, behaviour is unchanged. Existing suite.
 
@@ -48,14 +48,14 @@ From the issue. Each has a test or check named after it.
 
 ### Task 3: Export endpoint
 
-- [ ] Add the export per organisation behind the host's authorization policy; end it with the head, entry count, last hash and export time, signed with the deployment's key through #671.
+- [ ] Add the export per organisation behind the host's authorization policy; authorize with the organisation as the resource; end it with the head, entry count, last hash, export time and organisation, signed with the deployment's key through #671.
 - [ ] Commit.
 
 ### Task 4: Offline verify command
 
 - [ ] Add a `sentinel` command that verifies an export with `AuditChainVerification` and names the first broken entry, and checks the signed head against a pinned public key.
-- [ ] Accept an optional checkpoint (count and hash from an earlier export or verify run) and reject an export that is older or does not contain it.
-- [ ] Tests in `AdminAuditVerifyCommandTests`, including an export with its last entry removed, and an older complete export checked against a newer checkpoint; both fail.
+- [ ] Accept an optional checkpoint (count, hash and export time from an earlier export or verify run) and reject an export that is older or does not contain it. Take the expected organisation and reject an export for another.
+- [ ] Tests in `AdminAuditVerifyCommandTests`, including an export with its last entry removed, and an older complete export checked against a newer checkpoint, the same entries exported before the checkpoint's time, and an export for another organisation; all fail. In `AdminAuditLogTests`, a caller refused on organisation B asks for its export and is denied.
 - [ ] Commit.
 
 ### Task 5: Document it
