@@ -45,6 +45,18 @@ internal static class ProfileDecider
         return new ProfileDecision(module.Evaluate(inputJson), ProfileRejection.None);
     }
 
+    private static bool IsModule(string folder, string module)
+    {
+        try
+        {
+            return string.Equals(File.ReadAllText(Path.Combine(folder, ModuleFile)), module, StringComparison.Ordinal);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>The folder that holds <paramref name="module"/> as a policy folder, named by the hash of the module text and written
     /// once, whole, by moving a finished folder into place.</summary>
     private static string ModuleFolder(ResidentState state, string module)
@@ -54,7 +66,11 @@ internal static class ProfileDecider
         var target = Path.Combine(root, name);
         if (System.IO.Directory.Exists(target))
         {
-            return target;
+            // The name is the hash of the signed text but does not prove what is in the folder: whoever can write the state folder
+            // could have replaced the file. A folder whose file is not the signed text is never evaluated; the decision fails.
+            return IsModule(target, module)
+                ? target
+                : throw new InvalidDataException($"the cached module folder '{target}' does not hold the signed policy module");
         }
 
         System.IO.Directory.CreateDirectory(root);
@@ -67,7 +83,7 @@ internal static class ProfileDecider
         }
         catch (IOException) when (System.IO.Directory.Exists(target))
         {
-            // Another process moved the same module into place first; it is the same text.
+            // Another process moved the same module into place first; it is checked below.
         }
         finally
         {
@@ -77,6 +93,6 @@ internal static class ProfileDecider
             }
         }
 
-        return target;
+        return IsModule(target, module) ? target : throw new InvalidDataException($"the cached module folder '{target}' does not hold the signed policy module");
     }
 }
