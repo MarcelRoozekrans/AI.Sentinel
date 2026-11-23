@@ -21,4 +21,8 @@ public sealed record HookOutput
     /// <c>EMAIL</c> to 1. Counts only, never a value. <see langword="null"/> when nothing was redacted.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyDictionary<string, int>? Redactions { get; init; }
+
+    /// <summary>The decision this output carries, with its outcome, reason, sources, policy version and place;
+    /// <see langword="null"/> for a decision that comes from a severity action alone, which keeps today's output.</summary>
+    internal OutcomeDecision? Outcome { get; init; }
 }

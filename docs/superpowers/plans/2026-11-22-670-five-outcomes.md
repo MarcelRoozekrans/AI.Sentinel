@@ -29,7 +29,7 @@ From the issue. Each has a test or check named after it.
 - **allow** and **defer** emit no permission decision, so the CLI's own permission prompt still applies. `CliOutcomeMappingTests`.
 - **guidance** lets the call run and passes the advice to the agent where the CLI can return context; where it cannot, the hook behaves as today for Warn. `CliOutcomeMappingTests`.
 - **ask** uses the CLI's own ask where it has one. Where the CLI cannot ask, or the run is headless, **ask** becomes **deny** with instructions: explain the command and why it is needed, then let the developer run it or a policy owner allow it. `CliOutcomeMappingTests`.
-- Every decision carries a reason, the sources that caused it, and a policy version field (empty until policy exists). The local audit records them. `DecisionOutcomeTests`.
+- Every decision carries a reason, the sources that caused it, and a policy version field (empty until policy exists). The local audit records them as an `OUTCOME` entry for every decision that carries an outcome. A severity action on its own keeps today's audit, because an entry per call would change its volume with no setting turned on. `DecisionOutcomeTests`.
 - The docs give a table per CLI (Claude Code, Copilot CLI) of how each outcome is expressed. Docs.
 - With none of the new settings, each hook gives the same output for the same input as before; the existing tests pass unchanged. Existing suite.
 
@@ -37,26 +37,26 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Outcome type and strictest-wins
 
-- [ ] Add the five outcomes with their order, a combine operation, and the decision record with reason, sources and policy version.
-- [ ] Failing tests first in `DecisionOutcomeTests`.
-- [ ] Commit.
+- [x] Add the five outcomes with their order, a combine operation, and the decision record with reason, sources and policy version.
+- [x] Failing tests first in `DecisionOutcomeTests`.
+- [x] Commit.
 
 ### Task 2: Map the severity actions
 
-- [ ] Map Block, Warn and Allow onto deny, guidance and defer inside the hooks without changing their output.
-- [ ] Commit.
+- [x] Map Block, Warn and Allow onto deny, guidance and defer inside the hooks without changing their output.
+- [x] Commit.
 
 ### Task 3: Per-CLI output
 
-- [ ] Emit each outcome per CLI: no permission decision for allow and defer, context for guidance, ask where the CLI can, deny with instructions where it cannot or the run is headless.
-- [ ] Tests in `CliOutcomeMappingTests` per CLI.
-- [ ] Record reason, sources and policy version in the local audit.
-- [ ] Commit.
+- [x] Emit each outcome per CLI: no permission decision for allow and defer, context for guidance, ask where the CLI can, deny with instructions where it cannot or the run is headless.
+- [x] Tests in `CliOutcomeMappingTests` per CLI.
+- [x] Record reason, sources and policy version in the local audit.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks

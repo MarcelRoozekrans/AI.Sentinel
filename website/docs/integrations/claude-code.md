@@ -60,6 +60,7 @@ Both Claude Code and Copilot share the same env-var contract:
 | `SENTINEL_HOOK_VERBOSE` | `false` | `1` / `true` / `yes` → grep-friendly stderr diagnostic |
 | `SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING` | `false` | `1` / `true` / `yes` → suppress the startup warning that semantic detection is inert. Set only after accepting that SEC-01 and SEC-05 will not fire |
 | `SENTINEL_HOOK_REDACT` | `on` | `off` / `0` / `false` / `no` → turn off [redaction](#redaction) of tool output and the placeholder guard. Anything else, or unset, keeps them on |
+| `SENTINEL_HOOK_HEADLESS` | `off` | `on` / `1` / `true` / `yes` → the run cannot ask the developer, so an `ask` outcome becomes a deny with instructions. Optional |
 | `SENTINEL_HOOK_COMPLIANCE` | `off` | `on` / `1` / `true` / `yes` → run the four Art. 5 [compliance detectors](../detectors/compliance), which are off by default. Their findings warn instead of following `SENTINEL_HOOK_ON_HIGH`. Needs `SENTINEL_EMBEDDING_ENDPOINT`. Thresholds are code-only |
 | `SENTINEL_HOOK_DETECTORS` | `security` | `security` → the [security preset](./mcp-proxy#detector-profiles) the MCP proxy uses: 16 security detectors plus the four Art. 5 compliance detectors, which run only with `SENTINEL_HOOK_COMPLIANCE=on`. `all` → every detector, including the operational and hallucination detectors that judge a model's reply and fire on tool output, see [Detectors](#detectors). Anything else, or unset, keeps `security` |
 | `SENTINEL_HOOK_MAX_SCAN_BYTES` | `262144` | A positive integer → the scan budget, `SentinelOptions.MaxScanBytes`, in UTF-8 bytes. An event over it is blocked as [`SEC-00`](../detectors/overview#scan-budget-and-sec-00) under the default `SENTINEL_HOOK_ON_CRITICAL=Block`: a large tool result, and a large tool input too, so a `PreToolUse` for a write of a file over the budget is blocked before the tool runs; raise it to scan more. Anything else, or unset, keeps the default |
@@ -90,6 +91,26 @@ The hook writes the output the [Claude Code hooks spec](https://docs.claude.com/
 - **`Block` on `PostToolUse`** → the tool has already run, so the hook exits 0 and withholds its output. stdout carries `"decision": "block"`, the reason, and an `updatedToolOutput` in place of the tool's output. See [Withheld output](#withheld-output).
 - **`Warn`** → exit 0 with `{"systemMessage": "AI.Sentinel: <reason>"}` on stdout. Claude Code shows the message to the user.
 - **`Allow`** → exit 0 with `{}` on stdout.
+
+### Decision outcomes
+
+A hook decision has one of five outcomes, strictest first: **deny**, **ask**, **guidance**, **allow** and **defer**. When several sources give an outcome for one call, the strictest wins. Today's severity actions map as `Block` to deny, `Warn` to guidance and `Allow` to defer, and the `SENTINEL_HOOK_ON_*` variables keep their values and their effect. A decision with an outcome carries a reason, the sources that caused it, a policy version (empty until policy exists) and where it was made, and the local audit records them as an `OUTCOME` entry. A severity action on its own writes no such entry and gives exactly the output described below.
+
+**Allow never overrides the CLI's own permission prompt**: allow and defer emit no permission decision. Where the CLI cannot ask, or the run is headless, **ask** becomes **deny** with instructions: the agent is told to explain the command and why it is needed, then to let the developer run it or a policy owner allow it.
+
+Every new setting here is optional and off by default.
+
+How each outcome is expressed for Claude Code:
+
+| Outcome | PreToolUse | UserPromptSubmit | PostToolUse |
+|---|---|---|---|
+| deny | exit 2, reason on stderr | exit 2, reason on stderr | `decision: "block"` and the withheld output |
+| ask | `hookSpecificOutput.permissionDecision: "ask"` with the reason | deny with instructions | deny with instructions |
+| guidance | `hookSpecificOutput.additionalContext`, the call runs | `additionalContext` | `additionalContext` |
+| allow | `{}`, no permission decision | `{}` | `{}` |
+| defer | `{}`, no permission decision | `{}` | `{}` |
+
+The hook payload has no flag for a headless run, so a run that cannot ask is recognised by `permission_mode` `dontAsk`, which never prompts, or by `SENTINEL_HOOK_HEADLESS=on` (default off), for a run such as `claude -p`. With a severity action alone, `Warn` stays a `systemMessage`, as described above.
 
 ### Redaction
 
@@ -292,6 +313,31 @@ An export with its newest entries cut off fails, because the signed count no lon
 When the audit is registered, an approve or deny made through the dashboard is recorded on the web channel under `Organisation` (default `default`), once the store reports that the decision took effect. Without the registration nothing is recorded and the dashboard behaves as before. An export without entries prints `last_hash=-`; `--checkpoint-count 0 --checkpoint-hash -` is the matching empty checkpoint and is accepted.
 
 Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelAdminAudit` and `MapAISentinelAdminAudit`.
+
+## Tool kinds and policy input
+
+The hook CLIs map each tool of the CLI onto one shared tool kind, so one policy rule can cover the same kind of tool in every CLI (ADR-235). This is the input that the policy work of the central server milestone evaluates against. **Nothing reads it yet**: it adds no setting and changes no decision, so with every existing setting as it was, the hooks behave exactly as before. A later setting that uses it will be optional and off by default.
+
+| Kind | Claude Code tools | Copilot CLI tools |
+|---|---|---|
+| `shell` | `Bash` | `bash`, `powershell` |
+| `read` | `Read`, `NotebookRead` | `view` |
+| `search` | `Glob`, `Grep`, `LS` | `glob`, `grep` |
+| `write` | `Write` | `create` |
+| `edit` | `Edit`, `MultiEdit`, `NotebookEdit` | `edit`, `str_replace_editor`, `apply_patch` |
+| `fetch` | `WebFetch`, `WebSearch` | `web_fetch` |
+| `mcp` | `mcp__<server>__<tool>` | `mcp__<server>__<tool>` |
+| `agent` | `Task`, `Agent` | `task` |
+| `other` | every other tool, such as `TodoWrite` | every other tool |
+
+The input has `kind`, `cli` (`claude-code` or `copilot`), the CLI's own `tool` name, `details`, `findings` (`detector`, `severity`), `repository`, `node` and `session`. `repository` and `node` are empty until the issues that resolve them land. The details depend on the kind:
+
+- `shell`: the command line parsed into commands with their arguments, assigned variable names and redirections, joined by `|`, `&&`, `||`, `;` or `&`, with quoting and escapes resolved and nothing expanded. A command line the parser cannot read with certainty, such as one with command substitution, a subshell, a here document, a compound command, the `time` keyword, a named descriptor redirection such as `{fd}>file` or an unterminated quote, is marked `unparseable` instead of guessed. The outcome for it will be **ask** ([#670](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/670)). PowerShell is always marked `unparseable`, because the parser reads POSIX quoting.
+- `mcp`: `server`, `endpoint` and `tool`. The endpoint stays empty, because no hook payload carries it.
+- `read`, `search`, `write`, `edit`: each path from the `file_path`, `path` or `notebook_path` argument, made absolute, with `in_repository` telling whether it lies inside the repository root. A path is kept as written, with `in_repository` false, when it starts with `~`, when it is relative and no repository root is known, or when the platform rejects it as a path. Paths are resolved lexically, symbolic links are not followed, and a path starting with `~` is never inside. Paths inside a Copilot `apply_patch` patch text are not read.
+- `fetch`: the `url` argument.
+
+The shell parser is checked in CI against a corpus of command lines with their expected parses, `tests/AI.Sentinel.Tests/Corpus/shell-commands.json`, so another parser can be tested against the same file.
 
 ## Programmatic use
 

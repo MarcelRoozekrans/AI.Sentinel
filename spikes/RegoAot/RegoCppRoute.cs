@@ -1,0 +1,107 @@
+using System.Runtime.InteropServices;
+using System.Text.Json.Nodes;
+using Rego;
+
+namespace RegoAot;
+
+/// <summary>
+/// The Rego NuGet package, a .NET binding over rego-cpp from Microsoft. The engine is a C++ interpreter
+/// in a native library, not .NET code. Cached mode loads a bundle that rego-cpp built and saved in its
+/// binary format.
+/// </summary>
+internal sealed class RegoCppRoute : IRoute
+{
+    private const string Query = "data.sentinel.decision";
+
+    public string Name => "rego-cpp";
+
+    public IReadOnlyList<string> Modes => ["cached", "cold", "warm"];
+
+    private static readonly Lazy<string?> NativeProblem = new(LoadNative);
+
+    public string? Unavailable() => NativeProblem.Value;
+
+    /// <summary>Builds an interpreter once, which loads the native library, and names the reason when it cannot.</summary>
+    private static string? LoadNative()
+    {
+        try
+        {
+            _ = new Interpreter();
+            return null;
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or TypeInitializationException)
+        {
+            return $"the native library of the Rego package does not load on {RuntimeInformation.OSDescription} {RuntimeInformation.ProcessArchitecture}: {e.GetType().Name}";
+        }
+    }
+
+    /// <summary>rego-cpp evaluates opa.runtime itself, so only validation keeps it out.</summary>
+    public IReadOnlyList<string> RuntimeGaps => ["opa.runtime"];
+
+    /// <summary>rego-cpp has no capabilities document, so validation scans the sources for the names.</summary>
+    public IReadOnlyList<string> Validate(BundleSet set) => OutsideBuiltins.Scan(set);
+
+    /// <summary>
+    /// The shipped evaluator, on a bundle that was not validated. With strict builtin errors an unavailable
+    /// builtin fails the query and the evaluator denies. The error names no builtin, so the reason names the
+    /// ones the sources use.
+    /// </summary>
+    public Decision RunUnvalidated(BundleSet set, string inputJson) =>
+        new Evaluator(Load(set), null, set).Evaluate(inputJson);
+
+    public void Prepare(BundleSet set, string cacheDir)
+    {
+        Cache.Create(cacheDir);
+        var rego = Load(set);
+        rego.SaveBundle(BundlePath(set, cacheDir), rego.Build(Query), BundleFormat.Binary);
+    }
+
+    public IEvaluator Create(BundleSet set, string mode, string cacheDir)
+    {
+        if (mode == "cold")
+        {
+            return new Evaluator(Load(set), null, set);
+        }
+
+        var rego = new Interpreter { StrictBuiltInErrors = true };
+        return new Evaluator(rego, rego.LoadBundle(BundlePath(set, cacheDir), BundleFormat.Binary), set);
+    }
+
+    private static Interpreter Load(BundleSet set)
+    {
+        var rego = new Interpreter { StrictBuiltInErrors = true };
+        foreach (var file in set.Files)
+        {
+            rego.AddModule(file, File.ReadAllText(Path.Combine(set.Root, file)));
+        }
+
+        return rego;
+    }
+
+    private static string BundlePath(BundleSet set, string cacheDir) => Path.Combine(cacheDir, set.Hash + ".rego-bundle");
+
+    private sealed class Evaluator(Interpreter rego, Bundle? bundle, BundleSet set) : IEvaluator
+    {
+        public Decision Evaluate(string inputJson)
+        {
+            rego.SetInputTerm(inputJson);
+            var output = bundle is null ? rego.Query(Query) : rego.QueryBundle(bundle);
+            if (!output.Ok)
+            {
+                return new Decision("deny", [$"builtin {string.Join(", ", OutsideBuiltins.Scan(set))} reaches outside the process or is unsupported, the evaluation failed"]);
+            }
+
+            if (output.Count == 0)
+            {
+                return new Decision("defer", []);
+            }
+
+            var expressions = JsonNode.Parse(output.Expressions().ToJson())!;
+            return OpaResult.Parse(expressions is JsonArray array ? array[0] : expressions);
+        }
+
+        public void Dispose()
+        {
+        }
+    }
+}

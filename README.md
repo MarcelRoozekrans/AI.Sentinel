@@ -851,6 +851,8 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
 }
 ```
 
+Both hooks map each tool onto a shared tool kind (`shell`, `read`, `search`, `write`, `edit`, `fetch`, `mcp`, `agent` or `other`) and build the policy input for it, with a parsed command line for shell calls. Nothing reads that input yet, so there is no new setting and the hooks behave as before; a later setting that uses it will be optional and off by default. See [Tool kinds and policy input](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#tool-kinds-and-policy-input).
+
 ### MCP proxy
 
 For any MCP-speaking agent (Cursor, Continue, Cline, Windsurf, Copilot's MCP path), install the proxy and point your MCP host at it instead of at the target server directly:
@@ -929,6 +931,10 @@ are **not** supported in v1.1 — see the deferred items in `docs/BACKLOG.md` if
 **Behaviour change in v1.1:** `SENTINEL_MCP_MAX_SCAN_BYTES` now counts UTF-8 bytes
 (was a `char` count, which double-counted for multi-byte characters). ASCII content
 is unchanged; emoji / CJK / accented text reaches the cap sooner.
+
+### Decision outcomes
+
+A hook decision has one of five outcomes, strictest first: deny, ask, guidance, allow and defer; the strictest wins. `Block` is deny, `Warn` is guidance and `Allow` is defer, and the variables below keep their effect. Allow and defer emit no permission decision, so the CLI's own prompt still applies. Where the CLI cannot ask, or the run is headless, ask becomes a deny with instructions. Claude Code expresses ask and guidance through `permissionDecision` and `additionalContext`; Copilot CLI can do neither, so ask is a deny and guidance acts as `Warn` does today. See the [Claude Code](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#decision-outcomes) and [Copilot](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/copilot#decision-outcomes) pages for a table per CLI. Every new setting is optional and off by default; `SENTINEL_HOOK_HEADLESS=on` marks a Claude Code run as unable to ask.
 
 ### Severity → action mapping
 
