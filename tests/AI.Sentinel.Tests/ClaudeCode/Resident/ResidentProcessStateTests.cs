@@ -141,16 +141,53 @@ public class ResidentProcessStateTests : IDisposable
     }
 
     [Fact]
-    public void A_damaged_state_file_reads_as_absent_and_not_as_half_a_list()
+    public void A_damaged_pause_file_is_an_error_and_a_missing_one_is_not_a_pause()
     {
         var state = State();
+        Assert.Empty(state.ReadPauses());
+        Assert.Null(state.FindPause("s-1", Now));
         state.WritePauses([new PausedSession("s-1", null, null)]);
         var path = Path.Combine(ResidentPaths.Directory(new ResidentSettings(_dir, TimeSpan.Zero, TimeSpan.Zero)), ResidentState.PauseFile);
         var bytes = File.ReadAllBytes(path);
 
         File.WriteAllBytes(path, bytes[..(bytes.Length - 3)]);
 
-        Assert.Empty(State().ReadPauses());
+        Assert.Throws<InvalidDataException>(() => State().ReadPauses());
+        Assert.Throws<InvalidDataException>(() => State().FindPause("any-other-session", Now));
+        File.WriteAllText(path, "not a state file");
+        Assert.Throws<InvalidDataException>(() => State().ReadPauses());
+    }
+
+    [Fact]
+    public async Task An_unreadable_pause_file_blocks_every_session_with_an_internal_error_and_an_audit_entry()
+    {
+        State().WritePauses([new PausedSession("cc-9", null, null)]);
+        File.WriteAllText(Path.Combine(ResidentPaths.Directory(new ResidentSettings(_dir, TimeSpan.Zero, TimeSpan.Zero)), ResidentState.PauseFile), "damaged");
+        var db = Path.Combine(_dir + "-audit", "audit.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(db)!);
+        try
+        {
+            using var env = new EnvironmentScope(
+                (ResidentSettings.EnableVariable, "on"), (ResidentSettings.DirectoryVariable, _dir), (LocalPolicy.FolderVariable, null),
+                (HookAuditTestSupport.SqliteVar, db), ("SENTINEL_HOOK_HEADLESS", null));
+            var stderr = new StringWriter();
+
+            var exit = await AI.Sentinel.ClaudeCode.Cli.Program.RunAsync(
+                ["pre-tool-use"], new StringReader("""{"session_id":"another","tool_name":"Read","tool_input":{"file_path":"/work/repo/a.cs"}}"""),
+                new StringWriter(), stderr, new ExactMatchEmbeddingGenerator(), reviewer: null, policyCompilers: null, residentStart: _ => false);
+
+            Assert.Equal(2, exit);
+            Assert.StartsWith(HookInternalError.Prefix, stderr.ToString(), StringComparison.Ordinal);
+            Assert.Contains("pause state is unreadable", stderr.ToString(), StringComparison.Ordinal);
+            var (entries, _) = await HookAuditTestSupport.ReadAsync(db);
+            var entry = Assert.Single(entries);
+            Assert.Equal(AI.Sentinel.Authorization.SentinelDenyCodes.InternalError, entry.PolicyCode);
+            Assert.Equal("another", entry.SessionId);
+        }
+        finally
+        {
+            HookAuditTestSupport.DeleteDir(_dir + "-audit");
+        }
     }
 
     [Fact]

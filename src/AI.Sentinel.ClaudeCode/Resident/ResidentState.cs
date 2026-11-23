@@ -32,25 +32,37 @@ internal sealed class ResidentState(string directory)
         PolicyCache.Write(Path.Combine(Directory, PauseFile), JsonSerializer.SerializeToUtf8Bytes(pauses.ToArray(), ResidentStateJsonContext.Default.PausedSessionArray));
     }
 
-    /// <summary>The paused sessions; none when the file is missing or damaged.</summary>
+    /// <summary>The paused sessions; none when the file does not exist.</summary>
+    /// <exception cref="InvalidDataException">The file exists and cannot be read, fails its digest or does not parse. That must not
+    /// read as "nobody is paused", which would fail open, so the hook blocks the call as an internal error (#478).</exception>
     public IReadOnlyList<PausedSession> ReadPauses()
     {
-        if (PolicyCache.TryRead(Path.Combine(Directory, PauseFile)) is not { } bytes)
+        var path = Path.Combine(Directory, PauseFile);
+        if (!File.Exists(path))
         {
             return [];
         }
 
         try
         {
-            return JsonSerializer.Deserialize(bytes, ResidentStateJsonContext.Default.PausedSessionArray)?.Where(p => p?.Session is not null).ToArray() ?? [];
+            var bytes = PolicyCache.TryRead(path);
+            if (bytes is null)
+            {
+                // TryRead says absent for a file that vanished since the check, and for one that is short or fails its digest.
+                return File.Exists(path) ? throw new InvalidDataException("fails its digest") : [];
+            }
+
+            return JsonSerializer.Deserialize(bytes, ResidentStateJsonContext.Default.PausedSessionArray)?.Where(p => p?.Session is not null).ToArray()
+                ?? throw new InvalidDataException("holds no list");
         }
-        catch (JsonException)
+        catch (Exception e) when (e is InvalidDataException or JsonException or IOException or UnauthorizedAccessException)
         {
-            return [];
+            throw new InvalidDataException($"the pause state is unreadable ({e.Message}); every session is treated as paused until it is rewritten", e);
         }
     }
 
     /// <summary>The pause that names <paramref name="session"/> and has not ended at <paramref name="now"/>, or <see langword="null"/>.</summary>
+    /// <exception cref="InvalidDataException">The pause state is unreadable, see <see cref="ReadPauses"/>.</exception>
     public PausedSession? FindPause(string session, DateTimeOffset now)
     {
         ArgumentNullException.ThrowIfNull(session);
