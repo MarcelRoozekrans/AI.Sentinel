@@ -36,27 +36,27 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Profile and canonical form
 
-- [ ] Add the profile record and its canonical JSON form with a source-generated context.
-- [ ] Failing tests first in `SignedProfileTests`: same profile, same bytes.
-- [ ] Commit.
+- [x] Add the profile record and its canonical JSON form with a source-generated context.
+- [x] Failing tests first in `SignedProfileTests`: same profile, same bytes.
+- [x] Commit.
 
 ### Task 2: Sign and verify
 
-- [ ] Choose an Ed25519 implementation that publishes under Native AOT without warnings; name the choice and why in the PR body. If none fits, stop and report it on the issue.
-- [ ] Extend `tests/AI.Sentinel.Aot.Probe` to sign and verify a profile, since no CLI uses the profile yet and trimming would drop it. Add a step to the native workflow matrix that AOT-publishes and runs the probe on Windows, Linux and macOS.
-- [ ] Sign and verify; reject a changed byte, an expired profile and a mismatched organisation or repository, each with its own reason.
-- [ ] Commit.
+- [x] Choose an Ed25519 implementation that publishes under Native AOT without warnings; name the choice and why in the PR body. If none fits, stop and report it on the issue.
+- [x] Extend `tests/AI.Sentinel.Aot.Probe` to sign and verify a profile, since no CLI uses the profile yet and trimming would drop it. Add a step to the native workflow matrix that AOT-publishes and runs the probe on Windows, Linux and macOS.
+- [x] Sign and verify; reject a changed byte, an expired profile and a mismatched organisation or repository, each with its own reason.
+- [x] Commit.
 
 ### Task 3: Key pinning and rotation
 
-- [ ] Pin keys; accept a key endorsed by a pinned one; hold old and new signing keys side by side. Keys come from the deployment at startup.
-- [ ] Tests in `ProfileKeyPinningTests`.
-- [ ] Commit.
+- [x] Pin keys; accept a key endorsed by a pinned one; hold old and new signing keys side by side. Keys come from the deployment at startup.
+- [x] Tests in `ProfileKeyPinningTests`.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
