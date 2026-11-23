@@ -117,14 +117,12 @@ internal sealed class ResidentState(string directory)
     public NodeMap? ReadNodeMap()
     {
         var path = Path.Combine(Directory, NodesFile);
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
         try
         {
-            return NodeMap.FromJson(PolicyCache.TryRead(path) ?? throw new InvalidDataException("fails its digest"));
+            // Read, not probed: File.Exists is false for a directory and for a path it cannot stat, which must not read as no map.
+            return PolicyCache.ReadFile(path) is { } bytes
+                ? NodeMap.FromJson(PolicyCache.Verify(bytes) ?? throw new InvalidDataException("fails its digest"))
+                : null;
         }
         catch (Exception e) when (e is InvalidDataException or JsonException or IOException or UnauthorizedAccessException)
         {

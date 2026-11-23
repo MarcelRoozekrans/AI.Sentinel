@@ -408,20 +408,24 @@ public static class Program
     private static (LocalPolicy? Policy, string? Folder, Exception? Error) TryLoadPolicy(
         CopilotHookEvent evt, IReadOnlyDictionary<string, string?> env, IReadOnlyList<IRegoCompiler>? compilers, ResidentSession? resident)
     {
-        if (evt != CopilotHookEvent.PreToolUse || LocalPolicy.FolderFrom(env) is not { } folder)
+        if (evt != CopilotHookEvent.PreToolUse)
         {
             return (null, null, null);
         }
 
+        // Without a policy folder a cached node map still gives the repository its policy (#656); with neither, nothing is loaded.
+        var folder = LocalPolicy.FolderFrom(env);
         try
         {
-            return (LocalPolicy.Load(folder, env, compilers: compilers, resident: resident), folder, null);
+            return folder is null
+                ? (LocalPolicy.LoadRepositoryOnly(env), LocalPolicy.RepositoryOnlyName, null)
+                : (LocalPolicy.Load(folder, env, compilers: compilers, resident: resident), folder, null);
         }
 #pragma warning disable CA1031 // Every load failure is reported; on preToolUse it blocks the call.
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            return (null, folder, ex);
+            return (null, folder ?? LocalPolicy.RepositoryOnlyName, ex);
         }
     }
 

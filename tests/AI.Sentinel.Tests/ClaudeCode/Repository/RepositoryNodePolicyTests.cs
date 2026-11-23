@@ -48,6 +48,73 @@ public class RepositoryNodePolicyTests : IDisposable
         Assert.Equal(expected, RepositoryUrl.Normalize(url));
     }
 
+    [Theory]
+    [InlineData("https://[2001:db8::1]/acme/widgets", "[2001:db8::1]/acme/widgets")]
+    [InlineData("https://[2001:db8::1]:8443/acme/widgets.git", "[2001:db8::1]/acme/widgets")]
+    [InlineData("ssh://git@[2001:db8::1]:22/acme/widgets", "[2001:db8::1]/acme/widgets")]
+    [InlineData("git@[2001:db8::1]:acme/widgets.git", "[2001:db8::1]/acme/widgets")]
+    [InlineData("[2001:db8::1]/acme/widgets", "[2001:db8::1]/acme/widgets")]
+    public void A_bracketed_ipv6_host_keeps_its_literal_and_loses_its_port(string url, string expected)
+    {
+        Assert.Equal(expected, RepositoryUrl.Normalize(url));
+    }
+
+    [Fact]
+    public void A_canonical_ipv6_key_survives_the_cache_file()
+    {
+        var map = NodeMap.FromJson(new NodeMap([new("https://[2001:db8::1]/acme/widgets", "node-a")]).ToJson());
+
+        Assert.Equal("node-a", map.NodeFor("[2001:db8::1]/acme/widgets"));
+    }
+
+    [Theory]
+    [InlineData("https://github.com/acme/widgets.git # primary")]
+    [InlineData("https://github.com/acme/widgets.git ; primary")]
+    [InlineData("https://github.com/acme/widgets.git#primary")]
+    [InlineData("\"https://github.com/acme/widgets.git\" # primary")]
+    public void A_comment_after_the_remote_url_is_not_part_of_it(string value)
+    {
+        var repo = Path.Combine(_root, "commented");
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        File.WriteAllText(Path.Combine(repo, ".git", "config"), "[remote \"origin\"]\n\turl = " + value + "\n");
+
+        Assert.Equal("https://github.com/acme/widgets.git", GitRemote.UrlOf(repo));
+    }
+
+    [Fact]
+    public void A_comment_character_inside_a_quoted_url_is_kept()
+    {
+        var repo = Path.Combine(_root, "quoted");
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        File.WriteAllText(Path.Combine(repo, ".git", "config"), "[remote \"origin\"]\n\turl = \"https://host/a#b\" # note\n");
+
+        Assert.Equal("https://host/a#b", GitRemote.UrlOf(repo));
+    }
+
+    [Fact]
+    public void A_remote_defined_in_an_included_file_is_read_in_place_and_a_loop_ends()
+    {
+        var repo = Path.Combine(_root, "included");
+        var git = Path.Combine(repo, ".git");
+        Directory.CreateDirectory(Path.Combine(git, "conf"));
+        File.WriteAllText(Path.Combine(git, "config"), "[core]\n\tbare = false\n[include]\n\tpath = conf/remotes.conf\n");
+        File.WriteAllText(Path.Combine(git, "conf", "remotes.conf"), "[remote \"origin\"]\n\turl = https://github.com/acme/widgets.git\n[include]\n\tpath = remotes.conf\n");
+
+        Assert.Equal("https://github.com/acme/widgets.git", GitRemote.UrlOf(repo));
+    }
+
+    [Fact]
+    public void A_remote_in_the_config_follows_an_include_in_configuration_order_and_a_missing_include_is_skipped()
+    {
+        var repo = Path.Combine(_root, "ordered");
+        var git = Path.Combine(repo, ".git");
+        Directory.CreateDirectory(git);
+        File.WriteAllText(Path.Combine(git, "config"), "[include]\n\tpath = missing.conf\n\tpath = other.conf\n[remote \"origin\"]\n\turl = https://github.com/acme/own.git\n");
+        File.WriteAllText(Path.Combine(git, "other.conf"), "[remote \"origin\"]\n\turl = https://github.com/acme/included.git\n");
+
+        Assert.Equal("https://github.com/acme/included.git", GitRemote.UrlOf(repo));
+    }
+
     [Fact]
     public void The_ssh_and_the_https_form_of_one_remote_are_the_same_repository()
     {
@@ -72,12 +139,12 @@ public class RepositoryNodePolicyTests : IDisposable
         Directory.CreateDirectory(Path.Combine(repo, ".git"));
         File.WriteAllText(
             Path.Combine(repo, ".git", "config"),
-            RepositoryTestSupport.Config("https://github.com/upstream/widgets") + RepositoryTestSupport.Config("https://github.com/me/widgets", "origin"));
+            RepositoryTestSupport.Config("https://github.com/upstream/widgets", "upstream") + RepositoryTestSupport.Config("https://github.com/me/widgets", "origin"));
         var only = Path.Combine(_root, "only");
         Directory.CreateDirectory(Path.Combine(only, ".git"));
         File.WriteAllText(Path.Combine(only, ".git", "config"), RepositoryTestSupport.Config("https://github.com/acme/widgets", "upstream"));
 
-        Assert.Equal("https://github.com/upstream/widgets", GitRemote.UrlOf(repo));
+        Assert.Equal("https://github.com/me/widgets", GitRemote.UrlOf(repo));
         Assert.Equal("https://github.com/acme/widgets", GitRemote.UrlOf(only));
     }
 
@@ -270,6 +337,56 @@ public class RepositoryNodePolicyTests : IDisposable
         Assert.Equal("github.com/acme/alpha", opened.Scope.Repository);
         File.WriteAllText(Path.Combine(ResidentPaths.Directory(ResidentSettings.FromEnvironment(env)!), ResidentState.NodesFile), "not a map");
         Assert.Throws<InvalidDataException>(() => RepositoryPolicy.Open(env, repo));
+    }
+
+    [Fact]
+    public void A_node_map_path_that_is_a_directory_blocks_instead_of_reading_as_no_map()
+    {
+        var repo = RepositoryTestSupport.Repo(_root, "a", "https://github.com/acme/alpha.git");
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { [ResidentSettings.EnableVariable] = "on", [ResidentSettings.DirectoryVariable] = _state };
+        var settings = ResidentSettings.FromEnvironment(env)!;
+        ResidentState.Open(settings);
+        Directory.CreateDirectory(Path.Combine(ResidentPaths.Directory(settings), ResidentState.NodesFile));
+
+        Assert.Throws<InvalidDataException>(() => RepositoryPolicy.Open(env, repo));
+    }
+
+    [Fact]
+    public void Without_a_policy_folder_the_repository_policy_alone_decides_the_call()
+    {
+        var repo = RepositoryTestSupport.Repo(_root, "a", "https://github.com/acme/alpha.git");
+        var stranger = RepositoryTestSupport.Repo(_root, "stranger", "https://github.com/acme/stranger.git");
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { [ResidentSettings.EnableVariable] = "on", [ResidentSettings.DirectoryVariable] = _state };
+        Assert.Null(LocalPolicy.LoadRepositoryOnly(env, repo));
+
+        ResidentState.Open(ResidentSettings.FromEnvironment(env)!).WriteNodeMap(new NodeMap([new("github.com/acme/alpha", "node-a")]));
+        using var owned = LocalPolicy.LoadRepositoryOnly(env, repo)!;
+        using var strict = LocalPolicy.LoadRepositoryOnly(env, stranger)!;
+        var policies = new RepositoryTestSupport.FakePolicies(
+            _ => RepositoryTestSupport.Decision(DecisionOutcome.Deny, "organisation forbids it"),
+            (_, _) => RepositoryTestSupport.Decision(DecisionOutcome.Allow, "node allows it"));
+        owned.RepositoryPolicy = new RepositoryPolicy(owned.RepositoryPolicy!.Scope, policies);
+        strict.RepositoryPolicy = new RepositoryPolicy(strict.RepositoryPolicy!.Scope, policies);
+
+        var ownedDecision = owned.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s-1");
+        var strictDecision = strict.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s-1");
+
+        Assert.Equal("node-a", owned.RepositoryPolicy.Scope.Node);
+        Assert.True(strict.RepositoryPolicy.Scope.Strict);
+        Assert.Equal(HookDecision.Block, ownedDecision.Decision);
+        Assert.Equal(HookDecision.Block, strictDecision.Decision);
+        Assert.Equal(SeverityActions.None, owned.Severities());
+    }
+
+    [Fact]
+    public void Without_a_policy_folder_a_node_map_that_cannot_be_read_blocks()
+    {
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { [ResidentSettings.EnableVariable] = "on", [ResidentSettings.DirectoryVariable] = _state };
+        var settings = ResidentSettings.FromEnvironment(env)!;
+        ResidentState.Open(settings).WriteNodeMap(new NodeMap([new("github.com/acme/alpha", "node-a")]));
+        File.WriteAllText(Path.Combine(ResidentPaths.Directory(settings), ResidentState.NodesFile), "garbage");
+
+        Assert.Throws<InvalidDataException>(() => LocalPolicy.LoadRepositoryOnly(env, _root));
     }
 
     [Fact]

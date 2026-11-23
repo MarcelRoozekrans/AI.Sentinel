@@ -27,14 +27,15 @@ internal sealed class LocalPolicy : IDisposable
     public const string UnparseableReason = "AI.Sentinel could not parse this shell command line, so it cannot say what it does.";
 
     private readonly EvaluationOrder _order;
-    private readonly InProcessPolicyEvaluator _inProcess;
+    private readonly InProcessPolicyEvaluator? _inProcess;
     private readonly string? _repositoryRoot;
     private readonly string _bundleSource;
     private readonly List<PolicyFinding> _findings = [];
     private SeverityActions? _severities;
     private Repository.RepositoryPolicy? _repository;
+    private bool _folderless;
 
-    private LocalPolicy(string version, IReadOnlyList<string> bundles, string? repositoryRoot, EvaluationOrder order, InProcessPolicyEvaluator inProcess)
+    private LocalPolicy(string version, IReadOnlyList<string> bundles, string? repositoryRoot, EvaluationOrder order, InProcessPolicyEvaluator? inProcess)
     {
         Version = version;
         _order = order;
@@ -96,6 +97,24 @@ internal sealed class LocalPolicy : IDisposable
         return local;
     }
 
+    /// <summary>What the block reason names for a repository policy that cannot be read, where a policy folder would be named.</summary>
+    public const string RepositoryOnlyName = "repository policy";
+
+    /// <summary>The policy of a PC that has a cached node map and no policy folder (#656): only the organisation's rules and the
+    /// node's bundle of the repository judge a call, with no folder policy next to them. <see langword="null"/> when no node map is
+    /// cached, and then the hook does what it did before.</summary>
+    /// <param name="env">The <c>SENTINEL_HOOK_</c> settings.</param>
+    /// <param name="repositoryRoot">The working directory of the hook; the current directory when <see langword="null"/>.</param>
+    /// <exception cref="InvalidDataException">The cached node map cannot be read; the caller blocks the call.</exception>
+    public static LocalPolicy? LoadRepositoryOnly(IReadOnlyDictionary<string, string?> env, string? repositoryRoot = null)
+    {
+        ArgumentNullException.ThrowIfNull(env);
+        var root = repositoryRoot ?? Directory.GetCurrentDirectory();
+        return Repository.RepositoryPolicy.Open(env, root) is { } repository
+            ? new LocalPolicy("repository", [], root, new EvaluationOrder([]), inProcess: null) { _repository = repository, _folderless = true }
+            : null;
+    }
+
     /// <summary>Collects the findings of the scan, as detector id and severity name, for the policy to match on: set it as
     /// the <c>FindingSink</c> of the hook config before the scan runs.</summary>
     public Action<string, string> FindingSink => (detector, severity) => _findings.Add(new PolicyFinding(detector, severity));
@@ -103,7 +122,7 @@ internal sealed class LocalPolicy : IDisposable
     /// <summary>The outcomes the policy sets per finding severity with <c>severity_actions</c>, read before the scan so the
     /// severity decision knows them. The rule is evaluated with an empty input, so it cannot depend on the tool call.</summary>
     /// <exception cref="FormatException">The policy names a severity or an outcome that does not exist; the caller blocks.</exception>
-    public SeverityActions Severities() => _severities ?? _order.Evaluate("{}").Decision.SeverityActions ?? SeverityActions.None;
+    public SeverityActions Severities() => _folderless ? SeverityActions.None : _severities ?? _order.Evaluate("{}").Decision.SeverityActions ?? SeverityActions.None;
 
     /// <summary>The repository policy of the node that owns the repository (#656), or <see langword="null"/> when no node map is
     /// cached; the policy input then names no repository.</summary>
@@ -132,7 +151,10 @@ internal sealed class LocalPolicy : IDisposable
         ArgumentNullException.ThrowIfNull(existing);
         var input = PolicyInputBuilder.Build(
             cli, toolName, toolInput, session, _findings, _repositoryRoot, _repository?.Scope.Repository ?? "", _repository?.Scope.Node ?? "");
-        var (policy, place) = _order.Evaluate(PolicyInputSerializer.Serialize(input));
+        // Without a folder there is no module of this process to ask; the repository's decisions below are the whole policy.
+        var (policy, place) = _folderless
+            ? new PolicyAnswer(new RegoDecision(DecisionOutcome.Defer, []), OutcomeDecision.InProcess)
+            : _order.Evaluate(PolicyInputSerializer.Serialize(input));
 
         var decisions = new List<OutcomeDecision>(3)
         {
@@ -149,13 +171,14 @@ internal sealed class LocalPolicy : IDisposable
             decisions.Add(new OutcomeDecision(policy.Outcome, string.Join("; ", policy.Reasons), [SourceOf(policy)], Version, place));
         }
 
-        var unparseable = input.Details.Shell is { Unparseable: true };
+        // A folderless policy reads no command line itself, so what it cannot parse is not its to ask about.
+        var unparseable = !_folderless && input.Details.Shell is { Unparseable: true };
         if (unparseable)
         {
             decisions.Add(new OutcomeDecision(DecisionOutcome.Ask, UnparseableReason, [ParserSource], Version));
         }
 
-        if (input.Details.Paths is not { Count: > 0 } && PolicyInputBuilder.IsPatch(input))
+        if (!_folderless && input.Details.Paths is not { Count: > 0 } && PolicyInputBuilder.IsPatch(input))
         {
             decisions.Add(new OutcomeDecision(DecisionOutcome.Ask, PatchTargetsReason, [ParserSource], Version));
         }
@@ -172,5 +195,5 @@ internal sealed class LocalPolicy : IDisposable
     // A refused builtin is the host's doing, not a bundle's, so it names the builtin as its source.
     private string SourceOf(RegoDecision policy) => policy.Refused is { } builtin ? "builtin:" + builtin : _bundleSource;
 
-    public void Dispose() => _inProcess.Dispose();
+    public void Dispose() => _inProcess?.Dispose();
 }
