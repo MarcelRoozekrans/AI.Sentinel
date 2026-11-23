@@ -2,9 +2,11 @@ using System.Formats.Tar;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
 using System.Text;
+#if INTEROP_COMPILER
 using Microsoft.Extensions.Logging.Abstractions;
 using OpaDotNet.Compilation.Abstractions;
 using OpaDotNet.Compilation.Interop;
+#endif
 
 namespace RegoAot;
 
@@ -83,6 +85,7 @@ internal sealed class InteropCompiler : ICompiler
 {
     public string Name => "interop";
 
+#if INTEROP_COMPILER
     public string? Unavailable() =>
         RuntimeInformation.ProcessArchitecture == Architecture.X64 && (OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
             ? null
@@ -111,6 +114,12 @@ internal sealed class InteropCompiler : ICompiler
             throw new RegoCompileException(e.Message);
         }
     }
+#else
+    public string? Unavailable() => $"the package has no native library for {RuntimeInformation.OSDescription} {RuntimeInformation.ProcessArchitecture}, so it is not referenced";
+
+    public byte[] CompileWasm(BundleSet set, string? capabilitiesJson = null) =>
+        throw new PlatformNotSupportedException(Unavailable());
+#endif
 }
 
 internal sealed class RegoCompileException(string message) : Exception(message);
