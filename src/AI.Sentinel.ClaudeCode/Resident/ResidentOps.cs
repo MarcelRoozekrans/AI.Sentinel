@@ -14,4 +14,7 @@ internal static class ResidentOps
 
     /// <summary>Asks whether the developer is signed in.</summary>
     public const string SignInStatus = "sign_in_status";
+
+    /// <summary>Evaluates the policy module of the signed profile the process holds for a repository.</summary>
+    public const string EvaluateProfile = "evaluate_profile";
 }
