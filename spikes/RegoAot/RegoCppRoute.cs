@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using Rego;
 
@@ -16,7 +17,23 @@ internal sealed class RegoCppRoute : IRoute
 
     public IReadOnlyList<string> Modes => ["cached", "cold", "warm"];
 
-    public string? Unavailable() => null;
+    private static readonly Lazy<string?> NativeProblem = new(LoadNative);
+
+    public string? Unavailable() => NativeProblem.Value;
+
+    /// <summary>Builds an interpreter once, which loads the native library, and names the reason when it cannot.</summary>
+    private static string? LoadNative()
+    {
+        try
+        {
+            _ = new Interpreter();
+            return null;
+        }
+        catch (Exception e) when (e is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException or TypeInitializationException)
+        {
+            return $"the native library of the Rego package does not load on {RuntimeInformation.OSDescription} {RuntimeInformation.ProcessArchitecture}: {e.GetType().Name}";
+        }
+    }
 
     /// <summary>rego-cpp evaluates opa.runtime itself, so only validation keeps it out.</summary>
     public IReadOnlyList<string> RuntimeGaps => ["opa.runtime"];

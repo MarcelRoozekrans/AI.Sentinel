@@ -44,7 +44,7 @@ internal static class Measure
         }
 
         PrintTable(rows);
-        PrintCompilers(set, runs);
+        PrintCompilers(runs);
         PrintSizes();
         return 0;
     }
@@ -135,12 +135,16 @@ internal static class Measure
         }
     }
 
-    /// <summary>Compiling Rego to wasm: the first call of a process, then repeated calls.</summary>
-    private static void PrintCompilers(BundleSet set, int runs)
+    /// <summary>
+    /// Compiling Rego to wasm: the first call of a process, then repeated calls. Each compiler runs in a
+    /// fresh child process, so nothing this process did earlier (Prepare calls the compiler) warms it.
+    /// </summary>
+    private static void PrintCompilers(int runs)
     {
         Console.WriteLine();
         Console.WriteLine("| compiler | first call ms | p50 ms | p95 ms | calls |");
         Console.WriteLine("|---|---|---|---|---|");
+        var exe = Environment.ProcessPath ?? throw new InvalidOperationException("no process path");
         foreach (var compiler in Routes.Compilers())
         {
             var why = compiler.Unavailable();
@@ -150,19 +154,43 @@ internal static class Measure
                 continue;
             }
 
-            var first = Stopwatch.GetTimestamp();
-            compiler.CompileWasm(set);
-            var firstMicros = Stopwatch.GetElapsedTime(first).TotalMicroseconds;
-            var times = new List<double>();
-            for (var i = 0; i < runs; i++)
+            var psi = new ProcessStartInfo(exe) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            psi.ArgumentList.Add("--compile-once");
+            psi.ArgumentList.Add(compiler.Name);
+            psi.ArgumentList.Add(runs.ToString(CultureInfo.InvariantCulture));
+            using var p = Process.Start(psi)!;
+            var stdout = p.StandardOutput.ReadToEnd();
+            var stderr = p.StandardError.ReadToEnd();
+            p.WaitForExit();
+            if (p.ExitCode != 0)
             {
-                var start = Stopwatch.GetTimestamp();
-                compiler.CompileWasm(set);
-                times.Add(Stopwatch.GetElapsedTime(start).TotalMicroseconds);
+                throw new InvalidOperationException($"{compiler.Name} compile failed with {p.ExitCode}: {stdout} {stderr}");
             }
 
-            Console.WriteLine($"| {compiler.Name} | {Ms(firstMicros)} | {Ms(Percentile(times, 50))} | {Ms(Percentile(times, 95))} | {times.Count} |");
+            var micros = stdout.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(v => double.Parse(v, CultureInfo.InvariantCulture)).ToList();
+            var times = micros.Skip(1).ToList();
+            Console.WriteLine($"| {compiler.Name} | {Ms(micros[0])} | {Ms(Percentile(times, 50))} | {Ms(Percentile(times, 95))} | {times.Count} |");
         }
+    }
+
+    /// <summary>The child process of a compiler timing: the first compile of the process, then the repeated ones, in microseconds.</summary>
+    public static int CompileOnce(string[] args)
+    {
+        var at = Array.IndexOf(args, "--compile-once");
+        var compiler = Routes.Compilers().First(c => c.Name == args[at + 1]);
+        var runs = int.Parse(args[at + 2], CultureInfo.InvariantCulture);
+        var set = BundleSet.Load(Path.Combine(Check.AppDir, "policy"));
+
+        var times = new List<double>(runs + 1);
+        for (var i = 0; i <= runs; i++)
+        {
+            var start = Stopwatch.GetTimestamp();
+            compiler.CompileWasm(set);
+            times.Add(Stopwatch.GetElapsedTime(start).TotalMicroseconds);
+        }
+
+        Console.WriteLine(string.Join(' ', times.Select(t => t.ToString("F0", CultureInfo.InvariantCulture))));
+        return 0;
     }
 
     private static void PrintSizes()

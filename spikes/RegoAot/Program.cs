@@ -5,6 +5,11 @@ if (args.Contains("--once", StringComparer.Ordinal))
     return Measure.Once(args);
 }
 
+if (args.Contains("--compile-once", StringComparer.Ordinal))
+{
+    return Measure.CompileOnce(args);
+}
+
 if (args.Contains("--choose", StringComparer.Ordinal))
 {
     // The chosen route is the first available one in this order, and nothing when none is. CI measures only that.

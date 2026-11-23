@@ -40,11 +40,11 @@ Wall time of the whole process in milliseconds, p50 / p95, which adds runtime st
 
 For wasmtime, cold is the Rego compile (about 11 ms with the interop compiler, 20 ms with the opa binary, see below) plus Wasmtime compiling the wasm (about 18 ms, the gap between cached and cached with native code) plus the evaluation. The native code is a Wasmtime serialization named by the module hash. It only loads into an engine of the same Wasmtime version and settings, so the cache key must carry the Wasmtime version too. Changing the Cranelift optimization level did not shorten the compile in a trial on this machine (about 21 ms either way). The Winch baseline compiler is not exposed by Wasmtime .NET 48.0.2.
 
-Compiling Rego to wasm, in process, first call and repeated (200 calls):
+Compiling Rego to wasm, in process, first call and repeated (200 calls). Each compiler runs in a fresh child process, so the first call is the first of its process. The first call of the interop compiler varied between runs (16.71, 16.95 and 19.74 ms); the table has the median.
 
 | Compiler | First call | p50 | p95 | Works under Native AOT | Platforms of its native library |
 |---|---|---|---|---|---|
-| OpaDotNet.Compilation.Interop 2.3.4 | 13.28 ms | 10.87 ms | 14.26 ms | Yes, `-warnaserror` clean | linux-x64, win-x64 |
+| OpaDotNet.Compilation.Interop 2.3.4 | 16.95 ms | 10.87 ms | 14.26 ms | Yes, `-warnaserror` clean | linux-x64, win-x64 |
 | opa binary (`opa build -t wasm`) | 20.55 ms | 19.81 ms | 29.27 ms | n/a, a separate process | every platform OPA ships for |
 
 The interop compiler lets a team use Rego without installing OPA, on Linux and Windows x64. It has no macOS or ARM library, so there the compile needs the opa binary, or the module has to arrive precompiled. OpaDotNet.Compilation.Cli was not measured: it runs the same opa binary that the spike calls directly.
