@@ -66,6 +66,7 @@ public static class PolicyFolderExtensions
         });
         services.TryAddSingleton<ProfileIssuer>();
         services.TryAddSingleton<NodeRoles>();
+        services.TryAddSingleton(sp => new SessionControl.SessionControlHub(sp.GetRequiredService<PolicyFolderLoader>(), sp.GetRequiredService<TimeProvider>()));
         services.AddSingleton<IAuthorizationHandler, NodeRoleHandler>();
         services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(sp => new PolicyFolderService(
             sp.GetRequiredService<PolicyFolderLoader>(),
@@ -94,7 +95,7 @@ public static class PolicyFolderExtensions
         return group;
     }
 
-    private static async Task<(IResult? Failure, PublishedConfiguration? Configuration)> AdmitAsync(
+    internal static async Task<(IResult? Failure, PublishedConfiguration? Configuration)> AdmitAsync(
         HttpContext http, IAuthorizationService authorization, IOptions<PolicyFolderOptions> options, ProfileIssuer issuer)
     {
         if (http.User.Identity?.IsAuthenticated != true)

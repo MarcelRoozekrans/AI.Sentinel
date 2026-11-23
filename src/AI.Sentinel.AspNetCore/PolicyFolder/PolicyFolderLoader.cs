@@ -49,6 +49,9 @@ internal sealed class PolicyFolderLoader
     /// and 2 for the second.</summary>
     internal Action<int, string>? AfterFileRead { get; set; }
 
+    /// <summary>Raised after a configuration has come into force, with that configuration. A handler must not throw and must not block.</summary>
+    public event EventHandler<ConfigurationPublishedEventArgs>? Published;
+
     /// <summary>Tells the loader that the folder may have changed.</summary>
     public void Notify() => _signal.Writer.TryWrite(0);
 
@@ -208,6 +211,7 @@ internal sealed class PolicyFolderLoader
         Volatile.Write(ref _current, configuration);
         _lastRejected = null;
         _log.LogInformation("Published configuration {Version} of {Organisation}.", version, configuration.Organisation);
+        Published?.Invoke(this, new ConfigurationPublishedEventArgs(configuration));
         return PassResult.Published;
     }
 
