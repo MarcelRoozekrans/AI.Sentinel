@@ -25,4 +25,8 @@ internal sealed record ResidentRequest
     /// <summary>For <see cref="ResidentOps.Evaluate"/>: the policy input, as JSON text.</summary>
     [JsonPropertyName("input")]
     public string? Input { get; init; }
+
+    /// <summary>For <see cref="ResidentOps.SignIn"/>: the tokens. They never print, and are never written to a file.</summary>
+    [JsonPropertyName("tokens")]
+    public SignIn.TokenSet? Tokens { get; init; }
 }

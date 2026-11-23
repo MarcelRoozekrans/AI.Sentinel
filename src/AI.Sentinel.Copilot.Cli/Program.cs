@@ -16,6 +16,7 @@ using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.ClaudeCode.Policy;
 using AI.Sentinel.ClaudeCode.Policy.Rego;
 using AI.Sentinel.ClaudeCode.Resident;
+using AI.Sentinel.ClaudeCode.SignIn;
 using AI.Sentinel.Copilot;
 
 namespace AI.Sentinel.Copilot.Cli;
@@ -28,6 +29,12 @@ public static class Program
         if (PolicyCompileCommand.Matches(args))
         {
             return PolicyCompileCommand.Run(args, Console.Error);
+        }
+
+        // Signs the developer in once, with an OIDC device code (#659). Off unless the server and the OIDC client are set.
+        if (SignInCommand.Matches(args))
+        {
+            return await SignInCommand.RunAsync(ResidentSettings.ProcessEnvironment(), Console.Out, Console.Error).ConfigureAwait(false);
         }
 
         // The hook starts itself with this to keep the compiled policy warm between calls (SENTINEL_HOOK_RESIDENT=on).
