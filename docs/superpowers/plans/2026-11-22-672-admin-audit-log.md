@@ -28,8 +28,8 @@ From the issue. Each has a test or check named after it.
 - Entries are hash-chained per organisation, building on `AuditHashChain` and `AuditChainVerification` in `src/AI.Sentinel/Audit`. `AdminAuditLogTests`.
 - The store is append-only: an update or delete is refused, and a test shows it. `AdminAuditLogTests`.
 - The log can be exported per organisation over HTTP, behind the host's authorization. `AdminAuditLogTests`.
-- An export ends with a head, the entry count and the last hash, signed with the deployment's Ed25519 key as in #671. `AdminAuditLogTests`.
-- A `sentinel` command verifies an export offline, chain included, and names the first entry that breaks it. It checks the signed head against a pinned public key, so an export with its newest entries cut off fails. `AdminAuditVerifyCommandTests`.
+- An export ends with a head, the entry count, the last hash and the export time, signed with the deployment's Ed25519 key as in #671. `AdminAuditLogTests`.
+- A `sentinel` command verifies an export offline, chain included, and names the first entry that breaks it. It checks the signed head against a pinned public key, so an export with its newest entries cut off fails. It prints the signed count and export time; given a checkpoint the auditor took earlier (a count and hash), it also rejects an export that is older than the checkpoint or does not contain it. `AdminAuditVerifyCommandTests`.
 - An entry never holds file contents or secrets. `AdminAuditLogTests`.
 - With none of the new settings, behaviour is unchanged. Existing suite.
 
@@ -48,13 +48,14 @@ From the issue. Each has a test or check named after it.
 
 ### Task 3: Export endpoint
 
-- [ ] Add the export per organisation behind the host's authorization policy; end it with the head, entry count and last hash, signed with the deployment's key through #671.
+- [ ] Add the export per organisation behind the host's authorization policy; end it with the head, entry count, last hash and export time, signed with the deployment's key through #671.
 - [ ] Commit.
 
 ### Task 4: Offline verify command
 
 - [ ] Add a `sentinel` command that verifies an export with `AuditChainVerification` and names the first broken entry, and checks the signed head against a pinned public key.
-- [ ] Tests in `AdminAuditVerifyCommandTests`, including an export with its last entry removed, which fails.
+- [ ] Accept an optional checkpoint (count and hash from an earlier export or verify run) and reject an export that is older or does not contain it.
+- [ ] Tests in `AdminAuditVerifyCommandTests`, including an export with its last entry removed, and an older complete export checked against a newer checkpoint; both fail.
 - [ ] Commit.
 
 ### Task 5: Document it

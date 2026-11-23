@@ -28,6 +28,7 @@ From the issue. Each has a test or check named after it.
 - Identities are replaced on arrival with a per-organisation code; the key for those codes is kept apart from the event store. `ServerEventIngestTests`.
 - Retention is set per organisation, defaulting to 90 days for events and 13 months for daily counts; older data is deleted. `ServerEventIngestTests`.
 - Receiving the same event twice, recognised by its event id, stores it once; two distinct events with the same other fields are both stored. `ServerEventIngestTests`.
+- The ingest endpoint uses the host's ASP.NET Core authorization with the configurable policy name, like the read endpoints; an unauthenticated batch is refused and nothing is stored. `ServerEventIngestTests`.
 - A received batch can report a gap with a count of events pruned before they were sent, and the gap is readable. `ServerEventIngestTests`.
 - Blocked calls and audit entries can be read over HTTP, filterable by node, session and time, per team without names (#675 adds the names setting). `ServerEventReadTests`.
 - The endpoints use the host's ASP.NET Core authorization with a configurable policy name for sign-in, and the role-on-node check from #674: a team lead reads their node, a developer reads their own decisions. `ServerEventReadTests`.
@@ -37,7 +38,7 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Ingest with allowlist
 
-- [ ] Add the ingest endpoint; keep allowlisted fields, count other field names, deduplicate on the event id from #661, accept gap reports.
+- [ ] Add the ingest endpoint behind the host's configurable authorization policy, so an unauthenticated batch is refused; keep allowlisted fields, count other field names, deduplicate on the event id from #661, accept gap reports.
 - [ ] Failing tests first in `ServerEventIngestTests`.
 - [ ] Commit.
 
