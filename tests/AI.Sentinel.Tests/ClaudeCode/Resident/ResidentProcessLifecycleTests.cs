@@ -183,6 +183,9 @@ public class ResidentProcessLifecycleTests : IDisposable
                 [ResidentSettings.EnableVariable] = "on",
                 [ResidentSettings.DirectoryVariable] = _dir,
                 [HookAuditTestSupport.NdjsonVar] = audit,
+                // This test is about who answers, not how fast: EvaluationOrderTests holds the 15 ms budget. A loaded machine
+                // can miss that budget, and the second hook then decides in-process, so the hook here waits as long as the test does.
+                [ResidentSettings.BudgetVariable] = "10000",
             };
             const string Json = """{"session_id":"cc-658","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}""";
 
