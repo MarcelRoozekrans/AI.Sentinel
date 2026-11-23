@@ -99,7 +99,8 @@ internal static class EventIngest
 
             var stored = new ServerEvent(
                 e.Id!, sender, code, e.At ?? now, now, e.ToolKind!, e.Outcome!, e.Policies ?? [], e.PolicyVersion, e.Decided, e.Node,
-                e.Cli, e.Session, e.Detector, e.Severity, e.Redactions, reason);
+                e.Cli, e.Session, e.Detector, e.Severity, e.Redactions, reason,
+                NamesShown(loader, e.Node) ? ServerEvent.WithNames : ServerEvent.TeamsOnly);
             if (await store.AddAsync(stored, ct).ConfigureAwait(false))
             {
                 accepted++;
@@ -125,6 +126,9 @@ internal static class EventIngest
                 $"{{\"accepted\":{accepted},\"duplicates\":{duplicates},\"rejected\":{batch.Rejected},\"dropped_fields\":{dropped.Count}}}"),
             "application/json");
     }
+
+    private static bool NamesShown(PolicyFolderLoader? loader, string? node) =>
+        TeamVisibility.NodeOf(loader?.Current?.Nodes, node)?.ShowNames == true;
 
     private static bool DetailedLoggingOn(PolicyFolderLoader? loader, string? node) =>
         loader?.Current?.Nodes.Nodes.FirstOrDefault(n => string.Equals(n.Id, node, StringComparison.Ordinal))?.DetailedLogging == true;

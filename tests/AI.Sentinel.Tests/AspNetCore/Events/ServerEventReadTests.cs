@@ -11,7 +11,7 @@ public sealed class ServerEventReadTests
 
     private static async Task<ServerEventTestHost> SeededAsync()
     {
-        var host = await StartAsync();
+        var host = await StartAsync(o => o.MinimumTeamPeople = 1);
         await host.SendAsync(Post(Batch("acme",
             Event("a-deny", "deny", "team-a", "s-1", ",\"at\":\"2026-11-23T09:00:00Z\""),
             Event("a-allow", "allow", "team-a", "s-2", ",\"at\":\"2026-11-23T11:00:00Z\"")), "acme", "alice"));
@@ -65,7 +65,9 @@ public sealed class ServerEventReadTests
     [Fact]
     public async Task The_answers_show_a_code_for_the_developer_and_never_a_name()
     {
-        using var host = await SeededAsync();
+        using var host = await StartAsync(o => o.MinimumTeamPeople = 1, TeamVisibilityTests.NamesOn);
+        await host.SendAsync(Post(Batch("acme", Event("a-deny")), "acme", "alice"));
+        await host.SendAsync(Post(Batch("acme", Event("b-deny", node: "team-b")), "acme", "bob"));
 
         var response = await host.SendAsync(Get("acme/audit", "acme", "root", "sec"));
 

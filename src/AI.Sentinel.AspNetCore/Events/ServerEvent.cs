@@ -19,8 +19,15 @@ internal sealed record ServerEvent(
     string? Detector,
     string? Severity,
     IReadOnlyDictionary<string, int> Redactions,
-    string? Reason)
+    string? Reason,
+    string Visibility = ServerEvent.TeamsOnly)
 {
+    /// <summary>The visibility of a record stored when its node did not show names.</summary>
+    public const string TeamsOnly = "teams";
+
+    /// <summary>The visibility of a record stored when its node showed names.</summary>
+    public const string WithNames = "names";
+
     /// <summary>The outcome of a call that was stopped.</summary>
     public const string Blocked = "deny";
 

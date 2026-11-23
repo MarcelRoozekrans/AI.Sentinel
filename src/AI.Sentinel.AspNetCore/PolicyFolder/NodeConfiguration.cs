@@ -151,10 +151,22 @@ internal sealed class NodeConfiguration
             throw new InvalidDataException($"the node '{node.Id}' has a profile lifetime of no hours");
         }
 
+        var namesApproval = parent?.NamesApproval;
+        if (settings?.Names is { } names)
+        {
+            if (names.Show == true && string.IsNullOrWhiteSpace(names.ApprovalReference))
+            {
+                throw new InvalidDataException($"the node '{node.Id}' shows names without an approval reference");
+            }
+
+            namesApproval = names.Show == true ? names.ApprovalReference!.Trim() : null;
+        }
+
         var lifetime = settings?.ProfileLifetimeHours is { } hours ? TimeSpan.FromHours(hours) : parent?.ProfileLifetime;
         return new ConfiguredNode(
             node.Id, parent is null, failMode, lifetime, settings?.DetailedLogging ?? parent?.DetailedLogging ?? false,
-            settings?.SeverityDefaults ?? parent?.SeverityDefaults ?? new Dictionary<string, string>(StringComparer.Ordinal));
+            settings?.SeverityDefaults ?? parent?.SeverityDefaults ?? new Dictionary<string, string>(StringComparer.Ordinal),
+            namesApproval);
     }
 
     private static RoleBinding ParseRole(RoleBindingWire role, Dictionary<string, ConfiguredNode> nodes)

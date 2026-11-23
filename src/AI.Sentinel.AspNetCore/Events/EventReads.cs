@@ -21,6 +21,7 @@ internal static class EventReads
         var services = http.RequestServices;
         var options = services.GetRequiredService<IOptions<ServerEventOptions>>().Value;
         var roles = services.GetRequiredService<NodeRoles>();
+        var loader = services.GetRequiredService<PolicyFolderLoader>();
         if (http.User.Identity?.IsAuthenticated != true)
         {
             return Results.StatusCode(StatusCodes.Status401Unauthorized);
@@ -50,19 +51,25 @@ internal static class EventReads
             ? services.GetRequiredService<PseudonymKeys>().CodeFor(organisation, developer)
             : null;
         var store = services.GetRequiredService<IServerEventStore>();
-        var events = (await store.ReadEventsAsync(organisation, http.RequestAborted).ConfigureAwait(false))
-            .Where(e => (!blockedOnly || e.IsBlocked)
-                && (node.Length == 0 || string.Equals(e.Node, node, StringComparison.Ordinal))
-                && (session.Length == 0 || string.Equals(e.Session, session, StringComparison.Ordinal))
-                && (from is null || e.At >= from) && (to is null || e.At <= to)
-                && May(roles, http.User, e.Node, e.Developer, own))
-            .OrderBy(e => e.At).ToList();
+        var stored = await store.ReadEventsAsync(organisation, http.RequestAborted).ConfigureAwait(false);
+        var visibility = new TeamVisibility(loader.Current?.Nodes, stored, options.MinimumTeamPeople);
+        var events = stored
+            .Select(e => new ShownEvent(e, visibility.NodeFor(e.Node), Own(own, e.Developer) || visibility.ShowsName(e)))
+            .Where(s => (!blockedOnly || s.Event.IsBlocked)
+                && (node.Length == 0 || string.Equals(s.Node, node, StringComparison.Ordinal))
+                && (session.Length == 0 || string.Equals(s.Event.Session, session, StringComparison.Ordinal))
+                && (from is null || s.Event.At >= from) && (to is null || s.Event.At <= to)
+                && May(roles, http.User, s.Node, s.Event.Developer, own))
+            .OrderBy(s => s.Event.At).ToList();
         var gaps = blockedOnly
             ? []
             : (await store.ReadGapsAsync(organisation, http.RequestAborted).ConfigureAwait(false))
-                .Where(g => May(roles, http.User, g.Node ?? roles.OrganisationNodeId, g.Developer, own)).ToList();
+                .Select(g => new ShownGap(g, visibility.NodeFor(g.Node) ?? roles.OrganisationNodeId, Own(own, g.Developer)))
+                .Where(s => May(roles, http.User, s.Node, s.Gap.Developer, own)).ToList();
         return Results.Bytes(EventWriter.Write(events, blockedOnly ? null : gaps), "application/json");
     }
+
+    private static bool Own(string? own, string developer) => own is not null && string.Equals(own, developer, StringComparison.Ordinal);
 
     private static bool May(NodeRoles roles, System.Security.Claims.ClaimsPrincipal user, string? node, string developer, string? own) =>
         (own is not null && string.Equals(own, developer, StringComparison.Ordinal))
