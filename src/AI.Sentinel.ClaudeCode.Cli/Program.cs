@@ -107,6 +107,7 @@ public static class Program
                 args, input.ToolName, input.SessionId, HookInternalError.Reason(ex), audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
         }
 
+        output = ClaudeCodeWireOutput.Resolve(output, evt, ClaudeCodeWireOutput.IsHeadless(input, config));
         return await WriteDecisionAsync(args, evt, input, output, semanticWarning, config, audit, auditProblems, approvalWarnings, stdout, stderr).ConfigureAwait(false);
     }
 
@@ -127,6 +128,9 @@ public static class Program
         // systemMessage and a PostToolUse Block to stdout's decision, so they leave stderr free, as Allow does.
         // An audit failure never changes the decision.
         var reasonOnStderr = BlocksWithExitTwo(evt, output);
+        // A decision that carries an outcome is recorded with its reason, sources, policy version and place. A severity
+        // action alone writes no such entry, which keeps today's audit.
+        await OutcomeAudit.RecordAsync(audit.Store, audit.Forwarders, output, input.SessionId, CancellationToken.None).ConfigureAwait(false);
         var reported = await FlushAndReportAuditAsync(audit, auditProblems, config.Verbose || !reasonOnStderr, stderr).ConfigureAwait(false);
         // Webhook warnings follow the audit problems: kept off the stderr that carries a block reason, unless verbose.
         if (config.Verbose || !reasonOnStderr)

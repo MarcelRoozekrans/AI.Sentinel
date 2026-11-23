@@ -39,6 +39,22 @@ internal sealed record CopilotWireOutput
 
     private const string SuccessResultType = "success";
 
+    /// <summary>Settles a decision that carries an outcome for Copilot CLI (ADR-234). Copilot cannot ask on any event,
+    /// so an ask becomes a deny with instructions. Guidance has no context channel, so it behaves as a Warn does today:
+    /// the reason on stderr and the call runs. Allow and defer are Allow, which emits no permission decision. A decision
+    /// without an outcome is returned as it is.</summary>
+    public static CopilotHookResult Resolve(CopilotHookResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        var output = result.Output;
+        if (output.Outcome is not { Outcome: DecisionOutcome.Ask } ask)
+        {
+            return result;
+        }
+
+        return result with { Output = ask.ToHookOutput(canAsk: false) with { UpdatedToolOutput = output.UpdatedToolOutput, Redactions = output.Redactions } };
+    }
+
     /// <summary>Maps <paramref name="result"/> for <paramref name="evt"/>. A rewrite is written for its own event only.</summary>
     public static CopilotWireOutput From(CopilotHookEvent evt, CopilotHookResult result)
     {
