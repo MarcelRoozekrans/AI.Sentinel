@@ -1,6 +1,6 @@
 name: Native CLI
 
-# Builds the Native AOT tool package of sentinel-hook, sentinel-copilot-hook and sentinel-mcp for
+# Builds the Native AOT tool package of sentinel-hook, sentinel-codex-hook, sentinel-copilot-hook and sentinel-mcp for
 # each RID on a runner of that OS (Native AOT cannot cross-compile between operating systems),
 # extracts the binary from the package, smoke-tests it and archives it. The PR check
 # (aot-publish.yml) and the release (release-please.yml) both call this workflow, so a PR
@@ -43,6 +43,7 @@ jobs:
       matrix:
         cli:
           - { id: ClaudeCode.Cli, command: sentinel-hook, kind: hook }
+          - { id: Codex.Cli, command: sentinel-codex-hook, kind: codex-hook }
           - { id: Copilot.Cli, command: sentinel-copilot-hook, kind: copilot-hook }
           - { id: Mcp.Cli, command: sentinel-mcp, kind: mcp }
         # libc: glibc and musl legs pack in a container; none packs on the runner itself.
