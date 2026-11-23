@@ -36,25 +36,25 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Repository from git remote
 
-- [ ] Read the git remote of the working directory without starting `git` on every call where a cached value will do; fill `repository` and `node` in the input.
-- [ ] Failing tests first in `RepositoryNodePolicyTests`.
-- [ ] Commit.
+- [x] Read the git remote of the working directory without starting `git` on every call where a cached value will do; fill `repository` and `node` in the input.
+- [x] Failing tests first in `RepositoryNodePolicyTests`.
+- [x] Commit.
 
 ### Task 2: Strict repository mode
 
-- [ ] Unowned repository or no git: organisation top-level rules only, no events, a notice at session start.
-- [ ] Tests in `StrictRepositoryModeTests`.
-- [ ] Commit.
+- [x] Unowned repository or no git: organisation top-level rules only, no events, a notice at session start.
+- [x] Tests in `StrictRepositoryModeTests`.
+- [x] Commit.
 
 ### Task 3: Local folder next to the profile
 
-- [ ] Evaluate `SENTINEL_HOOK_POLICY_DIR` next to the profile and combine strictest-wins.
-- [ ] Commit.
+- [x] Evaluate `SENTINEL_HOOK_POLICY_DIR` next to the profile and combine strictest-wins.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks

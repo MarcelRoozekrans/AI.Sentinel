@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace AI.Sentinel.ClaudeCode.Policy;
 
-/// <summary>Builds the <see cref="PolicyInput"/> of one tool call. Nothing reads it yet.</summary>
+/// <summary>Builds the <see cref="PolicyInput"/> of one tool call. </summary>
 internal static class PolicyInputBuilder
 {
     private const string McpPrefix = "mcp__";
@@ -16,15 +16,18 @@ internal static class PolicyInputBuilder
     /// <param name="session">The session id.</param>
     /// <param name="findings">Detector findings for the call.</param>
     /// <param name="repositoryRoot">The root a path must lie under to count as inside the repository. Null when unknown.</param>
+    /// <param name="repository">The normalised repository name, see <see cref="Repository.RepositoryUrl"/>; empty when unknown.</param>
+    /// <param name="node">The node that owns the repository; empty when none does.</param>
     public static PolicyInput Build(
-        string cli, string toolName, JsonElement toolInput, string session, IReadOnlyList<PolicyFinding> findings, string? repositoryRoot)
+        string cli, string toolName, JsonElement toolInput, string session, IReadOnlyList<PolicyFinding> findings, string? repositoryRoot,
+        string repository = "", string node = "")
     {
         ArgumentNullException.ThrowIfNull(cli);
         ArgumentNullException.ThrowIfNull(toolName);
         ArgumentNullException.ThrowIfNull(findings);
         var kind = ToolKinds.Map(cli, toolName);
         var details = Details(kind, cli, toolName, toolInput, ReadObject(toolInput), repositoryRoot);
-        return new PolicyInput(kind.ToWire(), cli, toolName, details, findings, "", "", session ?? "");
+        return new PolicyInput(kind.ToWire(), cli, toolName, details, findings, repository ?? "", node ?? "", session ?? "");
     }
 
     /// <summary>True for an <c>apply_patch</c> call, whose targets come from the patch text.</summary>

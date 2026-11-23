@@ -61,9 +61,14 @@ public static class Program
         Func<ResidentLaunch, bool>? residentStart = null,
         FailModeContext? failMode = null)
     {
+        if (SessionStartCommand.Matches(args))
+        {
+            return await SessionStartCommand.RunAsync(BuildHookEnvVars(), Directory.GetCurrentDirectory(), stdout, stderr).ConfigureAwait(false);
+        }
+
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
-            await stderr.WriteAsync("Usage: sentinel-hook <user-prompt-submit|pre-tool-use|post-tool-use>\n").ConfigureAwait(false);
+            await stderr.WriteAsync("Usage: sentinel-hook <user-prompt-submit|pre-tool-use|post-tool-use|session-start>\n").ConfigureAwait(false);
             return 1;
         }
 

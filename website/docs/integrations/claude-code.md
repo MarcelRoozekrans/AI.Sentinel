@@ -293,6 +293,21 @@ When no policy decision can be made for a call, the `fail_mode` of the node's pr
 - **A bundle that errors.** A policy bundle that fails while it runs denies the call and names the bundle, whatever the fail mode. The error text is not repeated, because a module can echo the tool input.
 - **The hook itself.** An internal error, as under [When the hook itself fails](#when-the-hook-itself-fails), still blocks, whatever the fail mode.
 
+## Which policy applies
+
+The policy of a tool call comes from the node that owns the repository, not from the developer's team (ADR-232, ADR-246). `SENTINEL_HOOK_TEAM` does not exist. **Every new setting is optional and off by default: until a node map is cached in the state folder, which needs `SENTINEL_HOOK_RESIDENT=on` and an organisation's server, the policy input's `repository` and `node` stay empty and the hooks behave exactly as before.**
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_STRICT_REPOSITORY` | `on` | `off` / `0` / `false` / `no` → an unowned repository is not restricted. Applies only once a node map is cached |
+
+- **The repository.** The git remote of the working directory, `origin` when there is one, else the first remote with a url. The hook reads `.git/config` itself and starts no `git` process. A `.git` file is followed: a worktree to the common folder that holds the config, a submodule to its own folder under the superproject, so a submodule reports its own remote.
+- **The name.** The url is reduced to host and path in lower case, without scheme, port, credentials or `.git` suffix, so `git@github.com:Acme/Widgets.git` and `https://github.com/acme/widgets` are one repository. Nothing of the userinfo is kept, so a token embedded in a url reaches neither the policy input nor the audit.
+- **The node.** The node map, the server's node configuration, is cached as `nodes.json` in the state folder and read with no network. A map that is cached and cannot be read blocks `PreToolUse` as an internal error rather than reading as "no node owns anything".
+- **Strict repository mode.** On by default. A repository no node owns, or a folder outside git, gets only the organisation's top-level rules and sends no events. `sentinel-hook session-start`, run from the plugin's `SessionStart` hook, prints a message with that for the developer, and nothing for an owned repository or a PC without a node map.
+- **Combining.** The organisation's top-level rules, the bundle of the owning node and a local `SENTINEL_HOOK_POLICY_DIR` are all evaluated, and the strictest outcome wins. A deny of the organisation holds in every repository, also where the bundle of the node allows the call, and the local folder can only tighten.
+- **Not built yet.** Signing in to an organisation and the server's node configuration (#659, #664) fill the node map and the signed profiles; until then nothing in the shipped hooks writes them.
+
 ## When the hook itself fails
 
 The hook fails closed on `PreToolUse`. When it cannot evaluate a tool call, it blocks the call with exit 2 and a reason that starts with `Sentinel internal error:` on stderr. This covers:
