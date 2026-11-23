@@ -38,6 +38,9 @@ internal sealed class FakePolicyServer : HttpMessageHandler
     /// <summary>The module text of the profile of the repository; the organisation profile is <c>*</c>.</summary>
     public Func<string, string> Module { get; set; } = _ => Rule("deny contains \"v" + "1\" if input.kind == \"shell\"");
 
+    /// <summary>How long a profile request takes to answer.</summary>
+    public TimeSpan ProfileDelay { get; set; }
+
     public int ProfileRequests => Volatile.Read(ref _profileRequests);
 
     public int Connections => Volatile.Read(ref _connections);
@@ -103,18 +106,28 @@ internal sealed class FakePolicyServer : HttpMessageHandler
         }
     }
 
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (ProfileDelay > TimeSpan.Zero && request.RequestUri!.AbsolutePath.EndsWith("/profile", StringComparison.Ordinal))
+        {
+            await Task.Delay(ProfileDelay, cancellationToken);
+        }
+
+        return Answer(request);
+    }
+
+    private HttpResponseMessage Answer(HttpRequestMessage request)
     {
         var path = request.RequestUri!.AbsolutePath;
         if (path.EndsWith("/events", StringComparison.Ordinal))
         {
-            return Task.FromResult(OpenStream());
+            return OpenStream();
         }
 
         if (path.EndsWith("/node-map", StringComparison.Ordinal))
         {
             var map = "{" + string.Join(",", Repositories.Select(r => $"\"{r}\":\"team-a\"")) + "}";
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(map, Encoding.UTF8, "application/json") });
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(map, Encoding.UTF8, "application/json") };
         }
 
         if (path.EndsWith("/profile", StringComparison.Ordinal))
@@ -128,14 +141,14 @@ internal sealed class FakePolicyServer : HttpMessageHandler
             _ = Interlocked.Increment(ref _profileRequests);
             if (Interlocked.Decrement(ref _failProfiles) >= 0)
             {
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+                return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
             }
 
             Volatile.Write(ref _failProfiles, 0);
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Issue(repository).ToJson(), Encoding.UTF8, "application/json") });
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(Issue(repository).ToJson(), Encoding.UTF8, "application/json") };
         }
 
-        return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        return new HttpResponseMessage(HttpStatusCode.NotFound);
     }
 
     private HttpResponseMessage OpenStream()

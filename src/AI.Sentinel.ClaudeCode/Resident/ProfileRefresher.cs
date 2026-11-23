@@ -30,6 +30,9 @@ internal sealed class ProfileRefresher(
     private DateTimeOffset? _lastSuccess;
     private int _failures;
     private long _fetches;
+    private readonly Lock _sync = new();
+    private long _announced;
+    private bool _running;
 
     /// <summary>How many profile requests were sent to the server; a test counts them.</summary>
     public long Fetches => Interlocked.Read(ref _fetches);
@@ -66,10 +69,17 @@ internal sealed class ProfileRefresher(
     /// than the one held.</summary>
     public void Announce(long version)
     {
-        if (version > HeldVersion)
+        lock (_sync)
         {
-            Wake();
+            _announced = Math.Max(_announced, version);
+            // A round that is running now may fetch this version itself; when it ends it looks again.
+            if (_running || version <= HeldVersion)
+            {
+                return;
+            }
         }
+
+        Wake();
     }
 
     /// <summary>Runs until <paramref name="ct"/> ends.</summary>
@@ -87,8 +97,22 @@ internal sealed class ProfileRefresher(
                     continue;
                 }
 
-                _forced = false;
-                await RoundAsync(ct).ConfigureAwait(false);
+                lock (_sync)
+                {
+                    _forced = false;
+                    _running = true;
+                }
+
+                var ok = await RoundAsync(ct).ConfigureAwait(false);
+                lock (_sync)
+                {
+                    _running = false;
+                    // Announced while the round ran, and the round did not bring it: fetch again.
+                    if (ok && _announced > HeldVersion)
+                    {
+                        _forced = true;
+                    }
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

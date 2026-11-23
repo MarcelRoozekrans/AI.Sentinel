@@ -18,6 +18,7 @@ public sealed class ProfileRefreshTests : IAsyncDisposable
     private readonly ResidentService _service;
     private readonly CancellationTokenSource _stop = new();
     private readonly HttpClient _http;
+    private readonly System.Collections.Concurrent.ConcurrentQueue<string> _log = new();
     private Task? _run;
 
     public ProfileRefreshTests()
@@ -36,8 +37,8 @@ public sealed class ProfileRefreshTests : IAsyncDisposable
 
     private ProfileRefresher StartLink(ServerLinkTiming timing)
     {
-        var refresher = new ProfileRefresher(_state, _http, Server, _service, timing, TimeProvider.System);
-        var link = new ServerLink(_http, Server, new PauseBoard(_state), refresher, timing, TimeProvider.System);
+        var refresher = new ProfileRefresher(_state, _http, Server, _service, timing, TimeProvider.System, _log.Enqueue);
+        var link = new ServerLink(_http, Server, new PauseBoard(_state), refresher, timing, TimeProvider.System, _log.Enqueue);
         _run = Task.Run(() => link.RunAsync(_stop.Token), Ct);
         return refresher;
     }
@@ -238,8 +239,20 @@ public sealed class ProfileRefreshTests : IAsyncDisposable
         await Task.Delay(1000, Ct);
 
         Assert.Equal(after, _server.ProfileRequests);
-        Assert.Equal(1, _server.Connections);
+        Assert.True(_server.Connections == 1, string.Join(" | ", _log));
         Assert.Equal(1, refresher.HeldVersion);
+    }
+
+    [Fact]
+    public async Task The_snapshot_of_the_first_connection_does_not_fetch_again_while_the_fetch_at_start_is_still_running()
+    {
+        _server.ProfileDelay = TimeSpan.FromMilliseconds(400);
+        _ = StartLink(Timing());
+
+        await WaitForAsync(() => Shell() is "deny", "the first profile");
+        await Task.Delay(800, Ct);
+
+        Assert.Equal(1, _server.ProfileRequests);
     }
 
     [Fact]

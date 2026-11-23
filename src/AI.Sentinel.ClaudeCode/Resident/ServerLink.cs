@@ -13,6 +13,8 @@ namespace AI.Sentinel.ClaudeCode.Resident;
 internal sealed class ServerLink(
     HttpClient http, Uri server, PauseBoard board, ProfileRefresher refresher, ServerLinkTiming timing, TimeProvider time, Action<string>? log = null)
 {
+    private int _snapshots;
+
     /// <summary>Runs until <paramref name="ct"/> ends, with the profile refresher beside it.</summary>
     public async Task RunAsync(CancellationToken ct)
     {
@@ -92,8 +94,17 @@ internal sealed class ServerLink(
                 var snapshot = JsonSerializer.Deserialize(message.Data!, SessionEventJsonContext.Default.SessionSnapshot)
                     ?? throw new InvalidDataException("an empty snapshot");
                 board.Replace(snapshot.Pauses ?? []);
-                // A configuration that came into force while the stream was down is fetched now, whatever the snapshot says.
-                refresher.Wake();
+                if (_snapshots++ == 0)
+                {
+                    // The first connection: the fetch at start covers it unless a newer configuration is already in force.
+                    refresher.Announce(snapshot.ConfigurationVersion ?? 0);
+                }
+                else
+                {
+                    // A configuration that came into force while the stream was down is fetched now, whatever the snapshot says.
+                    refresher.Wake();
+                }
+
                 return true;
             case SessionEventNames.Pause:
                 board.Add(JsonSerializer.Deserialize(message.Data!, SessionEventJsonContext.Default.PausedSession) is { Session: not null } pause
