@@ -77,6 +77,7 @@ const sidebars = {
         'integrations/claude-code',
         'integrations/copilot',
         'integrations/mcp-proxy',
+        'integrations/standalone-server',
       ],
     },
     {

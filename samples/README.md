@@ -100,3 +100,17 @@ Edit the `AISentinel` section in `appsettings.json` (or your local override):
 ```
 
 Available actions: `PassThrough`, `Log`, `Alert`, `Quarantine`.
+
+---
+
+## AI.Sentinel.ServerSample
+
+The server part of AI.Sentinel in a plain ASP.NET Core app, with no central product: the policy folder, signed profiles, pause and release with their event stream, the dashboard with approve and deny, and the signed audit export. It needs a folder of policy, a signing key and an identity provider; see [Run the server part on its own](../website/docs/integrations/standalone-server.md).
+
+```bash
+export Sentinel__SigningKey=$(openssl rand -base64 32)
+export Sentinel__PolicyPath=/path/to/policy-checkout
+dotnet run --project samples/AI.Sentinel.ServerSample
+```
+
+Set `Oidc:Authority` and `Oidc:Audience` in `appsettings.json` first. `opa` must be on the `PATH`, or set `Sentinel__OpaPath`.
