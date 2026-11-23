@@ -1419,5 +1419,464 @@
     "input": "a\u0000b",
     "unparseable": true,
     "commands": []
+  },
+  {
+    "name": "locale quoting",
+    "input": "echo $\"hello\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "locale quoting after a word",
+    "input": "echo a$\"b\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "dollar before a closing quote is data",
+    "input": "echo \"a$\"",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "a$"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "dollar before a continued quote",
+    "input": "echo $\\\n\"hello\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "append assignment prefix",
+    "input": "FOO+=bar make",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "make",
+        "args": [],
+        "assignments": [
+          "FOO"
+        ],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "append assignment only",
+    "input": "FOO+=bar",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "",
+        "args": [],
+        "assignments": [
+          "FOO"
+        ],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "quoted append assignment name is a command",
+    "input": "\"FOO\"+=bar x",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "FOO+=bar",
+        "args": [
+          "x"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "plus inside a name is a command",
+    "input": "a+b=c x",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "a+b=c",
+        "args": [
+          "x"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "plus equals as an argument",
+    "input": "dotnet test a+=b",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "dotnet",
+        "args": [
+          "test",
+          "a+=b"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "array element assignment",
+    "input": "a[0]=x make",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "array element append assignment",
+    "input": "a[0]+=x make",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "array assignment",
+    "input": "a=(1 2) make",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "array append assignment",
+    "input": "a+=(1 2)",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "brace expansion as the command name",
+    "input": "{cat,/etc/passwd}",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "brace sequence as the command name",
+    "input": "{a..b}",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "quoted brace list as the command name is left unparsed",
+    "input": "\"{a,b}\" x",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "brace expansion with a command prefix",
+    "input": "FOO=1 {echo,hi}",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "brace expansion as an argument stays literal",
+    "input": "echo {1..3}",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "{1..3}"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "export with options",
+    "input": "export -n FOO=bar",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "export",
+        "args": [
+          "-n",
+          "FOO=bar"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "declare with options",
+    "input": "declare -x FOO=bar",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "declare",
+        "args": [
+          "-x",
+          "FOO=bar"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "declare an array",
+    "input": "declare -a x=(1 2)",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "local with an append",
+    "input": "local x+=1",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "local",
+        "args": [
+          "x+=1"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "coprocess",
+    "input": "coproc ls",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "arithmetic command",
+    "input": "((1+1))",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "arithmetic command with a space",
+    "input": "(( x = 1 ))",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "legacy arithmetic stays literal",
+    "input": "echo $[1+2]",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "$[1+2]"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "tilde user stays literal",
+    "input": "ls ~root/src",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [
+          "~root/src"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "pipe and stderr",
+    "input": "a |& b",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "clobber redirect",
+    "input": "echo hi >| out",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">|",
+            "target": "out"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "read write redirect",
+    "input": "cat <> f",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "duplicate output redirect",
+    "input": "echo hi >&2",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "hi"
+        ],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": ">&",
+            "target": "2"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "duplicate input redirect",
+    "input": "cat <&3",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "cat",
+        "args": [],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": "<&",
+            "target": "3"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "append both redirect",
+    "input": "make &>> all.log",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "make",
+        "args": [],
+        "assignments": [],
+        "redirects": [
+          {
+            "op": "&>>",
+            "target": "all.log"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "negated pipeline",
+    "input": "! a | b",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "function keyword",
+    "input": "function f { ls; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "function with parentheses",
+    "input": "f() { ls; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "backslash newline at the end",
+    "input": "ls \\\n",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "backslash newline then end after a word",
+    "input": "ls a\\\n",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "ls",
+        "args": [
+          "a"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "select loop",
+    "input": "select x in a b; do echo $x; done",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "until loop",
+    "input": "until false; do ls; done",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "reserved word after a separator",
+    "input": "ls; then ls",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced group close as an argument",
+    "input": "echo }",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "}"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
   }
 ]
