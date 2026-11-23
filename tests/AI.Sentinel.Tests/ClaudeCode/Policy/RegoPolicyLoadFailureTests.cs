@@ -37,15 +37,17 @@ public class RegoPolicyLoadFailureTests : IDisposable
 
     private static string Rule(string body) => "package sentinel\nimport rego.v1\n" + body + "\n";
 
-    private async Task<(int Exit, string Stdout, string Stderr, string Db)> RunClaudeAsync(string folder, string json = PreToolUse, string evt = "pre-tool-use")
+    private async Task<(int Exit, string Stdout, string Stderr, string Db)> RunClaudeAsync(
+        string folder, string json = PreToolUse, string evt = "pre-tool-use", string? cache = null, IReadOnlyList<IRegoCompiler>? compilers = null)
     {
         var db = Path.Combine(_work, Guid.NewGuid().ToString("N") + ".db");
         using var env = new EnvironmentScope(
-            (LocalPolicy.FolderVariable, folder), ("SENTINEL_HOOK_POLICY_CACHE_DIR", RegoPolicyTestSupport.SharedCache),
+            (LocalPolicy.FolderVariable, folder), ("SENTINEL_HOOK_POLICY_CACHE_DIR", cache ?? RegoPolicyTestSupport.SharedCache),
             (HookAuditTestSupport.SqliteVar, db), ("SENTINEL_HOOK_AUDIT_NDJSON", null));
         var stdout = new StringWriter();
         var stderr = new StringWriter();
-        var exit = await AI.Sentinel.ClaudeCode.Cli.Program.RunAsync([evt], new StringReader(json), stdout, stderr, new ExactMatchEmbeddingGenerator());
+        var exit = await AI.Sentinel.ClaudeCode.Cli.Program.RunAsync(
+            [evt], new StringReader(json), stdout, stderr, new ExactMatchEmbeddingGenerator(), reviewer: null, policyCompilers: compilers);
         return (exit, stdout.ToString(), stderr.ToString(), db);
     }
 
@@ -88,10 +90,66 @@ public class RegoPolicyLoadFailureTests : IDisposable
         _folders.Add(cache);
 
         var error = Assert.Throws<RegoCompileException>(
-            () => LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler(folder)]));
+            () => LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler()]));
 
         Assert.Contains("rego_parse_error", error.Message, StringComparison.Ordinal);
         Assert.Empty(Directory.GetFiles(cache));
+    }
+
+    /// <summary>A compiler child that crashes, hangs, fails or leaves no valid module is a load failure: the hook blocks
+    /// PreToolUse, as exit code 2 with an internal-error reason. A crash in the hook process itself would be a non-blocking
+    /// error to Claude Code, which runs the tool call; this is why the hook compiles in a child.</summary>
+    [Theory]
+    [InlineData("kill -SEGV $$", "exited with code 139")]
+    [InlineData("exit 139", "exited with code 139")]
+    [InlineData("exit 1", "exited with code 1")]
+    [InlineData("exit 0", "wrote no valid module")]
+    [InlineData("printf garbage > \"$3\"", "wrote no valid module")]
+    [InlineData("sleep 30", "did not finish within")]
+    public async Task A_compiler_child_that_crashes_or_fails_blocks_PreToolUse_as_an_internal_error(string script, string reason)
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "the child is a POSIX shell script");
+        var folder = Folder(("p/a.rego", Rule("allow contains \"x\" if true")));
+        var cache = Path.Combine(_work, "crash-cache-" + Guid.NewGuid().ToString("N"));
+        var compiler = new ChildProcessRegoCompiler("/bin/sh", ["-c", script, "sh"], timeout: TimeSpan.FromSeconds(2));
+
+        var (exit, stdout, stderr, db) = await RunClaudeAsync(folder, cache: cache, compilers: [compiler]);
+
+        Assert.Equal(2, exit);
+        Assert.Empty(stdout);
+        Assert.StartsWith($"Sentinel internal error: policy '{folder}' could not be evaluated: ", stderr, StringComparison.Ordinal);
+        Assert.Contains(reason, stderr, StringComparison.Ordinal);
+        await AssertInternalErrorEntryAsync(db);
+        Assert.Empty(Directory.GetFiles(cache));
+    }
+
+    [Fact]
+    public async Task A_compiler_child_that_crashes_blocks_the_copilot_hook_too()
+    {
+        Assert.SkipWhen(OperatingSystem.IsWindows(), "the child is a POSIX shell script");
+        var folder = Folder(("p/a.rego", Rule("allow contains \"x\" if true")));
+        using var env = new EnvironmentScope(
+            (LocalPolicy.FolderVariable, folder), ("SENTINEL_HOOK_POLICY_CACHE_DIR", Path.Combine(_work, "copilot-crash-cache")),
+            (HookAuditTestSupport.SqliteVar, "off"));
+        var stderr = new StringWriter();
+
+        var exit = await AI.Sentinel.Copilot.Cli.Program.RunAsync(
+            ["pre-tool-use"], new StringReader("""{"sessionId":"c-1","toolName":"bash","toolArgs":"{\"command\":\"ls\"}"}"""),
+            new StringWriter(), stderr, new ExactMatchEmbeddingGenerator(), reviewer: null,
+            policyCompilers: [new ChildProcessRegoCompiler("/bin/sh", ["-c", "kill -SEGV $$", "sh"])]);
+
+        Assert.Equal(2, exit);
+        Assert.Contains("exited with code 139", stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_hooks_never_load_the_go_compiler_into_their_own_process()
+    {
+        var hook = RegoPolicy.HookCompilers();
+
+        Assert.IsType<ChildProcessRegoCompiler>(hook[0]);
+        Assert.IsType<OpaBinaryCompiler>(hook[1]);
+        Assert.All(RegoPolicy.DefaultCompilers(), c => Assert.True(c is ChildProcessRegoCompiler or OpaBinaryCompiler, c.Name));
     }
 
     [Fact]
@@ -133,7 +191,7 @@ public class RegoPolicyLoadFailureTests : IDisposable
         _folders.Add(cache);
 
         var error = Assert.Throws<RegoCompileException>(
-            () => LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler(folder)]));
+            () => LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler()]));
 
         Assert.Contains($"{builtin}, which reaches outside the process and is refused", error.Message, StringComparison.Ordinal);
         Assert.Empty(Directory.GetFiles(cache));
@@ -150,7 +208,7 @@ public class RegoPolicyLoadFailureTests : IDisposable
         var folder = Folder(("p/outside.rego", Rule($"deny contains \"x\" if {{\n\t_ = {call}\n}}")));
         var cache = Path.Combine(_work, "unrestricted-cache");
         _folders.Add(cache);
-        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler(folder, unrestricted: true)]);
+        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler(unrestricted: true)]);
 
         var output = policy.Decide(new HookOutput { Decision = HookDecision.Allow }, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
 
@@ -165,7 +223,7 @@ public class RegoPolicyLoadFailureTests : IDisposable
         var folder = Folder(("p/ok.rego", Rule("deny contains \"x\" if {\n\tinput.tool == \"never\"\n\t_ = opa.runtime()\n}")));
         var cache = Path.Combine(_work, "unrestricted-cache-2");
         _folders.Add(cache);
-        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler(folder, unrestricted: true)]);
+        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler(unrestricted: true)]);
 
         // The call sits behind a condition that is false, so the module never meets the builtin for this input.
         var output = policy.Decide(new HookOutput { Decision = HookDecision.Allow }, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
@@ -179,7 +237,7 @@ public class RegoPolicyLoadFailureTests : IDisposable
         var folder = Folder(("p/clash.rego", Rule("decision := {\"outcome\": \"allow\", \"reasons\": [\"mine\"]}")));
         var cache = Path.Combine(_work, "clash-cache");
         _folders.Add(cache);
-        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler(folder)]);
+        using var policy = LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(cache), "/work/repo", [new ChildProcessCompiler()]);
 
         // OPA reports two different values for one complete rule as a conflict while evaluating, so the call fails and
         // the hooks turn the exception into an internal-error block. It is never an allow.

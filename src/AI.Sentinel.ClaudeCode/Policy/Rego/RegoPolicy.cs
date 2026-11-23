@@ -8,9 +8,8 @@ namespace AI.Sentinel.ClaudeCode.Policy.Rego;
 /// <summary>
 /// The Rego files of one folder, compiled to one WebAssembly module and loaded into Wasmtime. The module is cached under the
 /// hash of its sources, so a process that finds it loads native code and does not compile. A missing or damaged cache entry
-/// is rebuilt, which takes about 40 ms with the interop compiler: the first call after a policy change pays it, and the
-/// others do not. When nothing can be loaded this throws, and the caller blocks. It never answers <c>defer</c> for a policy
-/// it could not run.
+/// is rebuilt: the first call after a policy change compiles, in a child process, and the others do not. When nothing can be
+/// loaded this throws, and the caller blocks. It never answers <c>defer</c> for a policy it could not run.
 /// </summary>
 internal sealed class RegoPolicy : IDisposable
 {
@@ -39,8 +38,14 @@ internal sealed class RegoPolicy : IDisposable
             : null;
     }
 
-    /// <summary>The compilers in the order they are tried: the in-process one, then the <c>opa</c> binary.</summary>
-    internal static IReadOnlyList<IRegoCompiler> DefaultCompilers() => [new InteropRegoCompiler(), new OpaBinaryCompiler()];
+    /// <summary>The compilers of a hook process, in the order they are tried: the interop compiler in a child process of
+    /// the hook, then the <c>opa</c> binary. Neither loads the Go runtime of the compiler into the hook, so a crash of it
+    /// blocks the call instead of ending the hook.</summary>
+    internal static IReadOnlyList<IRegoCompiler> HookCompilers() => [ChildProcessRegoCompiler.ForThisHook(), new OpaBinaryCompiler()];
+
+    /// <summary>The compilers of a process that is not a hook executable, and so cannot start itself to compile: the
+    /// <c>opa</c> binary.</summary>
+    internal static IReadOnlyList<IRegoCompiler> DefaultCompilers() => [new OpaBinaryCompiler()];
 
     /// <summary>Loads the policy in <paramref name="folder"/>.</summary>
     /// <param name="folder">The policy folder.</param>

@@ -9,24 +9,26 @@ using OpaDotNet.Compilation.Interop;
 namespace AI.Sentinel.ClaudeCode.Policy.Rego;
 
 /// <summary>
-/// The OPA compiler as a native library, called in process: no <c>opa</c> binary has to be installed. The package ships the
-/// library for linux-x64 and win-x64 only, and is not referenced for any other runtime identifier.
+/// The OPA compiler as a native library: no <c>opa</c> binary has to be installed. The library is a Go runtime, and a crash in
+/// it ends the process that loaded it, so only the child process of <see cref="PolicyCompileCommand"/> calls this; a hook
+/// reaches it through <see cref="ChildProcessRegoCompiler"/>. The package ships the library for linux-x64 and win-x64 only,
+/// and is not referenced for any other runtime identifier.
 /// </summary>
-internal sealed class InteropRegoCompiler : IRegoCompiler
+internal static class InteropRegoCompiler
 {
-    public string Name => "interop";
-
 #if INTEROP_COMPILER
-    public string? Unavailable() =>
+    /// <summary>Why the compiler cannot run here, or <see langword="null"/> when it can.</summary>
+    public static string? Unavailable() =>
         RuntimeInformation.ProcessArchitecture == Architecture.X64 && (OperatingSystem.IsLinux() || OperatingSystem.IsWindows())
             ? null
             : $"the OpaDotNet interop compiler has no native library for {RuntimeInformation.OSDescription} {RuntimeInformation.ProcessArchitecture}";
 
-    public byte[] CompileWasm(PolicySources sources, bool restrictBuiltins)
+    /// <summary>Compiles the Rego files of <paramref name="root"/>, as <see cref="SourceFolder"/> writes them, to one module
+    /// with the entrypoint <see cref="PolicySources.Entrypoint"/>.</summary>
+    /// <exception cref="RegoCompileException">The policy does not compile, or uses a builtin that is refused.</exception>
+    public static byte[] CompileFolder(string root, bool restrictBuiltins)
     {
-        ArgumentNullException.ThrowIfNull(sources);
-        using var work = new TempFolder();
-        SourceFolder.Write(sources, work.Path);
+        ArgumentException.ThrowIfNullOrEmpty(root);
         var compiler = new RegoInteropCompiler(NullLogger<RegoInteropCompiler>.Instance);
         var parameters = new CompilationParameters
         {
@@ -40,7 +42,7 @@ internal sealed class InteropRegoCompiler : IRegoCompiler
 
         try
         {
-            using var bundle = compiler.Compile(work.Path, parameters, CancellationToken.None).GetAwaiter().GetResult();
+            using var bundle = compiler.Compile(root, parameters, CancellationToken.None).GetAwaiter().GetResult();
             return OpaBinaryCompiler.ReadWasm(bundle);
         }
         catch (RegoCompilationException e)
@@ -49,10 +51,11 @@ internal sealed class InteropRegoCompiler : IRegoCompiler
         }
     }
 #else
-    public string? Unavailable() =>
+    /// <summary>Why the compiler cannot run here: this build leaves it out.</summary>
+    public static string? Unavailable() =>
         $"the OpaDotNet interop compiler has no native library for {RuntimeInformation.OSDescription} {RuntimeInformation.ProcessArchitecture}, so this build does not include it";
 
-    public byte[] CompileWasm(PolicySources sources, bool restrictBuiltins) =>
+    public static byte[] CompileFolder(string root, bool restrictBuiltins) =>
         throw new PlatformNotSupportedException(Unavailable());
 #endif
 }

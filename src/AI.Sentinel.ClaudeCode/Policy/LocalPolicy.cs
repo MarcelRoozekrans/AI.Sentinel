@@ -46,7 +46,8 @@ internal sealed class LocalPolicy : IDisposable
     /// <param name="env">The settings; <c>SENTINEL_HOOK_POLICY_CACHE_DIR</c> moves the cache.</param>
     /// <param name="repositoryRoot">The root a path must lie under to count as inside the repository; the working directory
     /// of the hook when <see langword="null"/>.</param>
-    /// <param name="compilers">The compilers to try; the default ones when <see langword="null"/>.</param>
+    /// <param name="compilers">The compilers to try; a hook passes <see cref="RegoPolicy.HookCompilers"/>, and
+    /// <see cref="RegoPolicy.DefaultCompilers"/> is used when <see langword="null"/>.</param>
     public static LocalPolicy Load(
         string folder, IReadOnlyDictionary<string, string?> env, string? repositoryRoot = null, IReadOnlyList<IRegoCompiler>? compilers = null)
     {

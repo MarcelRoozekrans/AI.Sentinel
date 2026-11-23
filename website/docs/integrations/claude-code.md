@@ -205,7 +205,7 @@ guidance contains "prefer the gh CLI over the GitHub MCP server" if {
 
 ### Compile, cache and speed
 
-The policy is compiled once and cached, so a hook process loads native code instead of compiling. **The first call after a policy change compiles the folder**, which takes about 40 ms with the in-process compiler and longer with the `opa` binary; the module and its native code are then cached under the hash of the sources, the Wasmtime version and the engine settings. After that the whole decision, from building the input to combining the outcome, takes a few milliseconds on a cached module, against a budget of 50 ms per call, and a test on the CI runners checks it. A change to any file gives a new module, and an old cache entry is never used.
+The policy is compiled once and cached, so a hook process loads native code instead of compiling. **The first call after a policy change compiles the folder in a child process**: the hook starts itself again to run the compiler, or starts the `opa` binary, and waits for it. That adds the start of a process to the compile, about 40 ms, on that one call. The compiler is a Go library, and a crash of it ends only the child, so a compiler that crashes, hangs for 30 seconds, fails or leaves no valid module blocks the call as an internal error; a crash in the hook itself would let Claude Code run the tool call. A cached module starts no process. The module and its native code are then cached under the hash of the sources, the Wasmtime version and the engine settings. After that the whole decision, from building the input to combining the outcome, takes a few milliseconds on a cached module, against a budget of 50 ms per call, and a test on the CI runners checks it. A change to any file gives a new module, and an old cache entry is never used.
 
 The cache directory is per user and owner-only on Unix. Every cached file starts with the sha256 of the rest, and the hook checks it on the bytes it read before it loads them as native code. A missing or damaged file is rebuilt. The digest guards against damage and half-written files; it does not stop someone who can write to your cache directory, which is why the directory is yours alone.
 
@@ -216,7 +216,7 @@ The cache directory is per user and owner-only on Unix. Every cached file starts
 
 ### When the policy cannot be used
 
-A folder that does not exist, holds no `.rego` file, does not compile, or uses a refused builtin blocks `PreToolUse` with exit 2 and `Sentinel internal error: policy '<folder>' could not be evaluated: <message>`, and an `AUTHZ-DENY` entry with the code `internal_error`. So does a policy that fails while it runs, and a machine with neither a compiler nor a cached module for the current policy. Nothing falls back to allowing the call. Other events do not read the policy.
+A folder that does not exist, holds no `.rego` file, does not compile, or uses a refused builtin blocks `PreToolUse` with exit 2 and `Sentinel internal error: policy '<folder>' could not be evaluated: <message>`, and an `AUTHZ-DENY` entry with the code `internal_error`. So does a policy that fails while it runs, a compiler process that crashes, times out or writes no valid module, and a machine with neither a compiler nor a cached module for the current policy. Nothing falls back to allowing the call. Other events do not read the policy.
 
 Platforms:
 

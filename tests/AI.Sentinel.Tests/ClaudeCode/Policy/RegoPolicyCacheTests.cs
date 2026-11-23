@@ -33,7 +33,7 @@ public class RegoPolicyCacheTests : IDisposable
     [Fact]
     public void The_first_load_compiles_and_the_next_ones_load_the_cached_native_code()
     {
-        var compiler = new ChildProcessCompiler(_folder);
+        var compiler = new ChildProcessCompiler();
 
         using (var first = Load(compiler))
         {
@@ -55,7 +55,7 @@ public class RegoPolicyCacheTests : IDisposable
     [Fact]
     public void A_change_to_the_policy_is_a_new_cache_entry()
     {
-        var compiler = new ChildProcessCompiler(_folder);
+        var compiler = new ChildProcessCompiler();
         using (Load(compiler))
         {
         }
@@ -72,7 +72,7 @@ public class RegoPolicyCacheTests : IDisposable
     [Fact]
     public void Native_code_that_does_not_match_its_digest_is_not_loaded_and_is_rebuilt_from_the_cached_module()
     {
-        var compiler = new ChildProcessCompiler(_folder);
+        var compiler = new ChildProcessCompiler();
         using (Load(compiler))
         {
         }
@@ -92,7 +92,7 @@ public class RegoPolicyCacheTests : IDisposable
     [Fact]
     public void A_damaged_cache_is_rebuilt_by_compiling_again()
     {
-        var compiler = new ChildProcessCompiler(_folder);
+        var compiler = new ChildProcessCompiler();
         using (Load(compiler))
         {
         }
@@ -111,7 +111,7 @@ public class RegoPolicyCacheTests : IDisposable
     [Fact]
     public void A_damaged_cache_and_no_compiler_blocks_instead_of_loading_what_failed_its_digest()
     {
-        using (Load(new ChildProcessCompiler(_folder)))
+        using (Load(new ChildProcessCompiler()))
         {
         }
 
@@ -136,7 +136,7 @@ public class RegoPolicyCacheTests : IDisposable
         Directory.CreateDirectory(_cache);
         File.SetUnixFileMode(_cache, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupWrite | UnixFileMode.OtherWrite | UnixFileMode.OtherRead);
 
-        using (Load(new ChildProcessCompiler(_folder)))
+        using (Load(new ChildProcessCompiler()))
         {
         }
 

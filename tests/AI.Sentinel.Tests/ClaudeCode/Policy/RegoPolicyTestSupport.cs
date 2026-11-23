@@ -1,4 +1,8 @@
+using System.Diagnostics;
+using System.Reflection;
+using AI.Sentinel.ClaudeCode.Policy;
 using AI.Sentinel.ClaudeCode.Policy.Rego;
+using AI.Sentinel.Tests.Helpers;
 
 namespace AI.Sentinel.Tests.ClaudeCode.Policy;
 
@@ -98,7 +102,59 @@ internal static class RegoPolicyTestSupport
     /// process finds it there and never loads the Go runtime of the interop compiler itself.</summary>
     public static void Prime(string folder, string? cache = null)
     {
-        using var policy = RegoPolicy.Load(folder, cache ?? SharedCache, [new ChildProcessCompiler(folder)]);
+        using var policy = RegoPolicy.Load(folder, cache ?? SharedCache, [new ChildProcessCompiler()]);
+    }
+
+    /// <summary>The <c>sentinel-hook</c> assembly in its own output folder, which compiles a policy when started with
+    /// <see cref="PolicyCompileCommand.Verb"/>. See the test project for why not the copy next to the tests.</summary>
+    public static string HookAssembly
+    {
+        get
+        {
+            var configured = typeof(RegoPolicyTestSupport).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+                .Single(a => string.Equals(a.Key, "SentinelHookAssembly", StringComparison.Ordinal)).Value!;
+            var path = Path.GetFullPath(configured);
+            return File.Exists(path) ? path : throw new FileNotFoundException($"sentinel-hook not found at {path}");
+        }
+    }
+
+    /// <summary>The <c>dotnet</c> host that runs <see cref="HookAssembly"/>.</summary>
+    public static string DotnetHost()
+    {
+        var host = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH");
+        if (!string.IsNullOrEmpty(host) && File.Exists(host))
+        {
+            return host;
+        }
+
+        var current = Environment.ProcessPath;
+        return current is not null && Path.GetFileNameWithoutExtension(current).Equals("dotnet", StringComparison.OrdinalIgnoreCase) ? current : "dotnet";
+    }
+
+    /// <summary>Runs <c>sentinel-hook pre-tool-use</c> as its own process with the policy folder and cache set.</summary>
+    public static async Task<(int Exit, string Stdout, string Stderr)> RunHookProcessAsync(string folder, string cache, string json)
+    {
+        var psi = new ProcessStartInfo(DotnetHost())
+        {
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add(HookAssembly);
+        psi.ArgumentList.Add("pre-tool-use");
+        psi.Environment[LocalPolicy.FolderVariable] = folder;
+        psi.Environment["SENTINEL_HOOK_POLICY_CACHE_DIR"] = cache;
+        psi.Environment[HookAuditTestSupport.SqliteVar] = "off";
+        psi.Environment.Remove("SENTINEL_HOOK_AUDIT_NDJSON");
+        using var process = Process.Start(psi)!;
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        await process.StandardInput.WriteAsync(json);
+        process.StandardInput.Close();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        await process.WaitForExitAsync(timeout.Token);
+        return (process.ExitCode, await stdout, await stderr);
     }
 
     public static void Delete(string dir)

@@ -28,7 +28,7 @@ public class RegoPolicyDenyTests : IDisposable
     private LocalPolicy Load(string root = "/work/repo") => LoadOf(_folder, root);
 
     private static LocalPolicy LoadOf(string folder, string root = "/work/repo") =>
-        LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(), root, [new ChildProcessCompiler(folder)]);
+        LocalPolicy.Load(folder, RegoPolicyTestSupport.Env(), root, [new ChildProcessCompiler()]);
 
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement;
 
@@ -242,6 +242,26 @@ public class RegoPolicyDenyTests : IDisposable
         Assert.Contains("recursive delete", copilotErr.ToString(), StringComparison.Ordinal);
         Assert.Equal(0, claude);
         Assert.Contains("\"permissionDecision\":\"ask\"", claudeOut.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>The hook as its own process, the way Claude Code runs it: with an empty cache the first call compiles the
+    /// policy in a child process of the hook and blocks on it, and the second call finds the module in the cache.</summary>
+    [Fact]
+    public async Task The_hook_process_compiles_an_uncached_policy_in_a_child_process_and_then_uses_the_cache()
+    {
+        var cache = Path.Combine(_work, "process-cache");
+        const string Json = """{"session_id":"cc-654","tool_name":"Bash","tool_input":{"command":"rm -rf build"}}""";
+
+        var cold = await RegoPolicyTestSupport.RunHookProcessAsync(_folder, cache, Json);
+        var files = Directory.GetFiles(cache).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList();
+        var warm = await RegoPolicyTestSupport.RunHookProcessAsync(_folder, cache, Json);
+
+        Assert.Equal(2, cold.Exit);
+        Assert.Contains("recursive delete", cold.Stderr, StringComparison.Ordinal);
+        Assert.Equal(2, files.Count);
+        Assert.Equal(2, warm.Exit);
+        Assert.Contains("recursive delete", warm.Stderr, StringComparison.Ordinal);
+        Assert.Equal(files, Directory.GetFiles(cache).Select(Path.GetFileName).Order(StringComparer.Ordinal).ToList());
     }
 
     [Fact]

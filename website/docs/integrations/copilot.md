@@ -117,7 +117,7 @@ How each outcome is expressed for Copilot CLI:
 
 - Copilot CLI cannot ask, so an **ask** from the policy, or from the parser for a command line it cannot read, is a deny with instructions.
 - The parser reads POSIX quoting, so every `powershell` call is marked `unparseable` and asks, which for Copilot CLI means it is denied under a local policy.
-- A policy that cannot be read, compiled or loaded blocks `preToolUse` with exit 2 and `Sentinel internal error: policy '<folder>' could not be evaluated`. The Copilot hook has no musl build of the Wasmtime library either, so on Alpine a set folder blocks every call.
+- A policy that cannot be read, compiled or loaded, or a compiler process that crashes or times out, blocks `preToolUse` with exit 2 and `Sentinel internal error: policy '<folder>' could not be evaluated`. The Copilot hook has no musl build of the Wasmtime library either, so on Alpine a set folder blocks every call.
 
 ## When the hook itself fails
 

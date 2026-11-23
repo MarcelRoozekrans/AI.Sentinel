@@ -25,7 +25,6 @@
     <ProjectReference Include="..\..\src\AI.Sentinel.Copilot\AI.Sentinel.Copilot.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Mcp\AI.Sentinel.Mcp.csproj" />
     <ProjectReference Include="..\AI.Sentinel.Tests.NdjsonWriter\AI.Sentinel.Tests.NdjsonWriter.csproj" />
-    <ProjectReference Include="..\AI.Sentinel.Tests.RegoCompiler\AI.Sentinel.Tests.RegoCompiler.csproj" />
     <PackageReference Include="xunit.v3" Version="4.0.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
     <PackageReference Include="NSubstitute" Version="6.2.0" />
@@ -43,5 +42,14 @@
     <None Update="Corpus\**\*.*">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+  </ItemGroup>
+  <!-- The policy tests compile a policy the way a hook does: sentinel-hook started as a child process. It runs from its own
+       output folder, which holds everything it loads; this folder does not, because the ASP.NET shared framework of the
+       tests provides some of its assemblies instead of a copy. -->
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>SentinelHookAssembly</_Parameter1>
+      <_Parameter2>$(MSBuildThisFileDirectory)../../src/AI.Sentinel.ClaudeCode.Cli/bin/$(Configuration)/net10.0/AI.Sentinel.ClaudeCode.Cli.dll</_Parameter2>
+    </AssemblyAttribute>
   </ItemGroup>
 </Project>
