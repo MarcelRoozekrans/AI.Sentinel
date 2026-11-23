@@ -30,7 +30,7 @@ From the issue. Each has a test or check named after it.
 - Compiling Rego to the evaluated form without separate OPA tooling is tried, for example with the interop compiler of OpaDotNet, so a team can use Rego without installing OPA. The write-up.
 - Several bundles are compiled into one module identified by its hash. `--check`.
 - For each route: whether it builds and runs under Native AOT without trimming or AOT warnings, the decision time per call (p50 and p95) cold, cached-precompiled and warm, the binary size it adds, and which Rego features it misses. The write-up.
-- A CI matrix job runs the measurement on Windows, Linux and macOS for the chosen route and the compiler. `rego-spike.yml`.
+- A CI matrix job runs the measurement on Windows, Linux and macOS for the chosen route and the compiler. When no route or no compiler works, the job runs `--check` on the routes that build and reports that none was chosen, instead of failing. `rego-spike.yml`.
 - Builtins that reach outside the process (such as `http.send`, `net.lookup_ip_addr`, `opa.runtime`) can be refused when a bundle is validated, and deny with a reason that names them when met at runtime. `--check`.
 - The outcome is written up in `docs/plans/2026-11-22-rego-aot-spike.md`: the chosen route, or that none works, with its p95 per mode and OS. The whole decision must fit 50 ms per call (ADR-007). If no route does, #654 waits for review. The write-up check.
 
@@ -41,7 +41,7 @@ From the issue. Each has a test or check named after it.
 - [ ] Create `spikes/RegoAot/RegoAot.csproj`, a `net10.0` console app with `PublishAot=true`, outside `AI.Sentinel.slnx`, with its own `Directory.Build.props` if the repo one gets in the way.
 - [ ] Add `spikes/RegoAot/policy/` with at least two bundles in package `sentinel` that read an input shaped like the design's policy input and return the design's five outcomes: a deny on a `shell` command, an ask, a guidance, an allow.
 - [ ] Add `spikes/RegoAot/inputs/*.json` with at least six tool-call inputs and their expected outcomes.
-- [ ] Add a `--check` mode that evaluates every input on every available route and exits non-zero when an outcome differs from the expected one.
+- [ ] Add a `--check` mode that evaluates every input on every available route and exits non-zero when an outcome differs from the expected one. With no route available it says so and exits zero, so the spike can still report that none works.
 - [ ] Commit.
 
 ### Task 2: WebAssembly route
@@ -68,7 +68,7 @@ From the issue. Each has a test or check named after it.
 
 ### Task 6: CI matrix on three platforms
 
-- [ ] Add `.github/workflows/rego-spike.yml`, triggered on pull requests that touch `spikes/RegoAot/**`, with a matrix of `ubuntu-latest`, `windows-latest` and `macos-latest` that AOT-publishes the app, runs `--check`, and prints p50 and p95 per mode for the chosen route and the compiler.
+- [ ] Add `.github/workflows/rego-spike.yml`, triggered on pull requests that touch `spikes/RegoAot/**`, with a matrix of `ubuntu-latest`, `windows-latest` and `macos-latest` that AOT-publishes the app, runs `--check`, and prints p50 and p95 per mode for the chosen route and the compiler. When no route or no compiler works, the job prints that and skips the measurement instead of invoking it.
 - [ ] Follow the repo's workflow conventions for action pinning and permissions.
 - [ ] Commit as `ci`.
 

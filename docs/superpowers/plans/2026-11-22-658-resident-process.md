@@ -70,4 +70,5 @@ From the issue. Each has a test or check named after it.
 - test: `dotnet test --project tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj -c Release -f net10.0 --filter-query "/*/*/*ResidentProcessStateTests*/*"`
 - test: `dotnet test --project tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj -c Release -f net10.0 --filter-query "/*/*/*EvaluationOrderTests*/*"`
 - test: `dotnet publish src/AI.Sentinel.ClaudeCode.Cli/AI.Sentinel.ClaudeCode.Cli.csproj -c Release -r linux-x64 -warnaserror`
+- test: `dotnet publish src/AI.Sentinel.Copilot.Cli/AI.Sentinel.Copilot.Cli.csproj -c Release -r linux-x64 -warnaserror`
 - test: `dotnet test AI.Sentinel.slnx -c Release`

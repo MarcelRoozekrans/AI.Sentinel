@@ -32,14 +32,14 @@ From the issue. Each has a test or check named after it.
 
 ## Tasks
 
-### Task 1: Sample host
+### Task 1: Smoke test first
 
-- [ ] Add `samples/AI.Sentinel.ServerSample` with the server endpoints, a policy folder, signing key from configuration, sign-in and authorization configured.
+- [ ] Add `StandaloneServerSampleTests` that hosts the sample in-process and runs approve, deny, pause and release, against an empty `samples/AI.Sentinel.ServerSample` project. See it fail.
 - [ ] Commit.
 
-### Task 2: Smoke test
+### Task 2: Sample host
 
-- [ ] Add `StandaloneServerSampleTests` that hosts the sample in-process and runs approve, deny, pause and release.
+- [ ] Fill `samples/AI.Sentinel.ServerSample` with the server endpoints, a policy folder, signing key from configuration, sign-in and authorization configured, until `StandaloneServerSampleTests` passes.
 - [ ] Commit.
 
 ### Task 3: Docs page

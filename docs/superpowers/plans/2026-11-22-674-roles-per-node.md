@@ -25,7 +25,7 @@
 From the issue. Each has a test or check named after it.
 
 - Three roles: administrator on the organisation, team lead on a team, developer for everyone else. A role applies to its node and the nodes below it. `NodeRoleTests`.
-- The node configuration binds identity-provider groups to a role on a node; the signed-in user's groups come from the token. `NodeRoleTests`.
+- The node configuration binds identity-provider groups to a role on a node; the signed-in user's groups come from the token. The developer is the token's subject claim and the groups its `groups` claim; both claim names are optional settings with those defaults. A test maps both from a validated token. `NodeRoleTests`.
 - A check answers whether a user may act on a node, and on a session, through the repository that session belongs to. `NodeRoleTests`.
 - A team lead of one team is refused on another team's sessions; an administrator is allowed on every node; a developer is allowed only on their own decisions. `NodeRoleTests`.
 - A change of the configuration folder changes the bindings without a restart. `NodeRoleTests`.
@@ -35,7 +35,7 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Bindings and roles
 
-- [ ] Read group-to-role bindings from the node configuration; resolve a user's roles from token groups, applying down the tree.
+- [ ] Read group-to-role bindings from the node configuration; map the developer and groups from the validated token's claims; resolve a user's roles from those groups, applying down the tree.
 - [ ] Failing tests first in `NodeRoleTests`.
 - [ ] Commit.
 

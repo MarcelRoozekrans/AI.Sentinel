@@ -24,20 +24,20 @@
 
 From the issue. Each has a test or check named after it.
 
-- With a server configured, each finding, decision, approval request and redaction count a hook records is sent as an event with the allowlisted fields only: tool kind, outcome, policies, policy version, where decided, node, CLI, session, detector and severity for findings, and redaction counts. `EventForwardingTests`.
+- With a server configured, each finding, decision, approval request and redaction count a hook records is sent as an event with the allowlisted fields only: event id, tool kind, outcome, policies, policy version, where decided, node, CLI, session, detector and severity for findings, and redaction counts. `EventForwardingTests`.
 - Reason text is sent only when the node turns on detailed logging for the repository. The plugin then redacts paths, URLs, email addresses and quoted values first, and drops the reason when it appears to contain a secret. `ReasonRedactionTests`.
 - No events are sent for a repository in strict repository mode (#656). `EventForwardingTests`.
 - Events produced while the server is unreachable reach it once it is reachable again, in order and once. `EventForwardingTests`.
 - A failed send never affects a decision. `EventForwardingTests`.
-- The queue is bounded by the existing `SENTINEL_HOOK_AUDIT_MAX_MB` cap; entries pruned before they were sent are reported as a gap with a count. `EventForwardingTests`.
+- The queue is bounded by the existing `SENTINEL_HOOK_AUDIT_MAX_MB` cap; entries pruned before they were sent are reported as a gap with a count. The event id is a UUID stored with the audit entry when the hook writes it, so a resend carries the same id. With the cap at 0 nothing is pruned: every unsent entry waits for the server and no gap is reported. `EventForwardingTests`.
 - With none of the new settings, nothing is sent. Existing suite.
 
 ## Tasks
 
 ### Task 1: Cursor and send
 
-- [ ] Read the local SQLite audit from a stored cursor and send allowlisted events in order, once; report pruned entries as a gap.
-- [ ] Failing tests first in `EventForwardingTests`.
+- [ ] Store an event id with each local audit entry; read the local SQLite audit from a stored cursor and send allowlisted events in order, once; report pruned entries as a gap.
+- [ ] Failing tests first in `EventForwardingTests`, including a resend that keeps its event id and an outage with `SENTINEL_HOOK_AUDIT_MAX_MB=0` that loses nothing and reports no gap.
 - [ ] Commit.
 
 ### Task 2: Detailed logging

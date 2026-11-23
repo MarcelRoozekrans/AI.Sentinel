@@ -27,9 +27,9 @@ From the issue. Each has a test or check named after it.
 - A developer signs in with a device code from the CLI, against any OIDC provider that supports the device authorization grant. `DeviceCodeSignInTests`.
 - At sign-in the plugin pins the server's public keys for #671. `DeviceCodeSignInTests`.
 - The refresh token goes into the OS keychain: Windows Credential Manager, macOS Keychain, Linux Secret Service. Where none exists, such as headless Linux, it is held in memory only by the resident process, and the developer signs in again after the process restarts. It is never written to a file. `TokenStorageTests`.
-- The resident process sends the access token on every request to the server and refreshes it without a new sign-in until the refresh token expires; then it reports that sign-in is needed. `DeviceCodeSignInTests`.
+- The resident process sends the access token on every request to the server and refreshes it without a new sign-in until the refresh token expires; then it reports that sign-in is needed. A provider that issues no refresh token still signs in: the access token is used until it expires, and then the process reports that sign-in is needed. `DeviceCodeSignInTests`.
 - A token never appears in the audit, logs or any destination but the identity provider and the server. `TokenStorageTests`.
-- The server reads the developer and their groups from the token. `DeviceCodeSignInTests`.
+- The server reads the developer and their groups from the token. The host validates the token; #674 maps its subject and groups claims and tests that. `DeviceCodeSignInTests`.
 - With none of the new settings, behaviour is unchanged. Existing suite.
 
 ## Tasks
@@ -48,7 +48,7 @@ From the issue. Each has a test or check named after it.
 
 ### Task 3: Use and refresh
 
-- [ ] Send the access token on server requests, refresh it, and report when sign-in is needed. Keep tokens out of audit and logs.
+- [ ] Send the access token on server requests, refresh it, and report when sign-in is needed. Without a refresh token, use the access token until it expires, then report that sign-in is needed; test it in `DeviceCodeSignInTests`. Keep tokens out of audit and logs.
 - [ ] Commit.
 
 ### Task 4: Document it

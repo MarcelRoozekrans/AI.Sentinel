@@ -25,12 +25,12 @@
 From the issue. Each has a test or check named after it.
 
 - The PC compiles the folder itself, unsigned, as one level, with the route #633 chose. `RegoPolicyDenyTests`.
-- The policy is package `sentinel` and gets the input from #669. It returns one of the five outcomes from #670, with a reason; the strictest across policy and the existing sources wins. `RegoPolicyDenyTests`.
+- The policy is package `sentinel` and gets the input from #669. It returns one of the five outcomes from #670, with a reason; the strictest across policy and the existing sources wins. A command the #669 parser marks unparseable gets at least **ask**, even when the policy returns **allow**. `RegoPolicyDenyTests`.
 - With a Rego policy configured, a hook denies a tool call that matches a deny rule, and the agent sees the rule's reason. `RegoPolicyDenyTests`.
 - The decision is recorded in the local audit with its reason, the policies that caused it and the policy version, like other blocks. `RegoPolicyDenyTests`.
 - A policy folder that cannot be read or compiled blocks PreToolUse with an internal-error reason. `RegoPolicyLoadFailureTests`.
 - A bundle that uses a builtin reaching outside the process is refused when compiled; met at runtime, it denies with a reason that names the builtin. `RegoPolicyLoadFailureTests`.
-- Evaluation stays within 50 ms per call, measured in a test on the CI runners. `RegoPolicyDenyTests`.
+- The whole decision, from building the input through evaluation to combining the outcome, stays within 50 ms per call, measured in a test on the CI runners. `RegoPolicyDenyTests`.
 - With `SENTINEL_HOOK_POLICY_DIR` unset, the hooks behave exactly as before. Existing suite.
 
 ## Tasks
@@ -43,8 +43,8 @@ From the issue. Each has a test or check named after it.
 
 ### Task 2: Evaluate and combine
 
-- [ ] Evaluate against the #669 input; combine the outcome with the existing sources through #670's strictest-wins.
-- [ ] Tests in `RegoPolicyDenyTests`, including a budget test on the CI runners.
+- [ ] Evaluate against the #669 input; combine the outcome with the existing sources and with the parser's unparseable result (**ask**, #669) through #670's strictest-wins.
+- [ ] Tests in `RegoPolicyDenyTests`, including an unparseable command under an allowing policy that gives **ask**, and a budget test on the CI runners that times the whole decision, not evaluation alone.
 - [ ] Commit.
 
 ### Task 3: Failures
@@ -66,4 +66,5 @@ From the issue. Each has a test or check named after it.
 - test: `dotnet test --project tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj -c Release -f net10.0 --filter-query "/*/*/*RegoPolicyDenyTests*/*"`
 - test: `dotnet test --project tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj -c Release -f net10.0 --filter-query "/*/*/*RegoPolicyLoadFailureTests*/*"`
 - test: `dotnet publish src/AI.Sentinel.ClaudeCode.Cli/AI.Sentinel.ClaudeCode.Cli.csproj -c Release -r linux-x64 -warnaserror`
+- test: `dotnet publish src/AI.Sentinel.Copilot.Cli/AI.Sentinel.Copilot.Cli.csproj -c Release -r linux-x64 -warnaserror`
 - test: `dotnet test AI.Sentinel.slnx -c Release`

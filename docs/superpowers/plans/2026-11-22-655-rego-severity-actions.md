@@ -25,7 +25,7 @@
 From the issue. Each has a test or check named after it.
 
 - The same Rego policy sets the outcome for a finding by severity on a CLI host. `RegoSeverityActionTests`.
-- When the policy and a `SENTINEL_HOOK_ON_*` variable both set an outcome for a severity, the stricter applies; the docs say so. `RegoSeverityActionTests`.
+- When the policy and a `SENTINEL_HOOK_ON_*` variable both set an outcome for a severity, the stricter applies; the docs say so. A variable that is not set does not count: its built-in default applies only when the policy sets no outcome for that severity. `RegoSeverityActionTests`.
 - Severity defaults carried in a profile (#671) are read the same way, so #658 can use them. `RegoSeverityActionTests`.
 - With no policy, `SENTINEL_HOOK_ON_*` behave exactly as before. Existing suite.
 
@@ -33,7 +33,8 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Severity outcomes from policy
 
-- [ ] Read the outcome per severity from the policy result; combine with `SENTINEL_HOOK_ON_*` strictest-wins.
+- [ ] Read the outcome per severity from the policy result; combine with `SENTINEL_HOOK_ON_*` strictest-wins. Keep whether each variable was set, since `HookConfig.FromEnvironment` fills in defaults such as Block for High; a default must not override the policy.
+- [ ] Test a policy that sets **guidance** for High with `SENTINEL_HOOK_ON_HIGH` unset: the outcome is **guidance**.
 - [ ] Failing tests first in `RegoSeverityActionTests`.
 - [ ] Commit.
 
