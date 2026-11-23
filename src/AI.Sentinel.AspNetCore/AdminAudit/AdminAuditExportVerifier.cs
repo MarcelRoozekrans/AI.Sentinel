@@ -99,6 +99,9 @@ internal static class AdminAuditExportVerifier
             : Reject(AdminAuditRejection.None);
     }
 
+    /// <summary>The hash a verify run prints for an export without entries.</summary>
+    internal const string EmptyCheckpointHash = "-";
+
     private static AdminAuditRejection CheckCheckpoint(
         List<AuditEntry> chain, long count, DateTimeOffset exportedAt, AdminAuditCheckpoint checkpoint)
     {
@@ -106,7 +109,14 @@ internal static class AdminAuditExportVerifier
         {
             return AdminAuditRejection.OlderThanCheckpoint;
         }
-        return checkpoint.Count < 1 || checkpoint.Count > chain.Count
+        if (checkpoint.Count == 0)
+        {
+            // The empty prefix: an earlier run over an empty export printed last_hash=-, and every export contains it.
+            return string.Equals(checkpoint.Hash, EmptyCheckpointHash, StringComparison.Ordinal)
+                ? AdminAuditRejection.None
+                : AdminAuditRejection.CheckpointNotContained;
+        }
+        return checkpoint.Count < 0 || checkpoint.Count > chain.Count
             || !string.Equals(chain[(int)checkpoint.Count - 1].Hash, checkpoint.Hash, StringComparison.Ordinal)
             ? AdminAuditRejection.CheckpointNotContained
             : AdminAuditRejection.None;

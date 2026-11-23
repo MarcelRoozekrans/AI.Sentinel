@@ -156,6 +156,39 @@ public sealed class AdminAuditVerifyCommandTests : IDisposable
     }
 
     [Fact]
+    public async Task Verify_AcceptsTheEmptyCheckpointPrintedForAnEmptyExport()
+    {
+        var (log, time) = NewLogAt(T0);
+        var first = await WriteAsync(log, "org-a", name: "empty.json");
+        var (exit0, stdout0, stderr0) = await RunAsync(first, "org-a");
+        Assert.True(exit0 == 0, stderr0);
+        Assert.Contains("entries=0 last_hash=-", stdout0, StringComparison.Ordinal);
+
+        await SeedAsync(log, "org-a", 2, Ct);
+        time.Now = T0.AddHours(1);
+        var second = await WriteAsync(log, "org-a", name: "later.json");
+        string[] checkpoint = ["--checkpoint-count", "0", "--checkpoint-hash", "-", "--checkpoint-time", AdminAuditHead.FormatTime(T0)];
+
+        Assert.True((await RunAsync(first, "org-a", checkpoint: checkpoint)).Exit == 0);
+        var (exit, _, stderr) = await RunAsync(second, "org-a", checkpoint: checkpoint);
+        Assert.True(exit == 0, stderr);
+    }
+
+    [Fact]
+    public async Task Verify_RejectsAnEmptyCheckpointWithAHash()
+    {
+        var (log, _) = NewLogAt(T0);
+        await SeedAsync(log, "org-a", 1, Ct);
+        var file = await WriteAsync(log, "org-a", name: "one.json");
+        string[] checkpoint = ["--checkpoint-count", "0", "--checkpoint-hash", "abc", "--checkpoint-time", AdminAuditHead.FormatTime(T0)];
+
+        var (exit, _, stderr) = await RunAsync(file, "org-a", checkpoint: checkpoint);
+
+        Assert.Equal(2, exit);
+        Assert.Contains("does not contain the checkpoint", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Verify_RejectsAnOlderCompleteExportAgainstANewerCheckpoint()
     {
         var (log, time) = NewLogAt(T0);

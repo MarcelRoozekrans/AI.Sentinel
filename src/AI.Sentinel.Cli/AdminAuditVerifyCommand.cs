@@ -80,7 +80,7 @@ public static class AdminAuditVerifyCommand
         }
 
         await stdout.WriteLineAsync(FormattableString.Invariant(
-            $"OK entries={result.SignedCount} last_hash={result.LastHash ?? "-"} exported_at={AdminAuditHead.FormatTime(result.ExportedAt!.Value)}"))
+            $"OK entries={result.SignedCount} last_hash={result.LastHash ?? AdminAuditExportVerifier.EmptyCheckpointHash} exported_at={AdminAuditHead.FormatTime(result.ExportedAt!.Value)}"))
             .ConfigureAwait(false);
         return 0;
     }
