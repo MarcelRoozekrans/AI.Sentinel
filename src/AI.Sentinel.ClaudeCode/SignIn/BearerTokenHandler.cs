@@ -3,13 +3,14 @@ using System.Net.Http.Headers;
 namespace AI.Sentinel.ClaudeCode.SignIn;
 
 /// <summary>Puts the access token on every request to the server. The token goes to the server's address only: the handler is built
-/// for one <c>HttpClient</c> of the server, and a request to another host is refused.</summary>
-internal sealed class BearerTokenHandler(TokenSession session, HttpMessageHandler inner, Uri? server = null) : DelegatingHandler(inner)
+/// for one <c>HttpClient</c> of the server, and a request to another host is refused, as is a request with no address.</summary>
+internal sealed class BearerTokenHandler(TokenSession session, HttpMessageHandler inner, Uri server) : DelegatingHandler(inner)
 {
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (server is not null && request.RequestUri is { } to && !string.Equals(to.Authority, server.Authority, StringComparison.OrdinalIgnoreCase))
+        ArgumentNullException.ThrowIfNull(server);
+        if (request.RequestUri is not { } to || !string.Equals(to.Authority, server.Authority, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("a token is sent to the server only");
         }

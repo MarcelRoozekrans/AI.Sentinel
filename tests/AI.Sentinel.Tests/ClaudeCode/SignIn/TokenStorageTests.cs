@@ -44,7 +44,7 @@ public class TokenStorageTests : IDisposable
     private OidcDeviceClient Client() => new(new HttpClient(_server, disposeHandler: false), Settings(), _time, (_, _) => Task.CompletedTask);
 
     private Task<int> Run(ITokenStore? store, Func<ResidentLaunch, bool>? start = null) =>
-        SignInCommand.RunAsync(Env(), _stdout, _stderr, _server, store, (_, _) => Task.CompletedTask, start: start ?? (_ => false), ct: TestContext.Current.CancellationToken);
+        SignInCommand.RunAsync(Env(), _stdout, _stderr, _server, store, (_, _) => Task.CompletedTask, start: start ?? (_ => false), time: _time, ct: TestContext.Current.CancellationToken);
 
     [Fact]
     public async Task The_refresh_token_goes_into_the_keychain_when_there_is_one()
@@ -57,6 +57,35 @@ public class TokenStorageTests : IDisposable
 
         Assert.Equal("rt-1", store.Secret);
         Assert.Contains("Signed in to acme", _stdout.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_sign_in_that_keeps_no_refresh_token_removes_the_one_of_the_earlier_sign_in()
+    {
+        _server.IssueRefreshToken = false;
+        var store = new FakeTokenStore();
+        store.Save("rt-earlier");
+        await using var host = new HostedResident(_dir, tokens: new TokenSession(Client(), store, _time));
+        await host.WaitUntilListeningAsync();
+
+        Assert.Equal(0, await Run(store));
+
+        Assert.Null(store.Secret);
+    }
+
+    [Fact]
+    public async Task A_resident_process_that_does_not_take_the_sign_in_is_reported_and_not_called_a_success()
+    {
+        var store = new FakeTokenStore();
+        await using var host = new HostedResident(_dir);
+        await host.WaitUntilListeningAsync();
+
+        Assert.Equal(0, await Run(store));
+
+        Assert.Equal("rt-1", store.Secret);
+        Assert.DoesNotContain("Signed in to", _stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("did not take", _stdout.ToString(), StringComparison.Ordinal);
+        Assert.Contains("restarts", _stdout.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

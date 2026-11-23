@@ -74,17 +74,124 @@ public partial class DeviceCodeSignInTests
     }
 
     [Fact]
+    public async Task An_access_token_without_a_refresh_token_is_used_until_it_expires_not_until_the_skew()
+    {
+        var session = new TokenSession(Client(), null, _time);
+        session.Set(new TokenSet("at-short", null, _time.GetUtcNow().AddSeconds(20)));
+
+        Assert.Equal("at-short", (await session.GetAccessTokenAsync(TestContext.Current.CancellationToken)).AccessToken);
+        _time.Advance(TimeSpan.FromSeconds(21));
+        Assert.Equal(TokenAnswerKind.SignInRequired, (await session.GetAccessTokenAsync(TestContext.Current.CancellationToken)).Kind);
+    }
+
+    [Fact]
+    public async Task The_refresh_request_asks_for_no_scope_and_keeps_the_token_when_the_client_is_not_authorised()
+    {
+        var session = await SignedIn();
+        _time.Advance(TimeSpan.FromSeconds(3600));
+        _ = await session.GetAccessTokenAsync(TestContext.Current.CancellationToken);
+        var refresh = _server.Bodies.Last(b => b.Contains("grant_type=refresh_token", StringComparison.Ordinal));
+        Assert.DoesNotContain("scope", refresh, StringComparison.Ordinal);
+
+        // RFC 6749 section 5.2: unauthorized_client is about the client and the grant type, not about this token.
+        var store = new FakeTokenStore();
+        store.Save("rt-keep");
+        var kept = new TokenSession(Client(), store, _time);
+        _server.RefreshError = "unauthorized_client";
+        Assert.Equal(TokenAnswerKind.Unavailable, (await kept.GetAccessTokenAsync(TestContext.Current.CancellationToken)).Kind);
+        Assert.Equal("rt-keep", store.Secret);
+        Assert.Equal(SignInStatus.SignedIn, kept.Status);
+    }
+
+    [Fact]
+    public async Task A_token_that_lives_zero_seconds_is_refused_and_a_missing_lifetime_gets_the_default()
+    {
+        _server.ServerKeys.Add(Convert.ToBase64String(ProfileSigningKey.Generate().PublicKey));
+        _server.AccessLifetimeSeconds = 0;
+        var ex = await Assert.ThrowsAsync<SignInException>(() => SignIn().RunAsync(_ => { }, TestContext.Current.CancellationToken));
+        Assert.Equal(SignInFailure.Protocol, ex.Kind);
+
+        _server.AccessLifetimeSeconds = null;
+        var outcome = await SignIn().RunAsync(_ => { }, TestContext.Current.CancellationToken);
+        Assert.Equal(_time.GetUtcNow().AddHours(1), outcome.Tokens.ExpiresAt);
+    }
+
+    [Fact]
+    public async Task Polling_goes_on_after_a_connection_timeout_but_slower_and_a_cancel_still_stops_it()
+    {
+        _server.PollTimeouts = 2;
+        _server.ServerKeys.Add(Convert.ToBase64String(ProfileSigningKey.Generate().PublicKey));
+
+        var outcome = await SignIn().RunAsync(_ => { }, TestContext.Current.CancellationToken);
+
+        Assert.Equal("at-1", outcome.Tokens.AccessToken);
+        Assert.Equal(3, _delays.Count);
+        Assert.True(_delays[1] > _delays[0]);
+        Assert.True(_delays[2] > _delays[1]);
+
+        using var cts = new CancellationTokenSource();
+        var cancelling = new OidcDeviceClient(Http(), _settings, _time, (_, _) => { cts.Cancel(); cts.Token.ThrowIfCancellationRequested(); return Task.CompletedTask; });
+        var authorization = await cancelling.StartAsync(TestContext.Current.CancellationToken);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cancelling.PollAsync(authorization, cts.Token));
+    }
+
+    [Fact]
     public async Task Every_server_request_carries_the_access_token_and_a_missing_sign_in_is_reported()
     {
         var session = await SignedIn();
-        using var http = new HttpClient(new BearerTokenHandler(session, _server));
+        using var http = new HttpClient(new BearerTokenHandler(session, _server, new Uri(FakeOidcServer.Server)));
         using var response = await http.GetAsync(new Uri(FakeOidcServer.Server + "/echo"), TestContext.Current.CancellationToken);
         Assert.Equal(System.Net.HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal("Bearer at-1", _server.Authorizations[^1]);
 
         var signedOut = new TokenSession(Client(), null, _time);
-        using var plain = new HttpClient(new BearerTokenHandler(signedOut, _server));
+        using var plain = new HttpClient(new BearerTokenHandler(signedOut, _server, new Uri(FakeOidcServer.Server)));
         await Assert.ThrowsAsync<SignInRequiredException>(() => plain.GetAsync(new Uri(FakeOidcServer.Server + "/echo"), TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task The_token_goes_to_the_bound_server_only_and_a_request_without_an_address_is_refused()
+    {
+        var session = await SignedIn();
+        using var invoker = new HttpMessageInvoker(new BearerTokenHandler(session, _server, new Uri(FakeOidcServer.Server)));
+        var before = _server.Requests.Count;
+
+        using var elsewhere = new HttpRequestMessage(HttpMethod.Get, new Uri("https://other.example.org/echo"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => invoker.SendAsync(elsewhere, TestContext.Current.CancellationToken));
+        using var nowhere = new HttpRequestMessage(HttpMethod.Get, (Uri?)null);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => invoker.SendAsync(nowhere, TestContext.Current.CancellationToken));
+
+        Assert.Equal(before, _server.Requests.Count);
+        Assert.Null(nowhere.Headers.Authorization);
+        Assert.Null(elsewhere.Headers.Authorization);
+    }
+
+    [Fact]
+    public async Task A_token_set_issued_by_another_issuer_is_not_taken_by_the_resident_process()
+    {
+        var session = new TokenSession(Client(), null, _time);
+        await using var host = new HostedResident(_dir, tokens: session);
+        await host.WaitUntilListeningAsync();
+        var client = new ResidentClient(host.Settings);
+        var tokens = new TokenSet("at-9", "rt-9", _time.GetUtcNow().AddHours(1));
+
+        foreach (var (issuer, clientId) in new (string?, string?)[]
+                 {
+                     ("https://idp.other.example.org", FakeOidcServer.ClientId),
+                     (FakeOidcServer.Issuer, "another-client"),
+                     (null, null),
+                 })
+        {
+            var refused = await client.SendAsync(
+                new ResidentRequest { Op = ResidentOps.SignIn, Tokens = tokens, Issuer = issuer, ClientId = clientId }, TimeSpan.FromSeconds(5));
+            Assert.False(refused!.Ok);
+            Assert.Equal(SignInStatus.SignInNeeded, session.Status);
+        }
+
+        var taken = await client.SendAsync(
+            new ResidentRequest { Op = ResidentOps.SignIn, Tokens = tokens, Issuer = FakeOidcServer.Issuer + "/", ClientId = FakeOidcServer.ClientId }, TimeSpan.FromSeconds(5));
+        Assert.True(taken!.Ok);
+        Assert.Equal("at-9", (await session.GetAccessTokenAsync(TestContext.Current.CancellationToken)).AccessToken);
     }
 
     [Fact]
@@ -99,7 +206,7 @@ public partial class DeviceCodeSignInTests
         Assert.Equal("sign_in_needed", before!.SignIn);
 
         var tokens = new TokenSet("at-9", "rt-9", _time.GetUtcNow().AddHours(1));
-        var set = await client.SendAsync(new ResidentRequest { Op = ResidentOps.SignIn, Tokens = tokens }, TimeSpan.FromSeconds(5));
+        var set = await client.SendAsync(new ResidentRequest { Op = ResidentOps.SignIn, Tokens = tokens, Issuer = FakeOidcServer.Issuer, ClientId = FakeOidcServer.ClientId }, TimeSpan.FromSeconds(5));
         Assert.True(set!.Ok);
 
         var after = await client.SendAsync(new ResidentRequest { Op = ResidentOps.SignInStatus }, TimeSpan.FromSeconds(5));

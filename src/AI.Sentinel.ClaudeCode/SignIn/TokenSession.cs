@@ -35,6 +35,9 @@ internal sealed class TokenSession(OidcDeviceClient client, ITokenStore? store, 
         }
     }
 
+    /// <summary>True when the tokens of a sign-in at this issuer and client are ones this session can refresh.</summary>
+    public bool Accepts(string? issuer, string? clientId) => client.IsFor(issuer, clientId);
+
     /// <summary>Takes the tokens of a sign-in.</summary>
     public void Set(TokenSet tokens)
     {
@@ -59,7 +62,8 @@ internal sealed class TokenSession(OidcDeviceClient client, ITokenStore? store, 
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_access is not null && time.GetUtcNow() < _expiresAt - Skew)
+            // The skew buys an early renewal, so it only applies where there is a refresh token to renew with.
+            if (_access is not null && time.GetUtcNow() < (_refresh is null ? _expiresAt : _expiresAt - Skew))
             {
                 return new TokenAnswer(TokenAnswerKind.Token, _access);
             }

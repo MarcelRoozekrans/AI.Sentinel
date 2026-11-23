@@ -58,7 +58,19 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("device_code", authorization.DeviceCode),
                 ("client_id", settings.ClientId));
-            var (wire, status) = await TokenAsync(content, ct).ConfigureAwait(false);
+            TokenResponseWire wire;
+            System.Net.HttpStatusCode status;
+            try
+            {
+                (wire, status) = await TokenAsync(content, ct).ConfigureAwait(false);
+            }
+            catch (SignInException e) when (e.Kind == SignInFailure.Unavailable)
+            {
+                // RFC 8628 section 3.5: after a connection timeout the client polls less often. The device code's own lifetime ends it.
+                interval += SlowDownStep;
+                continue;
+            }
+
             switch (wire.Error)
             {
                 case null when wire.AccessToken is not null:
@@ -85,11 +97,11 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
     {
         ArgumentException.ThrowIfNullOrEmpty(refreshToken);
         await DiscoverAsync(ct).ConfigureAwait(false);
-        using var content = Form(("grant_type", "refresh_token"), ("refresh_token", refreshToken), ("client_id", settings.ClientId), ("scope", settings.Scope));
+        using var content = Form(("grant_type", "refresh_token"), ("refresh_token", refreshToken), ("client_id", settings.ClientId));
         var (wire, status) = await TokenAsync(content, ct).ConfigureAwait(false);
         if (wire.Error is not null)
         {
-            throw wire.Error is "invalid_grant" or "invalid_token" or "unauthorized_client"
+            throw wire.Error is "invalid_grant" or "invalid_token"
                 ? new SignInException(SignInFailure.Rejected, "the provider no longer accepts the refresh token")
                 : new SignInException(SignInFailure.Unavailable, $"the provider answered {(int)status} with error '{SafeError(wire.Error)}'");
         }
@@ -106,7 +118,13 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
             throw new SignInException(SignInFailure.Protocol, "the provider issued a token that is not a bearer token");
         }
 
-        var lifetime = wire.ExpiresIn is > 0 ? wire.ExpiresIn.Value : 3600;
+        // RFC 6749 section 5.1 makes expires_in optional, so a missing one gets the default; one that is there and not positive is unusable.
+        if (wire.ExpiresIn is <= 0)
+        {
+            throw new SignInException(SignInFailure.Protocol, "the provider issued a token that is already expired");
+        }
+
+        var lifetime = wire.ExpiresIn ?? 3600;
         return new TokenSet(wire.AccessToken!, wire.RefreshToken ?? previousRefreshToken, time.GetUtcNow().AddSeconds(lifetime));
     }
 
@@ -147,7 +165,18 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
         {
             throw new SignInException(SignInFailure.Unavailable, $"the provider cannot be reached ({e.GetType().Name})");
         }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // The HttpClient timeout, not the caller's cancel.
+            throw new SignInException(SignInFailure.Unavailable, "the provider did not answer in time");
+        }
     }
+
+    /// <summary>True when this client talks to <paramref name="issuer"/> as <paramref name="clientId"/>: only then are its tokens this client's to refresh.</summary>
+    public bool IsFor(string? issuer, string? clientId) =>
+        issuer is not null && clientId is not null
+        && string.Equals(issuer.TrimEnd('/'), settings.Issuer.AbsoluteUri.TrimEnd('/'), StringComparison.Ordinal)
+        && string.Equals(clientId, settings.ClientId, StringComparison.Ordinal);
 
     private static TokenResponseWire? Parse(string text)
     {
