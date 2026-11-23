@@ -37,26 +37,26 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Outcome type and strictest-wins
 
-- [ ] Add the five outcomes with their order, a combine operation, and the decision record with reason, sources and policy version.
-- [ ] Failing tests first in `DecisionOutcomeTests`.
-- [ ] Commit.
+- [x] Add the five outcomes with their order, a combine operation, and the decision record with reason, sources and policy version.
+- [x] Failing tests first in `DecisionOutcomeTests`.
+- [x] Commit.
 
 ### Task 2: Map the severity actions
 
-- [ ] Map Block, Warn and Allow onto deny, guidance and defer inside the hooks without changing their output.
-- [ ] Commit.
+- [x] Map Block, Warn and Allow onto deny, guidance and defer inside the hooks without changing their output.
+- [x] Commit.
 
 ### Task 3: Per-CLI output
 
-- [ ] Emit each outcome per CLI: no permission decision for allow and defer, context for guidance, ask where the CLI can, deny with instructions where it cannot or the run is headless.
-- [ ] Tests in `CliOutcomeMappingTests` per CLI.
-- [ ] Record reason, sources and policy version in the local audit.
-- [ ] Commit.
+- [x] Emit each outcome per CLI: no permission decision for allow and defer, context for guidance, ask where the CLI can, deny with instructions where it cannot or the run is headless.
+- [x] Tests in `CliOutcomeMappingTests` per CLI.
+- [x] Record reason, sources and policy version in the local audit.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
