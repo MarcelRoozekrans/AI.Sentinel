@@ -33,7 +33,12 @@ internal static class PolicyCompileCommand
     }
 
     /// <summary>Compiles and returns the exit code of the child.</summary>
-    public static int Run(string[] args, TextWriter stderr)
+    public static int Run(string[] args, TextWriter stderr) => Run(args, stderr, InteropRegoCompiler.Unavailable());
+
+    /// <param name="args">The command line.</param>
+    /// <param name="stderr">Where the usage, the reason there is no compiler or the compiler message goes.</param>
+    /// <param name="unavailable">Why the interop compiler cannot run here, or <see langword="null"/> when it can.</param>
+    internal static int Run(string[] args, TextWriter stderr, string? unavailable)
     {
         ArgumentNullException.ThrowIfNull(args);
         ArgumentNullException.ThrowIfNull(stderr);
@@ -43,7 +48,7 @@ internal static class PolicyCompileCommand
             return BadUsage;
         }
 
-        if (InteropRegoCompiler.Unavailable() is { } unavailable)
+        if (unavailable is not null)
         {
             stderr.WriteLine(unavailable);
             return NoCompiler;
