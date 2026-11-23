@@ -27,7 +27,7 @@ From the issue. Each has a test or check named after it.
 - An approval raised by a hook on one PC can be listed and approved over HTTP on the server, and the hook on that PC acts on the decision when the agent retries. `HttpApprovalStoreTests`.
 - A denial over HTTP is acted on the same way. `HttpApprovalStoreTests`.
 - Until a grant exists the call is **deny**, with a message that it waits for approval. While the server is unreachable it is denied with a message that the server is unreachable. `HttpApprovalStoreTests`.
-- Only an administrator, or a team lead of the node that owns the session's repository, can approve or deny (#674). `HttpApprovalStoreTests`.
+- Only an administrator, or a team lead of the node that owns the session's repository, can approve or deny (#674). Nobody approves or denies their own request, whatever their role. `HttpApprovalStoreTests`.
 - Each approve and deny is written to the audit log of #672 with its channel. `HttpApprovalStoreTests`.
 - An approval request carries the tool input after AI.Sentinel's existing redaction, so the approver sees what they approve, and is deleted 30 days after it is decided. `HttpApprovalStoreTests`.
 - Without a central product, a team can run the server part on its own and approve and deny over its HTTP API. `HttpApprovalStoreTests`.
@@ -37,7 +37,7 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Server endpoints
 
-- [ ] Add create, list, approve and deny endpoints with #674's check; write approve and deny to #672's log; keep redacted tool input and delete 30 days after decision.
+- [ ] Add create, list, approve and deny endpoints with #674's check, refusing a decision by the requester; a failing test first for a team lead approving their own request; write approve and deny to #672's log; keep redacted tool input and delete 30 days after decision.
 - [ ] Failing tests first in `HttpApprovalStoreTests`.
 - [ ] Commit.
 

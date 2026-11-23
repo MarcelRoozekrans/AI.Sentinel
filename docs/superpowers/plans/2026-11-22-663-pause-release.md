@@ -29,6 +29,7 @@ From the issue. Each has a test or check named after it.
 - A pause takes effect on the PC within 1 second of the API call, measured end to end against a test server. `SessionPauseTests`.
 - A hook reads the pause state without network traffic. `SessionPauseTests`.
 - The SSE connection reconnects after a drop and resyncs the current pause state. `SessionPauseTests`.
+- The SSE stream also announces each published configuration. The resident process fetches the signed profile (#664) at start, on that announcement, after every reconnect, and a day before the cached one expires. A configuration published while the process was disconnected is in force after it reconnects. `ProfileRefreshTests`.
 - A pause names a session, not a person, so a team lead can pause a session whose developer's name is hidden. `SessionPauseTests`.
 - Only an administrator, or a team lead of the node that owns the session's repository, can pause or release (#674). Each pause and release is written to the audit log of #672 with its channel. `SessionPauseTests`.
 - Without a central product, a team can pause and release over the server's HTTP API. `SessionPauseTests`.
@@ -45,6 +46,8 @@ From the issue. Each has a test or check named after it.
 ### Task 2: Resident process subscription
 
 - [ ] Subscribe with the token, apply pauses in every decision, write the pause state atomically, reconnect with backoff and resync.
+- [ ] Announce each published configuration on the stream; fetch the profile at start, on the announcement, after a reconnect and a day before expiry, and write it to the cache as #658 does.
+- [ ] Tests in `ProfileRefreshTests`, including a configuration published during a disconnect.
 - [ ] Commit.
 
 ### Task 3: Hook deny
@@ -63,4 +66,5 @@ From the issue. Each has a test or check named after it.
 - build: `dotnet build AI.Sentinel.slnx -c Release`
 - test: `dotnet format whitespace . --folder --verify-no-changes`
 - test: `dotnet test --project tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj -c Release -f net10.0 --filter-query "/*/*/*SessionPauseTests*/*"`
+- test: `dotnet test --project tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj -c Release -f net10.0 --filter-query "/*/*/*ProfileRefreshTests*/*"`
 - test: `dotnet test AI.Sentinel.slnx -c Release`

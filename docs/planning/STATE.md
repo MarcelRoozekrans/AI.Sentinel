@@ -1,6 +1,8 @@
 # State: milestone "Controlled from a central server"
 
-Updated 2026-11-22, late evening. Branch `docs/plan-central-server-milestone`, draft PR #668.
+Updated 2026-11-23, morning. Branch `docs/plan-central-server-milestone`, PR #668.
+
+Done 2026-11-23: all 18 CodeRabbit threads on PR #668 handled. Fixes are in the plans and the issue bodies; four design choices went to Marcel and are in the design page and the Decisions below.
 
 ## Current Position
 
@@ -13,7 +15,7 @@ Done this session (2026-11-22, late evening):
 - Decisions synced to Outline: ADR-247 gained the approval-request dataset (redacted input, 30 days); the Spec's settled open questions are marked; the design page has an Issues section mapping each part to its issue.
 - Plans in `docs/superpowers/plans/2026-11-22-*.md` regenerated, one per issue, with the same `## Checks` layout. Old plans whose slug changed were deleted. Plans no longer say to use superpowers: build sessions do not.
 
-Dependency order: #633, #669, #670, #671, #672 (no dependencies) then #654, #655, #658, #673, #656, #659, #664, #674, #660, #675, #661, #662, #663, #665, #666. Each issue body names its own dependencies.
+Dependency order: #633, #669, #670, #671 (no dependencies), #672 (after #671, for the signed export head), then #654, #655, #658, #673, #656, #659, #664, #674, #660, #675, #661, #662, #663, #665, #666. Each issue body names its own dependencies.
 
 Still held:
 - PR #668 is ready for review; merge before a run.
@@ -27,6 +29,13 @@ Still held:
 - Local Rego folder (`SENTINEL_HOOK_POLICY_DIR`) stays for PCs without a server; with a server it is combined strictest-wins.
 - One server per PC in this milestone; several organisations is a follow-up issue (outside milestone 1).
 - Earlier today, still standing: strictest-wins; 50 ms budget; #633 measures cold, cached-precompiled and warm on Windows, Linux, macOS in a CI matrix; hooks never send, the resident process forwards; OIDC device code; additive optional off-by-default API counts as approved; the run reads the Spec through the Outline connector.
+
+## Decisions (Marcel, 2026-11-23, from the CodeRabbit review)
+
+- #672: an export ends with a head (count and last hash) signed with the deployment's Ed25519 key; verify detects a cut-off tail. #672 now depends on #671; the held queue bases it on issue-671.
+- #664: stable read. Debounce, hash every file, compile, hash again, retry and publish nothing on a mismatch; the filler must swap the folder atomically.
+- #663: the SSE stream also announces published configurations; the resident process fetches the profile at start, on the announcement, after a reconnect and a day before expiry.
+- #662: nobody approves or denies their own approval request, whatever their role.
 
 ## Open Decisions
 

@@ -26,6 +26,7 @@ From the issue. Each has a test or check named after it.
 
 - The folder holds the Rego bundles and the node configuration: the nodes (organisation and teams in this version), which repositories belong to which node, which identity-provider groups bind to which role on which node, and per-node settings such as `fail_mode`, profile lifetime and detailed logging. `PolicyFolderTests`.
 - On every change of the folder, the server compiles all bundles of that configuration version into one module identified by its hash. `PolicyFolderTests`.
+- The server compiles only one complete version: it waits for changes to settle, hashes every file, compiles, and hashes again; when the hashes differ it retries and publishes nothing. The docs say the filler must swap the folder atomically, as git-sync does. `PolicyFolderTests`.
 - Validation refuses a bundle that uses a builtin reaching outside the process, and a bundle below the organisation that defines an allow rule. `PolicyValidationTests`.
 - A configuration that fails validation is not published; the last good one stays in force, and the rejection is written to the audit log of #672. A published configuration is written there too. `PolicyValidationTests`.
 - The server signs a profile per repository with the key the deployment gives it at startup, and serves it to a signed-in developer of the organisation. `ProfileServingTests`.
@@ -37,8 +38,8 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Read the folder
 
-- [ ] Read bundles and node configuration from a configured folder; watch it for changes.
-- [ ] Failing tests first in `PolicyFolderTests`.
+- [ ] Read bundles and node configuration from a configured folder; watch it for changes, debounce them, and compile only when the file hashes before and after the read match.
+- [ ] Failing tests first in `PolicyFolderTests`, including a file changed during the read: nothing mixed is published.
 - [ ] Commit.
 
 ### Task 2: Compile and validate
