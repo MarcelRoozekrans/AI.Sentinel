@@ -144,6 +144,42 @@ public class RegoPolicyCacheTests : IDisposable
     }
 
     [Fact]
+    public void An_open_cache_directory_loses_its_entries_because_another_user_could_have_written_them()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(_cache);
+        var planted = Path.Combine(_cache, "planted.cwasm");
+        PolicyCache.Write(planted, [1, 2, 3]);
+        File.SetUnixFileMode(_cache, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute | UnixFileMode.GroupWrite);
+
+        PolicyCache.Prepare(_cache);
+
+        Assert.False(File.Exists(planted));
+        Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute, File.GetUnixFileMode(_cache));
+    }
+
+    [Fact]
+    public void An_owner_only_cache_directory_keeps_its_entries()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        PolicyCache.Prepare(_cache);
+        var kept = Path.Combine(_cache, "kept.cwasm");
+        PolicyCache.Write(kept, [1, 2, 3]);
+
+        PolicyCache.Prepare(_cache);
+
+        Assert.Equal([1, 2, 3], PolicyCache.TryRead(kept));
+    }
+
+    [Fact]
     public void The_default_cache_lives_under_the_local_application_data_of_the_user_and_a_setting_moves_it()
     {
         var dir = PolicyCache.DefaultDirectory(new Dictionary<string, string?>(StringComparer.Ordinal));
