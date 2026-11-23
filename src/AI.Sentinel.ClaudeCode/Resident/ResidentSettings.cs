@@ -46,6 +46,14 @@ internal sealed record ResidentSettings(string StateDirectory, TimeSpan IdleTime
         return new ResidentSettings(DefaultDirectory(env), DefaultIdleTimeout, budget);
     }
 
+    /// <summary>The settings whether or not the resident process is turned on: the sign-in command keeps the pinned server keys in the
+    /// state folder either way.</summary>
+    public static ResidentSettings Always(IReadOnlyDictionary<string, string?> env)
+    {
+        ArgumentNullException.ThrowIfNull(env);
+        return FromEnvironment(env) ?? new ResidentSettings(DefaultDirectory(env), DefaultIdleTimeout, DefaultBudget);
+    }
+
     /// <summary>The <c>SENTINEL_HOOK_</c> variables of this process, as the hook CLIs read them.</summary>
     public static Dictionary<string, string?> ProcessEnvironment()
     {

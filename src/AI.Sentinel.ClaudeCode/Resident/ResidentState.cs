@@ -19,6 +19,9 @@ internal sealed class ResidentState(string directory)
     /// <summary>The file that holds the last valid signed profile.</summary>
     public const string ProfileFile = "profile.json";
 
+    /// <summary>The file that holds the server keys pinned at sign-in, and the organisation they belong to. Public keys, not secrets.</summary>
+    public const string PinnedKeysFile = "pinned-keys.json";
+
     /// <summary>The state folder, as <see cref="ResidentPaths.Prepare"/> returned it.</summary>
     public string Directory { get; } = directory;
 
@@ -94,5 +97,37 @@ internal sealed class ResidentState(string directory)
         return SignedProfile.Parse(Encoding.UTF8.GetString(bytes)) is { } signed
             ? ProfileVerifier.Verify(signed, pinned, organisation, repository, now)
             : ProfileVerification.Rejected(ProfileRejection.Malformed);
+    }
+
+    /// <summary>Pins the server keys of a sign-in (#671). A new sign-in replaces them: it is the moment the developer chooses to trust a
+    /// server.</summary>
+    public void WritePinnedKeys(string organisation, PinnedProfileKeys keys)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(organisation);
+        ArgumentNullException.ThrowIfNull(keys);
+        var record = new PinnedKeysFileContent { Organisation = organisation, Keys = [.. keys.ToBase64()] };
+        PolicyCache.Write(Path.Combine(Directory, PinnedKeysFile), JsonSerializer.SerializeToUtf8Bytes(record, ResidentStateJsonContext.Default.PinnedKeysFileContent));
+    }
+
+    /// <summary>The pinned keys and their organisation; <see langword="null"/> when the developer has not signed in, or the file is
+    /// unusable. With no pinned key every profile is refused, so a damaged file fails closed.</summary>
+    public (string Organisation, PinnedProfileKeys Keys)? ReadPinnedKeys()
+    {
+        if (PolicyCache.TryRead(Path.Combine(Directory, PinnedKeysFile)) is not { } bytes)
+        {
+            return null;
+        }
+
+        try
+        {
+            var record = JsonSerializer.Deserialize(bytes, ResidentStateJsonContext.Default.PinnedKeysFileContent);
+            return string.IsNullOrEmpty(record?.Organisation) || record.Keys is null
+                ? null
+                : (record.Organisation, PinnedProfileKeys.FromBase64(record.Keys));
+        }
+        catch (Exception e) when (e is JsonException or FormatException or ArgumentException)
+        {
+            return null;
+        }
     }
 }
