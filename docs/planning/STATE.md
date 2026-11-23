@@ -10,6 +10,7 @@ Done this session (2026-11-22, late evening):
 - New issues, filed in dependency order: #669 tool kinds and shell parser, #670 five outcomes, #671 signed profile, #672 admin audit log, #673 fail mode, #674 roles per node, #675 visibility per team.
 - Rewrote #633 and #654 to #666, with new titles where the scope changed (#654, #655, #656, #658, #659, #660, #661, #664).
 - Spec Tasks list in Outline replaced with the 20 issues in dependency order; the "being reworked" note is gone.
+- Decisions synced to Outline: ADR-247 gained the approval-request dataset (redacted input, 30 days); the Spec's settled open questions are marked; the design page has an Issues section mapping each part to its issue.
 - Plans in `docs/superpowers/plans/2026-11-22-*.md` regenerated, one per issue, with the same `## Checks` layout. Old plans whose slug changed were deleted. Plans no longer say to use superpowers: build sessions do not.
 
 Dependency order: #633, #669, #670, #671, #672 (no dependencies) then #654, #655, #658, #673, #656, #659, #664, #674, #660, #675, #661, #662, #663, #665, #666. Each issue body names its own dependencies.
