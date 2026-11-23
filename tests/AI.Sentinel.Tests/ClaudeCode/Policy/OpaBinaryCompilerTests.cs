@@ -65,4 +65,33 @@ public class OpaBinaryCompilerTests
         Assert.Contains("http.send, which reaches outside the process and is refused", error.Message, StringComparison.Ordinal);
         Assert.Equal("some other error", RegoCompileException.From("some other error\n").Message);
     }
+
+    [Fact]
+    public void An_opa_that_stalls_is_stopped_at_the_deadline()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // the stub is a shell script
+        }
+
+        var dir = Directory.CreateTempSubdirectory("sentinel-opa-stub-").FullName;
+        try
+        {
+            var stub = Path.Combine(dir, "opa");
+            File.WriteAllText(stub, "#!/bin/sh\nsleep 60\n");
+            File.SetUnixFileMode(stub, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            var compiler = new OpaBinaryCompiler(stub, TimeSpan.FromSeconds(1));
+            var sources = new PolicySources([new PolicyFile("a.rego", "package sentinel\n")], ["a"], new string('a', 64));
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var error = Assert.Throws<TimeoutException>(() => compiler.CompileWasm(sources, restrictBuiltins: true));
+
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30), $"took {watch.Elapsed}");
+            Assert.Contains("opa", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(dir);
+        }
+    }
 }

@@ -9,7 +9,20 @@ namespace AI.Sentinel.ClaudeCode.Policy.Rego;
 /// the PATH. It is the compiler where the interop one has no native library.</summary>
 internal sealed class OpaBinaryCompiler : IRegoCompiler
 {
-    private readonly string? _path = Find();
+    private readonly string? _path;
+    private readonly TimeSpan _timeout;
+
+    public OpaBinaryCompiler() : this(Find(), ChildProcessRegoCompiler.DefaultTimeout)
+    {
+    }
+
+    /// <param name="path">The <c>opa</c> executable, or <see langword="null"/> when there is none.</param>
+    /// <param name="timeout">How long a build may take before the process is stopped.</param>
+    internal OpaBinaryCompiler(string? path, TimeSpan timeout)
+    {
+        _path = path;
+        _timeout = timeout;
+    }
 
     public string Name => "opa";
 
@@ -47,12 +60,20 @@ internal sealed class OpaBinaryCompiler : IRegoCompiler
         psi.ArgumentList.Add(root);
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("opa did not start");
         var error = process.StandardError.ReadToEndAsync();
-        var output = process.StandardOutput.ReadToEnd();
+        var output = process.StandardOutput.ReadToEndAsync();
+        if (!process.WaitForExit(_timeout))
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+            throw new TimeoutException($"opa did not finish within {_timeout.TotalSeconds:0} s and was stopped");
+        }
+
+        // The exit is in; this waits for the output streams to close.
         process.WaitForExit();
         if (process.ExitCode != 0)
         {
             // opa build prints its compile errors on stdout.
-            throw RegoCompileException.From(output + error.GetAwaiter().GetResult());
+            throw RegoCompileException.From(output.GetAwaiter().GetResult() + error.GetAwaiter().GetResult());
         }
 
         using var file = File.OpenRead(bundle);
