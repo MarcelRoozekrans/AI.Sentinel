@@ -40,7 +40,7 @@ internal static class AdminAuditExportVerifier
         var chain = new List<AuditEntry>(wire.Count);
         foreach (var w in wire)
         {
-            if (!TryToChainEntry(w, expectedOrganisation, out var entry))
+            if (w is null || !TryToChainEntry(w, expectedOrganisation, out var entry))
             {
                 return signed with { Rejection = AdminAuditRejection.Malformed };
             }

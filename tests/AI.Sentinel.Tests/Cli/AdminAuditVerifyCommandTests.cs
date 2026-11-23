@@ -321,6 +321,48 @@ public sealed class AdminAuditVerifyCommandTests : IDisposable
     }
 
     [Theory]
+    [InlineData("id")]
+    [InlineData("timestamp")]
+    [InlineData("organisation")]
+    [InlineData("action")]
+    [InlineData("actor")]
+    [InlineData("target")]
+    [InlineData("channel")]
+    [InlineData("hash")]
+    public async Task Verify_RejectsAnEntryWithAMissingField(string field)
+    {
+        var (log, _) = NewLogAt(T0);
+        await SeedAsync(log, "org-a", 2, Ct);
+        var file = await WriteAsync(log, "org-a", node =>
+        {
+            node["entries"]![1]!.AsObject().Remove(field);
+            return node;
+        });
+
+        var (exit, _, stderr) = await RunAsync(file, "org-a");
+
+        Assert.Equal(2, exit);
+        Assert.Contains("not a valid audit log export", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Verify_RejectsANullEntry()
+    {
+        var (log, _) = NewLogAt(T0);
+        await SeedAsync(log, "org-a", 2, Ct);
+        var file = await WriteAsync(log, "org-a", node =>
+        {
+            node["entries"]![1] = null;
+            return node;
+        });
+
+        var (exit, _, stderr) = await RunAsync(file, "org-a");
+
+        Assert.Equal(2, exit);
+        Assert.Contains("not a valid audit log export", stderr, StringComparison.Ordinal);
+    }
+
+    [Theory]
     [InlineData("organisation")]
     [InlineData("exported_at")]
     [InlineData("signature")]
