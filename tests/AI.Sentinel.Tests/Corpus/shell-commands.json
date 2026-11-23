@@ -1252,6 +1252,72 @@
     "commands": []
   },
   {
+    "name": "braced command substitution with a space",
+    "input": "echo ${ printf hidden; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced command substitution with a tab",
+    "input": "echo ${\tprintf hidden; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced command substitution with a newline",
+    "input": "echo ${\nprintf hidden; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced value substitution",
+    "input": "echo ${| REPLY=x; }",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced command substitution in double quotes",
+    "input": "echo \"${ printf hidden; }\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced value substitution in double quotes",
+    "input": "echo \"${| REPLY=x; }\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced input process substitution",
+    "input": "echo ${value/a/<(id)}",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced output process substitution",
+    "input": "echo ${value/a/>(id)}",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced process substitution in double quotes",
+    "input": "echo \"${value/a/<(id)}\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced output process substitution in double quotes",
+    "input": "echo \"${value/a/>(id)}\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced command substitution after a word",
+    "input": "echo ${ id; }x",
+    "unparseable": true,
+    "commands": []
+  },
+  {
     "name": "line continuation inside an append operator",
     "input": "echo hi >\\\n> out",
     "unparseable": false,

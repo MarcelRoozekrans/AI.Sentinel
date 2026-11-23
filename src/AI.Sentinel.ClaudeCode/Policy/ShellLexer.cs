@@ -116,7 +116,7 @@ internal sealed class ShellLexer
         return true;
     }
 
-    // ${...} stays one word. Only a plain body is read: anything that could nest or quote inside it is left unparsed.
+    // ${...} stays one word. Only a plain body is read: anything that could nest, quote or run code inside it (including <( and >( process substitution) is left unparsed.
     private bool BracedExpansion()
     {
         var end = _s.IndexOf('}', _i + 2);
@@ -125,9 +125,20 @@ internal sealed class ShellLexer
             return false;
         }
 
+        // Bash 5.3 runs "${ cmd; }" and "${| cmd; }" as command substitution: a space, tab, newline or | right after the brace.
+        if (end > _i + 2 && _s[_i + 2] is ' ' or '\t' or '\n' or '|')
+        {
+            return false;
+        }
+
         for (var k = _i + 2; k < end; k++)
         {
             if (_s[k] is '\'' or '"' or '\\' or '`' or '$' or '{' or '\n' or '\0')
+            {
+                return false;
+            }
+
+            if (_s[k] is '<' or '>' && _s[k + 1] == '(')
             {
                 return false;
             }

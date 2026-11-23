@@ -110,8 +110,40 @@ internal static class PolicyInputBuilder
     }
 
     // \\?\C:\dir and C:\dir name the same file. Only that drive form is rewritten; other device paths stay as they are.
-    internal static string ComparisonForm(string path) =>
-        path.Length >= 6 && path.StartsWith(@"\\?\", StringComparison.Ordinal) && char.IsAsciiLetter(path[4]) && path[5] == ':' ? path[4..] : path;
+    // Windows does not resolve . and .. in an extended path, so they are resolved here, lexically and never above the drive root.
+    internal static string ComparisonForm(string path)
+    {
+        if (path.Length < 6 || !path.StartsWith(@"\\?\", StringComparison.Ordinal) || !char.IsAsciiLetter(path[4]) || path[5] != ':')
+        {
+            return path;
+        }
+
+        var drive = path[4..];
+        return drive.Length > 2 && drive[2] == '\\' ? ResolveDotSegments(drive) : drive;
+    }
+
+    private static string ResolveDotSegments(string drivePath)
+    {
+        var kept = new List<string>();
+        var segments = drivePath[3..].Split('\\');
+        foreach (var segment in segments)
+        {
+            if (string.Equals(segment, "..", StringComparison.Ordinal))
+            {
+                if (kept.Count > 0)
+                {
+                    kept.RemoveAt(kept.Count - 1);
+                }
+            }
+            else if (segment is not ("." or ""))
+            {
+                kept.Add(segment);
+            }
+        }
+
+        var resolved = drivePath[..3] + string.Join('\\', kept);
+        return drivePath.EndsWith('\\') && kept.Count > 0 ? resolved + '\\' : resolved;
+    }
 
     private static string? String(JsonElement args, string key) =>
         args.ValueKind == JsonValueKind.Object && args.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.String ? Decode(v) : null;
