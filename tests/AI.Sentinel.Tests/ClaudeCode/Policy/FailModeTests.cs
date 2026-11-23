@@ -110,7 +110,7 @@ public class FailModeTests
     {
         using var policy = Policy(failMode: null, Silent());
 
-        Assert.Throws<NoEvaluatorAnsweredException>(() => policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s"));
+        Assert.Throws<InvalidOperationException>(() => policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s"));
     }
 
     [Fact]

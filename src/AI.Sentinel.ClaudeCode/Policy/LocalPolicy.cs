@@ -133,17 +133,24 @@ internal sealed class LocalPolicy : IDisposable
         ArgumentNullException.ThrowIfNull(existing);
         var input = PolicyInputBuilder.Build(cli, toolName, toolInput, session, _findings, _repositoryRoot);
         var json = PolicyInputSerializer.Serialize(input);
-        PolicyAnswer answer;
+        var before = existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource);
+        PolicyAnswer? answer;
         try
         {
-            answer = _order.Evaluate(json);
+            answer = _order.TryEvaluate(json);
         }
-        catch (Exception e) when (_failMode is not null)
+        catch (Exception) when (_failMode is not null)
         {
-            // Nobody answered: the fail mode decides. A place that failed ran the bundle and the bundle errored: that denies by name.
-            var failure = e is NoEvaluatorAnsweredException ? FailModeGate.Decide(_failMode, input, Version) : BundleError();
-            var before = existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource);
-            return OutcomeDecision.Strictest([before, failure]).ToHookOutput(canAsk: true);
+            // A place that failed ran the bundle and the bundle errored: that denies by name, whatever the fail mode.
+            return OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true);
+        }
+
+        if (answer is null)
+        {
+            // Nobody answered and nobody failed: the fail mode decides. Without one it is an internal error, as before.
+            return _failMode is null
+                ? throw new InvalidOperationException("no place could evaluate the policy: the resident process did not answer and the hook has no module to run")
+                : OutcomeDecision.Strictest([before, FailModeGate.Decide(_failMode, input, Version)]).ToHookOutput(canAsk: true);
         }
 
         var (policy, place) = answer;
