@@ -19,11 +19,4 @@
     <RollForward>Major</RollForward>
     <InvariantGlobalization Condition="'$(PublishAot)' == 'true'">true</InvariantGlobalization>
   </PropertyGroup>
-  <!-- The OpaDotNet interop compiler of the local Rego policy has a native library for linux-x64 and win-x64 only. A tool
-       built for another runtime identifier references the shared hook library with UseInteropCompiler=false, which
-       leaves that compiler out of the code, see AI.Sentinel.ClaudeCode.csproj. A build without a runtime identifier keeps
-       it, so the solution and the tests build one copy of the library. -->
-  <PropertyGroup>
-    <InteropCompilerRid Condition="'$(RuntimeIdentifier)' == '' Or '$(RuntimeIdentifier)' == 'linux-x64' Or '$(RuntimeIdentifier)' == 'win-x64'">true</InteropCompilerRid>
-  </PropertyGroup>
 </Project>

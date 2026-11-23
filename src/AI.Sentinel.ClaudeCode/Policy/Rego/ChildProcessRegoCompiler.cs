@@ -38,20 +38,27 @@ internal sealed class ChildProcessRegoCompiler : IRegoCompiler
     public string Name => "interop";
 
     /// <summary>The compiler of the running hook: this executable started again, as <c>dotnet &lt;assembly&gt;</c> when the
-    /// hook runs on the <c>dotnet</c> host. It is unavailable where the build leaves the interop compiler out.</summary>
-    public static ChildProcessRegoCompiler ForThisHook()
+    /// hook runs on the <c>dotnet</c> host. It is unavailable where the interop compiler has no native library.</summary>
+    public static ChildProcessRegoCompiler ForThisHook() =>
+        ForThisHook(Environment.ProcessPath, Environment.GetCommandLineArgs()[0], InteropRegoCompiler.Unavailable());
+
+    /// <param name="processPath">The executable of this process, <see langword="null"/> when it is unknown.</param>
+    /// <param name="entryAssembly">The assembly the <c>dotnet</c> host runs, its first command-line argument.</param>
+    /// <param name="unavailable">Why the interop compiler cannot run here, or <see langword="null"/> when it can.</param>
+    internal static ChildProcessRegoCompiler ForThisHook(string? processPath, string entryAssembly, string? unavailable)
     {
-        var unavailable = InteropRegoCompiler.Unavailable();
-        var process = Environment.ProcessPath;
-        if (string.IsNullOrEmpty(process))
+        if (string.IsNullOrEmpty(processPath))
         {
             return new ChildProcessRegoCompiler("sentinel-hook", [], unavailable ?? "the path of the hook executable is unknown");
         }
 
-        return Path.GetFileNameWithoutExtension(process).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
-            ? new ChildProcessRegoCompiler(process, [Environment.GetCommandLineArgs()[0]], unavailable)
-            : new ChildProcessRegoCompiler(process, [], unavailable);
+        return Path.GetFileNameWithoutExtension(processPath).Equals("dotnet", StringComparison.OrdinalIgnoreCase)
+            ? new ChildProcessRegoCompiler(processPath, [entryAssembly], unavailable)
+            : new ChildProcessRegoCompiler(processPath, [], unavailable);
     }
+
+    /// <summary>The program the child runs, and the arguments in front of the command's own.</summary>
+    internal (string FileName, IReadOnlyList<string> LeadingArgs) Command => (_fileName, _leadingArgs);
 
     public string? Unavailable() => _unavailable;
 
