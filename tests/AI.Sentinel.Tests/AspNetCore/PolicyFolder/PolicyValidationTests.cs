@@ -1,0 +1,279 @@
+using AI.Sentinel.AspNetCore.PolicyFolder;
+using AI.Sentinel.Audit;
+using AI.Sentinel.Tests.ClaudeCode.Policy;
+using Xunit;
+using static AI.Sentinel.Tests.AspNetCore.PolicyFolder.PolicyFolderFixture;
+
+namespace AI.Sentinel.Tests.AspNetCore.PolicyFolder;
+
+public sealed class PolicyValidationTests
+{
+    private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    private static string Rules(string rule) => $"package sentinel\n\nimport rego.v1\n\n{rule}\n";
+
+    [Theory]
+    [InlineData("http.send")]
+    [InlineData("net.lookup_ip_addr")]
+    [InlineData("opa.runtime")]
+    public async Task A_bundle_that_uses_a_builtin_reaching_outside_is_refused_by_the_real_compiler(string builtin)
+    {
+        var call = builtin switch
+        {
+            "http.send" => "http.send({\"method\": \"get\", \"url\": \"https://example.com\"})",
+            "net.lookup_ip_addr" => "net.lookup_ip_addr(\"example.com\")",
+            _ => "opa.runtime()",
+        };
+        using var f = new PolicyFolderFixture(real: new ChildProcessCompiler());
+        f.Write("v1", teamRules: Rules($"deny contains \"x\" if {{\n\tr := {call}\n\tr != null\n}}"));
+        f.LinkTo("v1");
+
+        var result = await f.Loader.ReloadAsync(Ct);
+
+        Assert.Equal(PassResult.Rejected, result);
+        Assert.Null(f.Loader.Current);
+        var entry = Assert.Single(await f.AuditAsync());
+        Assert.Equal("rejected_publish", entry.Action);
+        Assert.EndsWith(" outside_builtin", entry.Target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_valid_configuration_compiles_with_the_real_compiler_as_the_one_module_the_plugin_compiles()
+    {
+        using var f = new PolicyFolderFixture(real: new ChildProcessCompiler());
+        f.Write("v1");
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+
+        Assert.Single(await f.AuditAsync());
+    }
+
+    [Fact]
+    public async Task A_bundle_that_uses_a_builtin_reaching_outside_is_refused_and_the_last_good_configuration_stays_in_force()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("good");
+        f.Write("bad", teamRules: Rules("deny contains \"x\" if http.send({\"url\": \"https://example.com\"})"));
+        f.LinkTo("good");
+        await f.Loader.ReloadAsync(Ct);
+        var good = f.Loader.Current!;
+
+        f.LinkTo("bad");
+        var result = await f.Loader.ReloadAsync(Ct);
+
+        Assert.Equal(PassResult.Rejected, result);
+        Assert.Same(good, f.Loader.Current);
+        var entries = await f.AuditAsync();
+        Assert.Equal(["publish", "rejected_publish"], entries.Select(e => e.Action), StringComparer.Ordinal);
+        Assert.All(entries, e => Assert.Equal("git", e.Channel));
+        Assert.EndsWith(" outside_builtin", entries[1].Target, StringComparison.Ordinal);
+        Assert.True((await AuditHashChain.VerifyAsync(ToAsync(entries.Select(e => e.ToChainEntry())), Ct)).IsIntact);
+    }
+
+    [Fact]
+    public async Task A_rejected_configuration_is_audited_once_however_often_it_is_looked_at()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("bad", teamRules: Rules("deny contains \"x\" if opa.runtime()"));
+        f.LinkTo("bad");
+
+        for (var i = 0; i < 4; i++)
+        {
+            Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+        }
+
+        Assert.Single(await f.AuditAsync());
+        Assert.Equal(1, f.Compiler.Calls);
+    }
+
+    [Fact]
+    public async Task A_publish_is_written_to_the_audit_log_on_the_git_channel_without_any_file_content()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1");
+        f.LinkTo("v1");
+
+        await f.Loader.ReloadAsync(Ct);
+
+        var entry = Assert.Single(await f.AuditAsync());
+        Assert.Equal(("publish", "git", "policy-folder"), (entry.Action, entry.Channel, entry.Actor));
+        Assert.StartsWith("configuration 1 module ", entry.Target, StringComparison.Ordinal);
+        Assert.DoesNotContain("deny", entry.Target, StringComparison.Ordinal);
+        Assert.Equal(Organisation, entry.Organisation);
+    }
+
+    [Fact]
+    public async Task A_rejection_is_followed_by_the_next_good_configuration()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("bad", teamRules: Rules("deny contains \"x\" if opa.runtime()"));
+        f.Write("fixed");
+        f.LinkTo("bad");
+        await f.Loader.ReloadAsync(Ct);
+
+        f.LinkTo("fixed");
+
+        Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+        Assert.Equal(["rejected_publish", "publish"], (await f.AuditAsync()).Select(e => e.Action), StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_bundle_below_the_organisation_that_defines_an_allow_rule_is_refused()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", teamRules: Rules("allow contains \"all fine\" if input.kind == \"read\""));
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+
+        Assert.Null(f.Loader.Current);
+        Assert.EndsWith(" allow_rule_below_organisation", Assert.Single(await f.AuditAsync()).Target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_organisation_bundle_may_define_an_allow_rule()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", orgRules: Rules("allow contains \"reading is fine\" if input.kind == \"read\""));
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+    }
+
+    [Theory]
+    [InlineData("allow contains \"x\" if true", true)]
+    [InlineData("allow if true", true)]
+    [InlineData("default allow := false", true)]
+    [InlineData("allow := true", true)]
+    [InlineData("  allow = true", true)]
+    [InlineData("allow[x] { x := 1 }", true)]
+    [InlineData("allow contains \"x\" if {\n\ttrue\n}", true)]
+    [InlineData("# allow if true", false)]
+    [InlineData("deny contains \"allow if true\" if input.x", false)]
+    [InlineData("deny contains \"x\" if input.y == \"allow\"", false)]
+    [InlineData("allowed := true", false)]
+    [InlineData("ask contains \"x\" if input.kind == \"fetch\" # allow if true", false)]
+    public void An_allow_rule_is_found_by_its_head_and_not_by_a_comment_or_a_string(string rego, bool expected) =>
+        Assert.Equal(expected, ConfigurationCompiler.DefinesAllow(rego));
+
+    [Fact]
+    public async Task A_bundle_that_is_no_node_is_refused()
+    {
+        using var f = new PolicyFolderFixture();
+        var dir = f.Write("v1");
+        Directory.CreateDirectory(Path.Combine(dir, "team-b"));
+        File.WriteAllText(Path.Combine(dir, "team-b", "rules.rego"), Rules("deny contains \"x\" if input.kind == \"fetch\""));
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+
+        Assert.EndsWith(" unknown_bundle", Assert.Single(await f.AuditAsync()).Target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_bundle_in_another_package_is_refused()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", teamRules: "package other\n\nimport rego.v1\n\ndeny contains \"x\" if input.y\n");
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+
+        Assert.EndsWith(" wrong_package", Assert.Single(await f.AuditAsync()).Target, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("{ not json")]
+    [InlineData("{\"organisation\": \"acme\", \"nodes\": []}")]
+    [InlineData("{\"organisation\": \"acme\", \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}], \"repositories\": {\"github.com/a/b\": \"nobody\"}}")]
+    [InlineData("{\"organisation\": \"acme\", \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\", \"settings\": {\"fail_mode\": \"maybe\"}}]}")]
+    [InlineData("{\"organisation\": \"acme\", \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}, {\"id\": \"acme\", \"kind\": \"team\"}]}")]
+    [InlineData("{\"organisation\": \"acme\", \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}], \"roles\": [{\"group\": \"g\", \"role\": \"team_lead\", \"node\": \"acme\"}]}")]
+    [InlineData("{\"organisation\": \"acme\", \"surprise\": 1, \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}]}")]
+    public async Task A_node_configuration_that_does_not_hold_together_is_refused(string nodes)
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", nodes: nodes);
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+
+        Assert.Null(f.Loader.Current);
+        Assert.EndsWith(" invalid_node_configuration", Assert.Single(await f.AuditAsync("fallback-org")).Target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_folder_without_a_rego_file_is_refused()
+    {
+        using var f = new PolicyFolderFixture();
+        var dir = f.Write("v1");
+        File.Delete(Path.Combine(dir, "acme.rego"));
+        File.Delete(Path.Combine(dir, "team-a", "rules.rego"));
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_link_inside_the_folder_is_not_followed_and_the_folder_is_refused()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var f = new PolicyFolderFixture();
+        var dir = f.Write("v1");
+        File.CreateSymbolicLink(Path.Combine(dir, "team-a", "leak.rego"), "/etc/hostname");
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+
+        Assert.Null(f.Loader.Current);
+        Assert.Equal(0, f.Compiler.Calls);
+    }
+
+    [Fact]
+    public async Task A_compiler_that_cannot_run_is_not_a_rejection_and_publishes_nothing()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1");
+        f.LinkTo("v1");
+        f.Compiler.UnavailableReason = "no opa binary on the PATH";
+
+        Assert.Equal(PassResult.Retry, await f.Loader.ReloadAsync(Ct));
+
+        Assert.Null(f.Loader.Current);
+        Assert.Empty(await f.AuditAsync());
+    }
+
+    [Fact]
+    public async Task A_version_the_filler_states_is_the_configuration_version_and_otherwise_the_publishes_are_counted()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", nodes: Nodes.Replace("\"organisation\": \"acme\",", "\"organisation\": \"acme\", \"version\": 42,", StringComparison.Ordinal));
+        f.Write("v2");
+        f.Write("v3", teamRules: Rules("deny contains \"y\" if input.kind == \"fetch\""));
+        f.LinkTo("v1");
+        await f.Loader.ReloadAsync(Ct);
+        Assert.Equal(42, f.Loader.Current!.Version);
+
+        f.LinkTo("v2");
+        await f.Loader.ReloadAsync(Ct);
+        Assert.Equal(1, f.Loader.Current!.Version);
+        f.LinkTo("v3");
+        await f.Loader.ReloadAsync(Ct);
+        Assert.Equal(2, f.Loader.Current!.Version);
+    }
+
+    private static async IAsyncEnumerable<AuditEntry> ToAsync(IEnumerable<AuditEntry> entries)
+    {
+        foreach (var entry in entries)
+        {
+            yield return entry;
+        }
+
+        await Task.CompletedTask;
+    }
+}
