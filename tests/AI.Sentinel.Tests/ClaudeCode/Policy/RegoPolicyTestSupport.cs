@@ -99,8 +99,10 @@ internal static class RegoPolicyTestSupport
         new(StringComparer.Ordinal) { ["SENTINEL_HOOK_POLICY_CACHE_DIR"] = cache ?? SharedCache };
 
     /// <summary>The compilers a hook has, in its order: the child process, then the <c>opa</c> binary where the interop
-    /// compiler has no native library, as on arm64.</summary>
-    public static IReadOnlyList<IRegoCompiler> Compilers(ChildProcessCompiler child) => [child, new OpaBinaryCompiler()];
+    /// compiler has no native library, as on arm64. The <c>opa</c> compiler follows the child's restriction setting, so a
+    /// policy loads the same whichever compiler the machine provides.</summary>
+    public static IReadOnlyList<IRegoCompiler> Compilers(ChildProcessCompiler child) =>
+        [child, new RestrictionOverride(new OpaBinaryCompiler(), child.Unrestricted)];
 
     /// <summary>Compiles the policy in a child process and leaves the result in the shared cache, so a hook run in this
     /// process finds it there and never loads the Go runtime of the interop compiler itself.</summary>
