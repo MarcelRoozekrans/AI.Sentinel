@@ -32,6 +32,7 @@ internal sealed class LocalPolicy : IDisposable
     private readonly string _bundleSource;
     private readonly List<PolicyFinding> _findings = [];
     private SeverityActions? _severities;
+    private Repository.RepositoryPolicy? _repository;
 
     private LocalPolicy(string version, IReadOnlyList<string> bundles, string? repositoryRoot, EvaluationOrder order, InProcessPolicyEvaluator inProcess)
     {
@@ -71,7 +72,7 @@ internal sealed class LocalPolicy : IDisposable
         {
             var policy = RegoPolicy.Load(folder, cache, compilers);
             var only = new InProcessPolicyEvaluator(policy);
-            return new LocalPolicy(policy.Version, policy.Bundles, root, new EvaluationOrder([only]), only);
+            return new LocalPolicy(policy.Version, policy.Bundles, root, new EvaluationOrder([only]), only) { _repository = Repository.RepositoryPolicy.Open(env, root) };
         }
 
         // Reading the sources throws for a folder that cannot be read, as loading the module does. The module is not loaded here:
@@ -80,6 +81,7 @@ internal sealed class LocalPolicy : IDisposable
         var inProcess = new InProcessPolicyEvaluator(() => RegoPolicy.Load(folder, cache, compilers));
         var residentEvaluator = new ResidentPolicyEvaluator(resident.Client, Path.GetFullPath(folder), sources.Version, Path.GetFullPath(cache));
         var local = new LocalPolicy(sources.Version, sources.Bundles, root, new EvaluationOrder([residentEvaluator, inProcess]), inProcess);
+        local._repository = Repository.RepositoryPolicy.Open(env, root);
         try
         {
             // Evaluated now so that a policy that cannot run fails the load, which blocks the call with the policy as its reason.
@@ -103,6 +105,14 @@ internal sealed class LocalPolicy : IDisposable
     /// <exception cref="FormatException">The policy names a severity or an outcome that does not exist; the caller blocks.</exception>
     public SeverityActions Severities() => _severities ?? _order.Evaluate("{}").Decision.SeverityActions ?? SeverityActions.None;
 
+    /// <summary>The repository policy of the node that owns the repository (#656), or <see langword="null"/> when no node map is
+    /// cached; the policy input then names no repository.</summary>
+    internal Repository.RepositoryPolicy? RepositoryPolicy
+    {
+        get => _repository;
+        set => _repository = value;
+    }
+
     /// <summary>The version of the loaded policy, which an audit entry carries.</summary>
     public string Version { get; }
 
@@ -120,13 +130,20 @@ internal sealed class LocalPolicy : IDisposable
     public HookOutput Decide(HookOutput existing, string cli, string toolName, JsonElement toolInput, string session)
     {
         ArgumentNullException.ThrowIfNull(existing);
-        var input = PolicyInputBuilder.Build(cli, toolName, toolInput, session, _findings, _repositoryRoot);
+        var input = PolicyInputBuilder.Build(
+            cli, toolName, toolInput, session, _findings, _repositoryRoot, _repository?.Scope.Repository ?? "", _repository?.Scope.Node ?? "");
         var (policy, place) = _order.Evaluate(PolicyInputSerializer.Serialize(input));
 
         var decisions = new List<OutcomeDecision>(3)
         {
             existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource),
         };
+        // The organisation's rules and the node's bundle (#656) are combined with the local folder strictest-wins, so the folder
+        // can tighten what the profile sets and never loosen it.
+        if (_repository is not null)
+        {
+            decisions.AddRange(_repository.Decisions(PolicyInputSerializer.Serialize(input)));
+        }
         if (policy.Outcome != DecisionOutcome.Defer)
         {
             decisions.Add(new OutcomeDecision(policy.Outcome, string.Join("; ", policy.Reasons), [SourceOf(policy)], Version, place));

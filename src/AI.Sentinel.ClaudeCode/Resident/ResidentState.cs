@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using AI.Sentinel.ClaudeCode.Policy.Rego;
+using AI.Sentinel.ClaudeCode.Policy.Repository;
 using AI.Sentinel.Profiles;
 
 namespace AI.Sentinel.ClaudeCode.Resident;
@@ -18,6 +19,9 @@ internal sealed class ResidentState(string directory)
 
     /// <summary>The file that holds the last valid signed profile.</summary>
     public const string ProfileFile = "profile.json";
+
+    /// <summary>The file that holds the map of repositories to the nodes that own them (#656).</summary>
+    public const string NodesFile = "nodes.json";
 
     /// <summary>The state folder, as <see cref="ResidentPaths.Prepare"/> returned it.</summary>
     public string Directory { get; } = directory;
@@ -71,12 +75,12 @@ internal sealed class ResidentState(string directory)
 
     /// <summary>Caches <paramref name="signed"/> when <see cref="ProfileVerifier"/> accepts it, and only then: a profile that fails the
     /// check leaves the last valid one in place.</summary>
-    public ProfileVerification StoreProfile(SignedProfile signed, PinnedProfileKeys pinned, string organisation, string repository, DateTimeOffset now)
+    public ProfileVerification StoreProfile(SignedProfile signed, PinnedProfileKeys pinned, string organisation, string repository, DateTimeOffset now, string? slot = null)
     {
         var verification = ProfileVerifier.Verify(signed, pinned, organisation, repository, now);
         if (verification.IsAccepted)
         {
-            PolicyCache.Write(Path.Combine(Directory, ProfileFile), Encoding.UTF8.GetBytes(signed.ToJson()));
+            PolicyCache.Write(Path.Combine(Directory, ProfileFileOf(slot)), Encoding.UTF8.GetBytes(signed.ToJson()));
         }
 
         return verification;
@@ -84,9 +88,9 @@ internal sealed class ResidentState(string directory)
 
     /// <summary>The cached profile, checked again as a profile from the server is: a cache that fails the check is not used, and one
     /// that passes is used offline until it expires. <see langword="null"/> when nothing is cached.</summary>
-    public ProfileVerification? ReadProfile(PinnedProfileKeys pinned, string organisation, string repository, DateTimeOffset now)
+    public ProfileVerification? ReadProfile(PinnedProfileKeys pinned, string organisation, string repository, DateTimeOffset now, string? slot = null)
     {
-        if (PolicyCache.TryRead(Path.Combine(Directory, ProfileFile)) is not { } bytes)
+        if (PolicyCache.TryRead(Path.Combine(Directory, ProfileFileOf(slot))) is not { } bytes)
         {
             return null;
         }
@@ -94,5 +98,37 @@ internal sealed class ResidentState(string directory)
         return SignedProfile.Parse(Encoding.UTF8.GetString(bytes)) is { } signed
             ? ProfileVerifier.Verify(signed, pinned, organisation, repository, now)
             : ProfileVerification.Rejected(ProfileRejection.Malformed);
+    }
+
+    /// <summary>The cache file of a profile: the one profile of the state folder, or the one of <paramref name="slot"/>, which keeps a
+    /// profile per repository.</summary>
+    private static string ProfileFileOf(string? slot) => slot is null ? ProfileFile : $"profile-{slot}.json";
+
+    /// <summary>Caches the node map, whole, for a hook to read.</summary>
+    public void WriteNodeMap(NodeMap map)
+    {
+        ArgumentNullException.ThrowIfNull(map);
+        PolicyCache.Write(Path.Combine(Directory, NodesFile), map.ToJson());
+    }
+
+    /// <summary>The cached node map; <see langword="null"/> when none is cached.</summary>
+    /// <exception cref="InvalidDataException">A map is cached and cannot be read. That must not read as "no node owns anything", which
+    /// would loosen the policy of every repository, so the hook blocks the call as an internal error.</exception>
+    public NodeMap? ReadNodeMap()
+    {
+        var path = Path.Combine(Directory, NodesFile);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return NodeMap.FromJson(PolicyCache.TryRead(path) ?? throw new InvalidDataException("fails its digest"));
+        }
+        catch (Exception e) when (e is InvalidDataException or JsonException or IOException or UnauthorizedAccessException)
+        {
+            throw new InvalidDataException($"the node map is unreadable ({e.Message})", e);
+        }
     }
 }
