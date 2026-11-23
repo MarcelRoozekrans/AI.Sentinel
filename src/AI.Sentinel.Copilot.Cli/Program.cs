@@ -15,6 +15,7 @@ using AI.Sentinel.Sqlite.Local;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.ClaudeCode.Policy;
 using AI.Sentinel.ClaudeCode.Policy.Rego;
+using AI.Sentinel.ClaudeCode.Resident;
 using AI.Sentinel.Copilot;
 
 namespace AI.Sentinel.Copilot.Cli;
@@ -27,6 +28,12 @@ public static class Program
         if (PolicyCompileCommand.Matches(args))
         {
             return PolicyCompileCommand.Run(args, Console.Error);
+        }
+
+        // The hook starts itself with this to keep the compiled policy warm between calls (SENTINEL_HOOK_RESIDENT=on).
+        if (ResidentCommand.Matches(args))
+        {
+            return await ResidentCommand.RunAsync(RegoPolicy.HookCompilers(), Console.Error).ConfigureAwait(false);
         }
 
         return await RunAsync(args, Console.In, Console.Out, Console.Error, embeddingGenerator: null, reviewer: null, RegoPolicy.HookCompilers()).ConfigureAwait(false);
@@ -44,7 +51,8 @@ public static class Program
         string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         IDetectionReviewer? reviewer,
-        IReadOnlyList<IRegoCompiler>? policyCompilers)
+        IReadOnlyList<IRegoCompiler>? policyCompilers,
+        Func<ResidentLaunch, bool>? residentStart = null)
     {
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
@@ -54,7 +62,7 @@ public static class Program
 
         try
         {
-            return await RunCoreAsync(args, evt, stdin, stdout, stderr, embeddingGenerator, reviewer, policyCompilers).ConfigureAwait(false);
+            return await RunCoreAsync(args, evt, stdin, stdout, stderr, embeddingGenerator, reviewer, policyCompilers, residentStart).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -76,7 +84,8 @@ public static class Program
         string[] args, CopilotHookEvent evt, TextReader stdin, TextWriter stdout, TextWriter stderr,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         IDetectionReviewer? reviewer,
-        IReadOnlyList<IRegoCompiler>? policyCompilers)
+        IReadOnlyList<IRegoCompiler>? policyCompilers,
+        Func<ResidentLaunch, bool>? residentStart)
     {
         var hookEnv = BuildHookEnvVars();
         var config = CopilotHookConfig.FromEnvironment(hookEnv);
@@ -115,7 +124,7 @@ public static class Program
         }
 
         // A local Rego policy (SENTINEL_HOOK_POLICY_DIR) judges a PreToolUse; one that cannot be loaded blocks the call.
-        var (policy, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, policyCompilers, config, audit, auditProblems, stderr).ConfigureAwait(false);
+        var (policy, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, policyCompilers, residentStart, config, audit, auditProblems, stderr).ConfigureAwait(false);
         if (blocked is { } blockedExit) return blockedExit;
         using var policyScope = policy;
         CopilotHookResult result;
@@ -376,9 +385,11 @@ public static class Program
     /// <summary>Loads the policy, see <see cref="TryLoadPolicy"/>. One that cannot be loaded blocks the call as an internal
     /// error, and its exit code is returned; running without it would skip every rule it holds.</summary>
     private static async Task<(LocalPolicy? Policy, int? Exit)> OpenPolicyAsync(
-        string[] args, CopilotHookEvent evt, CopilotHookInput input, IReadOnlyDictionary<string, string?> hookEnv, IReadOnlyList<IRegoCompiler>? compilers, CopilotHookConfig config,
+        string[] args, CopilotHookEvent evt, CopilotHookInput input, IReadOnlyDictionary<string, string?> hookEnv, IReadOnlyList<IRegoCompiler>? compilers, Func<ResidentLaunch, bool>? residentStart, CopilotHookConfig config,
         LocalAuditSession audit, List<string> auditProblems, TextWriter stderr)
     {
+        // With SENTINEL_HOOK_RESIDENT=on a hook that finds no resident process starts one, detached, and goes on in-process.
+        _ = evt == CopilotHookEvent.PreToolUse ? ResidentSession.Open(hookEnv, residentStart) : null;
         var (policy, folder, error) = TryLoadPolicy(evt, hookEnv, compilers);
         if (error is null)
         {
