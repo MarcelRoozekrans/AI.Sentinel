@@ -9,6 +9,9 @@ namespace AI.Sentinel.Tests.AspNetCore.PolicyFolder;
 
 public sealed class PolicyFolderTests
 {
+    /// <summary>One pass compiles the module of all bundles and then the module of each of the two nodes alone.</summary>
+    private const int CompilesPerPass = 3;
+
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static string Rules(string marker) => $"package sentinel\n\nimport rego.v1\n\ndeny contains \"{marker}\" if input.kind == \"shell\"\n";
@@ -25,7 +28,7 @@ public sealed class PolicyFolderTests
         Assert.Equal(PassResult.Published, result);
         var current = f.Loader.Current!;
         Assert.Equal(Organisation, current.Organisation, StringComparer.Ordinal);
-        Assert.Equal(1, f.Compiler.Calls);
+        Assert.Equal(CompilesPerPass, f.Compiler.Calls);
         Assert.Contains("recursive delete", current.Module, StringComparison.Ordinal);
         Assert.Contains("team asks", current.Module, StringComparison.Ordinal);
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(current.Module))), current.ModuleHash, StringComparer.Ordinal);
@@ -36,6 +39,9 @@ public sealed class PolicyFolderTests
         Assert.Equal("closed", team.FailMode, StringComparer.Ordinal);
         Assert.Equal(["sec", "leads"], current.Nodes.Roles.Select(r => r.Group), StringComparer.Ordinal);
         Assert.Equal("acme", current.Nodes.NodeFor("github.com/acme/other")!.Id, StringComparer.Ordinal);
+        Assert.Equal(["acme", "team-a"], current.Modules.Keys.Order(StringComparer.Ordinal), StringComparer.Ordinal);
+        Assert.DoesNotContain("team asks", current.Modules["acme"].Module, StringComparison.Ordinal);
+        Assert.DoesNotContain("recursive delete", current.Modules["team-a"].Module, StringComparison.Ordinal);
         Assert.Null(current.Nodes.NodeFor("github.com/else/where"));
     }
 
@@ -49,14 +55,14 @@ public sealed class PolicyFolderTests
         var first = f.Loader.Current!;
 
         Assert.Equal(PassResult.Unchanged, await f.Loader.ReloadAsync(Ct));
-        Assert.Equal(1, f.Compiler.Calls);
+        Assert.Equal(CompilesPerPass, f.Compiler.Calls);
 
         f.Write("v2", teamRules: Rules("other"));
         f.LinkTo("v2");
         Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
 
         Assert.NotEqual(first.ModuleHash, f.Loader.Current!.ModuleHash, StringComparer.Ordinal);
-        Assert.Equal(2, f.Compiler.Calls);
+        Assert.Equal(2 * CompilesPerPass, f.Compiler.Calls);
     }
 
     [Fact]
@@ -223,7 +229,7 @@ public sealed class PolicyFolderTests
         Assert.Equal(1, f.Compiler.MaxRunning);
         Assert.Equal(1, results.Count(r => r == PassResult.Published));
         Assert.Equal(5, results.Count(r => r == PassResult.Unchanged));
-        Assert.Equal(1, f.Compiler.Calls);
+        Assert.Equal(CompilesPerPass, f.Compiler.Calls);
     }
 
     [Fact]

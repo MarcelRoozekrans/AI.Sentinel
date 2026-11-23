@@ -192,7 +192,7 @@ internal sealed class PolicyFolderLoader
     {
         var version = verdict.Nodes!.Version ?? Interlocked.Increment(ref _sequence);
         var configuration = new PublishedConfiguration(
-            verdict.Organisation!, version, files.Fingerprint, verdict.Module!, verdict.ModuleHash!, verdict.Nodes!);
+            verdict.Organisation!, version, files.Fingerprint, verdict.Module!, verdict.ModuleHash!, verdict.Modules!, verdict.Nodes!);
         try
         {
             // Recorded first: a configuration whose publish is not in the audit log does not come into force.

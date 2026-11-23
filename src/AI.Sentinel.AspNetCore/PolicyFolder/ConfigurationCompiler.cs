@@ -43,21 +43,36 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
         }
 
         var module = Merge(rego);
-        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(module)));
-        return Compile(nodes, module, hash);
+        var hash = Hash(module);
+        var modules = new Dictionary<string, NodeModule>(StringComparer.Ordinal);
+        var byBundle = rego.ToLookup(f => BundleOf(f.Key), StringComparer.Ordinal);
+        foreach (var node in nodes.Nodes)
+        {
+            var own = Merge([.. byBundle[node.Id]]);
+            modules[node.Id] = new NodeModule(own, Hash(own));
+        }
+
+        return Compile(nodes, module, hash, modules);
     }
 
-    private ConfigurationVerdict Compile(NodeConfiguration nodes, string module, string hash)
+    private static string Hash(string module) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(module)));
+
+    private ConfigurationVerdict Compile(NodeConfiguration nodes, string module, string hash, Dictionary<string, NodeModule> modules)
     {
         try
         {
-            // The plugin compiles this text on its own: the host rules are added to it as they are there.
-            var sources = PolicySources.FromFiles([new PolicyFile("profile.rego", module)]);
             var compiler = compilers.FirstOrDefault(c => c.Unavailable() is null)
                 ?? throw new InvalidOperationException(
                     "no Rego compiler can run here: " + string.Join("; ", compilers.Select(c => $"{c.Name}: {c.Unavailable()}")));
-            compiler.CompileWasm(sources, restrictBuiltins: true);
-            return ConfigurationVerdict.Accept(nodes, module, hash);
+            // The plugin compiles each of these texts on its own, with the host rules added as they are there. All bundles together
+            // identify the configuration; each profile carries one node's module, which has to compile alone.
+            compiler.CompileWasm(PolicySources.FromFiles([new PolicyFile("profile.rego", module)]), restrictBuiltins: true);
+            foreach (var own in modules.Values.DistinctBy(m => m.ModuleHash, StringComparer.Ordinal))
+            {
+                compiler.CompileWasm(PolicySources.FromFiles([new PolicyFile("profile.rego", own.Module)]), restrictBuiltins: true);
+            }
+
+            return ConfigurationVerdict.Accept(nodes, module, hash, modules);
         }
         catch (RegoCompileException e)
         {

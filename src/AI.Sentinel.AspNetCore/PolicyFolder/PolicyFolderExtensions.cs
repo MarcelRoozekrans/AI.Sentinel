@@ -141,7 +141,7 @@ public static class PolicyFolderExtensions
         HttpContext http, IAuthorizationService authorization, IOptions<PolicyFolderOptions> options, ProfileIssuer issuer)
     {
         var (failure, configuration) = await AdmitAsync(http, authorization, options, issuer).ConfigureAwait(false);
-        return failure ?? Results.Bytes(configuration!.Nodes.ToNodeMapJson(), "application/json");
+        return failure ?? Results.Bytes(configuration!.Nodes.Map.ToJson(), "application/json");
     }
 
     private static string? FindOpa()

@@ -7,6 +7,7 @@ using AI.Sentinel.AspNetCore.PolicyFolder;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.ClaudeCode.Policy;
 using AI.Sentinel.ClaudeCode.Policy.Rego;
+using AI.Sentinel.ClaudeCode.Policy.Repository;
 using AI.Sentinel.ClaudeCode.Resident;
 using AI.Sentinel.ClaudeCode.SignIn;
 using AI.Sentinel.Profiles;
@@ -70,9 +71,77 @@ public sealed class ProfileServingTests : IDisposable
         Assert.Equal(TimeSpan.FromHours(24), profile.ExpiresAt - profile.IssuedAt);
         Assert.True(profile.LoggingSwitches["detailed"]);
         var published = host.Services.GetRequiredService<PolicyFolderLoader>().Current!;
-        Assert.Equal(published.ModuleHash, profile.ModuleHash);
+        Assert.Equal(published.Modules["team-a"].ModuleHash, profile.ModuleHash);
         Assert.Equal(published.Version, profile.ConfigurationVersion);
+        // The profile of a repository is the bundle of the node that owns it, and nothing of the organisation's or another node's.
+        Assert.Contains("team asks", profile.Module, StringComparison.Ordinal);
+        Assert.DoesNotContain("recursive delete", profile.Module, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_profile_for_the_organisation_repository_star_is_the_organisation_bundle_only()
+    {
+        using var host = await StartAsync(publish: true);
+        var client = host.GetTestClient();
+
+        var response = await client.SendAsync(Get("/ai-sentinel/policy/profile?repository=*", "acme"), Ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var profile = ProfileVerifier.Verify(SignedProfile.Parse(await response.Content.ReadAsStringAsync(Ct))!, await PinnedAsync(client),
+            "acme", CachedNodePolicies.OrganisationRepository, DateTimeOffset.UtcNow).Profile!;
+        Assert.Equal("acme", profile.Node);
         Assert.Contains("recursive delete", profile.Module, StringComparison.Ordinal);
+        Assert.DoesNotContain("team asks", profile.Module, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_profiles_fit_the_convention_the_hooks_read_the_organisation_rules_and_the_node_bundle_from_their_slots()
+    {
+        var dir = ResidentTestSupport.NewDir();
+        try
+        {
+            using var host = await StartAsync(publish: true, real: new ChildProcessCompiler());
+            var client = host.GetTestClient();
+            var pinned = await PinnedAsync(client);
+            var state = new ResidentState(ResidentPaths.Prepare(new ResidentSettings(dir, ResidentSettings.DefaultIdleTimeout, ResidentSettings.DefaultBudget)));
+            var now = DateTimeOffset.UtcNow;
+            foreach (var repository in new[] { CachedNodePolicies.OrganisationRepository, Repository })
+            {
+                var response = await client.SendAsync(Get($"/ai-sentinel/policy/profile?repository={Uri.EscapeDataString(repository)}", "acme"), Ct);
+                var signed = SignedProfile.Parse(await response.Content.ReadAsStringAsync(Ct))!;
+                Assert.True(state.StoreProfile(signed, pinned, "acme", repository, now, CachedNodePolicies.SlotOf(repository)).IsAccepted);
+            }
+
+            var policies = new CachedNodePolicies(state, pinned, "acme", () => now, RegoPolicyTestSupport.SharedCache,
+                RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()));
+            var shell = PolicyInputSerializer.Serialize(PolicyInputBuilder.Build(
+                PolicyClis.ClaudeCode, "Bash", JsonDocument.Parse("{\"command\":\"ls\"}").RootElement, "s-1", [], "/work/repo"));
+            var fetch = PolicyInputSerializer.Serialize(PolicyInputBuilder.Build(
+                PolicyClis.ClaudeCode, "WebFetch", JsonDocument.Parse("{\"url\":\"https://example.com\"}").RootElement, "s-1", [], "/work/repo"));
+
+            Assert.Equal(DecisionOutcome.Deny, policies.Organisation(shell)!.Outcome);
+            Assert.Equal(DecisionOutcome.Defer, policies.Organisation(fetch)!.Outcome);
+            Assert.Equal(DecisionOutcome.Ask, policies.ForRepository(Repository, fetch)!.Outcome);
+            Assert.Equal(DecisionOutcome.Defer, policies.ForRepository(Repository, shell)!.Outcome);
+        }
+        finally
+        {
+            ResidentTestSupport.Delete(dir);
+        }
+    }
+
+    [Fact]
+    public async Task The_fail_mode_ask_of_a_node_is_published_in_its_profile()
+    {
+        _folder.Write("v1", nodes: Nodes.Replace("\"fail_mode\": \"closed\"", "\"fail_mode\": \"ask\"", StringComparison.Ordinal));
+        using var host = await StartAsync(publish: true, write: false);
+        var client = host.GetTestClient();
+
+        var response = await client.SendAsync(Get($"/ai-sentinel/policy/profile?repository={Uri.EscapeDataString(Repository)}", "acme"), Ct);
+
+        var profile = ProfileVerifier.Verify(SignedProfile.Parse(await response.Content.ReadAsStringAsync(Ct))!, await PinnedAsync(client),
+            "acme", Repository, DateTimeOffset.UtcNow).Profile!;
+        Assert.Equal("ask", profile.FailMode);
     }
 
     [Fact]
@@ -144,9 +213,11 @@ public sealed class ProfileServingTests : IDisposable
 
         var response = await host.GetTestClient().SendAsync(Get("/ai-sentinel/policy/node-map", "acme"), Ct);
 
-        var map = JsonSerializer.Deserialize<Dictionary<string, string>>(await response.Content.ReadAsStringAsync(Ct))!;
-        Assert.Equal("team-a", map["github.com/acme/widgets"]);
-        Assert.Equal("acme", map["github.com/acme/other"]);
+        // The type the hooks cache, read from the bytes the server sent.
+        var map = NodeMap.FromJson(await response.Content.ReadAsByteArrayAsync(Ct));
+        Assert.Equal("team-a", map.NodeFor("github.com/acme/widgets"));
+        Assert.Equal("acme", map.NodeFor("github.com/acme/other"));
+        Assert.Null(map.NodeFor("github.com/else/where"));
     }
 
     [Fact]
@@ -189,19 +260,19 @@ public sealed class ProfileServingTests : IDisposable
             {
                 var client = host.GetTestClient();
                 pinned = await PinnedAsync(client);
-                var response = await client.SendAsync(Get($"/ai-sentinel/policy/profile?repository={Uri.EscapeDataString(Repository)}", "acme"), Ct);
+                var response = await client.SendAsync(Get("/ai-sentinel/policy/profile?repository=*", "acme"), Ct);
                 signed = SignedProfile.Parse(await response.Content.ReadAsStringAsync(Ct))!;
             }
 
             // The host is gone: this is the PC with the server unreachable, and only its state folder is left.
             var state = new ResidentState(ResidentPaths.Prepare(new ResidentSettings(dir, ResidentSettings.DefaultIdleTimeout, ResidentSettings.DefaultBudget)));
             var now = DateTimeOffset.UtcNow;
-            Assert.True(state.StoreProfile(signed, pinned, "acme", Repository, now).IsAccepted);
+            Assert.True(state.StoreProfile(signed, pinned, "acme", CachedNodePolicies.OrganisationRepository, now).IsAccepted);
             var input = PolicyInputSerializer.Serialize(PolicyInputBuilder.Build(
                 PolicyClis.ClaudeCode, "Bash",
                 JsonDocument.Parse("{\"command\":\"rm -rf build\"}").RootElement, "s-1", [], "/work/repo"));
 
-            var decision = ProfileDecider.Decide(state, pinned, "acme", Repository, now, input, RegoPolicyTestSupport.SharedCache,
+            var decision = ProfileDecider.Decide(state, pinned, "acme", CachedNodePolicies.OrganisationRepository, now, input, RegoPolicyTestSupport.SharedCache,
                 RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()));
 
             Assert.Equal(DecisionOutcome.Deny, decision.Decision!.Outcome);
@@ -231,11 +302,15 @@ public sealed class ProfileServingTests : IDisposable
         return PinnedProfileKeys.FromBase64(wire.Keys!);
     }
 
-    private async Task<IHost> StartAsync(bool publish, IRegoCompiler? real = null)
+    private async Task<IHost> StartAsync(bool publish, IRegoCompiler? real = null, bool write = true)
     {
         if (publish)
         {
-            _folder.Write("v1");
+            if (write)
+            {
+                _folder.Write("v1");
+            }
+
             _folder.LinkTo("v1");
         }
 
@@ -262,15 +337,7 @@ public sealed class ProfileServingTests : IDisposable
                 });
                 web.Configure(app =>
                 {
-                    app.Use(async (ctx, next) =>
-                    {
-                        if (ctx.Request.Headers.TryGetValue("X-Org", out var org))
-                        {
-                            ctx.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("org", org.ToString())], "test"));
-                        }
-
-                        await next(ctx);
-                    });
+                    app.Use(SignInAs);
                     app.UseRouting();
                     app.UseEndpoints(e => e.MapAISentinelPolicyServer());
                 });
@@ -289,6 +356,16 @@ public sealed class ProfileServingTests : IDisposable
         }
 
         return host;
+    }
+
+    private static async Task SignInAs(Microsoft.AspNetCore.Http.HttpContext ctx, Func<Task> next)
+    {
+        if (ctx.Request.Headers.TryGetValue("X-Org", out var org))
+        {
+            ctx.User = new ClaimsPrincipal(new ClaimsIdentity([new Claim("org", org.ToString())], "test"));
+        }
+
+        await next();
     }
 
     private sealed class OrgRequirement : IAuthorizationRequirement;

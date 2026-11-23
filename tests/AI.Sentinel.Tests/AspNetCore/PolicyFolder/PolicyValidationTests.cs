@@ -185,6 +185,7 @@ public sealed class PolicyValidationTests
 
     [Theory]
     [InlineData("{ not json")]
+    [InlineData("{\"organisation\": \"acme\", \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\", \"settings\": {\"fail_mode\": \"open\"}}]}")]
     [InlineData("{\"organisation\": \"acme\", \"nodes\": []}")]
     [InlineData("{\"organisation\": \"acme\", \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}], \"repositories\": {\"github.com/a/b\": \"nobody\"}}")]
     [InlineData("{\"organisation\": \"acme\", \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\", \"settings\": {\"fail_mode\": \"maybe\"}}]}")]
@@ -201,6 +202,53 @@ public sealed class PolicyValidationTests
 
         Assert.Null(f.Loader.Current);
         Assert.EndsWith(" invalid_node_configuration", Assert.Single(await f.AuditAsync("fallback-org")).Target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_fail_mode_ask_is_accepted_and_closed_is_the_default()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", nodes: Nodes.Replace("\"fail_mode\": \"closed\"", "\"fail_mode\": \"ask\"", StringComparison.Ordinal));
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+
+        Assert.Equal("ask", f.Loader.Current!.Nodes.NodeFor("github.com/acme/other")!.FailMode);
+        // team-a leaves it out and inherits the organisation's; an organisation that leaves it out is closed.
+        Assert.Equal("ask", f.Loader.Current.Nodes.NodeFor(Repository)!.FailMode);
+    }
+
+    [Fact]
+    public async Task A_node_that_leaves_the_fail_mode_out_is_closed()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", nodes: Nodes.Replace(", \"settings\": {\"fail_mode\": \"closed\"}", "", StringComparison.Ordinal));
+        f.LinkTo("v1");
+
+        await f.Loader.ReloadAsync(Ct);
+
+        Assert.Equal("closed", f.Loader.Current!.Nodes.NodeFor(Repository)!.FailMode);
+    }
+
+    [Fact]
+    public async Task A_node_bundle_that_does_not_compile_on_its_own_is_refused()
+    {
+        using var f = new PolicyFolderFixture();
+        // The profile of team-a is compiled alone: a bundle that leans on a rule of another bundle has to say so by failing here.
+        f.Compiler.OnCompile = (sources, _) =>
+        {
+            if (sources.Files.Any(s => s.Text.Contains("team asks", StringComparison.Ordinal))
+                && !sources.Files.Any(s => s.Text.Contains("recursive delete", StringComparison.Ordinal)))
+            {
+                throw new AI.Sentinel.ClaudeCode.Policy.Rego.RegoCompileException("rego_unsafe_var_error: var org_rule is unsafe");
+            }
+        };
+        f.Write("v1");
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+
+        Assert.EndsWith(" does_not_compile", Assert.Single(await f.AuditAsync()).Target, StringComparison.Ordinal);
     }
 
     [Fact]

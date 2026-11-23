@@ -509,7 +509,7 @@ team-a/rules.rego     the bundle of the node team-a
 }
 ```
 
-A team inherits the settings it leaves out from the organisation. `fail_mode` is `closed` or `open`; the profile lifetime defaults to 7 days. `version` is optional: without it the server counts its publishes. Bundles are written in `package sentinel` and add reasons with `deny contains`, `ask contains` and the other outcome sets. A bundle below the organisation cannot define an `allow` rule (ADR-232). A link inside the folder is not followed and refuses the folder.
+A team inherits the settings it leaves out from the organisation. `fail_mode` is `closed` (the default) or `ask` (ADR-237); anything else, `open` included, refuses the configuration. The profile lifetime defaults to 7 days. `version` is optional: without it the server counts its publishes. Bundles are written in `package sentinel` and add reasons with `deny contains`, `ask contains` and the other outcome sets. A bundle below the organisation cannot define an `allow` rule (ADR-232). A link inside the folder is not followed and refuses the folder.
 
 ### Reading is one complete version
 
@@ -517,7 +517,7 @@ Whatever fills the folder has to swap it atomically, as git-sync does with a lin
 
 ### Compiling and validating
 
-All bundles of a version are merged into one Rego module, identified by its sha256, which is also what the plugin compiles. The server compiles it in a child process with the `opa` binary, with a capabilities document that leaves out the builtins that reach outside the process (`http.send`, `net.lookup_ip_addr`, `opa.runtime`). The Rego engine is the one of the hook adapter, referenced by the server part; where it finally lives is tracked in #694. A configuration that fails validation is not published, the last good one stays in force, and a `rejected_publish` entry is written to the [audit log](#administrative-audit-log-server-part) on the git channel; a `publish` entry is written for each published version. Entries hold a short reason code and the hash of what was read, never file content. A compiler that cannot run is not a rejection: nothing is published, the pass is retried and the failure is logged.
+All bundles of a version are merged into one Rego module, identified by its sha256, which identifies the configuration in the audit log. Each profile carries the module of one node, merged the same way and compiled on its own, which is what the plugin compiles. The server compiles it in a child process with the `opa` binary, with a capabilities document that leaves out the builtins that reach outside the process (`http.send`, `net.lookup_ip_addr`, `opa.runtime`). The Rego engine is the one of the hook adapter, referenced by the server part; where it finally lives is tracked in #694. A configuration that fails validation is not published, the last good one stays in force, and a `rejected_publish` entry is written to the [audit log](#administrative-audit-log-server-part) on the git channel; a `publish` entry is written for each published version. Entries hold a short reason code and the hash of what was read, never file content. A compiler that cannot run is not a rejection: nothing is published, the pass is retried and the failure is logged.
 
 ### Signed profiles
 
@@ -528,6 +528,8 @@ The server signs one profile per repository with the deployment key and serves i
 | `GET /.well-known/ai-sentinel/profile-keys` | `{"organisation": "...", "keys": ["base64 Ed25519 public key"]}`, the keys the sign-in pins |
 | `GET {prefix}/profile?repository=` | the signed profile of the repository; `404` when no node owns it |
 | `GET {prefix}/node-map` | repository to node id, the map the hooks cache |
+
+The profiles follow the convention the hooks read. The profile for the repository `*` is the organisation's top-level rules (the bundle of the organisation node), and the profile for a repository is the bundle of the node that owns it, so a node never carries another node's rules; the hooks combine the two strictest-wins. A repository that is not in `nodes.json` gets `404`, which is strict repository mode. The node map is the same type the hooks cache as `nodes.json` in their state folder.
 
 While the server is unreachable a hook still denies a call that matches a deny rule of the last valid cached profile.
 

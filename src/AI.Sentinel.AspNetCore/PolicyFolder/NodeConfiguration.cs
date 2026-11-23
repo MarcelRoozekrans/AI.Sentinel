@@ -1,4 +1,5 @@
 using System.Text.Json;
+using AI.Sentinel.ClaudeCode.Policy.Repository;
 using AI.Sentinel.Profiles;
 
 namespace AI.Sentinel.AspNetCore.PolicyFolder;
@@ -14,7 +15,6 @@ internal sealed class NodeConfiguration
     public const string TeamLead = "team_lead";
 
     private readonly Dictionary<string, ConfiguredNode> _nodes;
-    private readonly Dictionary<string, string> _owners;
 
     private NodeConfiguration(
         string organisation, long? version, Dictionary<string, ConfiguredNode> nodes, Dictionary<string, string> owners, IReadOnlyList<RoleBinding> roles)
@@ -22,7 +22,7 @@ internal sealed class NodeConfiguration
         Organisation = organisation;
         Version = version;
         _nodes = nodes;
-        _owners = owners;
+        Map = new NodeMap(owners);
         Roles = roles;
     }
 
@@ -35,41 +35,26 @@ internal sealed class NodeConfiguration
 
     public IReadOnlyList<RoleBinding> Roles { get; }
 
-    /// <summary>The node that owns <paramref name="repository"/>, or <see langword="null"/> when none does.</summary>
-    public ConfiguredNode? NodeFor(string repository) =>
-        _owners.TryGetValue(Normalize(repository), out var id) ? _nodes[id] : null;
+    /// <summary>The repository value of the profile that holds the organisation's top-level rules, as the hooks ask for it.</summary>
+    public const string OrganisationRepository = CachedNodePolicies.OrganisationRepository;
 
-    /// <summary>The map the hooks cache as <c>nodes.json</c> in the resident state folder: repository to node id, as a JSON object.</summary>
-    public byte[] ToNodeMapJson() => JsonSerializer.SerializeToUtf8Bytes(_owners, NodeConfigurationJsonContext.Default.DictionaryStringString);
-
-    /// <summary>Lower case, no scheme, no credentials, no <c>.git</c> and no trailing slash, so a url and a name for one repository meet.</summary>
-    public static string Normalize(string repository)
+    /// <summary>The node whose bundle is the profile of <paramref name="repository"/>: the node that owns it, or the organisation
+    /// node for <see cref="OrganisationRepository"/>. <see langword="null"/> when no node owns the repository.</summary>
+    public ConfiguredNode? NodeFor(string repository)
     {
-        var text = repository.Trim().ToLowerInvariant();
-        var scheme = text.IndexOf("://", StringComparison.Ordinal);
-        if (scheme >= 0)
+        if (string.Equals(repository.Trim(), OrganisationRepository, StringComparison.Ordinal))
         {
-            text = text[(scheme + 3)..];
+            return _nodes.Values.Single(n => n.IsOrganisation);
         }
 
-        var at = text.IndexOf('@', StringComparison.Ordinal);
-        var slash = text.IndexOf('/', StringComparison.Ordinal);
-        if (at >= 0 && (slash < 0 || at < slash))
-        {
-            text = text[(at + 1)..];
-        }
-
-        // scp style: host:owner/name
-        var colon = text.IndexOf(':', StringComparison.Ordinal);
-        slash = text.IndexOf('/', StringComparison.Ordinal);
-        if (colon >= 0 && (slash < 0 || colon < slash))
-        {
-            text = text[..colon] + "/" + text[(colon + 1)..];
-        }
-
-        text = text.TrimEnd('/');
-        return text.EndsWith(".git", StringComparison.Ordinal) ? text[..^4] : text;
+        return Map.NodeFor(Key(repository)) is { } id ? _nodes[id] : null;
     }
+
+    /// <summary>Which node owns which repository, as the type the hooks cache. Its <c>ToJson</c> is the node map endpoint's answer.</summary>
+    public NodeMap Map { get; }
+
+    /// <summary>The name of a repository as <see cref="NodeMap"/> and the hooks know it: the normalised remote url.</summary>
+    internal static string Key(string repository) => RepositoryUrl.Normalize(repository) ?? repository.Trim().ToLowerInvariant();
 
     /// <summary>Reads and checks <c>nodes.json</c>.</summary>
     /// <exception cref="InvalidDataException">The text is not a valid node configuration. The message names no file content.</exception>
@@ -94,12 +79,17 @@ internal sealed class NodeConfiguration
         var owners = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (repository, node) in wire.Repositories ?? new Dictionary<string, string>(StringComparer.Ordinal))
         {
+            if (string.Equals(repository.Trim(), OrganisationRepository, StringComparison.Ordinal))
+            {
+                throw new InvalidDataException("the repository name * is the organisation's own and cannot be assigned to a node");
+            }
+
             if (string.IsNullOrWhiteSpace(repository) || node is null || !nodes.ContainsKey(node))
             {
                 throw new InvalidDataException($"a repository is assigned to the unknown node '{node}'");
             }
 
-            if (!owners.TryAdd(Normalize(repository), node))
+            if (!owners.TryAdd(Key(repository), node))
             {
                 throw new InvalidDataException("one repository is assigned to two nodes");
             }
