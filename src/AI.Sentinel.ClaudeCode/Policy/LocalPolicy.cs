@@ -74,7 +74,8 @@ internal sealed class LocalPolicy : IDisposable
         ArgumentNullException.ThrowIfNull(env);
         var cache = PolicyCache.DefaultDirectory(env);
         var root = repositoryRoot ?? Directory.GetCurrentDirectory();
-        if (resident is null)
+        // A state folder that is not private is not talked to: the socket in it could be another user's.
+        if (resident is null || resident.Start == ResidentStart.Unusable)
         {
             var policy = RegoPolicy.Load(folder, cache, compilers);
             var only = new InProcessPolicyEvaluator(policy);
@@ -84,7 +85,7 @@ internal sealed class LocalPolicy : IDisposable
         // Reading the sources throws for a folder that cannot be read, as loading the module does. The module is not loaded here:
         // the resident process has it, and this process loads it only when that does not answer.
         var sources = PolicySources.Load(folder);
-        var inProcess = new InProcessPolicyEvaluator(() => RegoPolicy.Load(folder, cache, compilers));
+        var inProcess = new InProcessPolicyEvaluator(() => LoadRecorded(folder, cache, compilers, sources.Version));
         var residentEvaluator = new ResidentPolicyEvaluator(resident.Client, Path.GetFullPath(folder), sources.Version, Path.GetFullPath(cache));
         var local = new LocalPolicy(sources.Version, sources.Bundles, root, new EvaluationOrder([residentEvaluator, inProcess]), inProcess, failMode);
         try
@@ -211,6 +212,20 @@ internal sealed class LocalPolicy : IDisposable
             DecisionOutcome.Deny,
             $"The policy bundle {_bundleNames} failed while it ran, so this call is denied whatever the fail mode. Ask a policy owner to fix the bundle.",
             [_bundleSource], Version);
+
+    // The decision, the severity actions and the audit entry carry the version read at load, so the module the fallback loads must be
+    // that version. A folder that changed since does not answer: the call is blocked, as for any policy that cannot be evaluated.
+    internal static RegoPolicy LoadRecorded(string folder, string cache, IReadOnlyList<IRegoCompiler>? compilers, string recorded)
+    {
+        var policy = RegoPolicy.Load(folder, cache, compilers);
+        if (!string.Equals(policy.Version, recorded, StringComparison.Ordinal))
+        {
+            policy.Dispose();
+            throw new InvalidOperationException($"the policy folder '{folder}' changed while the hook ran: it was version {recorded} when read and is {policy.Version} now");
+        }
+
+        return policy;
+    }
 
     // A refused builtin is the host's doing, not a bundle's, so it names the builtin as its source.
     private string SourceOf(RegoDecision policy) => policy.Refused is { } builtin ? "builtin:" + builtin : _bundleSource;

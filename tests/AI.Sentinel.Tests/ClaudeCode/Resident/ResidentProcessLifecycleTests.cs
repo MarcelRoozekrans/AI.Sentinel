@@ -241,9 +241,9 @@ public class ResidentProcessLifecycleTests : IDisposable
     {
         const int Eperm = 1;
 
-        Assert.Equal(ProcessGroupResult.Detached, ProcessGroup.Detach(() => (123, 0)));
-        Assert.Equal(ProcessGroupResult.AlreadyLeader, ProcessGroup.Detach(() => (-1, Eperm)));
-        Assert.Equal(ProcessGroupResult.Failed, ProcessGroup.Detach(() => (-1, 12)));
+        Assert.Equal(ProcessGroupResult.Detached, ProcessGroup.Detach(() => (123, 0), isWindows: false));
+        Assert.Equal(ProcessGroupResult.AlreadyLeader, ProcessGroup.Detach(() => (-1, Eperm), isWindows: false));
+        Assert.Equal(ProcessGroupResult.Failed, ProcessGroup.Detach(() => (-1, 12), isWindows: false));
         Assert.Equal(ProcessGroupResult.NotApplicable, ProcessGroup.Detach(() => throw new InvalidOperationException("not called"), isWindows: true));
     }
 
