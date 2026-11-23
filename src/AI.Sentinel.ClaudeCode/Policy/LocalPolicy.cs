@@ -35,6 +35,7 @@ internal sealed class LocalPolicy : IDisposable
     private readonly List<PolicyFinding> _findings = [];
     private SeverityActions? _severities;
     private Repository.RepositoryPolicy? _repository;
+    private bool _bundleFailed;
 
     private LocalPolicy(string version, IReadOnlyList<string> bundles, string? repositoryRoot, EvaluationOrder order, InProcessPolicyEvaluator inProcess, FailModeContext? failMode)
     {
@@ -92,7 +93,8 @@ internal sealed class LocalPolicy : IDisposable
         try
         {
             // Evaluated now so that a policy that cannot run fails the load, which blocks the call with the policy as its reason.
-            local._severities = local._order.Evaluate("{}").Decision.SeverityActions ?? SeverityActions.None;
+            // With a fail mode the failure is kept instead, and Decide denies by name, as for any bundle that errors at runtime.
+            local._severities = local.ReadSeverities();
         }
         catch
         {
@@ -115,7 +117,22 @@ internal sealed class LocalPolicy : IDisposable
     /// <summary>The outcomes the policy sets per finding severity with <c>severity_actions</c>, read before the scan so the
     /// severity decision knows them. The rule is evaluated with an empty input, so it cannot depend on the tool call.</summary>
     /// <exception cref="FormatException">The policy names a severity or an outcome that does not exist; the caller blocks.</exception>
-    public SeverityActions Severities() => _severities ?? _order.Evaluate("{}").Decision.SeverityActions ?? SeverityActions.None;
+    public SeverityActions Severities() => _severities ??= ReadSeverities();
+
+    // With a fail mode a bundle that errors here is remembered and Decide denies by name; the severities are then none, which the
+    // denial makes moot. Without one the error is thrown, as before.
+    private SeverityActions ReadSeverities()
+    {
+        try
+        {
+            return _order.Evaluate("{}").Decision.SeverityActions ?? SeverityActions.None;
+        }
+        catch (Exception) when (_failMode is not null)
+        {
+            _bundleFailed = true;
+            return SeverityActions.None;
+        }
+    }
 
     /// <summary>The repository policy of the node that owns the repository (#656), or <see langword="null"/> when no node map is
     /// cached; the policy input then names no repository.</summary>
@@ -146,6 +163,11 @@ internal sealed class LocalPolicy : IDisposable
             cli, toolName, toolInput, session, _findings, _repositoryRoot, _repository?.Scope.Repository ?? "", _repository?.Scope.Node ?? "");
         var json = PolicyInputSerializer.Serialize(input);
         var before = existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource);
+        if (_bundleFailed)
+        {
+            return OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true);
+        }
+
         PolicyAnswer? answer;
         try
         {
