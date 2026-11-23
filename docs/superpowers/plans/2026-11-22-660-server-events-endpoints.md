@@ -38,25 +38,25 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Ingest with allowlist
 
-- [ ] Add the ingest endpoint behind the host's configurable authorization policy, so an unauthenticated batch is refused; keep allowlisted fields, count other field names, deduplicate on the event id from #661, accept gap reports. Take the organisation from the authenticated sender and refuse a batch for another one, with a test.
-- [ ] Failing tests first in `ServerEventIngestTests`.
-- [ ] Commit.
+- [x] Add the ingest endpoint behind the host's configurable authorization policy, so an unauthenticated batch is refused; keep allowlisted fields, count other field names, deduplicate on the event id from #661, accept gap reports. Take the organisation from the authenticated sender and refuse a batch for another one, with a test.
+- [x] Failing tests first in `ServerEventIngestTests`.
+- [x] Commit.
 
 ### Task 2: Pseudonyms and retention
 
-- [ ] Replace identities with a per-organisation code, key kept apart from the store; delete by retention per organisation.
-- [ ] Commit.
+- [x] Replace identities with a per-organisation code, key kept apart from the store; delete by retention per organisation.
+- [x] Commit.
 
 ### Task 3: Read endpoints
 
-- [ ] Serve blocked calls and the audit trail per team without names, filterable by node, session and time, behind the configurable authorization policy and #674's check.
-- [ ] Tests in `ServerEventReadTests`.
-- [ ] Commit.
+- [x] Serve blocked calls and the audit trail per team without names, filterable by node, session and time, behind the configurable authorization policy and #674's check.
+- [x] Tests in `ServerEventReadTests`.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
