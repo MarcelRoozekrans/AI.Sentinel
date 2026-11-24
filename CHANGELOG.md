@@ -9,6 +9,17 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.0.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.2.2...v6.0.0) (2026-11-23)
+
+
+### ⚠ BREAKING CHANGES
+
+* the packages no longer ship net8.0 or net9.0 assets. Move a consuming project to net10.0 or later, or stay on AI.Sentinel 5.x.
+
+### Features
+
+* target net10.0 and net11.0, ZeroAlloc majors, approval decision outcome ([#649](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/649)) ([fcfe19d](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/fcfe19da98a558f1cf3f8719b9bbc6b49c0c8621))
+
 ## [5.2.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.2.1...v5.2.2) (2026-11-16)
 
 
