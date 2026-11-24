@@ -93,6 +93,24 @@ What each action does:
 - **`Warn`** → exit 0 with the reason on stderr (visible in Copilot's log).
 - **`Allow`** → exit 0, with `{"decision":"Allow","reason":null}` on stdout.
 
+## Decision outcomes
+
+A hook decision has one of five outcomes, strictest first: **deny**, **ask**, **guidance**, **allow** and **defer**. When several sources give an outcome for one call, the strictest wins. Today's severity actions map as `Block` to deny, `Warn` to guidance and `Allow` to defer, and the `SENTINEL_HOOK_ON_*` variables keep their values and their effect. A decision with an outcome carries a reason, the sources that caused it, a policy version (empty until policy exists) and where it was made, and the local audit records them as an `OUTCOME` entry. A severity action on its own writes no such entry and gives exactly the output described below.
+
+**Allow never overrides the CLI's own permission prompt**: allow and defer emit no permission decision. Where the CLI cannot ask, or the run is headless, **ask** becomes **deny** with instructions: the agent is told to explain the command and why it is needed, then to let the developer run it or a policy owner allow it.
+
+Every new setting here is optional and off by default.
+
+How each outcome is expressed for Copilot CLI:
+
+| Outcome | preToolUse and userPromptSubmitted | postToolUse and userPromptTransformed |
+|---|---|---|
+| deny | exit 2, reason on stderr | exit 0, withheld result or prompt on stdout |
+| ask | Copilot CLI cannot ask: deny with instructions | deny with instructions |
+| guidance | no context channel: as `Warn` today, reason on stderr, exit 0, the call runs | the same |
+| allow | `{"decision":"Allow","reason":null}`, no permission decision | the same |
+| defer | `{"decision":"Allow","reason":null}`, no permission decision | the same |
+
 ## When the hook itself fails
 
 The hook fails closed on `preToolUse`. When it cannot evaluate a tool call, it blocks the call with exit 2 and a reason that starts with `Sentinel internal error:` on stderr. This covers:
@@ -175,6 +193,10 @@ Each GitHub release carries `sentinel-copilot-hook-<version>-<rid>` archives. Do
 | Block signaling | exit 2 on `UserPromptSubmit` and `PreToolUse`; withheld output on `PostToolUse` | exit 2 on `preToolUse`, advisory on `userPromptSubmitted`; withheld result or prompt on `postToolUse` and `userPromptTransformed` |
 
 The shared env-var contract (`SENTINEL_HOOK_ON_*`) means you configure once and both adapters honor it identically.
+
+## Tool kinds
+
+The Copilot tools map onto the same shared tool kinds as the Claude Code tools, such as `bash` and `powershell` to `shell` and `view` to `read`. The table and the policy input are on the [Claude Code page](./claude-code#tool-kinds-and-policy-input). Nothing reads the input yet, so the hook behaves as before and no setting is added.
 
 ## Programmatic use
 

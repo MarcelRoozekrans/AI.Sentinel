@@ -851,6 +851,8 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
 }
 ```
 
+Both hooks map each tool onto a shared tool kind (`shell`, `read`, `search`, `write`, `edit`, `fetch`, `mcp`, `agent` or `other`) and build the policy input for it, with a parsed command line for shell calls. Nothing reads that input yet, so there is no new setting and the hooks behave as before; a later setting that uses it will be optional and off by default. See [Tool kinds and policy input](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#tool-kinds-and-policy-input).
+
 ### MCP proxy
 
 For any MCP-speaking agent (Cursor, Continue, Cline, Windsurf, Copilot's MCP path), install the proxy and point your MCP host at it instead of at the target server directly:
@@ -930,6 +932,10 @@ are **not** supported in v1.1 — see the deferred items in `docs/BACKLOG.md` if
 (was a `char` count, which double-counted for multi-byte characters). ASCII content
 is unchanged; emoji / CJK / accented text reaches the cap sooner.
 
+### Decision outcomes
+
+A hook decision has one of five outcomes, strictest first: deny, ask, guidance, allow and defer; the strictest wins. `Block` is deny, `Warn` is guidance and `Allow` is defer, and the variables below keep their effect. Allow and defer emit no permission decision, so the CLI's own prompt still applies. Where the CLI cannot ask, or the run is headless, ask becomes a deny with instructions. Claude Code expresses ask and guidance through `permissionDecision` and `additionalContext`; Copilot CLI can do neither, so ask is a deny and guidance acts as `Warn` does today. See the [Claude Code](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#decision-outcomes) and [Copilot](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/copilot#decision-outcomes) pages for a table per CLI. Every new setting is optional and off by default; `SENTINEL_HOOK_HEADLESS=on` marks a Claude Code run as unable to ask.
+
 ### Severity → action mapping
 
 Both adapters share the same env-var contract — configure once, applies to both:
@@ -1006,6 +1012,10 @@ Useful when wiring the hook for the first time ("did it run?") or when a block w
 | `SENTINEL_HOOK_AUDIT_MAX_MB` | `SENTINEL_MCP_AUDIT_MAX_MB` | `100` | Size cap in MB, enforced when the CLI opens the file; `0` means no cap. The CLIs never `VACUUM`, so the file stops growing at about the cap instead of shrinking |
 
 An audit failure never changes a decision. `sentinel-hook` prints it to stderr with the prefix `[sentinel-hook] audit:` unless the decision is a Block that exits 2, `sentinel-copilot-hook` only on Allow, and both on any decision when `SENTINEL_HOOK_VERBOSE` is set; the MCP proxy logs it as the `audit_unavailable` event.
+
+### Signed policy profile (groundwork)
+
+Groundwork for control by an organisation's server: a policy profile that the server signs with Ed25519 over a canonical JSON form, and that the plugin accepts only when a pinned server key signed it, or a pinned key endorsed the new key that did (key rotation). A profile expires after 7 days unless the organisation sets another lifetime; a cached one is used offline until then. These are internal types and nothing uses them yet: **every new setting is optional and off by default, and hook behaviour is unchanged.** Details are in the [Claude Code integration page](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#signed-policy-profile-groundwork-not-wired-in).
 
 ### Native binary
 

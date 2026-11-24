@@ -13,4 +13,11 @@ internal sealed record ClaudeCodeHookSpecificOutput
 
     /// <summary>Text added for Claude next to the tool result.</summary>
     public string? AdditionalContext { get; init; }
+
+    /// <summary>The permission decision of a PreToolUse: <c>ask</c> hands the call to the developer. Never
+    /// <c>allow</c>, which would override the CLI's own permission prompt.</summary>
+    public string? PermissionDecision { get; init; }
+
+    /// <summary>Why, shown with <see cref="PermissionDecision"/>.</summary>
+    public string? PermissionDecisionReason { get; init; }
 }

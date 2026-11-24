@@ -23,16 +23,18 @@
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.11.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.15" />
     <PackageReference Include="Microsoft.Extensions.Options" Version="10.0.15" />
-    <PackageReference Include="ZeroAlloc.AsyncEvents" Version="2.0.0" />
+    <PackageReference Include="ZeroAlloc.AsyncEvents" Version="2.0.1" />
     <PackageReference Include="ZeroAlloc.Results" Version="2.0.0" />
-    <PackageReference Include="ZeroAlloc.ValueObjects" Version="2.4.1" />
+    <PackageReference Include="ZeroAlloc.ValueObjects" Version="2.4.3" />
     <PackageReference Include="ZeroAlloc.Validation" Version="2.6.1" />
-    <PackageReference Include="ZeroAlloc.Mediator" Version="6.7.2" />
+    <PackageReference Include="ZeroAlloc.Mediator" Version="6.7.3" />
     <PackageReference Include="ZeroAlloc.Inject" Version="1.12.1" />
     <PackageReference Include="ZeroAlloc.Inject.Generator" Version="1.12.1" OutputItemType="Analyzer" ReferenceOutputAssembly="false" />
-    <PackageReference Include="ZeroAlloc.Resilience" Version="4.0.0" />
-    <PackageReference Include="ZeroAlloc.Serialisation" Version="3.0.0" />
-    <PackageReference Include="ZeroAlloc.Telemetry" Version="2.0.0" />
-    <PackageReference Include="ZeroAlloc.Authorization" Version="3.0.0" />
+    <PackageReference Include="ZeroAlloc.Resilience" Version="4.1.0" />
+    <PackageReference Include="ZeroAlloc.Serialisation" Version="3.0.1" />
+    <PackageReference Include="ZeroAlloc.Telemetry" Version="2.0.1" />
+    <PackageReference Include="ZeroAlloc.Authorization" Version="3.0.1" />
+    <!-- Ed25519 for signed policy profiles (ADR-233). Managed, so no per-OS native library; the .NET BCL has no Ed25519. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
   </ItemGroup>
 </Project>
