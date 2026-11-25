@@ -78,12 +78,14 @@ internal sealed class HttpApprovalStore(
         while (true)
         {
             var state = ToState(await channel.GetAsync(requestId, ct).ConfigureAwait(false));
-            if (state is not ApprovalState.Pending || _time.GetUtcNow() + interval > deadline)
+            var remaining = deadline - _time.GetUtcNow();
+            if (state is not ApprovalState.Pending || remaining <= TimeSpan.Zero)
             {
                 return state;
             }
 
-            await Task.Delay(interval, _time, ct).ConfigureAwait(false);
+            // Wait out the rest of the timeout, not only whole poll intervals, then ask once more.
+            await Task.Delay(remaining < interval ? remaining : interval, _time, ct).ConfigureAwait(false);
         }
     }
 

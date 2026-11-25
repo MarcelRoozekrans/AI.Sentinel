@@ -491,6 +491,74 @@ public sealed partial class HttpApprovalStoreTests : IAsyncDisposable
         Assert.Equal(TimeSpan.FromDays(30), ServerApprovalStore.Retention);
     }
 
+    [Fact]
+    public async Task A_decided_request_is_deleted_by_the_retention_service_without_any_call_to_the_store()
+    {
+        await StartAsync();
+        var decided = await OpenAsync(HookOf(Dave()), "approval:decided");
+        var waiting = await OpenAsync(HookOf(Dave()), "approval:waiting");
+        await DecideAsync(Lena(), decided.RequestId, "approve");
+        using var service = new ServerApprovalRetentionService(_store!, _time, TimeSpan.FromMilliseconds(20));
+        await service.StartAsync(Ct);
+        try
+        {
+            _time.Now += ServerApprovalStore.Retention + TimeSpan.FromMinutes(1);
+            var deadline = DateTime.UtcNow.AddSeconds(20);
+            while (_store!.Count > 1 && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(20, Ct);
+            }
+
+            Assert.Equal(1, _store.Count);
+            Assert.NotNull(_store.Find(waiting.RequestId));
+        }
+        finally
+        {
+            await service.StopAsync(Ct);
+        }
+    }
+
+    [Fact]
+    public async Task The_same_rule_in_another_repository_is_a_request_of_its_own_and_does_not_reuse_an_approval()
+    {
+        await StartAsync();
+        var widgets = await OpenAsync(HookOf(Dave()));
+        await DecideAsync(Lena(), widgets.RequestId, "approve");
+
+        var gadgets = Assert.IsType<ApprovalState.Pending>(await HookOf(Dave(), Gadgets).EnsureRequestAsync(new Caller("hook"), Spec(), Context(), Ct));
+
+        Assert.True(gadgets.IsNew);
+        Assert.False(string.Equals(widgets.RequestId, gadgets.RequestId, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Waiting_for_a_decision_lasts_the_whole_timeout_even_when_it_is_shorter_than_a_poll_interval()
+    {
+        var channel = new PendingChannel();
+        var hook = new HttpApprovalStore(channel, args => args, Repository, pollInterval: TimeSpan.FromSeconds(30));
+        var started = DateTime.UtcNow;
+
+        var state = await hook.WaitForDecisionAsync("req-1", TimeSpan.FromMilliseconds(300), Ct);
+
+        Assert.IsType<ApprovalState.Pending>(state);
+        Assert.True(DateTime.UtcNow - started >= TimeSpan.FromMilliseconds(250));
+        Assert.Equal(2, channel.Gets);
+    }
+
+    private sealed class PendingChannel : IApprovalChannel
+    {
+        public int Gets { get; private set; }
+
+        public Task<ApprovalChannelReply> EnsureAsync(ApprovalRequestWire request, CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<ApprovalChannelReply> GetAsync(string requestId, CancellationToken ct)
+        {
+            Gets++;
+            return Task.FromResult(new ApprovalChannelReply(
+                ApprovalChannelStatus.Ok, new ApprovalStateWire { Id = requestId, State = ApprovalWireStates.Pending }));
+        }
+    }
+
     // ---- the backend of the approval config -------------------------------------------------------------------------------------
 
     [Fact]

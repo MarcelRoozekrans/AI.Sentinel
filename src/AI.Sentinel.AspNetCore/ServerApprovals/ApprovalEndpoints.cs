@@ -125,9 +125,10 @@ internal sealed class ApprovalEndpoints(
             return Results.StatusCode(StatusCodes.Status409Conflict);
         }
 
+        // The decision is committed, so its entry is written even when the client has gone: a retry would get 409 and never record it.
         // The log names the decider and the request, and never the tool input.
         await audit.RecordAsync(
-            roles.OrganisationName!, approve ? AdminAuditAction.Approve : AdminAuditAction.Deny, decider, decided.Id, AdminAuditChannel.Web, http.RequestAborted).ConfigureAwait(false);
+            roles.OrganisationName!, approve ? AdminAuditAction.Approve : AdminAuditAction.Deny, decider, decided.Id, AdminAuditChannel.Web, CancellationToken.None).ConfigureAwait(false);
         return StateResult(decided, isNew: false, http);
     }
 

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace AI.Sentinel.AspNetCore;
@@ -18,13 +19,15 @@ public static class ApprovalServerExtensions
 
     /// <summary>Registers the store of approval requests. Needs <see cref="AdminAuditExtensions.AddAISentinelAdminAudit"/>, which records
     /// each approve and deny, and <see cref="PolicyFolderExtensions.AddAISentinelPolicyFolder"/>, whose node configuration binds the roles.
-    /// The requests are kept in memory.</summary>
+    /// The requests are kept in memory, and a hosted service deletes the decided ones when their retention is over.</summary>
     /// <param name="services">The service collection.</param>
     public static IServiceCollection AddAISentinelApprovalServer(this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton(sp => new ServerApprovalStore(sp.GetRequiredService<TimeProvider>()));
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IHostedService, ServerApprovalRetentionService>(
+            sp => new ServerApprovalRetentionService(sp.GetRequiredService<ServerApprovalStore>(), sp.GetRequiredService<TimeProvider>())));
         return services;
     }
 

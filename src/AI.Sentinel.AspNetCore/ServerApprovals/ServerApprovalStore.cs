@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace AI.Sentinel.AspNetCore.ServerApprovals;
 
 /// <summary>
-/// The approval requests of the server part (#662), in memory. A request is identified by its requester and its rule, so a hook that
+/// The approval requests of the server part (#662), in memory. A request is identified by its requester, its repository and its rule, so a hook that
 /// asks again, as an agent does when it retries, finds the open request instead of making another. A request that is decided is
 /// deleted <see cref="Retention"/> after it was decided; one that is still pending is kept. A restart of the server loses the requests,
 /// and a hook that asks again opens a new one.
@@ -18,9 +18,9 @@ internal sealed class ServerApprovalStore(TimeProvider time)
 
     private readonly Lock _gate = new();
     private readonly Dictionary<string, Entry> _byId = new(StringComparer.Ordinal);
-    private readonly Dictionary<(string Requester, string Policy), string> _open = [];
+    private readonly Dictionary<(string Requester, string Repository, string Policy), string> _open = [];
 
-    /// <summary>Opens a request for <paramref name="requester"/> and <paramref name="policy"/>, or returns the open one. A request that
+    /// <summary>Opens a request for <paramref name="requester"/>, <paramref name="repository"/> and <paramref name="policy"/>, or returns the open one. A request that
     /// was denied, or whose grant ran out, is returned once more, so the agent sees why, and the next call opens a new request.</summary>
     public ServerApprovalEnsure Ensure(
         string requester, string repository, string policy, string tool, JsonElement args, string? justification, string? reason, TimeSpan grant)
@@ -29,7 +29,7 @@ internal sealed class ServerApprovalStore(TimeProvider time)
         {
             var now = time.GetUtcNow();
             Purge(now);
-            var key = (requester, policy);
+            var key = (requester, repository, policy);
             if (_open.TryGetValue(key, out var openId) && _byId.TryGetValue(openId, out var open))
             {
                 var snapshot = open.Snapshot();
@@ -112,6 +112,27 @@ internal sealed class ServerApprovalStore(TimeProvider time)
         }
     }
 
+    /// <summary>Deletes the decided requests that are past <see cref="Retention"/>, whether or not anyone calls the store.</summary>
+    public void PurgeExpired()
+    {
+        lock (_gate)
+        {
+            Purge(time.GetUtcNow());
+        }
+    }
+
+    /// <summary>The number of requests held.</summary>
+    public int Count
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _byId.Count;
+            }
+        }
+    }
+
     // Called under the gate.
     private void Purge(DateTimeOffset now)
     {
@@ -120,9 +141,10 @@ internal sealed class ServerApprovalStore(TimeProvider time)
         {
             var entry = _byId[id];
             _byId.Remove(id);
-            if (_open.TryGetValue((entry.Requester, entry.Policy), out var openId) && string.Equals(openId, id, StringComparison.Ordinal))
+            var key = (entry.Requester, entry.Repository, entry.Policy);
+            if (_open.TryGetValue(key, out var openId) && string.Equals(openId, id, StringComparison.Ordinal))
             {
-                _open.Remove((entry.Requester, entry.Policy));
+                _open.Remove(key);
             }
         }
     }
