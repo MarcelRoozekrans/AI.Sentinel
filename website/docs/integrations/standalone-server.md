@@ -234,7 +234,7 @@ sentinel audit-verify export.json --organisation acme --public-key <base64 publi
 
 The command checks the chain, the signed head, and the organisation. It prints the signed count, last hash and export time. Pass them back as `--checkpoint-count`, `--checkpoint-hash` and `--checkpoint-time` on the next run, and an export that is older than the checkpoint, or does not contain it, is rejected, so cutting off the newest entries is found. Exit codes: `0` verified, `1` usage error or unreadable file, `2` verification failed.
 
-The log is in memory in this version, so export it on a schedule, keep the files, and keep the last checkpoint with them.
+The log is in memory in this version, so export it on a schedule, keep the files, and keep the last checkpoint with them. A restart of the server starts a new, empty log, and an export of it cannot pass the checkpoint of the log before. Export before you restart, archive that export with its checkpoint, and verify the new log without a checkpoint at first. From then on keep one checkpoint per log lifetime and pass only the one of the current log.
 
 ## Checklist
 
