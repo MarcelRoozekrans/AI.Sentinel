@@ -52,7 +52,8 @@ internal static class EventReads
             : null;
         var store = services.GetRequiredService<IServerEventStore>();
         var stored = await store.ReadEventsAsync(organisation, http.RequestAborted).ConfigureAwait(false);
-        var visibility = new TeamVisibility(loader.Current?.Nodes, stored, options.MinimumTeamPeople);
+        var storedGaps = await store.ReadGapsAsync(organisation, http.RequestAborted).ConfigureAwait(false);
+        var visibility = new TeamVisibility(loader.Current?.Nodes, stored, storedGaps, options.MinimumTeamPeople);
         var events = stored
             .Select(e => new ShownEvent(e, visibility.NodeFor(e.Node), Own(own, e.Developer) || visibility.ShowsName(e)))
             .Where(s => (!blockedOnly || s.Event.IsBlocked)
@@ -63,7 +64,7 @@ internal static class EventReads
             .OrderBy(s => s.Event.At).ToList();
         var gaps = blockedOnly
             ? []
-            : (await store.ReadGapsAsync(organisation, http.RequestAborted).ConfigureAwait(false))
+            : storedGaps
                 .Select(g => new ShownGap(g, visibility.NodeFor(g.Node) ?? roles.OrganisationNodeId, Own(own, g.Developer)))
                 .Where(s => May(roles, http.User, s.Node, s.Gap.Developer, own)).ToList();
         return Results.Bytes(EventWriter.Write(events, blockedOnly ? null : gaps), "application/json");

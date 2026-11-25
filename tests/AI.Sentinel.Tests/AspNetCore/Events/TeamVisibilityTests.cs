@@ -113,6 +113,25 @@ public sealed class TeamVisibilityTests
     }
 
     [Fact]
+    public async Task A_team_that_sent_only_a_gap_shows_its_gap_under_the_organisation()
+    {
+        using var host = await StartAsync(nodes: NamesOff);
+        await host.SendAsync(Post("""{"organisation":"acme","events":[],"gap":{"pruned":4,"node":"team-b"}}""", "acme", "b1"));
+
+        async Task<JsonElement[]> GapsAsync(string sub, string groups)
+        {
+            var response = await host.SendAsync(Get("acme/audit", "acme", sub, groups));
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+            return [.. document.RootElement.GetProperty("gaps").EnumerateArray().Select(g => g.Clone())];
+        }
+
+        Assert.Empty(await GapsAsync("lena-b", "leads-b"));
+        var seen = Assert.Single(await GapsAsync("root", "sec"));
+        Assert.Equal("acme", NodeOf(seen));
+    }
+
+    [Fact]
     public async Task Each_record_is_stamped_with_the_visibility_in_force_when_it_was_stored()
     {
         using var host = await StartAsync(nodes: NamesOn);

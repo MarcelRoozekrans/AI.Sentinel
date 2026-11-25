@@ -9,7 +9,7 @@ internal sealed class TeamVisibility
     private readonly NodeConfiguration? _configuration;
     private readonly HashSet<string> _small = new(StringComparer.Ordinal);
 
-    public TeamVisibility(NodeConfiguration? configuration, IEnumerable<ServerEvent> events, int minimumPeople)
+    public TeamVisibility(NodeConfiguration? configuration, IEnumerable<ServerEvent> events, IEnumerable<ServerEventGap> gaps, int minimumPeople)
     {
         _configuration = configuration;
         var people = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
@@ -27,6 +27,15 @@ internal sealed class TeamVisibility
             }
 
             set.Add(e.Developer);
+        }
+
+        // A team that sent only a gap has no people on record, so it is small and its gap shows under the organisation.
+        foreach (var g in gaps)
+        {
+            if (g.Node is not null && !people.ContainsKey(g.Node))
+            {
+                people[g.Node] = new HashSet<string>(StringComparer.Ordinal);
+            }
         }
 
         foreach (var (node, set) in people)
