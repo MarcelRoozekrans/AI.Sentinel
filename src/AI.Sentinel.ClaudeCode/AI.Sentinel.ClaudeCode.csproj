@@ -19,5 +19,15 @@
   <ItemGroup>
     <ProjectReference Include="..\AI.Sentinel\AI.Sentinel.csproj" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15" />
+    <!-- The local Rego policy (SENTINEL_HOOK_POLICY_DIR) runs a WebAssembly module through Wasmtime and an own host of the
+         OPA wasm ABI, see docs/plans/2026-11-22-rego-aot-spike.md. Only the untyped Wasmtime API is used: the generic
+         wrappers give AOT warnings. -->
+    <PackageReference Include="Wasmtime" Version="48.0.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="OpaDotNet.Compilation.Interop" Version="2.3.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Policy\Rego\capabilities.json" LogicalName="AI.Sentinel.ClaudeCode.Policy.Rego.capabilities.json" />
   </ItemGroup>
 </Project>

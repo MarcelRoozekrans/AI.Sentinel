@@ -37,26 +37,26 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Read and compile the folder
 
-- [ ] Read `SENTINEL_HOOK_POLICY_DIR` in both hook configs; compile it with the route from #633, validating builtins.
-- [ ] Failing tests first.
-- [ ] Commit.
+- [x] Read `SENTINEL_HOOK_POLICY_DIR` in both hook configs; compile it with the route from #633, validating builtins.
+- [x] Failing tests first.
+- [x] Commit.
 
 ### Task 2: Evaluate and combine
 
-- [ ] Evaluate against the #669 input; combine the outcome with the existing sources and with the parser's unparseable result (**ask**, #669) through #670's strictest-wins.
-- [ ] Tests in `RegoPolicyDenyTests`, including an unparseable command under an allowing policy that gives **ask**, and a budget test on the CI runners that times the whole decision, not evaluation alone.
-- [ ] Commit.
+- [x] Evaluate against the #669 input; combine the outcome with the existing sources and with the parser's unparseable result (**ask**, #669) through #670's strictest-wins.
+- [x] Tests in `RegoPolicyDenyTests`, including an unparseable command under an allowing policy that gives **ask**, and a budget test on the CI runners that times the whole decision, not evaluation alone.
+- [x] Commit.
 
 ### Task 3: Failures
 
-- [ ] A folder that cannot be read or compiled blocks PreToolUse with an internal-error reason; a runtime builtin call denies and names it.
-- [ ] Tests in `RegoPolicyLoadFailureTests`.
-- [ ] Commit.
+- [x] A folder that cannot be read or compiled blocks PreToolUse with an internal-error reason; a runtime builtin call denies and names it.
+- [x] Tests in `RegoPolicyLoadFailureTests`.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks

@@ -1674,20 +1674,10 @@
     "commands": []
   },
   {
-    "name": "legacy arithmetic stays literal",
+    "name": "legacy arithmetic is unparseable",
     "input": "echo $[1+2]",
-    "unparseable": false,
-    "commands": [
-      {
-        "operator": null,
-        "name": "echo",
-        "args": [
-          "$[1+2]"
-        ],
-        "assignments": [],
-        "redirects": []
-      }
-    ]
+    "unparseable": true,
+    "commands": []
   },
   {
     "name": "tilde user stays literal",
@@ -1873,6 +1863,209 @@
         "name": "echo",
         "args": [
           "}"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "legacy arithmetic in double quotes is unparseable",
+    "input": "echo \"$[1+2]\"",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "legacy arithmetic in single quotes stays literal",
+    "input": "echo '$[1+2]'",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "$[1+2]"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "variable as command name",
+    "input": "$X -rf /",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "braced variable as command name",
+    "input": "${X} -rf /",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "double quoted variable as command name",
+    "input": "\"$X\" -rf /",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "variable after an assignment as command name",
+    "input": "X=rm $X -rf /",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "glob as command name",
+    "input": "/bin/r? -rf /",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "star glob as command name",
+    "input": "/bin/r* -rf /",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "bracket glob as command name",
+    "input": "/bin/[r]m -rf /",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "tilde path as command name",
+    "input": "~/bin/rm -rf /",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "quoted variable name stays literal",
+    "input": "'$X' -rf /",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "$X",
+        "args": [
+          "-rf",
+          "/"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "escaped variable name stays literal",
+    "input": "\\$X -rf /",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "$X",
+        "args": [
+          "-rf",
+          "/"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "quoted tilde name stays literal",
+    "input": "\"~/bin/rm\" -rf /",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "~/bin/rm",
+        "args": [
+          "-rf",
+          "/"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "test bracket name stays literal",
+    "input": "[ -f x ]",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "[",
+        "args": [
+          "-f",
+          "x",
+          "]"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "variable and glob arguments stay literal",
+    "input": "echo $HOME ~/src/*.cs",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "$HOME",
+          "~/src/*.cs"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "special parameters stay literal",
+    "input": "echo $@ $* $# $? $- $$ $! $_ $0",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "$@",
+          "$*",
+          "$#",
+          "$?",
+          "$-",
+          "$$",
+          "$!",
+          "$_",
+          "$0"
+        ],
+        "assignments": [],
+        "redirects": []
+      }
+    ]
+  },
+  {
+    "name": "special parameter as command name",
+    "input": "$@ -rf /",
+    "unparseable": true,
+    "commands": []
+  },
+  {
+    "name": "dollar before a space is data",
+    "input": "echo $ a",
+    "unparseable": false,
+    "commands": [
+      {
+        "operator": null,
+        "name": "echo",
+        "args": [
+          "$",
+          "a"
         ],
         "assignments": [],
         "redirects": []

@@ -28,6 +28,11 @@ internal static class HookInternalError
     internal static string ApprovalConfigReason(string path, Exception ex) =>
         $"{Prefix} approval config '{path}' could not be loaded: {ex.Message}";
 
+    /// <summary>The block reason for a <c>SENTINEL_HOOK_POLICY_DIR</c> whose policy could not be read, compiled or loaded,
+    /// or whose policy failed while it ran.</summary>
+    internal static string PolicyReason(string folder, Exception ex) =>
+        $"{Prefix} policy '{folder}' could not be evaluated: {ex.Message}";
+
     /// <summary>The block reason for a PreToolUse whose input names no tool while authorization is configured.</summary>
     internal const string MissingToolNameReason = Prefix + " PreToolUse input has no tool name";
 
