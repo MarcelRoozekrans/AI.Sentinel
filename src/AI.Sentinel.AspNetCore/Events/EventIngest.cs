@@ -31,6 +31,11 @@ internal static class EventIngest
             return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
+        if (!string.Equals(sender, roles.OrganisationName, StringComparison.Ordinal))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
         var admitted = await services.GetRequiredService<IAuthorizationService>()
             .AuthorizeAsync(http.User, sender, options.PolicyName).ConfigureAwait(false);
         if (!admitted.Succeeded || roles.DeveloperOf(http.User) is not { } developer)

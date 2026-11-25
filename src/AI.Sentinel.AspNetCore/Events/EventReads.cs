@@ -55,12 +55,14 @@ internal static class EventReads
                 && (node.Length == 0 || string.Equals(e.Node, node, StringComparison.Ordinal))
                 && (session.Length == 0 || string.Equals(e.Session, session, StringComparison.Ordinal))
                 && (from is null || e.At >= from) && (to is null || e.At <= to)
-                && May(roles, http.User, e.Node, e.Developer, own))
+                && May(roles, http.User, e.Node ?? roles.OrganisationNodeId, e.Developer, own))
             .OrderBy(e => e.At).ToList();
         var gaps = blockedOnly
             ? []
             : (await store.ReadGapsAsync(organisation, http.RequestAborted).ConfigureAwait(false))
-                .Where(g => May(roles, http.User, g.Node ?? roles.OrganisationNodeId, g.Developer, own)).ToList();
+                .Where(g => (node.Length == 0 || string.Equals(g.Node, node, StringComparison.Ordinal))
+                    && (from is null || g.ReceivedAt >= from) && (to is null || g.ReceivedAt <= to)
+                    && May(roles, http.User, g.Node ?? roles.OrganisationNodeId, g.Developer, own)).ToList();
         return Results.Bytes(EventWriter.Write(events, blockedOnly ? null : gaps), "application/json");
     }
 

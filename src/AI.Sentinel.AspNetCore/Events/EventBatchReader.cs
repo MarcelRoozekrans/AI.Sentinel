@@ -73,7 +73,7 @@ internal static class EventBatchReader
         string? node = null;
         foreach (var property in gap.EnumerateObject())
         {
-            if (string.Equals(property.Name, "pruned", StringComparison.Ordinal) && property.Value.TryGetInt32(out var n) && n > 0)
+            if (string.Equals(property.Name, "pruned", StringComparison.Ordinal) && property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt32(out var n) && n > 0)
             {
                 pruned = n;
             }
@@ -186,7 +186,7 @@ internal static class EventBatchReader
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var property in value.EnumerateObject())
         {
-            if (counts.Count >= MaxItems || property.Name.Length > 64 || !property.Value.TryGetInt32(out var n) || n < 0)
+            if (counts.Count >= MaxItems || property.Name.Length > 64 || property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var n) || n < 0)
             {
                 return null;
             }
