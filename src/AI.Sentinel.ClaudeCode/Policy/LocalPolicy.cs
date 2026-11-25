@@ -64,6 +64,11 @@ internal sealed class LocalPolicy : IDisposable
     /// the <c>FindingSink</c> of the hook config before the scan runs.</summary>
     public Action<string, string> FindingSink => (detector, severity) => _findings.Add(new PolicyFinding(detector, severity));
 
+    /// <summary>The outcomes the policy sets per finding severity with <c>severity_actions</c>, read before the scan so the
+    /// severity decision knows them. The rule is evaluated with an empty input, so it cannot depend on the tool call.</summary>
+    /// <exception cref="FormatException">The policy names a severity or an outcome that does not exist; the caller blocks.</exception>
+    public SeverityActions Severities() => _policy.Evaluate("{}").SeverityActions ?? SeverityActions.None;
+
     /// <summary>The version of the loaded policy, which an audit entry carries.</summary>
     public string Version => _policy.Version;
 

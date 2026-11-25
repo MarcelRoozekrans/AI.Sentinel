@@ -194,7 +194,27 @@ guidance contains "prefer the gh CLI over the GitHub MCP server" if {
 }
 ```
 
-`deny`, `ask`, `guidance` and `allow` are sets of reasons. The host defines `outcome`, `reasons` and `decision`, and reserves the folder name `_sentinel_host`; a policy that defines those names with another value fails when it runs, and the call is blocked. The input is the object of the section above: `kind`, `cli`, `tool`, `details`, `findings`, `repository`, `node` and `session`. A path is inside the repository when it lies under the working directory of the hook.
+`deny`, `ask`, `guidance` and `allow` are sets of reasons, and `severity_actions` sets an outcome per severity, see [Outcomes per severity](#outcomes-per-severity). The host defines `outcome`, `reasons` and `decision`, and reserves the folder name `_sentinel_host`; a policy that defines those names with another value fails when it runs, and the call is blocked. The input is the object of the section above: `kind`, `cli`, `tool`, `details`, `findings`, `repository`, `node` and `session`. A path is inside the repository when it lies under the working directory of the hook.
+
+### Outcomes per severity
+
+A policy can also set the outcome of a finding by severity, in place of or next to the `SENTINEL_HOOK_ON_*` variables. It adds entries to the set `severity_actions`, each with a `severity` and an `outcome`: severity `critical`, `high`, `medium` or `low` with `deny`, `ask`, `guidance`, `allow` or `defer`:
+
+```rego
+package sentinel
+
+import rego.v1
+
+severity_actions contains {"severity": "high", "outcome": "guidance"}
+severity_actions contains {"severity": "medium", "outcome": "ask"}
+severity_actions contains {"severity": "low", "outcome": "defer"}
+```
+
+Without a policy, or for a severity the policy leaves out, the variables work as they did: `Block` is deny, `Warn` is guidance and `Allow` is defer, and the built-in defaults are Block for Critical and High, Warn for Medium and Allow for Low. Where both set a severity, the **stricter wins**. A variable that is not set does not count: its built-in default applies only when the policy sets nothing for that severity, so a `severity_actions` entry of `guidance` for `high` with `SENTINEL_HOOK_ON_HIGH` unset gives guidance, while `SENTINEL_HOOK_ON_HIGH=Block` still gives deny. Policy outcomes that a hook decision cannot say, ask and allow, are carried as outcomes, so an ask is a real ask. A finding that a detector only alerts on is never stricter than guidance.
+
+The rule is read once, before the scan, with an empty input, so it cannot depend on the tool call: write the per-call rules with `deny`, `ask`, `guidance` and `allow` as above. `severity_actions` is a set, so every bundle adds entries and none conflicts: when bundles set the same severity to different outcomes, the strictest wins, as everywhere else. A severity or outcome name that does not exist makes the call blocked as an internal error.
+
+A [signed profile](#signed-policy-profile-groundwork-not-wired-in) carries severity defaults as `severity_defaults`, a severity name mapped to an action name. They are read the same way, so a profile and a policy can be combined with the strictest winning. The older action names are accepted there: `block` and `quarantine` are deny, `warn` and `alert` are guidance, and `log` and `passthrough` are defer. Nothing reads a profile yet. Every setting here is optional and off by default.
 
 ### How the outcome is combined
 
