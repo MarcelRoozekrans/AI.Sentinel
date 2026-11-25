@@ -138,7 +138,8 @@ internal static class RegoPolicyTestSupport
     }
 
     /// <summary>Runs <c>sentinel-hook pre-tool-use</c> as its own process with the policy folder and cache set.</summary>
-    public static async Task<(int Exit, string Stdout, string Stderr)> RunHookProcessAsync(string folder, string cache, string json)
+    public static async Task<(int Exit, string Stdout, string Stderr)> RunHookProcessAsync(
+        string folder, string cache, string json, IReadOnlyDictionary<string, string>? extraEnvironment = null)
     {
         var psi = new ProcessStartInfo(DotnetHost())
         {
@@ -153,6 +154,11 @@ internal static class RegoPolicyTestSupport
         psi.Environment["SENTINEL_HOOK_POLICY_CACHE_DIR"] = cache;
         psi.Environment[HookAuditTestSupport.SqliteVar] = "off";
         psi.Environment.Remove("SENTINEL_HOOK_AUDIT_NDJSON");
+        foreach (var (key, value) in extraEnvironment ?? new Dictionary<string, string>(StringComparer.Ordinal))
+        {
+            psi.Environment[key] = value;
+        }
+
         using var process = Process.Start(psi)!;
         try
         {

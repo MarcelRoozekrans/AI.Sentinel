@@ -51,6 +51,10 @@ internal sealed class SeverityActions
         return Parse(profile.SeverityDefaults);
     }
 
+    /// <summary>The map as severity names and outcome names, the form <see cref="Parse"/> reads back.</summary>
+    public IEnumerable<KeyValuePair<string, string>> Entries() =>
+        _bySeverity.Select(e => new KeyValuePair<string, string>(e.Key.ToString().ToLowerInvariant(), DecisionOutcomes.Name(e.Value)));
+
     /// <summary>The outcome set for <paramref name="severity"/>, when there is one.</summary>
     public bool TryGet(Severity severity, out DecisionOutcome outcome) => _bySeverity.TryGetValue(severity, out outcome);
 

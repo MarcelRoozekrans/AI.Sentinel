@@ -39,27 +39,27 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Lifecycle
 
-- [ ] Add the resident mode to the hook binary: single-instance lock, detached start, 30-minute idle exit, no OS service.
-- [ ] Failing tests first in `ResidentProcessLifecycleTests`.
-- [ ] Commit.
+- [x] Add the resident mode to the hook binary: single-instance lock, detached start, 30-minute idle exit, no OS service.
+- [x] Failing tests first in `ResidentProcessLifecycleTests`.
+- [x] Commit.
 
 ### Task 2: Local channel
 
-- [ ] Answer decisions for hooks over a per-user local channel with a budget; fall back to in-process evaluation.
-- [ ] Record where each decision was made.
-- [ ] Tests in `EvaluationOrderTests`, including the 50 ms budget.
-- [ ] Commit.
+- [x] Answer decisions for hooks over a per-user local channel with a budget; fall back to in-process evaluation.
+- [x] Record where each decision was made.
+- [x] Tests in `EvaluationOrderTests`, including the 50 ms budget.
+- [x] Commit.
 
 ### Task 3: State folder
 
-- [ ] Write the profile cache and pause state with write-then-rename; hooks read them without network traffic and verify the profile per #671.
-- [ ] Tests in `ResidentProcessStateTests`.
-- [ ] Commit.
+- [x] Write the profile cache and pause state with write-then-rename; hooks read them without network traffic and verify the profile per #671.
+- [x] Tests in `ResidentProcessStateTests`.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
