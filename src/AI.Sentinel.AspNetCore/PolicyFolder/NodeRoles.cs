@@ -12,12 +12,6 @@ namespace AI.Sentinel.AspNetCore.PolicyFolder;
 /// </summary>
 internal sealed class NodeRoles(PolicyFolderLoader loader, IOptions<PolicyFolderOptions> options)
 {
-    /// <summary>The id of the organisation node, or <see langword="null"/> before a configuration has been published.</summary>
-    public string? OrganisationNodeId => loader.Current?.Nodes.Nodes.Single(n => n.IsOrganisation).Id;
-
-    /// <summary>The organisation the current node configuration names, or <see langword="null"/> before one has been published.</summary>
-    public string? OrganisationName => loader.Current?.Organisation;
-
     /// <summary>The developer a validated token stands for: its subject claim, or the claim the sign-in handler maps it to.</summary>
     public string? DeveloperOf(ClaimsPrincipal user)
     {
@@ -45,14 +39,52 @@ internal sealed class NodeRoles(PolicyFolderLoader loader, IOptions<PolicyFolder
     }
 
     /// <summary>The highest role <paramref name="user"/> holds on <paramref name="nodeId"/>.</summary>
-    public NodeRole RoleOn(ClaimsPrincipal user, string nodeId)
+    public NodeRole RoleOn(ClaimsPrincipal user, string nodeId) =>
+        loader.Current?.Nodes is { } configuration ? RoleIn(configuration, GroupsOf(user), nodeId) : NodeRole.Developer;
+
+    /// <summary>Whether <paramref name="user"/> holds at least <paramref name="needed"/> on <paramref name="nodeId"/>.</summary>
+    public bool Allows(ClaimsPrincipal user, NodeRole needed, string nodeId) => RoleOn(user, nodeId) >= needed;
+
+    /// <summary>Whether <paramref name="user"/> holds at least <paramref name="needed"/> on the node that owns
+    /// <paramref name="repository"/>. A repository that no node owns is the organisation's to settle: only an administrator is allowed.
+    /// The answer comes from one published configuration, read once.</summary>
+    public bool AllowsOnSession(ClaimsPrincipal user, NodeRole needed, string repository)
     {
-        if (loader.Current?.Nodes is not { } configuration || configuration.Nodes.All(n => !string.Equals(n.Id, nodeId, StringComparison.Ordinal)))
+        if (loader.Current?.Nodes is not { } configuration)
+        {
+            return false;
+        }
+
+        var groups = GroupsOf(user);
+        var node = configuration.NodeFor(repository)?.Id;
+        return node is null
+            ? RoleIn(configuration, groups, OrganisationOf(configuration)) == NodeRole.Administrator
+            : RoleIn(configuration, groups, node) >= needed;
+    }
+
+    /// <summary>Whether <paramref name="user"/> is an administrator of <paramref name="organisation"/>: the current node configuration
+    /// names that organisation and binds one of the user's groups as administrator. The configuration is read once, so the name and the
+    /// role come from the same version.</summary>
+    public bool IsAdministratorOf(ClaimsPrincipal user, string organisation)
+    {
+        if (loader.Current is not { } published
+            || !string.Equals(published.Organisation, organisation, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return RoleIn(published.Nodes, GroupsOf(user), OrganisationOf(published.Nodes)) == NodeRole.Administrator;
+    }
+
+    private static string OrganisationOf(NodeConfiguration configuration) => configuration.Nodes.Single(n => n.IsOrganisation).Id;
+
+    private static NodeRole RoleIn(NodeConfiguration configuration, IReadOnlySet<string> groups, string nodeId)
+    {
+        if (configuration.Nodes.All(n => !string.Equals(n.Id, nodeId, StringComparison.Ordinal)))
         {
             return NodeRole.Developer;
         }
 
-        var groups = GroupsOf(user);
         var role = NodeRole.Developer;
         foreach (var binding in configuration.Roles.Where(b => groups.Contains(b.Group)))
         {
@@ -68,22 +100,6 @@ internal sealed class NodeRoles(PolicyFolderLoader loader, IOptions<PolicyFolder
         }
 
         return role;
-    }
-
-    /// <summary>Whether <paramref name="user"/> holds at least <paramref name="needed"/> on <paramref name="nodeId"/>.</summary>
-    public bool Allows(ClaimsPrincipal user, NodeRole needed, string nodeId) => RoleOn(user, nodeId) >= needed;
-
-    /// <summary>Whether <paramref name="user"/> holds at least <paramref name="needed"/> on the node that owns
-    /// <paramref name="repository"/>. A repository that no node owns is the organisation's to settle: only an administrator is allowed.</summary>
-    public bool AllowsOnSession(ClaimsPrincipal user, NodeRole needed, string repository)
-    {
-        if (loader.Current?.Nodes is not { } configuration)
-        {
-            return false;
-        }
-
-        var node = configuration.NodeFor(repository)?.Id;
-        return node is null ? RoleOn(user, OrganisationNodeId!) == NodeRole.Administrator : Allows(user, needed, node);
     }
 
     /// <summary>Whether <paramref name="user"/> may approve, deny, pause or release a session of <paramref name="repository"/> whose

@@ -475,7 +475,11 @@ Every new setting is optional and off by default. Nothing is registered or mappe
 The server part in `AI.Sentinel.AspNetCore` reads policy and node configuration from a folder (ADR-107). It never accepts either over HTTP: no endpoint takes a request body. A central product fills the folder from the protected branch of a git repository; a standalone deployment keeps a git checkout of that branch there, for example with a git-sync sidecar.
 
 ```csharp
-services.AddAISentinelAdminAudit(o => o.SigningKey = signingKeyBase64);
+services.AddAISentinelAdminAudit(o =>
+{
+    o.SigningKey = signingKeyBase64;
+    o.Organisation = "acme";              // must equal "organisation" in nodes.json when both features are registered
+});
 services.AddAISentinelPolicyFolder(o =>
 {
     o.Path = "/policy/current";           // the folder, or a link to it, as git-sync keeps it
@@ -537,9 +541,9 @@ Every new setting is optional and off by default. Nothing is registered or mappe
 
 ### Roles on nodes
 
-The `roles` list of `nodes.json` binds identity-provider groups to roles on nodes. There are three roles: an administrator, bound on the organisation, a team lead, bound on a team, and everyone else, who is a developer. A role applies to its node and the nodes below it, so an administrator holds it on every node and a team lead on their team. The server reads the signed-in user from the validated token: the developer is its `sub` claim and the groups are its `groups` claim, either as one claim per group or as one claim holding a JSON array. `PolicyFolderOptions.DeveloperClaim` and `PolicyFolderOptions.GroupsClaim` rename them. The bindings are read from the configuration that is current at each check, so a change of the policy folder changes them without a restart.
+The `roles` list of `nodes.json` binds identity-provider groups to roles on nodes. There are three roles: an administrator, bound on the organisation, a team lead, bound on a team, and everyone else, who is a developer. A role applies to its node and the nodes below it, so an administrator holds it on every node and a team lead on their team. The server reads the signed-in user from the validated token: the developer is its `sub` claim and the groups are its `groups` claim, either as one claim per group or as one claim holding a JSON array. `PolicyFolderOptions.DeveloperClaim` and `PolicyFolderOptions.GroupsClaim` rename them. Name a claim as it appears on the signed-in user: the JWT bearer handler maps some inbound names, for example `roles` to the role claim type, unless the host sets `MapInboundClaims` to `false`. The bindings are read from the configuration that is current at each check, so a change of the policy folder changes them without a restart.
 
-A team lead approves, denies, pauses and releases only sessions of repositories on their node, and a developer reads their own decisions. Nobody decides their own approval request, whatever the role. A repository that no node owns is the organisation's to settle, so only an administrator is allowed on it. The check goes through the host's ASP.NET Core authorization, after the host policy named in `PolicyName`, and uses the node configuration for the role. With the policy folder registered, `GET /ai-sentinel/admin-audit/{organisation}/export` also needs the administrator role on the organisation. The roles are for the whole server part; which sessions each team sees in the dashboard is a separate item.
+The server part has the checks for these rules: a team lead may approve, deny, pause and release only sessions of repositories on their node, a developer reads their own decisions, and nobody decides their own approval request, whatever the role. A repository that no node owns is the organisation's to settle, so only an administrator is allowed on it. These checks are helpers for later integration: no approve, deny or pause handler calls them yet. The only endpoint that enforces a role so far is the audit export: with the policy folder registered, `GET /ai-sentinel/admin-audit/{organisation}/export` needs the administrator role on the organisation, after the host policy named in `AdminAuditOptions.PolicyName`. Each check reads one published node configuration, so a decision never mixes two versions. Which sessions each team sees in the dashboard is a separate item.
 
 Every new setting is optional and off by default. Without `AddAISentinelPolicyFolder` there are no roles and the host policy decides alone.
 

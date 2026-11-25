@@ -4,13 +4,17 @@ using AI.Sentinel.AspNetCore;
 using AI.Sentinel.AspNetCore.AdminAudit;
 using AI.Sentinel.AspNetCore.PolicyFolder;
 using AI.Sentinel.Profiles;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 using Xunit;
 using static AI.Sentinel.Tests.AspNetCore.PolicyFolder.PolicyFolderFixture;
 
@@ -83,6 +87,71 @@ public sealed class NodeRoleTests : IDisposable
     }
 
     private Task<NodeRoles> RolesAsync_Default() => Task.FromResult(new NodeRoles(_folder.Loader, Options.Create(new PolicyFolderOptions())));
+
+    [Theory]
+    [InlineData(null, null, "sub", "groups")]
+    [InlineData("preferred_username", "idp_groups", "preferred_username", "idp_groups")]
+    public async Task The_developer_and_the_groups_are_mapped_from_a_token_the_authentication_handler_validated(
+        string? developerClaim, string? groupsClaim, string developerName, string groupsName)
+    {
+        var key = new SymmetricSecurityKey(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var token = new JsonWebTokenHandler().CreateToken(new SecurityTokenDescriptor
+        {
+            Claims = new Dictionary<string, object>(StringComparer.Ordinal) { [developerName] = "lena", [groupsName] = new[] { "leads-a", "everyone" } },
+            SigningCredentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256),
+        });
+        _folder.Write("v1", nodes: TwoTeams);
+        _folder.LinkTo("v1");
+        using var host = await new HostBuilder()
+            .ConfigureWebHost(web =>
+            {
+                web.UseTestServer();
+                web.ConfigureServices(s =>
+                {
+                    s.AddRouting();
+                    s.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(o =>
+                        o.TokenValidationParameters = new TokenValidationParameters
+                        {
+                            IssuerSigningKey = key,
+                            ValidateIssuer = false,
+                            ValidateAudience = false,
+                            ValidateLifetime = false,
+                        });
+                    s.AddAuthorization();
+                    s.AddSingleton<IReadOnlyList<AI.Sentinel.ClaudeCode.Policy.Rego.IRegoCompiler>>([_folder.Compiler]);
+                    var seed = Convert.ToBase64String(Ed25519Crypto.NewSeed());
+                    s.AddAISentinelAdminAudit(o => o.SigningKey = seed);
+                    s.AddAISentinelPolicyFolder(o =>
+                    {
+                        o.Path = _folder.Folder;
+                        o.SigningKey = seed;
+                        if (developerClaim is not null) { o.DeveloperClaim = developerClaim; }
+                        if (groupsClaim is not null) { o.GroupsClaim = groupsClaim; }
+                    });
+                });
+                web.Configure(app =>
+                {
+                    app.UseRouting();
+                    app.UseAuthentication();
+                    app.UseEndpoints(e => e.MapGet("/who", (HttpContext http, NodeRoles roles) =>
+                        $"{roles.DeveloperOf(http.User)}|{string.Join(',', roles.GroupsOf(http.User).Order(StringComparer.Ordinal))}"
+                        + $"|{roles.RoleOn(http.User, "team-a")}|{roles.RoleOn(http.User, "team-b")}"));
+                });
+            })
+            .StartAsync(Ct);
+        var loader = host.Services.GetRequiredService<PolicyFolderLoader>();
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (loader.Current is null && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20, Ct);
+        }
+
+        var request = new HttpRequestMessage(HttpMethod.Get, "/who");
+        request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        var response = await host.GetTestClient().SendAsync(request, Ct);
+
+        Assert.Equal("lena|everyone,leads-a|TeamLead|Developer", await response.Content.ReadAsStringAsync(Ct));
+    }
 
     [Fact]
     public async Task An_administrator_of_the_organisation_holds_the_role_on_every_node()
