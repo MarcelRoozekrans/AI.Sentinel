@@ -154,6 +154,8 @@ jobs:
         run: |
           for cli in ClaudeCode.Cli Codex.Cli Copilot.Cli Mcp.Cli; do
             proj=src/AI.Sentinel.$cli/AI.Sentinel.$cli.csproj
+            # A republished tag from before this CLI existed has no project for it.
+            [ -f "$proj" ] || continue
             dotnet pack "$proj" -c Release --no-build -p:PackageVersion=$VERSION -o ./nupkg-pointer
             dotnet pack "$proj" -c Release -r any -p:PublishAot=false \
               -p:PackageVersion=$VERSION -p:Version=$VERSION -o ./nupkg-rid

@@ -173,14 +173,17 @@ public class CodexHookTests : IDisposable
     [Fact]
     public void A_patch_sent_in_tool_input_command_gives_the_policy_its_target_paths()
     {
+        var root = OperatingSystem.IsWindows() ? @"C:\work\repo" : "/work/repo";
+        var outside = OperatingSystem.IsWindows() ? @"C:\etc\b" : "/etc/b";
+        var patch = $"*** Begin Patch\n*** Update File: src/a.cs\n*** Add File: {outside}\n*** End Patch";
         var input = PolicyInputBuilder.Build(
             PolicyClis.Codex, "apply_patch",
-            JsonDocument.Parse("""{"command":"*** Begin Patch\n*** Update File: src/a.cs\n*** Add File: /etc/b\n*** End Patch"}""").RootElement,
-            "s", [], "/work/repo");
+            JsonSerializer.SerializeToElement(new { command = patch }),
+            "s", [], root);
 
         Assert.Equal("edit", input.Kind);
         Assert.Equal("codex", input.Cli);
-        Assert.Equal(["/work/repo/src/a.cs", "/etc/b"], input.Details.Paths!.Select(p => p.Path), StringComparer.Ordinal);
+        Assert.Equal([Path.Combine(root, "src", "a.cs"), outside], input.Details.Paths!.Select(p => p.Path), StringComparer.Ordinal);
         Assert.Equal([true, false], input.Details.Paths!.Select(p => p.InRepository));
     }
 
