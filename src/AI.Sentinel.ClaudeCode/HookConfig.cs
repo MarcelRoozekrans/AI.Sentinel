@@ -51,6 +51,15 @@ public sealed record HookConfig
     /// does not say it is headless.</summary>
     internal bool Headless { get; init; }
 
+    /// <summary>The outcomes a policy or a profile sets per severity, or <see langword="null"/> when none applies. A severity
+    /// set here is combined with its <c>SENTINEL_HOOK_ON_*</c> variable, the strictest winning, when that variable was set
+    /// (see <see cref="ExplicitSeverities"/>); a variable left to its built-in default does not count.</summary>
+    internal SeverityActions? SeverityOutcomes { get; init; }
+
+    /// <summary>The severities whose <c>SENTINEL_HOOK_ON_*</c> variable was set to a valid action. Only
+    /// <see cref="FromEnvironment"/> knows this; a config built by hand has none, so a policy's outcome stands alone.</summary>
+    internal SeverityFlags ExplicitSeverities { get; init; }
+
     /// <summary>Receives every finding of a scan, as detector id and severity name, before the decision is taken. Set by a
     /// hook CLI that evaluates a local policy, which matches on the findings; <see langword="null"/> otherwise, and then
     /// nothing changes.</summary>
@@ -76,8 +85,23 @@ public sealed record HookConfig
             EnableComplianceDetectors = ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE") ?? false,
             RedactToolResults = ParseSwitch(env, "SENTINEL_HOOK_REDACT") ?? true,
             Headless = ParseSwitch(env, "SENTINEL_HOOK_HEADLESS") ?? false,
+            ExplicitSeverities = ExplicitFrom(env),
         };
     }
+
+    /// <summary>The severities whose <c>SENTINEL_HOOK_ON_*</c> variable holds a valid action. Shared with the Copilot config.</summary>
+    internal static SeverityFlags ExplicitFrom(IReadOnlyDictionary<string, string?> env)
+    {
+        var flags = SeverityFlags.None;
+        if (IsSet(env, "SENTINEL_HOOK_ON_CRITICAL")) flags |= SeverityFlags.Critical;
+        if (IsSet(env, "SENTINEL_HOOK_ON_HIGH")) flags |= SeverityFlags.High;
+        if (IsSet(env, "SENTINEL_HOOK_ON_MEDIUM")) flags |= SeverityFlags.Medium;
+        if (IsSet(env, "SENTINEL_HOOK_ON_LOW")) flags |= SeverityFlags.Low;
+        return flags;
+    }
+
+    private static bool IsSet(IReadOnlyDictionary<string, string?> env, string key)
+        => env.TryGetValue(key, out var v) && Enum.TryParse<HookDecision>(v, ignoreCase: true, out _);
 
     private static HookDecision ParseDecision(IReadOnlyDictionary<string, string?> env, string key, HookDecision fallback)
         => env.TryGetValue(key, out var v) && Enum.TryParse<HookDecision>(v, ignoreCase: true, out var d) ? d : fallback;

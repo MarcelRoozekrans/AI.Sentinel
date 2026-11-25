@@ -115,9 +115,14 @@ How each outcome is expressed for Copilot CLI:
 
 `SENTINEL_HOOK_POLICY_DIR` names a folder of Rego files that `sentinel-copilot-hook` evaluates on every `preToolUse` call, the same way `sentinel-hook` does; the input, the example, the cache and the platform notes are on the [Claude Code page](./claude-code#local-rego-policy). **Both `SENTINEL_HOOK_POLICY_DIR` and `SENTINEL_HOOK_POLICY_CACHE_DIR` are optional and off by default: without the folder the hook behaves exactly as before.** What differs for Copilot CLI:
 
+- A policy sets the outcome per severity with `severity_actions`, combined with `SENTINEL_HOOK_ON_*` strictest-wins as described in [Outcomes per severity](./claude-code#outcomes-per-severity); an ask there is a deny with instructions too. Optional and off by default.
 - Copilot CLI cannot ask, so an **ask** from the policy, or from the parser for a command line it cannot read, is a deny with instructions.
 - The parser reads POSIX quoting, so every `powershell` call is marked `unparseable` and asks, which for Copilot CLI means it is denied under a local policy.
 - A policy that cannot be read, compiled or loaded, or a compiler process that crashes or exceeds its 30 s limit, blocks `preToolUse` with exit 2 (Copilot discards that exit code when its own `timeoutSec` expires first, so keep it at 45 or more) and `Sentinel internal error: policy '<folder>' could not be evaluated`. The Copilot hook has no musl build of the Wasmtime library either, so on Alpine a set folder blocks every call.
+
+## Resident local process
+
+`sentinel-copilot-hook` takes part in the resident local process the same way `sentinel-hook` does, and the two share one process per user: `SENTINEL_HOOK_RESIDENT=on` lets a `preToolUse` ask it for the policy evaluation, falls back to evaluating in-process when it does not answer within `SENTINEL_HOOK_RESIDENT_BUDGET_MS` (15 by default), and denies the calls of a session that the pause state names. **All three settings are optional and off by default: without `SENTINEL_HOOK_RESIDENT` no process is started and the hook behaves exactly as before.** The channel, the state folder, the lifecycle and the evaluation order are on the [Claude Code page](./claude-code#resident-local-process). Copilot CLI cannot ask, so a pause is a deny, as it is for Claude Code.
 
 ## When the hook itself fails
 

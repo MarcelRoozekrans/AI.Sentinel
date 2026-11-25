@@ -56,6 +56,12 @@ public sealed record CopilotHookConfig
     /// the hook CLI when it evaluates a local policy; <see langword="null"/> otherwise, and then nothing changes.</summary>
     internal Action<string, string>? FindingSink { get; init; }
 
+    /// <summary>The outcomes a policy sets per severity; see <c>HookConfig.SeverityOutcomes</c>.</summary>
+    internal SeverityActions? SeverityOutcomes { get; init; }
+
+    /// <summary>The severities whose <c>SENTINEL_HOOK_ON_*</c> variable was set; see <c>HookConfig.ExplicitSeverities</c>.</summary>
+    internal SeverityFlags ExplicitSeverities { get; init; }
+
     /// <summary>
     /// Builds a <see cref="CopilotHookConfig"/> from <c>SENTINEL_HOOK_*</c> environment variables.
     /// </summary>
@@ -72,6 +78,7 @@ public sealed record CopilotHookConfig
             SuppressSemanticWarning = ParseVerbose(env, "SENTINEL_HOOK_SUPPRESS_SEMANTIC_WARNING"),
             EnableComplianceDetectors = HookConfig.ParseSwitch(env, "SENTINEL_HOOK_COMPLIANCE") ?? false,
             RedactToolResults = HookConfig.ParseSwitch(env, "SENTINEL_HOOK_REDACT") ?? true,
+            ExplicitSeverities = HookConfig.ExplicitFrom(env),
         };
     }
 
@@ -92,6 +99,8 @@ public sealed record CopilotHookConfig
             EnableComplianceDetectors = EnableComplianceDetectors,
             RedactToolResults = RedactToolResults,
             FindingSink = FindingSink,
+            SeverityOutcomes = SeverityOutcomes,
+            ExplicitSeverities = ExplicitSeverities,
         };
 
     private static HookDecision ParseDecision(IReadOnlyDictionary<string, string?> env, string key, HookDecision fallback)

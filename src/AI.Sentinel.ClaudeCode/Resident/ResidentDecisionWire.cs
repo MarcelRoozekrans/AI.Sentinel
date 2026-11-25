@@ -1,0 +1,44 @@
+using AI.Sentinel.ClaudeCode.Policy.Rego;
+
+namespace AI.Sentinel.ClaudeCode.Resident;
+
+/// <summary>Carries a <see cref="RegoDecision"/> over the local channel and back.</summary>
+internal static class ResidentDecisionWire
+{
+    public static ResidentResponse ToResponse(RegoDecision decision)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        return new ResidentResponse
+        {
+            Ok = true,
+            Pid = Environment.ProcessId,
+            Outcome = DecisionOutcomes.Name(decision.Outcome),
+            Reasons = decision.Reasons,
+            Refused = decision.Refused,
+            Severities = (decision.SeverityActions ?? SeverityActions.None).Entries().Select(e => new ResidentSeverity(e.Key, e.Value)).ToList(),
+        };
+    }
+
+    /// <summary>The decision of an answer, or <see langword="null"/> when the answer is not a decision.</summary>
+    public static RegoDecision? FromResponse(ResidentResponse response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        if (!response.Ok || response.Reasons is null || OutcomeOf(response.Outcome) is not { } outcome)
+        {
+            return null;
+        }
+
+        var severities = SeverityActions.Parse((response.Severities ?? []).Select(s => new KeyValuePair<string, string>(s.Severity, s.Outcome)));
+        return new RegoDecision(outcome, response.Reasons, response.Refused, severities);
+    }
+
+    private static DecisionOutcome? OutcomeOf(string? name) => name switch
+    {
+        "deny" => DecisionOutcome.Deny,
+        "ask" => DecisionOutcome.Ask,
+        "guidance" => DecisionOutcome.Guidance,
+        "allow" => DecisionOutcome.Allow,
+        "defer" => DecisionOutcome.Defer,
+        _ => null,
+    };
+}
