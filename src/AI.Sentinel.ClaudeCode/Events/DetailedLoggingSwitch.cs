@@ -14,7 +14,7 @@ internal sealed class DetailedLoggingSwitch(string directory, Func<(string Organ
 
     private readonly Lock _gate = new();
     private DateTimeOffset _readAt;
-    private HashSet<string> _on = new(StringComparer.Ordinal);
+    private Dictionary<string, DateTimeOffset> _on = new(StringComparer.Ordinal);
 
     /// <summary>True when <paramref name="node"/> has detailed logging on.</summary>
     public bool IsOn(string? node)
@@ -33,13 +33,14 @@ internal sealed class DetailedLoggingSwitch(string directory, Func<(string Organ
                 _readAt = now;
             }
 
-            return _on.Contains(node);
+            // A kept answer ends with the profile that gave it, not after the next refresh.
+            return _on.TryGetValue(node, out var expires) && now < expires;
         }
     }
 
-    private HashSet<string> Read(DateTimeOffset now)
+    private Dictionary<string, DateTimeOffset> Read(DateTimeOffset now)
     {
-        var on = new HashSet<string>(StringComparer.Ordinal);
+        var on = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         if (pinned() is not { } trusted || !System.IO.Directory.Exists(directory))
         {
             return on;
@@ -59,7 +60,7 @@ internal sealed class DetailedLoggingSwitch(string directory, Func<(string Organ
                 var verified = ProfileVerifier.Verify(signed, trusted.Keys, trusted.Organisation, claimed.Repository, now);
                 if (verified.Profile is { } profile && profile.LoggingSwitches.GetValueOrDefault("detailed"))
                 {
-                    on.Add(profile.Node);
+                    on[profile.Node] = on.TryGetValue(profile.Node, out var known) && known > profile.ExpiresAt ? known : profile.ExpiresAt;
                 }
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException)

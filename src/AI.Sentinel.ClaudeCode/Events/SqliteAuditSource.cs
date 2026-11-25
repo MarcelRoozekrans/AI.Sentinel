@@ -5,14 +5,14 @@ using Microsoft.Data.Sqlite;
 namespace AI.Sentinel.ClaudeCode.Events;
 
 /// <summary>Reads the audit file the hooks write, read-only, so it never changes it. A file that does not exist yet, or is older than
-/// the schema that routes entries, holds nothing to send.</summary>
+/// the schema that routes entries, cannot be read now, and is reported as such rather than as an empty audit.</summary>
 internal sealed class SqliteAuditSource(string databasePath) : IAuditSource
 {
     public async Task<AuditPage> ReadAfterAsync(long after, int limit, CancellationToken ct)
     {
         if (!File.Exists(databasePath))
         {
-            return AuditPage.Empty;
+            return AuditPage.Unreadable;
         }
 
         try
@@ -24,8 +24,8 @@ internal sealed class SqliteAuditSource(string databasePath) : IAuditSource
         }
         catch (Exception e) when (e is SqliteException or InvalidOperationException)
         {
-            // Busy, being written by an upgrade, or not yet current: the next cycle reads it.
-            return AuditPage.Empty;
+            // Busy, being written by an upgrade, or not yet current: the next cycle reads it. It is not an empty audit, so the cursor stays.
+            return AuditPage.Unreadable;
         }
     }
 }

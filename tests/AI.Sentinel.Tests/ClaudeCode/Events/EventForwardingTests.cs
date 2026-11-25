@@ -235,7 +235,7 @@ public sealed class EventForwardingTests : IDisposable
         _server.Down = true;
         var failed = await Forwarder().ForwardAsync(CancellationToken.None);
         Assert.True(failed.Failed);
-        Assert.Null(new EventCursor(_dir).Read());
+        Assert.Equal(0, new EventCursor(_dir).Read());
 
         await AppendManyAsync(2, "g");
         _server.Down = false;
@@ -293,7 +293,7 @@ public sealed class EventForwardingTests : IDisposable
         var broken = new EventForwarder(new ThrowingSource(), new EventCursor(_dir), new HttpClient(_server), Endpoint, () => "acme", _ => false);
         Assert.True((await broken.TryForwardAsync(CancellationToken.None)).Failed);
 
-        Assert.Null(new EventCursor(_dir).Read());
+        Assert.Equal(0, new EventCursor(_dir).Read());
         _server.Status = HttpStatusCode.OK;
         Assert.Equal(2, (await forwarder.ForwardAsync(CancellationToken.None)).Sent);
     }
@@ -392,6 +392,71 @@ public sealed class EventForwardingTests : IDisposable
 
         Assert.True(result.Failed);
         Assert.Empty(_server.Batches);
+    }
+
+    [Fact]
+    public async Task A_failed_first_send_still_counts_the_entries_pruned_before_the_next_one()
+    {
+        await AppendManyAsync(4);
+        _server.Down = true;
+        Assert.True((await Forwarder().ForwardAsync(CancellationToken.None)).Failed);
+        await PruneThroughAsync(2);
+        _server.Down = false;
+
+        var result = await Forwarder().ForwardAsync(CancellationToken.None);
+
+        Assert.Equal(2, result.Sent);
+        Assert.Equal(2, result.Pruned);
+        Assert.Equal(2, _server.Batches[0].GetProperty("gap").GetProperty("pruned").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_first_page_that_nothing_pruned_reports_no_gap_even_when_the_audit_starts_above_one()
+    {
+        await AppendManyAsync(4);
+        await PruneThroughAsync(2);
+
+        var result = await Forwarder().ForwardAsync(CancellationToken.None);
+
+        Assert.Equal(2, result.Sent);
+        Assert.Equal(0, result.Pruned);
+    }
+
+    [Fact]
+    public async Task An_audit_that_cannot_be_read_keeps_the_cursor_and_fails_the_pass()
+    {
+        await AppendManyAsync(3);
+        await Forwarder().ForwardAsync(CancellationToken.None);
+        Assert.Equal(3, new EventCursor(_dir).Read());
+        var unreadable = new EventForwarder(new UnreadableSource(), new EventCursor(_dir), new HttpClient(_server), Endpoint, () => "acme", _ => false);
+
+        var result = await unreadable.ForwardAsync(CancellationToken.None);
+        var again = await unreadable.ForwardAsync(CancellationToken.None);
+
+        Assert.True(result.Failed);
+        Assert.True(again.Failed);
+        Assert.Equal(3, new EventCursor(_dir).Read());
+        await AppendManyAsync(1, "h");
+        var recovered = await Forwarder().ForwardAsync(CancellationToken.None);
+        Assert.Equal(1, recovered.Sent);
+        Assert.Equal(0, recovered.Pruned);
+    }
+
+    [Fact]
+    public async Task A_missing_audit_file_is_no_failure_before_anything_was_sent()
+    {
+        var forwarder = new EventForwarder(
+            new SqliteAuditSource(Path.Combine(_dir, "none.db")), new EventCursor(_dir), new HttpClient(_server), Endpoint, () => "acme", _ => false);
+
+        var result = await forwarder.ForwardAsync(CancellationToken.None);
+
+        Assert.False(result.Failed);
+        Assert.Null(new EventCursor(_dir).Read());
+    }
+
+    private sealed class UnreadableSource : IAuditSource
+    {
+        public Task<AuditPage> ReadAfterAsync(long after, int limit, CancellationToken ct) => Task.FromResult(AuditPage.Unreadable);
     }
 
     private sealed class ThrowingSource : IAuditSource

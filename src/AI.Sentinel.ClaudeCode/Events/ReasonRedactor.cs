@@ -26,6 +26,7 @@ internal static partial class ReasonRedactor
         text = Quoted().Replace(text, "<value>");
         text = WindowsPath().Replace(text, "<path>");
         text = UnixPath().Replace(text, "<path>");
+        text = RelativePath().Replace(text, m => IsRelativePath(m.Value) ? "<path>" : m.Value);
         text = text.Trim();
         if (text.Length > MaxLength)
         {
@@ -39,6 +40,10 @@ internal static partial class ReasonRedactor
     /// characters. Checked on the text as it is, before a quoted value is hidden, because a secret is often quoted.</summary>
     internal static bool LooksSecret(string text) =>
         SecretShape().IsMatch(text) || Assignment().IsMatch(text) || RandomRun().Matches(text).Any(m => IsMixed(m.Value));
+
+    // Words joined by one slash, as in and/or, are prose. A path has two or more slashes, or a file extension after one.
+    private static bool IsRelativePath(string token) =>
+        token.Count(c => c == '/') >= 2 || token[(token.LastIndexOf('/') + 1)..].Contains('.', StringComparison.Ordinal);
 
     private static bool IsMixed(string run)
     {
@@ -75,9 +80,12 @@ internal static partial class ReasonRedactor
     [GeneratedRegex(@"(?<![A-Za-z])'[^'\r\n]*'|""[^""\r\n]*""|`[^`\r\n]*`", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
     private static partial Regex Quoted();
 
-    [GeneratedRegex(@"\b[A-Za-z]:\\[^\s'""<>|]*|\\\\[^\s'""<>|]+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
+    [GeneratedRegex(@"\b[A-Za-z]:[\\/][^\s'""<>|]*|\\\\[^\s'""<>|]+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
     private static partial Regex WindowsPath();
 
     [GeneratedRegex(@"(?<![\w<>.:/])(?:~|\.{1,2})?/[^\s'"",;:)\]]+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
     private static partial Regex UnixPath();
+
+    [GeneratedRegex(@"(?<![\w<>.:/~\-])[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
+    private static partial Regex RelativePath();
 }

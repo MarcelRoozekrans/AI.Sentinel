@@ -35,11 +35,16 @@ internal sealed class EventForwarder(
         while (true)
         {
             var page = await source.ReadAfterAsync(after, batchSize, ct).ConfigureAwait(false);
+            if (page.ReadFailed)
+            {
+                // Not a replaced audit: keep the cursor. With nothing stored or sent yet there is nothing to lose, so no failure.
+                return new ForwardResult(sent, prunedTotal, Failed: hasCursor);
+            }
+
             if (page.Last < after)
             {
                 // The audit file was replaced by a newer one, so its sequences start again. Nothing was pruned: start from the top.
-                after = 0;
-                hasCursor = false;
+                (after, hasCursor) = (0, false);
                 if (!TryStore(0))
                 {
                     return new ForwardResult(sent, prunedTotal, Failed: true);
@@ -53,16 +58,19 @@ internal sealed class EventForwarder(
                 return new ForwardResult(sent, prunedTotal, Failed: false);
             }
 
-            var lastSequence = page.Rows[^1].Sequence;
-            var pruned = hasCursor ? (int)Math.Clamp(page.Rows[0].Sequence - after - 1, 0, int.MaxValue) : 0;
-            var events = new List<ForwardedEvent>();
-            foreach (var (_, entry) in page.Rows)
+            if (!hasCursor)
             {
-                if (AuditEventMapper.Map(entry, detailedLogging) is { } mapped)
+                // Store where this audit starts before the first send, so entries pruned while it keeps failing are still counted.
+                hasCursor = true;
+                if (!TryStore(after = page.Rows[0].Sequence - 1))
                 {
-                    events.Add(mapped);
+                    return new ForwardResult(sent, prunedTotal, Failed: true);
                 }
             }
+
+            var lastSequence = page.Rows[^1].Sequence;
+            var pruned = (int)Math.Clamp(page.Rows[0].Sequence - after - 1, 0, int.MaxValue);
+            var events = MapEvents(page);
 
             if ((events.Count > 0 || pruned > 0) && !await SendAsync(events, pruned, ct).ConfigureAwait(false))
             {
@@ -118,6 +126,20 @@ internal sealed class EventForwarder(
                 return;
             }
         }
+    }
+
+    private List<ForwardedEvent> MapEvents(AuditPage page)
+    {
+        var events = new List<ForwardedEvent>();
+        foreach (var (_, entry) in page.Rows)
+        {
+            if (AuditEventMapper.Map(entry, detailedLogging) is { } mapped)
+            {
+                events.Add(mapped);
+            }
+        }
+
+        return events;
     }
 
     private bool TryStore(long sequence)
