@@ -81,6 +81,40 @@ public class RepositoryNodePolicyTests : IDisposable
         Assert.Equal("https://github.com/acme/widgets.git", GitRemote.UrlOf(repo));
     }
 
+    [Theory]
+    [InlineData("[remote \"origin\"]")]
+    [InlineData("[remote\t\"origin\"]")]
+    [InlineData("[remote   \"origin\" ]")]
+    [InlineData("[remote.origin]")]
+    [InlineData("[ Remote \"origin\"]")]
+    public void A_remote_header_is_read_whatever_its_spacing(string header)
+    {
+        var repo = Path.Combine(_root, "header" + Math.Abs(header.GetHashCode(StringComparison.Ordinal)));
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        File.WriteAllText(Path.Combine(repo, ".git", "config"), header + "\n\turl = https://github.com/acme/widgets.git\n");
+
+        Assert.Equal("https://github.com/acme/widgets.git", GitRemote.UrlOf(repo));
+    }
+
+    [Fact]
+    public void A_header_that_only_starts_like_remote_is_not_a_remote()
+    {
+        var repo = Path.Combine(_root, "remotes");
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        File.WriteAllText(Path.Combine(repo, ".git", "config"), "[remotes \"origin\"]\n\turl = https://github.com/acme/widgets.git\n");
+
+        Assert.Null(GitRemote.UrlOf(repo));
+    }
+
+    [Fact]
+    public void A_canonical_ipv6_key_keeps_a_git_suffix_that_belongs_to_its_name_through_the_cache_file()
+    {
+        var map = NodeMap.FromJson(new NodeMap([new("https://[2001:db8::1]/acme/widgets.git.git", "node-a")]).ToJson());
+
+        Assert.Equal("node-a", map.NodeFor(RepositoryUrl.Normalize("https://[2001:db8::1]/acme/widgets.git.git")!));
+        Assert.Equal("[2001:db8::1]/acme/widgets.git", RepositoryUrl.Normalize("[2001:db8::1]/acme/widgets.git"));
+    }
+
     [Fact]
     public void A_comment_character_inside_a_quoted_url_is_kept()
     {

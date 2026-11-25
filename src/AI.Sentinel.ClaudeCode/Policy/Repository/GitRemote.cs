@@ -199,16 +199,31 @@ internal static class GitRemote
         public string? First { get; set; }
     }
 
-    // [remote "origin"] gives origin; any other section gives null.
+    // [remote "origin"] gives origin; any other section gives null. Git also accepts blanks or a tab between the section and the quoted
+    // subsection, blanks before the closing bracket, and the old form [remote.origin].
     private static string? RemoteName(string header)
     {
-        const string Section = "[remote \"";
-        if (!header.StartsWith(Section, StringComparison.OrdinalIgnoreCase))
+        var close = header.IndexOf(']', StringComparison.Ordinal);
+        var body = (close < 0 ? header[1..] : header[1..close]).Trim();
+        const string Section = "remote";
+        if (!body.StartsWith(Section, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        var end = header.IndexOf('"', Section.Length);
-        return end < 0 ? null : header[Section.Length..end];
+        var rest = body[Section.Length..];
+        if (rest.StartsWith('.'))
+        {
+            return rest.Length > 1 ? rest[1..] : null;
+        }
+
+        rest = rest.TrimStart(' ', '\t');
+        if (rest.Length == body.Length - Section.Length || !rest.StartsWith('"'))
+        {
+            return null;
+        }
+
+        var end = rest.IndexOf('"', 1);
+        return end < 0 ? null : rest[1..end];
     }
 }
