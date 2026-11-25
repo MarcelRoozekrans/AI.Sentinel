@@ -120,7 +120,7 @@ public class OpaBinaryCompilerTests
             }
 
             // opa build -t wasm -e <entrypoint> -o <bundle> [--capabilities <file>] <root>: the output is the seventh argument.
-            var stub = Stub(dir, $"cp '{prepared}' \"$7\"\n");
+            var stub = Stub(dir, "cp \"${0%/*}/prepared.tar.gz\" \"$7\"\n");
             var compiler = new OpaBinaryCompiler(stub, TimeSpan.FromSeconds(30));
 
             Assert.Equal([0, 97, 115, 109, 1], compiler.CompileWasm(Sources, restrictBuiltins: true));
@@ -152,6 +152,33 @@ public class OpaBinaryCompilerTests
             var error = Assert.Throws<TimeoutException>(() => compiler.CompileWasm(sources, restrictBuiltins: true));
 
             Assert.True(watch.Elapsed < TimeSpan.FromSeconds(30), $"took {watch.Elapsed}");
+            Assert.Contains("opa", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            RegoPolicyTestSupport.Delete(dir);
+        }
+    }
+
+    [Fact]
+    public void An_opa_that_fails_and_leaves_a_child_holding_its_output_open_is_not_waited_for_past_the_deadline()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return; // the stub is a shell script
+        }
+
+        var dir = Directory.CreateTempSubdirectory("sentinel-opa-stub-").FullName;
+        try
+        {
+            // The background sleep inherits the output pipes and outlives opa, so they do not close when opa exits.
+            var stub = Stub(dir, "sleep 10 &\nexit 1\n");
+            var compiler = new OpaBinaryCompiler(stub, TimeSpan.FromSeconds(1));
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var error = Assert.Throws<TimeoutException>(() => compiler.CompileWasm(Sources, restrictBuiltins: true));
+
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(7), $"took {watch.Elapsed}");
             Assert.Contains("opa", error.Message, StringComparison.Ordinal);
         }
         finally
