@@ -100,7 +100,7 @@ internal sealed class ResidentState(string directory)
     /// that passes is used offline until it expires. <see langword="null"/> when nothing is cached.</summary>
     public ProfileVerification? ReadProfile(PinnedProfileKeys pinned, string organisation, string repository, DateTimeOffset now)
     {
-        if (PolicyCache.TryRead(Path.Combine(Directory, ProfileFile)) is not { } bytes)
+        if (ReadOrNull(Path.Combine(Directory, ProfileFile)) is not { } bytes)
         {
             return null;
         }
@@ -124,7 +124,7 @@ internal sealed class ResidentState(string directory)
     /// unusable. With no pinned key every profile is refused, so a damaged file fails closed.</summary>
     public (string Organisation, PinnedProfileKeys Keys)? ReadPinnedKeys()
     {
-        if (PolicyCache.TryRead(Path.Combine(Directory, PinnedKeysFile)) is not { } bytes)
+        if (ReadOrNull(Path.Combine(Directory, PinnedKeysFile)) is not { } bytes)
         {
             return null;
         }
@@ -137,6 +137,19 @@ internal sealed class ResidentState(string directory)
                 : (record.Organisation, PinnedProfileKeys.FromBase64(record.Keys));
         }
         catch (Exception e) when (e is JsonException or FormatException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    // A file that exists and cannot be read is as good as absent for the profile and the pins; a pause file is the one that fails closed.
+    private static byte[]? ReadOrNull(string path)
+    {
+        try
+        {
+            return PolicyCache.TryRead(path);
+        }
+        catch (Exception e) when (e is UnauthorizedAccessException or IOException)
         {
             return null;
         }

@@ -33,7 +33,7 @@ internal static class ResidentCommand
         }
 
         // Sign-in is optional: without its settings the process holds no token (#659).
-        using var http = new HttpClient();
+        using var http = SignIn.SignInCommand.NoRedirects();
         var tokens = SignIn.SignInCommand.OpenSession(ResidentSettings.ProcessEnvironment(), http, stderr);
         var exit = await ResidentHost.RunAsync(settings, compilers, CancellationToken.None, listening: null, tokens).ConfigureAwait(false);
         return exit == ResidentExit.Failed ? 1 : 0;

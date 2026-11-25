@@ -61,7 +61,7 @@ internal static class SignInCommand
 
         time ??= TimeProvider.System;
         store ??= TokenStores.ForCurrentOs(settings, line => stderr.WriteLine(line));
-        using var http = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
+        using var http = handler is null ? NoRedirects() : new HttpClient(handler, disposeHandler: false);
         SignInOutcome outcome;
         try
         {
@@ -78,11 +78,7 @@ internal static class SignInCommand
         var resident = ResidentSettings.Always(env);
         ResidentState.Open(resident).WritePinnedKeys(outcome.Organisation, outcome.Keys);
 
-        var kept = outcome.Tokens.RefreshToken is { } refresh && store is not null && store.Save(refresh);
-        if (!kept && store is not null && !store.Delete())
-        {
-            await stderr.WriteLineAsync($"the {store.Name} still holds the refresh token of an earlier sign-in; it could not be removed").ConfigureAwait(false);
-        }
+        var (kept, earlierRemains) = await KeepAsync(outcome.Tokens, store, stderr).ConfigureAwait(false);
 
         var handedOver = await HandOverAsync(env, resident, settings, outcome.Tokens, launch, start, ct).ConfigureAwait(false);
         if (!handedOver && !kept)
@@ -95,8 +91,8 @@ internal static class SignInCommand
         if (!handedOver)
         {
             await stdout.WriteLineAsync(
-                $"The sign-in to {outcome.Organisation} is in the keychain, and {outcome.Keys.Count} server key(s) are pinned. The resident process did not take it: it uses the sign-in after it restarts.").ConfigureAwait(false);
-            return 0;
+                $"The sign-in to {outcome.Organisation} is in the keychain, and {outcome.Keys.Count} server key(s) are pinned. The running resident process did not take it. It uses the sign-in only after it restarts with the same server, issuer and client settings as this command.").ConfigureAwait(false);
+            return earlierRemains ? 1 : 0;
         }
 
         await stdout.WriteLineAsync($"Signed in to {outcome.Organisation}; {outcome.Keys.Count} server key(s) pinned.").ConfigureAwait(false);
@@ -105,7 +101,23 @@ internal static class SignInCommand
             await stdout.WriteLineAsync("There is no keychain here: the sign-in lasts until the resident process ends.").ConfigureAwait(false);
         }
 
-        return 0;
+        return earlierRemains ? 1 : 0;
+    }
+
+    /// <summary>A client that does not follow a redirect: a token form is posted to the endpoint the provider advertised and to no other.</summary>
+    internal static HttpClient NoRedirects() => new(new SocketsHttpHandler { AllowAutoRedirect = false });
+
+    // The refresh token goes into the keychain. Without one to keep, the token of an earlier sign-in must go, or a restart would resume it.
+    private static async Task<(bool Kept, bool EarlierRemains)> KeepAsync(TokenSet tokens, ITokenStore? store, TextWriter stderr)
+    {
+        var kept = tokens.RefreshToken is { } refresh && store is not null && store.Save(refresh);
+        var earlierRemains = !kept && store is not null && !store.Delete();
+        if (earlierRemains)
+        {
+            await stderr.WriteLineAsync($"the {store!.Name} still holds the refresh token of an earlier sign-in; it could not be removed. Remove it, or a restart of the resident process signs in as the earlier account.").ConfigureAwait(false);
+        }
+
+        return (kept, earlierRemains);
     }
 
     private static void Show(TextWriter stdout, DeviceAuthorization a)

@@ -266,7 +266,7 @@ Platforms:
 
 ## Sign-in
 
-`sentinel-hook --sign-in`, or `sentinel-copilot-hook --sign-in`, signs the developer in once with the OIDC device authorization grant (RFC 8628), so the server knows which developer a hook belongs to. **It is optional and off by default. Every new setting here is optional and off by default: without the variables below the command refuses to run, no token is held and the hooks behave exactly as before.** A token per PC is not used: it would identify a machine, not a person. A magic link is not supported.
+`sentinel-hook --sign-in`, or `sentinel-copilot-hook --sign-in`, signs the developer in once with the OIDC device authorization grant (RFC 8628), so the server can know which developer a hook belongs to once the server connection exists. **It is optional and off by default. Every new setting here is optional and off by default: without the variables below the command refuses to run, no token is held and the hooks behave exactly as before.** A token per PC is not used: it would identify a machine, not a person. A magic link is not supported.
 
 | Variable | Default | Values |
 |---|---|---|
@@ -279,7 +279,7 @@ Platforms:
 - **Pinned keys.** With the access token the command asks the server for its public keys, `GET {server}/.well-known/ai-sentinel/profile-keys`, answering `{"organisation": "...", "keys": ["<base64 Ed25519 public key>"]}`, and pins them in `pinned-keys.json` in the state folder. They are public keys, not secrets. A signed profile is accepted only when a pinned key signed it or a pinned key endorsed the signing key, as under [Signed policy profile](#signed-policy-profile-groundwork-not-wired-in). A new sign-in replaces the pinned keys. This endpoint is the client contract; the server side is #664.
 - **Where the refresh token goes.** Windows: the Credential Manager, through `CredWriteW` and `CredReadW`, bound at build time. A blob over 2560 bytes is not taken. macOS: the Keychain, through the Security framework, bound at build time. Linux: the Secret Service, through the `secret-tool` program, with the secret on its standard input. Each call is logged without the secret. Where there is no keychain, the token is held in the memory of the resident process only and the developer signs in again after it restarts. It is never written to a plain file.
 - **The resident process.** It takes the tokens over its private socket, so it needs `SENTINEL_HOOK_RESIDENT=on`, or a running process. It refreshes the access token without a new sign-in, and reports that sign-in is needed once the provider rejects the refresh token. A provider that issues no refresh token still signs in: the access token is used until it expires, and then sign-in is needed. A provider that is down is not a reason to sign in again.
-- **Requests to the server.** Every request carries the access token as a bearer token, to the server's host only. The server validates it and reads the developer and groups from it.
+- **Requests to the server.** The resident process does not call the server yet, so no request carries the token today. The handler that will attach it puts the access token on a request to the server's scheme, host and port only. Validating the token and reading the developer and groups from it is server work that comes with #674.
 - **No token leaks.** A token is never printed, logged, written to the audit or put in the policy input, and no exception message holds one.
 
 ## When the hook itself fails

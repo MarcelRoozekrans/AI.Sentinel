@@ -10,11 +10,14 @@ internal sealed class TokenSession(OidcDeviceClient client, ITokenStore? store, 
     /// <summary>A token that runs out within this time is renewed before it is used.</summary>
     private static readonly TimeSpan Skew = TimeSpan.FromSeconds(30);
 
+    private const int MaxLoads = 3;
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private string? _access;
     private string? _refresh;
     private DateTimeOffset _expiresAt;
     private bool _storeChecked;
+    private int _loads;
 
     public SignInStatus Status
     {
@@ -88,10 +91,11 @@ internal sealed class TokenSession(OidcDeviceClient client, ITokenStore? store, 
     // Called under the gate. After a restart the keychain may hold the refresh token of an earlier sign-in.
     private void LoadFromStore()
     {
+        // A keychain that is locked or busy reads as empty, so an empty read is tried again, a few times, before it counts as no token.
         if (!_storeChecked)
         {
-            _storeChecked = true;
             _refresh = store?.Load();
+            _storeChecked = store is null || _refresh is not null || ++_loads >= MaxLoads;
         }
     }
 
@@ -121,14 +125,13 @@ internal sealed class TokenSession(OidcDeviceClient client, ITokenStore? store, 
             log?.Invoke("the provider no longer accepts the refresh token: sign-in is needed");
             return new TokenAnswer(TokenAnswerKind.SignInRequired, null);
         }
-        catch (SignInException e) when (e.Kind == SignInFailure.Unavailable)
-        {
-            return new TokenAnswer(TokenAnswerKind.Unavailable, null);
-        }
         catch (SignInException)
         {
-            // A provider that answers against the protocol is treated as one that is down: the token is not thrown away for it.
-            return new TokenAnswer(TokenAnswerKind.Unavailable, null);
+            // A provider that is down, or answers against the protocol, does not take the token back: the token is not thrown away for
+            // it, and the access token that is still valid, renewed early, is used.
+            return _access is not null && time.GetUtcNow() < _expiresAt
+                ? new TokenAnswer(TokenAnswerKind.Token, _access)
+                : new TokenAnswer(TokenAnswerKind.Unavailable, null);
         }
     }
 }

@@ -74,6 +74,21 @@ public class TokenStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task A_sign_in_that_cannot_remove_the_earlier_refresh_token_says_so_and_fails()
+    {
+        _server.IssueRefreshToken = false;
+        var store = new FakeTokenStore();
+        store.Save("rt-earlier");
+        await using var host = new HostedResident(_dir, tokens: new TokenSession(Client(), store, _time));
+        await host.WaitUntilListeningAsync();
+        store.Available = false;
+
+        Assert.Equal(1, await Run(store));
+
+        Assert.Contains("earlier sign-in", _stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_resident_process_that_does_not_take_the_sign_in_is_reported_and_not_called_a_success()
     {
         var store = new FakeTokenStore();
