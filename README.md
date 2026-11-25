@@ -842,7 +842,7 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
       { "type": "command", "bash": "sentinel-copilot-hook user-prompt-submitted", "timeoutSec": 10 }
     ],
     "preToolUse": [
-      { "type": "command", "bash": "sentinel-copilot-hook pre-tool-use", "timeoutSec": 10 }
+      { "type": "command", "bash": "sentinel-copilot-hook pre-tool-use", "timeoutSec": 45 }
     ],
     "postToolUse": [
       { "type": "command", "bash": "sentinel-copilot-hook post-tool-use", "timeoutSec": 10 }
@@ -851,7 +851,9 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
 }
 ```
 
-Both hooks map each tool onto a shared tool kind (`shell`, `read`, `search`, `write`, `edit`, `fetch`, `mcp`, `agent` or `other`) and build the policy input for it, with a parsed command line for shell calls. Nothing reads that input yet, so there is no new setting and the hooks behave as before; a later setting that uses it will be optional and off by default. See [Tool kinds and policy input](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#tool-kinds-and-policy-input).
+`preToolUse` has a longer timeout than the other hooks: with a local policy folder the first call after a policy change compiles it in a child process for up to 30 s, and Copilot discards the hook's block when its own timeout fires first. Keep it above 30 s plus `SENTINEL_REVIEW_TIMEOUT_MS` and scan time.
+
+Both hooks map each tool onto a shared tool kind (`shell`, `read`, `search`, `write`, `edit`, `fetch`, `mcp`, `agent` or `other`) and build the policy input for it, with a parsed command line for shell calls. It is the input of the [local Rego policy](#local-rego-policy), read only when `SENTINEL_HOOK_POLICY_DIR` is set; the hooks behave as before without it. See [Tool kinds and policy input](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#tool-kinds-and-policy-input).
 
 ### MCP proxy
 
@@ -935,6 +937,21 @@ is unchanged; emoji / CJK / accented text reaches the cap sooner.
 ### Decision outcomes
 
 A hook decision has one of five outcomes, strictest first: deny, ask, guidance, allow and defer; the strictest wins. `Block` is deny, `Warn` is guidance and `Allow` is defer, and the variables below keep their effect. Allow and defer emit no permission decision, so the CLI's own prompt still applies. Where the CLI cannot ask, or the run is headless, ask becomes a deny with instructions. Claude Code expresses ask and guidance through `permissionDecision` and `additionalContext`; Copilot CLI can do neither, so ask is a deny and guidance acts as `Warn` does today. See the [Claude Code](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#decision-outcomes) and [Copilot](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/copilot#decision-outcomes) pages for a table per CLI. Every new setting is optional and off by default; `SENTINEL_HOOK_HEADLESS=on` marks a Claude Code run as unable to ask.
+
+### Local Rego policy
+
+`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files, and `sentinel-hook` and `sentinel-copilot-hook` evaluate it against each `PreToolUse` call, with no server. **Every new setting is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset the hooks behave exactly as before.**
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_POLICY_DIR` | unset | A folder of `.rego` files in `package sentinel`. A subfolder is one bundle, and every file is compiled into one module |
+| `SENTINEL_HOOK_POLICY_CACHE_DIR` | `ai-sentinel/policy-cache` under the user's local application data | Where the compiled policy is kept. Per user and owner-only on Unix. A directory that is open to others is not used: the cache goes to a `.private` sibling |
+
+A bundle adds a reason to `deny`, `ask`, `guidance` or `allow`, for example `deny contains "recursive delete" if { ... }`; the host owns `outcome`, `reasons` and `decision`, and the folder name `_sentinel_host`. The strictest outcome of the policy wins, and then the strictest of the policy and the other checks (detectors, approval rules, the placeholder guard); a shell command line the parser cannot read asks at least, even when the policy allows. The agent sees the reason, and the local audit records it as an `OUTCOME` entry with the bundles that caused it and the policy version, the first 16 characters of the sha256 of the sources. Copilot CLI cannot ask, so there an ask is a deny with instructions, and a PowerShell command, which the parser does not read, always asks.
+
+The first call after a policy change compiles the folder in a child process of the hook, so a crash of the compiler, a Go library, blocks that call instead of ending the hook; the module and its native code are then cached under the hash of the sources, so later calls load native code and decide in a few milliseconds. The compiler is the OpaDotNet interop compiler on linux-x64 and win-x64, and the `opa` binary on the `PATH` elsewhere. A policy that uses `http.send`, `net.lookup_ip_addr` or `opa.runtime` is refused when compiled, and a module that meets one anyway denies the call and names it. The host runs `sprintf` and no other builtin that the OPA module imports from its host; a call of one denies and names it.
+
+A folder that cannot be read, compiled or loaded blocks `PreToolUse` with a `Sentinel internal error: policy '<folder>' could not be evaluated` reason, so an unreadable policy never lets a call through. That includes a platform without the Wasmtime library, which has no build for musl (Alpine), and a machine with neither a compiler for the policy nor a cached module. See [Local Rego policy](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#local-rego-policy) for the input, an example and the platform notes.
 
 ### Severity → action mapping
 

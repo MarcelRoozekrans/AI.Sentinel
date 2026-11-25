@@ -94,7 +94,7 @@ The hook writes the output the [Claude Code hooks spec](https://docs.claude.com/
 
 ### Decision outcomes
 
-A hook decision has one of five outcomes, strictest first: **deny**, **ask**, **guidance**, **allow** and **defer**. When several sources give an outcome for one call, the strictest wins. Today's severity actions map as `Block` to deny, `Warn` to guidance and `Allow` to defer, and the `SENTINEL_HOOK_ON_*` variables keep their values and their effect. A decision with an outcome carries a reason, the sources that caused it, a policy version (empty until policy exists) and where it was made, and the local audit records them as an `OUTCOME` entry. A severity action on its own writes no such entry and gives exactly the output described below.
+A hook decision has one of five outcomes, strictest first: **deny**, **ask**, **guidance**, **allow** and **defer**. When several sources give an outcome for one call, the strictest wins. Today's severity actions map as `Block` to deny, `Warn` to guidance and `Allow` to defer, and the `SENTINEL_HOOK_ON_*` variables keep their values and their effect. A decision with an outcome carries a reason, the sources that caused it, a policy version (empty without a local policy) and where it was made, and the local audit records them as an `OUTCOME` entry. A severity action on its own writes no such entry and gives exactly the output described below.
 
 **Allow never overrides the CLI's own permission prompt**: allow and defer emit no permission decision. Where the CLI cannot ask, or the run is headless, **ask** becomes **deny** with instructions: the agent is told to explain the command and why it is needed, then to let the developer run it or a policy owner allow it.
 
@@ -151,6 +151,78 @@ Set the env vars in your shell profile or directly in `settings.json`:
   "hooks": { /* ... */ }
 }
 ```
+
+## Local Rego policy
+
+`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files. On every `PreToolUse` call the hook builds the [policy input](#tool-kinds-and-policy-input), evaluates the policy and acts on its outcome. This is the policy a PC uses without a server. **Every new setting here is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset, the hook behaves exactly as before.**
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_POLICY_DIR` | unset | A folder of `.rego` files in `package sentinel`. A subfolder is one bundle, and a file at the top is a bundle of its own. All files compile into one module |
+| `SENTINEL_HOOK_POLICY_CACHE_DIR` | `ai-sentinel/policy-cache` under the user's local application data | Where the compiled policy is kept. Per user, and owner-only on Unix |
+
+A bundle adds reasons to four sets, and the host combines them, strictest first:
+
+```rego
+package sentinel
+
+import rego.v1
+
+deny contains "recursive delete" if {
+	input.kind == "shell"
+	some c in input.details.shell.commands
+	c.name == "rm"
+	some a in c.args
+	a in {"-rf", "-fr", "-r"}
+}
+
+deny contains sprintf("critical finding from %s", [f.detector]) if {
+	some f in input.findings
+	f.severity == "critical"
+}
+
+ask contains "git push needs a person" if {
+	input.kind == "shell"
+	some c in input.details.shell.commands
+	c.name == "git"
+	c.args[0] == "push"
+}
+
+guidance contains "prefer the gh CLI over the GitHub MCP server" if {
+	input.kind == "mcp"
+	input.details.mcp.server == "github"
+}
+```
+
+`deny`, `ask`, `guidance` and `allow` are sets of reasons. The host defines `outcome`, `reasons` and `decision`, and reserves the folder name `_sentinel_host`; a policy that defines those names with another value fails when it runs, and the call is blocked. The input is the object of the section above: `kind`, `cli`, `tool`, `details`, `findings`, `repository`, `node` and `session`. A path is inside the repository when it lies under the working directory of the hook.
+
+### How the outcome is combined
+
+- The strictest outcome in the policy wins, and its reasons are the ones given. No rule gives **defer**: the policy has no opinion.
+- The outcome of the policy and the outcomes of the other checks, the detectors, the approval rules and the placeholder guard, are combined by the same rule, so a block from a detector stays a block under a policy that allows.
+- A shell command line that the parser marks `unparseable` gets at least **ask**, even when the policy returns **allow**. A policy **deny** stays a deny. Copilot CLI cannot ask, so there an ask is a deny with instructions, and a PowerShell command, which the parser never reads, always asks.
+- The agent sees the reason of the rule. The local audit records the decision as an `OUTCOME` entry with the reason, the sources (`policy:<bundles>`, `builtin:<name>` for a refused builtin, `sentinel-checks`, `shell-parser`) and the policy version, which is the first 16 characters of the sha256 of the sources. The bundles listed are those of the folder, not the single rule.
+
+### Compile, cache and speed
+
+The policy is compiled once and cached, so a hook process loads native code instead of compiling. **The first call after a policy change compiles the folder in a child process**: the hook starts itself again to run the compiler, or starts the `opa` binary, and waits for it. That adds the start of a process to the compile, about 40 ms, on that one call. The compiler is a Go library, and a crash of it ends only the child, so a compiler that crashes, hangs for 30 seconds, fails or leaves no valid module blocks the call as an internal error; a crash in the hook itself would let Claude Code run the tool call. A cached module starts no process. The module and its native code are then cached under the hash of the sources, the Wasmtime version and the engine settings. After that the whole decision, from building the input to combining the outcome, takes a few milliseconds on a cached module, against a budget of 50 ms per call, and a test on the CI runners checks it. A change to any file gives a new module, and an old cache entry is never used.
+
+The cache directory is per user and owner-only on Unix. Every cached file starts with the sha256 of the rest, and the hook checks it on the bytes it read before it loads them as native code. A missing or damaged file is rebuilt. The digest guards against damage and half-written files; it does not stop someone who can write to your cache directory, which is why the directory is yours alone. A cache directory that already exists and is open to other users, or on Windows has an ACL that allows them, is not trusted: the hook never reads, changes or empties it, because its entries could have been written by them and removing them in place would leave a window in which a second hook could load one. The cache then lives in a sibling directory named like the first with `.private` added, which is created owner-only in one step and used from then on, also after you make the first one private. The policy is compiled again there. If that sibling already exists and is open to others, the hook blocks and tells you.
+
+### What a policy can use
+
+- The compiler is given a capabilities document without `http.send`, `net.lookup_ip_addr` and `opa.runtime`, so a policy that uses one does not compile, and the error names it. A module that meets one at run time, for example one that was compiled elsewhere, denies the call with `builtin http.send reaches outside the process and is refused`.
+- The OPA module runs most builtins itself. The host runs `sprintf` for the module, with the verbs `%s %v %d %f %e %g %q %t %x %X %o %b` and the width, precision and `-`, `+`, space and `0` flags. Any other builtin the module imports from its host denies the call and names it, such as `builtin uuid.rfc4122 is not implemented by the host`. The imports not yet run are `crypto.sha256`, `net.cidr_contains_matches`, `regex.find_n`, `regex.replace`, `semver.compare`, `time.now_ns`, `units.parse_bytes`, `urlquery.decode`, `uuid.rfc4122` and `yaml.unmarshal`.
+
+### When the policy cannot be used
+
+A folder that does not exist, holds no `.rego` file, does not compile, or uses a refused builtin blocks `PreToolUse` with exit 2 and `Sentinel internal error: policy '<folder>' could not be evaluated: <message>`, and an `AUTHZ-DENY` entry with the code `internal_error`. So does a policy that fails while it runs, a compiler process that crashes, times out or writes no valid module, and a machine with neither a compiler nor a cached module for the current policy. Nothing falls back to allowing the call. Other events do not read the policy.
+
+Platforms:
+
+- **Compiler.** The OpaDotNet interop compiler has a native library for linux-x64 and win-x64 only. On macOS, ARM and in a container that has no such library, the compiler is the `opa` binary, which has to be on the `PATH`; without it the first call after a policy change blocks with the reason that says so. A machine can also use a cache that was filled on another machine of the same platform and Wasmtime version.
+- **Wasmtime.** Its native library has builds for linux-x64, linux-arm64, osx-x64, osx-arm64, win-x64 and win-arm64, and none for musl. On Alpine, `SENTINEL_HOOK_POLICY_DIR` blocks every `PreToolUse` with a reason that names the platform, so leave it unset there.
+- **Size.** The hook packages carry the Wasmtime library, about 30 MB, and on linux-x64 and win-x64 the compiler library, about 24 MB.
 
 ## When the hook itself fails
 
@@ -316,7 +388,7 @@ Every new setting is optional and off by default. Nothing is registered or mappe
 
 ## Tool kinds and policy input
 
-The hook CLIs map each tool of the CLI onto one shared tool kind, so one policy rule can cover the same kind of tool in every CLI (ADR-235). This is the input that the policy work of the central server milestone evaluates against. **Nothing reads it yet**: it adds no setting and changes no decision, so with every existing setting as it was, the hooks behave exactly as before. A later setting that uses it will be optional and off by default.
+The hook CLIs map each tool of the CLI onto one shared tool kind, so one policy rule can cover the same kind of tool in every CLI (ADR-235). This is the input that the policy work of the central server milestone evaluates against. It is read only when [`SENTINEL_HOOK_POLICY_DIR`](#local-rego-policy) is set, an optional setting that is off by default: without it the input is not built and the hooks behave exactly as before.
 
 | Kind | Claude Code tools | Copilot CLI tools |
 |---|---|---|
@@ -332,7 +404,7 @@ The hook CLIs map each tool of the CLI onto one shared tool kind, so one policy 
 
 The input has `kind`, `cli` (`claude-code` or `copilot`), the CLI's own `tool` name, `details`, `findings` (`detector`, `severity`), `repository`, `node` and `session`. `repository` and `node` are empty until the issues that resolve them land. The details depend on the kind:
 
-- `shell`: the command line parsed into commands with their arguments, assigned variable names and redirections, joined by `|`, `&&`, `||`, `;` or `&`, with quoting and escapes resolved and nothing expanded. A command line the parser cannot read with certainty, such as one with command substitution, a subshell, a here document, a compound command, the `time` keyword, a named descriptor redirection such as `{fd}>file` or an unterminated quote, is marked `unparseable` instead of guessed. The outcome for it will be **ask** ([#670](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/670)). PowerShell is always marked `unparseable`, because the parser reads POSIX quoting.
+- `shell`: the command line parsed into commands with their arguments, assigned variable names and redirections, joined by `|`, `&&`, `||`, `;` or `&`, with quoting and escapes resolved and nothing expanded. A command line the parser cannot read with certainty, such as one with command substitution, a subshell, a here document, a compound command, the `time` keyword, a named descriptor redirection such as `{fd}>file`, a command name that needs expansion (`$X`, `${X}`, a glob, `~/bin/x`), the legacy `$[1+2]` arithmetic or an unterminated quote, is marked `unparseable` instead of guessed. The outcome for it is at least **ask**, also when the policy allows. PowerShell is always marked `unparseable`, because the parser reads POSIX quoting.
 - `mcp`: `server`, `endpoint` and `tool`. The endpoint stays empty, because no hook payload carries it.
 - `read`, `search`, `write`, `edit`: each path from the `file_path`, `path` or `notebook_path` argument, made absolute, with `in_repository` telling whether it lies inside the repository root. A path is kept as written, with `in_repository` false, when it starts with `~`, when it is relative and no repository root is known, or when the platform rejects it as a path. Paths are resolved lexically, symbolic links are not followed, and a path starting with `~` is never inside. Paths inside a Copilot `apply_patch` patch text are not read.
 - `fetch`: the `url` argument.

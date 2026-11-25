@@ -6,6 +6,8 @@ namespace AI.Sentinel.ClaudeCode.Policy;
 internal static class PolicyInputBuilder
 {
     private const string McpPrefix = "mcp__";
+    private const string PatchTool = "apply_patch";
+    private static readonly string[] PatchHeaders = ["*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:"];
     private static readonly string[] PathKeys = ["file_path", "path", "notebook_path"];
 
     /// <param name="cli">One of <see cref="PolicyClis"/>.</param>
@@ -21,14 +23,19 @@ internal static class PolicyInputBuilder
         ArgumentNullException.ThrowIfNull(toolName);
         ArgumentNullException.ThrowIfNull(findings);
         var kind = ToolKinds.Map(cli, toolName);
-        var details = Details(kind, cli, toolName, ReadObject(toolInput), repositoryRoot);
+        var details = Details(kind, cli, toolName, toolInput, ReadObject(toolInput), repositoryRoot);
         return new PolicyInput(kind.ToWire(), cli, toolName, details, findings, "", "", session ?? "");
     }
 
-    private static PolicyDetails Details(ToolKind kind, string cli, string tool, JsonElement args, string? root) => kind switch
+    /// <summary>True for an <c>apply_patch</c> call, whose targets come from the patch text.</summary>
+    internal static bool IsPatch(PolicyInput input) =>
+        string.Equals(input.Kind, ToolKind.Edit.ToWire(), StringComparison.Ordinal) && string.Equals(input.Tool, PatchTool, StringComparison.Ordinal);
+
+    private static PolicyDetails Details(ToolKind kind, string cli, string tool, JsonElement input, JsonElement args, string? root) => kind switch
     {
         ToolKind.Shell => new PolicyDetails { Shell = Shell(cli, tool, args) },
         ToolKind.Mcp => new PolicyDetails { Mcp = Mcp(tool) },
+        ToolKind.Edit when string.Equals(tool, PatchTool, StringComparison.Ordinal) => PatchPaths(input, root),
         ToolKind.Read or ToolKind.Search or ToolKind.Write or ToolKind.Edit => Paths(args, root),
         ToolKind.Fetch => new PolicyDetails { Url = String(args, "url") },
         _ => new PolicyDetails(),
@@ -57,6 +64,27 @@ internal static class PolicyInputBuilder
         var rest = tool.StartsWith(McpPrefix, StringComparison.Ordinal) ? tool[McpPrefix.Length..] : tool;
         var split = rest.IndexOf("__", StringComparison.Ordinal);
         return split < 0 ? new McpDetails(rest, "", "") : new McpDetails(rest[..split], "", rest[(split + 2)..]);
+    }
+
+    // Copilot sends apply_patch as the patch text itself, or in an object, never as file_path. Its targets are the file headers.
+    private static PolicyDetails PatchPaths(JsonElement input, string? root)
+    {
+        var args = ReadObject(input);
+        var text = String(args, "input") ?? String(args, "patch") ?? (input.ValueKind == JsonValueKind.String ? Decode(input) : null);
+        var paths = new List<PolicyPath>();
+        foreach (var line in (text ?? string.Empty).Split('\n'))
+        {
+            foreach (var header in PatchHeaders)
+            {
+                if (line.StartsWith(header, StringComparison.Ordinal) && line[header.Length..].Trim() is { Length: > 0 } target)
+                {
+                    paths.Add(Resolve(target, root));
+                    break;
+                }
+            }
+        }
+
+        return paths.Count == 0 ? new PolicyDetails() : new PolicyDetails { Paths = paths };
     }
 
     private static PolicyDetails Paths(JsonElement args, string? root)
@@ -109,10 +137,16 @@ internal static class PolicyInputBuilder
         return full.StartsWith(prefix, comparison);
     }
 
-    // \\?\C:\dir and C:\dir name the same file. Only that drive form is rewritten; other device paths stay as they are.
-    // Windows does not resolve . and .. in an extended path, so they are resolved here, lexically and never above the drive root.
+    // \\?\C:\dir and C:\dir name the same file, and so do \\?\UNC\host\share\dir and \\host\share\dir. Only those two forms are
+    // rewritten; other device paths stay as they are. Windows does not resolve . and .. in an extended path, so they are
+    // resolved here, lexically and never above the drive root or the share.
     internal static string ComparisonForm(string path)
     {
+        if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase) && path.Length > 8)
+        {
+            return ResolveUnc(path[8..]);
+        }
+
         if (path.Length < 6 || !path.StartsWith(@"\\?\", StringComparison.Ordinal) || !char.IsAsciiLetter(path[4]) || path[5] != ':')
         {
             return path;
@@ -120,6 +154,35 @@ internal static class PolicyInputBuilder
 
         var drive = path[4..];
         return drive.Length > 2 && drive[2] == '\\' ? ResolveDotSegments(drive) : drive;
+    }
+
+    private static string ResolveUnc(string hostAndShare)
+    {
+        var segments = hostAndShare.Split('\\');
+        if (segments.Length < 2)
+        {
+            return @"\\" + hostAndShare;
+        }
+
+        var root = @"\\" + segments[0] + '\\' + segments[1];
+        var kept = new List<string>();
+        for (var k = 2; k < segments.Length; k++)
+        {
+            if (string.Equals(segments[k], "..", StringComparison.Ordinal))
+            {
+                if (kept.Count > 0)
+                {
+                    kept.RemoveAt(kept.Count - 1);
+                }
+            }
+            else if (segments[k] is not ("." or ""))
+            {
+                kept.Add(segments[k]);
+            }
+        }
+
+        var resolved = kept.Count == 0 ? root : root + '\\' + string.Join('\\', kept);
+        return hostAndShare.EndsWith('\\') && kept.Count > 0 ? resolved + '\\' : resolved;
     }
 
     private static string ResolveDotSegments(string drivePath)

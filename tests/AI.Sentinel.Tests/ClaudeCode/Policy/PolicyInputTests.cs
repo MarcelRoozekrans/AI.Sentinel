@@ -129,12 +129,93 @@ public class PolicyInputTests
     [InlineData(@"\\?\C:\repo\src\..", @"C:\repo")]
     [InlineData(@"\\?\C:\..\..\x", @"C:\x")]
     [InlineData(@"\\?\C:\repo\sub\", @"C:\repo\sub\")]
-    [InlineData(@"\\?\UNC\server\share\a", @"\\?\UNC\server\share\a")]
+    [InlineData(@"\\?\UNC\server\share\a", @"\\server\share\a")]
+    [InlineData(@"\\?\UNC\server\share\repo\..\other\a", @"\\server\share\other\a")]
+    [InlineData(@"\\?\UNC\server\share\..\..\a", @"\\server\share\a")]
+    [InlineData(@"\\?\UNC\server\share", @"\\server\share")]
+    [InlineData(@"\\?\UNC\server\share\", @"\\server\share")]
+    [InlineData(@"\\?\UNC\server\share\repo\", @"\\server\share\repo\")]
+    [InlineData(@"\\?\UNC\server", @"\\server")]
+    [InlineData(@"\\server\share\a", @"\\server\share\a")]
     [InlineData(@"\\.\C:\repo", @"\\.\C:\repo")]
     [InlineData("/work/repo", "/work/repo")]
     public void Extended_drive_paths_compare_as_ordinary_drive_paths(string path, string expected)
     {
         Assert.Equal(expected, PolicyInputBuilder.ComparisonForm(path));
+    }
+
+    [Fact]
+    public void An_extended_unc_path_is_inside_a_unc_repository_and_a_neighbour_on_the_share_is_not()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return; // the comparison above covers the form on every platform; this checks the flag with the Windows path rules
+        }
+
+        const string root = @"\\host\share\repo";
+        var inside = PolicyInputBuilder.Build(PolicyClis.Copilot, "view", Json("""{"path":"\\\\?\\UNC\\host\\share\\repo\\a.cs"}"""), "s", [], root);
+        var neighbour = PolicyInputBuilder.Build(PolicyClis.Copilot, "view", Json("""{"path":"\\\\?\\UNC\\host\\share\\repo2\\a.cs"}"""), "s", [], root);
+
+        Assert.True(Assert.Single(inside.Details.Paths!).InRepository);
+        Assert.False(Assert.Single(neighbour.Details.Paths!).InRepository);
+    }
+
+    [Theory]
+    [InlineData(AI.Sentinel.Detection.Severity.None, "none")]
+    [InlineData(AI.Sentinel.Detection.Severity.Low, "low")]
+    [InlineData(AI.Sentinel.Detection.Severity.Medium, "medium")]
+    [InlineData(AI.Sentinel.Detection.Severity.High, "high")]
+    [InlineData(AI.Sentinel.Detection.Severity.Critical, "critical")]
+    public void A_finding_carries_its_severity_in_lower_case(AI.Sentinel.Detection.Severity severity, string expected)
+    {
+        Assert.Equal(expected, AI.Sentinel.ClaudeCode.HookPipelineRunner.SeverityName(severity));
+    }
+
+    private static JsonElement Json(string text)
+    {
+        using var doc = JsonDocument.Parse(text);
+        return doc.RootElement.Clone();
+    }
+
+    [Fact]
+    public void An_apply_patch_call_gets_the_targets_of_its_patch_headers_as_paths()
+    {
+        const string patch = "*** Begin Patch\r\n*** Update File: src/a.cs\n@@\n-x\n+y\n*** Add File: docs/new.md\n+hi\n*** Delete File: old.txt\n*** Move to: moved/old.txt\n*** End Patch";
+        var asString = JsonSerializer.SerializeToElement(patch);
+        var asObject = JsonSerializer.SerializeToElement(new Dictionary<string, string>(StringComparer.Ordinal) { ["input"] = patch });
+
+        AssertPatchPaths(PolicyInputBuilder.Build(PolicyClis.Copilot, "apply_patch", asString, "s", [], Root));
+        AssertPatchPaths(PolicyInputBuilder.Build(PolicyClis.Copilot, "apply_patch", asObject, "s", [], Root));
+    }
+
+    [Fact]
+    public void An_apply_patch_call_sent_as_a_json_string_holding_an_object_gets_its_targets_from_the_object()
+    {
+        const string patch = "*** Begin Patch\r\n*** Update File: src/a.cs\n@@\n-x\n+y\n*** Add File: docs/new.md\n+hi\n*** Delete File: old.txt\n*** Move to: moved/old.txt\n*** End Patch";
+        foreach (var key in new[] { "input", "patch" })
+        {
+            var text = JsonSerializer.Serialize(new Dictionary<string, string>(StringComparer.Ordinal) { [key] = patch });
+            var asEncodedObject = JsonSerializer.SerializeToElement(text);
+
+            AssertPatchPaths(PolicyInputBuilder.Build(PolicyClis.Copilot, "apply_patch", asEncodedObject, "s", [], Root));
+        }
+    }
+
+    private static void AssertPatchPaths(PolicyInput input)
+    {
+        var paths = input.Details.Paths!.Select(p => Path.GetRelativePath(Root, p.Path).Replace("\\", "/", StringComparison.Ordinal)).ToArray();
+        Assert.Equal(["src/a.cs", "docs/new.md", "old.txt", "moved/old.txt"], paths);
+        Assert.All(input.Details.Paths!, p => Assert.True(p.InRepository));
+    }
+
+    [Fact]
+    public void A_patch_target_outside_the_repository_is_marked_so()
+    {
+        var arg = JsonSerializer.SerializeToElement("*** Update File: ../outside.cs\n");
+
+        var input = PolicyInputBuilder.Build(PolicyClis.Copilot, "apply_patch", arg, "s", [], Root);
+
+        Assert.False(Assert.Single(input.Details.Paths!).InRepository);
     }
 
     [Fact]

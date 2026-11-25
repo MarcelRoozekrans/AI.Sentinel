@@ -13,6 +13,8 @@ using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Sqlite.Local;
 using AI.Sentinel.ClaudeCode;
+using AI.Sentinel.ClaudeCode.Policy;
+using AI.Sentinel.ClaudeCode.Policy.Rego;
 using AI.Sentinel.Copilot;
 
 namespace AI.Sentinel.Copilot.Cli;
@@ -20,12 +22,29 @@ namespace AI.Sentinel.Copilot.Cli;
 public static class Program
 {
     public static async Task<int> Main(string[] args)
-        => await RunAsync(args, Console.In, Console.Out, Console.Error).ConfigureAwait(false);
+    {
+        // The hook starts itself with this to compile a policy, so the Go compiler never loads into a hook process.
+        if (PolicyCompileCommand.Matches(args))
+        {
+            return PolicyCompileCommand.Run(args, Console.Error);
+        }
 
-    public static async Task<int> RunAsync(
+        return await RunAsync(args, Console.In, Console.Out, Console.Error, embeddingGenerator: null, reviewer: null, RegoPolicy.HookCompilers()).ConfigureAwait(false);
+    }
+
+    public static Task<int> RunAsync(
         string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
         IDetectionReviewer? reviewer = null)
+        => RunAsync(args, stdin, stdout, stderr, embeddingGenerator, reviewer, policyCompilers: null);
+
+    /// <param name="policyCompilers">The compilers for a policy that is not cached; <see cref="RegoPolicy.DefaultCompilers"/>
+    /// when <see langword="null"/>. <see cref="Main"/> passes <see cref="RegoPolicy.HookCompilers"/>.</param>
+    internal static async Task<int> RunAsync(
+        string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr,
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
+        IDetectionReviewer? reviewer,
+        IReadOnlyList<IRegoCompiler>? policyCompilers)
     {
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
@@ -35,7 +54,7 @@ public static class Program
 
         try
         {
-            return await RunCoreAsync(args, evt, stdin, stdout, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
+            return await RunCoreAsync(args, evt, stdin, stdout, stderr, embeddingGenerator, reviewer, policyCompilers).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -55,8 +74,9 @@ public static class Program
 
     private static async Task<int> RunCoreAsync(
         string[] args, CopilotHookEvent evt, TextReader stdin, TextWriter stdout, TextWriter stderr,
-        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator = null,
-        IDetectionReviewer? reviewer = null)
+        IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
+        IDetectionReviewer? reviewer,
+        IReadOnlyList<IRegoCompiler>? policyCompilers)
     {
         var hookEnv = BuildHookEnvVars();
         var config = CopilotHookConfig.FromEnvironment(hookEnv);
@@ -94,13 +114,18 @@ public static class Program
             return 1;
         }
 
+        // A local Rego policy (SENTINEL_HOOK_POLICY_DIR) judges a PreToolUse; one that cannot be loaded blocks the call.
+        var (policy, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, policyCompilers, config, audit, auditProblems, stderr).ConfigureAwait(false);
+        if (blocked is { } blockedExit) return blockedExit;
+        using var policyScope = policy;
         CopilotHookResult result;
         string? semanticWarning;
         var approvalWarnings = new List<string>();
         try
         {
             (result, semanticWarning) = await EvaluateAsync(
-                evt, input, config, hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
+                evt, input, WithFindingSink(config, policy), hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
+            result = result with { Output = DecideWithPolicy(policy, result.Output, input) };
         }
         catch (Exception ex) when (evt == CopilotHookEvent.PreToolUse)
         {
@@ -342,6 +367,61 @@ public static class Program
             .Cast<System.Collections.DictionaryEntry>()
             .Where(e => e.Key is string key && key.StartsWith("SENTINEL_HOOK_", StringComparison.Ordinal))
             .ToDictionary(e => (string)e.Key, e => e.Value as string, StringComparer.Ordinal);
+
+    /// <summary><paramref name="config"/> with the policy collecting the findings of the scan; as it is when no policy is loaded.</summary>
+    private static CopilotHookConfig WithFindingSink(CopilotHookConfig config, LocalPolicy? policy) =>
+        policy is null ? config : config with { FindingSink = policy.FindingSink };
+
+    /// <summary>Loads the policy, see <see cref="TryLoadPolicy"/>. One that cannot be loaded blocks the call as an internal
+    /// error, and its exit code is returned; running without it would skip every rule it holds.</summary>
+    private static async Task<(LocalPolicy? Policy, int? Exit)> OpenPolicyAsync(
+        string[] args, CopilotHookEvent evt, CopilotHookInput input, IReadOnlyDictionary<string, string?> hookEnv, IReadOnlyList<IRegoCompiler>? compilers, CopilotHookConfig config,
+        LocalAuditSession audit, List<string> auditProblems, TextWriter stderr)
+    {
+        var (policy, folder, error) = TryLoadPolicy(evt, hookEnv, compilers);
+        if (error is null)
+        {
+            return (policy, null);
+        }
+
+        var exit = await BlockOnInternalErrorAsync(
+            args, input.ToolName, input.SessionId, HookInternalError.PolicyReason(folder!, error),
+            audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
+        return (null, exit);
+    }
+
+    /// <summary>Loads the policy folder when the event is preToolUse and <c>SENTINEL_HOOK_POLICY_DIR</c> is set; all null
+    /// otherwise. A failure of any kind, an unreadable folder, a policy that does not compile or use a refused builtin, or a
+    /// platform without the Wasmtime library, is returned rather than thrown, so the caller blocks.</summary>
+    private static (LocalPolicy? Policy, string? Folder, Exception? Error) TryLoadPolicy(
+        CopilotHookEvent evt, IReadOnlyDictionary<string, string?> env, IReadOnlyList<IRegoCompiler>? compilers)
+    {
+        if (evt != CopilotHookEvent.PreToolUse || LocalPolicy.FolderFrom(env) is not { } folder)
+        {
+            return (null, null, null);
+        }
+
+        try
+        {
+            return (LocalPolicy.Load(folder, env, compilers: compilers), folder, null);
+        }
+#pragma warning disable CA1031 // Every load failure is reported; on preToolUse it blocks the call.
+        catch (Exception ex)
+#pragma warning restore CA1031
+        {
+            return (null, folder, ex);
+        }
+    }
+
+    /// <summary>The decision of <paramref name="policy"/> combined with <paramref name="output"/>, the strictest winning;
+    /// <paramref name="output"/> as it is when no policy is loaded.</summary>
+    private static HookOutput DecideWithPolicy(LocalPolicy? policy, HookOutput output, CopilotHookInput input) =>
+        policy is null
+            ? output
+            : policy.Decide(
+                output, PolicyClis.Copilot,
+                string.IsNullOrWhiteSpace(input.ToolName) ? throw new InvalidOperationException("preToolUse input has no tool name") : input.ToolName,
+                input.EffectiveToolArgs ?? default, input.SessionId);
 
     /// <summary>Loads <c>SENTINEL_APPROVAL_CONFIG</c> when it is set. A failure of any kind is returned rather than
     /// thrown, with the path, so the caller decides whether it blocks.</summary>

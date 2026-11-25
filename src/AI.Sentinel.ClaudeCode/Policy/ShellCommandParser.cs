@@ -4,7 +4,7 @@ namespace AI.Sentinel.ClaudeCode.Policy;
 /// Parses a POSIX style command line into simple commands joined by <c>|</c>, <c>&amp;&amp;</c>, <c>||</c>, <c>;</c> and
 /// <c>&amp;</c>, with quoting, escapes and redirections. It does no expansion. Anything it cannot read with certainty gives
 /// <see cref="ShellParse.Failed"/> instead of a guess: command and process substitution, subshells, here documents,
-/// compound commands, locale and ANSI-C quoting, subscript assignments, brace expansion in the command name, an
+/// compound commands, locale and ANSI-C quoting, subscript assignments, brace expansion, a variable, a glob or a tilde in the command name, legacy arithmetic, an
 /// unterminated quote. The corpus in <c>tests/AI.Sentinel.Tests/Corpus/shell-commands.json</c>
 /// defines the behaviour, so another parser can be checked against it.
 /// </summary>
@@ -91,6 +91,11 @@ internal static class ShellCommandParser
                 if (IsSubscriptAssignment(token.Text) || IsBraceExpansion(token.Text))
                 {
                     return null; // a[0]=x is an assignment and {a,b} expands into several words: neither is modelled
+                }
+
+                if (token.Expands)
+                {
+                    return null; // $X, ${X}, a glob or ~/x names a program only after expansion
                 }
 
                 name = token.Text;

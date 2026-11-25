@@ -338,6 +338,7 @@ public static class HookPipelineRunner
         var decision = HookDecision.Allow;
         foreach (var finding in findings)
         {
+            config.FindingSink?.Invoke(finding.Detection.DetectorId.Value, SeverityName(finding.Detection.Severity));
             if (DecisionFor(finding, config) is not { } candidate) continue;
             if (reason is null || candidate > decision
                 || (candidate == decision && finding.Detection.Severity > reason.Severity))
@@ -351,6 +352,16 @@ public static class HookPipelineRunner
             ? new HookOutput { Decision = HookDecision.Allow }
             : new HookOutput { Decision = decision, Reason = $"{reason.DetectorId.Value} {reason.Severity}: {reason.Reason}" };
     }
+
+    /// <summary>The lower-case severity name policy input carries.</summary>
+    internal static string SeverityName(Severity severity) => severity switch
+    {
+        Severity.Low => "low",
+        Severity.Medium => "medium",
+        Severity.High => "high",
+        Severity.Critical => "critical",
+        _ => "none",
+    };
 
     /// <summary>
     /// Quarantine maps through <see cref="HookConfig"/> by severity. Alert warns, but never overrides an operator who

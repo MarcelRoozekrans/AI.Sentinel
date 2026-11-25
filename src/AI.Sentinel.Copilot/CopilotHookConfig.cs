@@ -52,6 +52,10 @@ public sealed record CopilotHookConfig
     /// </summary>
     public Func<CopilotHookInput, ISecurityContext>? CallerContextProvider { get; init; }
 
+    /// <summary>Receives every finding of a scan, as detector id and severity name, before the decision is taken. Set by
+    /// the hook CLI when it evaluates a local policy; <see langword="null"/> otherwise, and then nothing changes.</summary>
+    internal Action<string, string>? FindingSink { get; init; }
+
     /// <summary>
     /// Builds a <see cref="CopilotHookConfig"/> from <c>SENTINEL_HOOK_*</c> environment variables.
     /// </summary>
@@ -87,6 +91,7 @@ public sealed record CopilotHookConfig
             Verbose = Verbose,
             EnableComplianceDetectors = EnableComplianceDetectors,
             RedactToolResults = RedactToolResults,
+            FindingSink = FindingSink,
         };
 
     private static HookDecision ParseDecision(IReadOnlyDictionary<string, string?> env, string key, HookDecision fallback)
