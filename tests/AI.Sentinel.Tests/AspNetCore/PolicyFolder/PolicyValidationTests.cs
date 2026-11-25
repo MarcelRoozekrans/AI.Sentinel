@@ -154,8 +154,72 @@ public sealed class PolicyValidationTests
     [InlineData("deny contains \"x\" if input.y == \"allow\"", false)]
     [InlineData("allowed := true", false)]
     [InlineData("ask contains \"x\" if input.kind == \"fetch\" # allow if true", false)]
+    [InlineData("noop if { true } allow contains \"team grant\"", true)]
+    [InlineData("noop := 1; allow if true", true)]
+    [InlineData("deny contains \"x\" if data.sentinel.allow", false)]
+    [InlineData("x := `\nallow if true\n`", false)]
     public void An_allow_rule_is_found_by_its_head_and_not_by_a_comment_or_a_string(string rego, bool expected) =>
         Assert.Equal(expected, ConfigurationCompiler.DefinesAllow(rego));
+
+    [Fact]
+    public async Task Two_teams_that_each_define_a_default_for_one_rule_are_both_accepted()
+    {
+        using var f = new PolicyFolderFixture();
+        var team = "package sentinel\n\nimport rego.v1\n\ndefault enabled := false\n\nask contains \"x\" if input.kind == \"fetch\"\n";
+        f.Write("v1", teamRules: team);
+        File.WriteAllText(Path.Combine(f.Version("v1"), "team-b.rego"), team);
+        File.WriteAllText(Path.Combine(f.Version("v1"), "nodes.json"), PolicyFolderFixture.Nodes.Replace(
+            "{\"id\": \"team-a\"", "{\"id\": \"team-b\", \"kind\": \"team\"},\n    {\"id\": \"team-a\"", StringComparison.Ordinal));
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_comment_before_the_package_declaration_is_accepted_and_kept()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", orgRules: "# the policy of acme\n" + OrgRules);
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+        Assert.Contains("# the policy of acme", f.Loader.Current!.Module, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_import_line_inside_a_raw_string_stays_in_the_string()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", orgRules: OrgRules + "\nsecret := `\nimport data.foo\n`\n");
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+        Assert.Contains("`\nimport data.foo\n`", f.Loader.Current!.Module, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("\"nodes\": [null]")]
+    [InlineData("\"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}], \"roles\": [null]")]
+    [InlineData("\"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\", \"settings\": {\"profile_lifetime_hours\": 2147483647}}]")]
+    public void A_node_configuration_that_cannot_be_read_is_refused_and_does_not_throw(string body) =>
+        Assert.Throws<InvalidDataException>(() => NodeConfiguration.Parse(System.Text.Encoding.UTF8.GetBytes("{\"organisation\": \"acme\", " + body + "}")));
+
+    [Fact]
+    public void A_path_with_a_link_above_the_folder_is_read_through_its_real_path()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1");
+        var link = Path.Combine(Path.GetDirectoryName(f.Version("v1"))!, "current-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateSymbolicLink(link, Path.GetDirectoryName(f.Version("v1"))!);
+        try
+        {
+            Assert.Equal(ConfigurationFiles.Resolve(f.Version("v1")), ConfigurationFiles.Resolve(Path.Combine(link, Path.GetFileName(f.Version("v1")))));
+        }
+        finally
+        {
+            Directory.Delete(link);
+        }
+    }
 
     [Fact]
     public async Task A_bundle_that_is_no_node_is_refused()

@@ -40,7 +40,7 @@ internal sealed class ConfigurationFiles
 
     public byte[]? NodesJson => Files.TryGetValue(NodeConfiguration.FileName, out var bytes) ? bytes : null;
 
-    /// <summary>The real path of <paramref name="folder"/>: the target of every link in it, the last one included.</summary>
+    /// <summary>The real path of <paramref name="folder"/>: the target of every link in the path, the last one included.</summary>
     /// <exception cref="DirectoryNotFoundException">There is no such folder, or a link of the path leads nowhere.</exception>
     public static string Resolve(string folder)
     {
@@ -50,11 +50,34 @@ internal sealed class ConfigurationFiles
             throw new DirectoryNotFoundException("the policy folder does not exist");
         }
 
-        // The folder itself may be a link, as git-sync's is; a link higher up is resolved by the real path of the final folder.
-        var info = new DirectoryInfo(full);
-        var target = info.ResolveLinkTarget(returnFinalTarget: true);
-        var resolved = target?.FullName ?? full;
-        return Directory.Exists(resolved) ? Path.TrimEndingDirectorySeparator(resolved) : throw new DirectoryNotFoundException("the policy folder is a link that leads nowhere");
+        var resolved = RealPathOf(full, budget: 40);
+        return Directory.Exists(resolved) ? resolved : throw new DirectoryNotFoundException("the policy folder is a link that leads nowhere");
+    }
+
+    // Walks the path from its root and replaces each component that is a link by its target, so a link anywhere in the path is
+    // followed here and never again when a file is opened through the result.
+    private static string RealPathOf(string full, int budget)
+    {
+        var root = Path.GetPathRoot(full) ?? "";
+        var current = root;
+        foreach (var part in full[root.Length..].Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, part);
+            if (new DirectoryInfo(current).LinkTarget is null)
+            {
+                continue;
+            }
+
+            if (--budget < 0 || new DirectoryInfo(current).ResolveLinkTarget(returnFinalTarget: true) is not { } target)
+            {
+                throw new DirectoryNotFoundException("the policy folder path holds more links than the server follows");
+            }
+
+            // The target of a link can itself lie below a link.
+            current = RealPathOf(Path.GetFullPath(target.FullName), budget);
+        }
+
+        return Path.TrimEndingDirectorySeparator(current);
     }
 
     /// <summary>Reads every file of <paramref name="realPath"/> into memory.</summary>

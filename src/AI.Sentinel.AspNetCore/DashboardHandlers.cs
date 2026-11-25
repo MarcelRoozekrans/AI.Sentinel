@@ -779,6 +779,19 @@ internal static class DashboardHandlers
     /// store. Writes the refusal and returns null otherwise. Whether the request is still pending is
     /// not checked here: the store decides that atomically with the decision itself.
     /// </summary>
+    private static bool IsAuditable(string id)
+    {
+        try
+        {
+            AdminAuditEntry.CheckField(id, nameof(id));
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
     private static async Task<DecisionTarget?> GuardDecisionAsync(HttpContext ctx)
     {
         if (IsCrossSite(ctx.Request))
@@ -800,6 +813,13 @@ internal static class DashboardHandlers
         if (string.IsNullOrWhiteSpace(requestId))
         {
             ctx.Response.StatusCode = 400;
+            return null;
+        }
+
+        // The audit record is written after the decision commits, so an id the log cannot hold is refused before it.
+        if (ctx.RequestServices.GetService<AdminAuditLog>() is not null && !IsAuditable(requestId))
+        {
+            await RespondAsync(ctx, 400, "The request id is not valid.").ConfigureAwait(false);
             return null;
         }
 

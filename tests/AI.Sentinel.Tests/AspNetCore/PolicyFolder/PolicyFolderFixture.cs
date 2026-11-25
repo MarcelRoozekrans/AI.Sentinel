@@ -94,15 +94,14 @@ internal sealed class PolicyFolderFixture : IDisposable
 
         var staging = Path.Combine(_root, $"swap-{Guid.NewGuid():N}");
         Directory.CreateSymbolicLink(staging, Version(name));
-        // rename(2) through mv -T replaces the old link in one step, as git-sync does.
-        var psi = new System.Diagnostics.ProcessStartInfo("mv") { UseShellExecute = false };
-        psi.ArgumentList.Add("-T");
-        psi.ArgumentList.Add(staging);
-        psi.ArgumentList.Add(Folder);
-        using var process = System.Diagnostics.Process.Start(psi)!;
-        process.WaitForExit();
-        Assert.Equal(0, process.ExitCode);
+        // rename(2) replaces the old link in one step on Linux and macOS alike, as git-sync does; mv -T exists on GNU only.
+        Assert.Equal(0, rename(staging, Folder));
     }
+
+    [System.Runtime.InteropServices.DllImport("libc", SetLastError = true)]
+    private static extern int rename(
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string oldPath,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string newPath);
 
     public async Task<IReadOnlyList<AdminAuditEntry>> AuditAsync(string organisation = Organisation) =>
         await Store.ReadAsync(organisation, TestContext.Current.CancellationToken);

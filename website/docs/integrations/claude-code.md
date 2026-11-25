@@ -531,7 +531,7 @@ The server signs one profile per repository with the deployment key and serves i
 
 The profiles follow the convention the hooks read. The profile for the repository `*` is the organisation's top-level rules (the bundle of the organisation node), and the profile for a repository is the bundle of the node that owns it, so a node never carries another node's rules; the hooks combine the two strictest-wins. A repository that is not in `nodes.json` gets `404`, which is strict repository mode. The node map is the same type the hooks cache as `nodes.json` in their state folder.
 
-While the server is unreachable a hook still denies a call that matches a deny rule of the last valid cached profile.
+While the server is unreachable a hook does not apply a deny rule from the last valid cached profile yet. The hooks read cached profiles when the server connection is added.
 
 Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelPolicyFolder` and `MapAISentinelPolicyServer`.
 

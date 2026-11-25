@@ -180,7 +180,8 @@ internal sealed class PolicyFolderLoader
             }
 
             var second = ConfigurationFiles.Read(real, name => AfterFileRead?.Invoke(2, name));
-            return first.SameAs(second);
+            // A swap of the link during the second read leaves both reads on the pinned folder, so the target is checked again.
+            return first.SameAs(second) && string.Equals(ConfigurationFiles.Resolve(_folder), real, StringComparison.Ordinal);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException)
         {

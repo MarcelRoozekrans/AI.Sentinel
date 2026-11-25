@@ -67,6 +67,26 @@ public class RepositoryNodePolicyTests : IDisposable
         Assert.Equal("node-a", map.NodeFor("[2001:db8::1]/acme/widgets"));
     }
 
+    [Fact]
+    public void A_key_that_was_stored_is_restored_as_it_is_even_when_it_ends_in_two_git_suffixes()
+    {
+        var map = NodeMap.FromJson(new NodeMap([new("https://[2001:db8::1]/acme/widgets.git.git", "node-a")]).ToJson());
+
+        Assert.Equal("node-a", map.NodeFor("[2001:db8::1]/acme/widgets.git"));
+    }
+
+    [Theory]
+    [InlineData("[remote \"origin\"] url = https://github.com/acme/widgets.git")]
+    [InlineData("[remote \"origin\"]\turl = https://github.com/acme/widgets.git # primary")]
+    public void An_assignment_on_the_line_of_its_section_header_is_read(string text)
+    {
+        var repo = Path.Combine(_root, "oneline");
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        File.WriteAllText(Path.Combine(repo, ".git", "config"), text + "\n");
+
+        Assert.Equal("https://github.com/acme/widgets.git", GitRemote.UrlOf(repo));
+    }
+
     [Theory]
     [InlineData("https://github.com/acme/widgets.git # primary")]
     [InlineData("https://github.com/acme/widgets.git ; primary")]

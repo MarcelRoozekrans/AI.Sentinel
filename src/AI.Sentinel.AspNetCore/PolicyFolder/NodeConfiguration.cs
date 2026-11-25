@@ -75,6 +75,12 @@ internal sealed class NodeConfiguration
             throw new InvalidDataException("nodes.json names no organisation");
         }
 
+        // The wire types do not stop a JSON null as an element of an array.
+        if ((wire.Nodes ?? []).Any(n => n is null) || (wire.Roles ?? []).Any(r => r is null))
+        {
+            throw new InvalidDataException("nodes.json holds a null where a node or a role binding is expected");
+        }
+
         var nodes = ParseNodes(wire);
         var owners = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (repository, node) in wire.Repositories ?? new Dictionary<string, string>(StringComparer.Ordinal))
@@ -149,6 +155,11 @@ internal sealed class NodeConfiguration
         if (settings?.ProfileLifetimeHours is <= 0)
         {
             throw new InvalidDataException($"the node '{node.Id}' has a profile lifetime of no hours");
+        }
+
+        if (settings?.ProfileLifetimeHours is { } most && most > (long)TimeSpan.MaxValue.TotalHours)
+        {
+            throw new InvalidDataException($"the node '{node.Id}' has a profile lifetime that is longer than a duration can hold");
         }
 
         var lifetime = settings?.ProfileLifetimeHours is { } hours ? TimeSpan.FromHours(hours) : parent?.ProfileLifetime;

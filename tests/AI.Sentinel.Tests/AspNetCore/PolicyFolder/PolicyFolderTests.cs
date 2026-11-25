@@ -279,7 +279,7 @@ public sealed class PolicyFolderTests
         finally
         {
             await cts.CancelAsync();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await run);
+            await AwaitStoppedAsync(run);
         }
     }
 
@@ -301,7 +301,19 @@ public sealed class PolicyFolderTests
         finally
         {
             await cts.CancelAsync();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await run);
+            await AwaitStoppedAsync(run);
+        }
+    }
+
+    // The loop can see the cancellation before or after its next check: it ends normally or with the cancellation, nothing else.
+    private static async Task AwaitStoppedAsync(Task run)
+    {
+        try
+        {
+            await run;
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 

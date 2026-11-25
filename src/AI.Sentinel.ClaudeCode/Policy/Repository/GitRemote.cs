@@ -106,7 +106,8 @@ internal static class GitRemote
             {
                 remote = RemoteName(line);
                 include = string.Equals(SectionOf(line), "include", StringComparison.OrdinalIgnoreCase);
-                continue;
+                // git reads [remote "origin"] url = ... on one line: what follows the closing bracket is an assignment of the section.
+                line = AfterHeader(line);
             }
 
             if (!TryKeyValue(line, out var key, out var value))
@@ -141,6 +142,29 @@ internal static class GitRemote
     {
         var end = header.IndexOfAny([' ', '\t', '"', ']']);
         return end < 0 ? header[1..] : header[1..end];
+    }
+
+    // The text after the bracket that closes the header, a bracket inside a quoted subsection name not counted.
+    private static string AfterHeader(string header)
+    {
+        var quoted = false;
+        for (var i = 1; i < header.Length; i++)
+        {
+            if (header[i] == '\\' && quoted)
+            {
+                i++;
+            }
+            else if (header[i] == '"')
+            {
+                quoted = !quoted;
+            }
+            else if (header[i] == ']' && !quoted)
+            {
+                return header[(i + 1)..].Trim();
+            }
+        }
+
+        return "";
     }
 
     private static bool TryKeyValue(string line, out string key, out string value)
