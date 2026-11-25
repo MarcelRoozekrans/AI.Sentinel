@@ -160,6 +160,19 @@ public sealed class ProfileRefreshTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_profile_that_has_expired_is_not_used_by_the_resident_when_the_refetches_fail()
+    {
+        _server.Lifetime = TimeSpan.FromSeconds(2);
+        _ = StartLink(Timing());
+        await WaitForAsync(() => Shell() is "deny", "the first profile");
+
+        _server.FailProfiles(1000);
+        await WaitForAsync(() => Shell().StartsWith("error:", StringComparison.Ordinal), "the profile to expire", seconds: 20);
+
+        Assert.Contains("expired", Shell(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_profile_with_a_lifetime_under_a_day_is_refreshed_before_it_expires_from_the_expiry_of_the_one_before()
     {
         _server.Lifetime = TimeSpan.FromSeconds(4);
