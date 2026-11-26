@@ -76,10 +76,17 @@ internal sealed class LocalPolicy : IDisposable
         ArgumentNullException.ThrowIfNull(env);
         var cache = PolicyCache.DefaultDirectory(env);
         var root = repositoryRoot ?? Directory.GetCurrentDirectory();
-        // The node map is cached in the state folder, so a folder that is not private is not read for it either: it is no map.
-        var repository = resident?.Start == ResidentStart.Unusable ? null : Repository.RepositoryPolicy.Open(env, root);
-        // A state folder that is not private is not talked to: the socket in it could be another user's. Only a process that
-        // already ran is asked: a hook that started one, or failed to, does not wait for it and decides this call in-process.
+        // A state folder that is not private is not used: the socket and the node map in it could be another user's. The hooks fail
+        // closed, so the load fails and the caller blocks the call.
+        if (resident?.Start == ResidentStart.Unusable)
+        {
+            throw new UnauthorizedAccessException(
+                $"the resident state folder '{resident.Settings.StateDirectory}' and its .private sibling are open to other users, so the hook cannot use them; make the folder private to you");
+        }
+
+        var repository = Repository.RepositoryPolicy.Open(env, root);
+        // Only a process that already ran is asked: a hook that started one, or failed to, does not wait for it and decides this call
+        // in-process.
         if (resident is null || resident.Start != ResidentStart.AlreadyRunning)
         {
             var policy = RegoPolicy.Load(folder, cache, compilers);
