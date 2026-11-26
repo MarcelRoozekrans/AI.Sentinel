@@ -64,6 +64,7 @@ dotnet tool install -g AI.Sentinel.Cli              # offline replay for forensi
 dotnet tool install -g AI.Sentinel.Mcp.Cli          # stdio MCP proxy
 dotnet tool install -g AI.Sentinel.ClaudeCode.Cli   # Claude Code hook adapter
 dotnet tool install -g AI.Sentinel.Copilot.Cli      # GitHub Copilot hook adapter
+dotnet tool install -g AI.Sentinel.Codex.Cli        # Codex CLI hook adapter
 ```
 
 ## TFM matrix
@@ -82,7 +83,7 @@ dotnet tool install -g AI.Sentinel.Copilot.Cli      # GitHub Copilot hook adapte
 | `AI.Sentinel.Approvals.Sqlite` | ✓ | ✓ |
 | `AI.Sentinel.Approvals.EntraPim` | ✓ | ✓ |
 | `AI.Sentinel.Cli` | ✓ | ✓ |
-| `AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Copilot.Cli`, `AI.Sentinel.Mcp.Cli` | ✓ | — |
+| `AI.Sentinel.ClaudeCode.Cli`, `AI.Sentinel.Codex.Cli`, `AI.Sentinel.Copilot.Cli`, `AI.Sentinel.Mcp.Cli` | ✓ | — |
 
 `AI.Sentinel.Cli` ships as a `dotnet tool` for net10.0 and net11.0; `dotnet tool install` picks the newest one your machine can run. The hook and MCP CLIs are .NET 10 RID-specific tools, which also run on newer runtimes: installing them needs the .NET 10 SDK, and on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64 you get a Native AOT build. Library packages multi-target, so a net10 or net11 host gets a matching build. For net8.0 or net9.0, use AI.Sentinel 5.x.
 

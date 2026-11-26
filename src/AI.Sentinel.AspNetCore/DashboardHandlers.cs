@@ -739,6 +739,19 @@ internal static class DashboardHandlers
         await log.RecordAsync(organisation, action, actor, target.RequestId, AdminAuditChannel.Web, CancellationToken.None).ConfigureAwait(false);
     }
 
+    private static bool IsAuditableId(string id)
+    {
+        try
+        {
+            AdminAuditEntry.CheckField(id, nameof(id));
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
     private static Task RespondToDecisionAsync(HttpContext ctx, ApprovalDecisionOutcome outcome) => outcome switch
     {
         // An empty row, so HTMX removes the row from the table.
@@ -779,19 +792,6 @@ internal static class DashboardHandlers
     /// store. Writes the refusal and returns null otherwise. Whether the request is still pending is
     /// not checked here: the store decides that atomically with the decision itself.
     /// </summary>
-    private static bool IsAuditable(string id)
-    {
-        try
-        {
-            AdminAuditEntry.CheckField(id, nameof(id));
-            return true;
-        }
-        catch (ArgumentException)
-        {
-            return false;
-        }
-    }
-
     private static async Task<DecisionTarget?> GuardDecisionAsync(HttpContext ctx)
     {
         if (IsCrossSite(ctx.Request))
@@ -816,10 +816,10 @@ internal static class DashboardHandlers
             return null;
         }
 
-        // The audit record is written after the decision commits, so an id the log cannot hold is refused before it.
-        if (ctx.RequestServices.GetService<AdminAuditLog>() is not null && !IsAuditable(requestId))
+        // An id the audit log cannot hold is refused before the decision is settled, so an applied decision always gets its entry.
+        if (ctx.RequestServices.GetService<AdminAuditLog>() is not null && !IsAuditableId(requestId))
         {
-            await RespondAsync(ctx, 400, "The request id is not valid.").ConfigureAwait(false);
+            await RespondAsync(ctx, 400, "The request id is too long or contains control characters.").ConfigureAwait(false);
             return null;
         }
 

@@ -19,6 +19,52 @@ public partial class DeviceCodeSignInTests
     }
 
     [Fact]
+    public async Task A_refresh_in_flight_cannot_write_the_earlier_account_over_a_new_sign_in()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new FakeTokenStore();
+        store.Save("rt-earlier");
+        _server.ValidRefreshToken = "rt-earlier";
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _server.BeforeRefresh = async () =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+        };
+        var session = new TokenSession(Client(), store, _time);
+
+        // The earlier account refreshes, and rotates its refresh token, while the new sign-in is handed over.
+        var refreshing = session.GetAccessTokenAsync(ct);
+        await entered.Task.WaitAsync(ct);
+        var setting = Task.Run(() => session.Set(new TokenSet("at-new", "rt-new", _time.GetUtcNow().AddHours(1))), ct);
+        release.SetResult();
+        await refreshing;
+
+        Assert.Equal(KeychainState.Kept, await setting);
+        Assert.Equal("rt-new", store.Secret);
+        Assert.Equal("at-new", (await session.GetAccessTokenAsync(ct)).AccessToken);
+    }
+
+    [Fact]
+    public async Task An_empty_access_token_is_no_token_at_sign_in_nor_at_a_refresh()
+    {
+        var session = await SignedIn();
+        _server.AccessTokenField = "";
+
+        var failure = await Assert.ThrowsAsync<SignInException>(() => SignIn().RunAsync(_ => { }, TestContext.Current.CancellationToken));
+        Assert.Equal(SignInFailure.Protocol, failure.Kind);
+
+        // That second sign-in made the fake rotate; the session still holds the refresh token of the first one.
+        _server.ValidRefreshToken = "rt-1";
+        // Inside the early renewal window the refresh is tried, answers an empty token, and the token that is still valid is kept.
+        _time.Advance(TimeSpan.FromSeconds(3590));
+        var answer = await session.GetAccessTokenAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(TokenAnswerKind.Token, answer.Kind);
+        Assert.Equal("at-1", answer.AccessToken);
+    }
+
+    [Fact]
     public async Task The_access_token_is_refreshed_without_a_new_sign_in()
     {
         var session = await SignedIn();
@@ -223,5 +269,99 @@ public partial class DeviceCodeSignInTests
         var response = await client.SendAsync(new ResidentRequest { Op = ResidentOps.SignInStatus }, TimeSpan.FromSeconds(5));
         Assert.False(response!.Ok);
         Assert.Equal("off", response.SignIn);
+    }
+
+    [Fact]
+    public async Task The_token_goes_to_the_scheme_of_the_bound_server_only()
+    {
+        var session = await SignedIn();
+        using var invoker = new HttpMessageInvoker(new BearerTokenHandler(session, _server, new Uri(FakeOidcServer.Server)));
+        var before = _server.Requests.Count;
+
+        using var plain = new HttpRequestMessage(HttpMethod.Get, new Uri("http://sentinel.example.com/echo"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => invoker.SendAsync(plain, TestContext.Current.CancellationToken));
+
+        Assert.Equal(before, _server.Requests.Count);
+        Assert.Null(plain.Headers.Authorization);
+    }
+
+    [Fact]
+    public async Task A_discovery_document_of_another_issuer_is_refused()
+    {
+        _server.DiscoveryIssuer = "https://other.example.com";
+        var ex = await Assert.ThrowsAsync<SignInException>(() => SignIn().RunAsync(_ => { }, TestContext.Current.CancellationToken));
+        Assert.Equal(SignInFailure.Protocol, ex.Kind);
+    }
+
+    [Fact]
+    public async Task A_server_error_is_not_read_as_the_provider_revoking_the_token()
+    {
+        var store = new FakeTokenStore();
+        store.Save("rt-1");
+        var session = await SignedIn(store);
+        _server.RefreshRaw = (System.Net.HttpStatusCode.ServiceUnavailable, "{\"error\":\"invalid_grant\"}");
+        _time.Advance(TimeSpan.FromSeconds(3600));
+
+        Assert.Equal(TokenAnswerKind.Unavailable, (await session.GetAccessTokenAsync(TestContext.Current.CancellationToken)).Kind);
+        Assert.Equal("rt-1", store.Secret);
+        Assert.Equal(SignInStatus.SignedIn, session.Status);
+    }
+
+    [Fact]
+    public async Task A_server_error_with_token_fields_installs_no_token()
+    {
+        var session = await SignedIn();
+        _server.RefreshRaw = (System.Net.HttpStatusCode.BadGateway, "{\"access_token\":\"evil\",\"token_type\":\"Bearer\",\"expires_in\":3600}");
+        _time.Advance(TimeSpan.FromSeconds(3600));
+
+        Assert.Equal(TokenAnswerKind.Unavailable, (await session.GetAccessTokenAsync(TestContext.Current.CancellationToken)).Kind);
+    }
+
+    [Fact]
+    public async Task An_access_token_that_is_valid_but_inside_the_skew_is_used_when_the_renewal_fails()
+    {
+        var session = await SignedIn();
+        _server.RefreshUnavailable = true;
+        _time.Advance(TimeSpan.FromSeconds(3600 - 20));
+
+        var answer = await session.GetAccessTokenAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(TokenAnswerKind.Token, answer.Kind);
+        Assert.Equal("at-1", answer.AccessToken);
+
+        _time.Advance(TimeSpan.FromSeconds(30));
+        Assert.Equal(TokenAnswerKind.Unavailable, (await session.GetAccessTokenAsync(TestContext.Current.CancellationToken)).Kind);
+    }
+
+    [Fact]
+    public async Task An_empty_refresh_token_counts_as_none_and_keeps_the_one_in_use()
+    {
+        var session = await SignedIn();
+        _server.RefreshTokenField = string.Empty;
+        _time.Advance(TimeSpan.FromSeconds(3600));
+
+        Assert.Equal(TokenAnswerKind.Token, (await session.GetAccessTokenAsync(TestContext.Current.CancellationToken)).Kind);
+        Assert.Equal(SignInStatus.SignedIn, session.Status);
+    }
+
+    [Fact]
+    public async Task An_error_code_that_is_not_a_known_one_is_not_echoed()
+    {
+        _server.PollErrors.Add("sk-secret-looking-value");
+        var ex = await Assert.ThrowsAsync<SignInException>(() => SignIn().RunAsync(_ => { }, TestContext.Current.CancellationToken));
+        Assert.DoesNotContain("sk-secret", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_keychain_that_could_not_be_read_at_first_is_read_again()
+    {
+        var store = new FakeTokenStore();
+        store.Save("rt-1");
+        var session = new TokenSession(Client(), store, _time);
+        _server.ValidRefreshToken = "rt-1";
+        store.Available = false;
+        Assert.Equal(TokenAnswerKind.SignInRequired, (await session.GetAccessTokenAsync(TestContext.Current.CancellationToken)).Kind);
+
+        store.Available = true;
+        Assert.Equal(TokenAnswerKind.Token, (await session.GetAccessTokenAsync(TestContext.Current.CancellationToken)).Kind);
     }
 }

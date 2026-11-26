@@ -434,7 +434,7 @@ public static class Program
         try
         {
             return folder is null
-                ? (LocalPolicy.LoadRepositoryOnly(env, failMode: failMode), LocalPolicy.RepositoryOnlyName, null)
+                ? (LocalPolicy.LoadRepositoryOnly(env), LocalPolicy.RepositoryOnlyName, null)
                 : (LocalPolicy.Load(folder, env, compilers: compilers, resident: resident, failMode: failMode), folder, null);
         }
 #pragma warning disable CA1031 // Every load failure is reported; on PreToolUse it blocks the call.

@@ -74,6 +74,21 @@ public class TokenStorageTests : IDisposable
     }
 
     [Fact]
+    public async Task A_sign_in_that_cannot_remove_the_earlier_refresh_token_says_so_and_fails()
+    {
+        _server.IssueRefreshToken = false;
+        var store = new FakeTokenStore();
+        store.Save("rt-earlier");
+        await using var host = new HostedResident(_dir, tokens: new TokenSession(Client(), store, _time));
+        await host.WaitUntilListeningAsync();
+        store.Available = false;
+
+        Assert.Equal(1, await Run(store));
+
+        Assert.Contains("earlier sign-in", _stderr.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_resident_process_that_does_not_take_the_sign_in_is_reported_and_not_called_a_success()
     {
         var store = new FakeTokenStore();
@@ -219,6 +234,58 @@ public class TokenStorageTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("exit 1", true)]
+    [InlineData("echo 'secret-tool: Cannot autolaunch D-Bus' >&2; exit 1", false)]
+    [InlineData("exit 2", false)]
+    public void A_secret_tool_clear_that_matched_nothing_is_no_failure_and_one_that_failed_is(string clear, bool removed)
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS(), "a shell script stands in for secret-tool");
+        var folder = Directory.CreateTempSubdirectory("st-").FullName;
+        var script = Path.Combine(folder, "secret-tool");
+        File.WriteAllText(script, $"#!/bin/sh\n{clear}\n");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        try
+        {
+            Assert.Equal(removed, new SecretToolStore("acct", log: null, script).Delete());
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_secret_tool_that_hangs_is_stopped_and_counts_as_a_failure()
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS(), "a shell script stands in for secret-tool");
+        var folder = Directory.CreateTempSubdirectory("st-").FullName;
+        var script = Path.Combine(folder, "secret-tool");
+        File.WriteAllText(script, "#!/bin/sh\nsleep 30\n");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        try
+        {
+            var store = new SecretToolStore("acct", log: null, script, TimeSpan.FromMilliseconds(200));
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+
+            Assert.False(store.Save("rt-x"));
+            Assert.False(store.Delete());
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(20));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     [Fact]
     public void A_missing_secret_tool_means_memory_only()
     {
@@ -226,7 +293,7 @@ public class TokenStorageTests : IDisposable
         var store = new SecretToolStore("acct", log.Add, "/nonexistent/secret-tool");
         Assert.False(store.Save("rt-x"));
         Assert.Null(store.Load());
-        Assert.False(store.Delete());
+        Assert.True(store.Delete());
         Assert.Contains(log, l => l.Contains("memory only", StringComparison.Ordinal));
         Assert.DoesNotContain(log, l => l.Contains("rt-x", StringComparison.Ordinal));
     }
@@ -256,6 +323,37 @@ public class TokenStorageTests : IDisposable
         }
 
         Assert.Null(store.Load());
+    }
+
+    /// <summary>The edges of the keychain of this machine: nothing to remove is no failure, and Windows refuses a secret over its
+    /// blob limit and reads an empty one as none.</summary>
+    [Fact]
+    public void The_keychain_of_the_operating_system_has_nothing_to_remove_for_an_unknown_account_and_keeps_its_limits()
+    {
+        var settings = Settings() with { ClientId = "test-" + Guid.NewGuid().ToString("N") };
+        var store = TokenStores.ForCurrentOs(settings);
+        Assert.SkipWhen(store is null, "this platform has no keychain");
+        Assert.False(string.IsNullOrEmpty(store!.Name));
+        if (store is SecretToolStore && !store.Save("probe"))
+        {
+            Assert.Skip($"the {store.Name} is not available here");
+        }
+
+        try
+        {
+            Assert.True(store.Delete());
+            Assert.True(store.Delete());
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.False(store.Save(new string('x', 2561)));
+                Assert.True(store.Save(""));
+                Assert.Null(store.Load());
+            }
+        }
+        finally
+        {
+            store.Delete();
+        }
     }
 
     // The folders a sign-in could write to: the state folder of the resident process and its temporary files.
