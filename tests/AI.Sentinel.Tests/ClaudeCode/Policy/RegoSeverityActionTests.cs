@@ -51,6 +51,17 @@ public class RegoSeverityActionTests : IDisposable
         HookPipelineRunner.Decide([new ScanFinding(DetectionResult.WithSeverity(new DetectorId("SEC-01"), severity, "found"), action)], config);
 
     [Fact]
+    public void An_allow_from_the_variables_alone_carries_no_outcome_so_it_adds_no_outcome_audit_entry()
+    {
+        var config = HookConfig.FromEnvironment(new Dictionary<string, string?>(StringComparer.Ordinal) { ["SENTINEL_HOOK_ON_LOW"] = "Allow" });
+
+        var output = Decide(config, Severity.Low);
+
+        Assert.Equal(HookDecision.Allow, output.Decision);
+        Assert.Null(output.Outcome);
+    }
+
+    [Fact]
     public void A_policy_that_sets_guidance_for_high_gives_guidance_when_the_variable_is_not_set()
     {
         var config = Config(Severities("severity_actions contains {\"severity\": \"high\", \"outcome\": \"guidance\"}\n"));
