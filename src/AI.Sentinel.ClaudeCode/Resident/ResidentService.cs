@@ -55,6 +55,7 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
             return new ResidentResponse { Error = "sign-in is not configured", SignIn = "off" };
         }
 
+        string? keychain = null;
         if (string.Equals(request.Op, ResidentOps.SignIn, StringComparison.Ordinal))
         {
             if (request.Tokens is null)
@@ -72,7 +73,12 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
                 };
             }
 
-            tokens.Set(request.Tokens);
+            keychain = tokens.Set(request.Tokens) switch
+            {
+                SignIn.KeychainState.Kept => "kept",
+                SignIn.KeychainState.MemoryOnly => "memory_only",
+                _ => "earlier_remains",
+            };
         }
 
         return new ResidentResponse
@@ -80,6 +86,7 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
             Ok = true,
             Pid = Environment.ProcessId,
             SignIn = tokens.Status == SignIn.SignInStatus.SignedIn ? "signed_in" : "sign_in_needed",
+            Keychain = keychain,
         };
     }
 

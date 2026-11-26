@@ -35,12 +35,12 @@ internal sealed class SecretToolStore(string account, Action<string>? log = null
     public bool Delete()
     {
         var result = Run(["clear", "service", "ai-sentinel", "account", account], stdin: null);
-        // secret-tool clear exits 0 when nothing matched too, so a started program must exit 0. A program that does not start keeps
-        // nothing this store could load again, since Load goes through the same program, so there is nothing to remove.
-        return !result.Started || result.ExitCode == 0;
+        // secret-tool clear exits 1 both when nothing matched and when the Secret Service failed; only a failure prints an error. A
+        // program that does not start keeps nothing this store could load again, since Load goes through the same program.
+        return !result.Started || result.ExitCode == 0 || (result.ExitCode == 1 && result.Error.Length == 0);
     }
 
-    private (bool Started, int ExitCode, string Output) Run(string[] arguments, string? stdin)
+    private (bool Started, int ExitCode, string Output, string Error) Run(string[] arguments, string? stdin)
     {
         var info = new ProcessStartInfo(program)
         {
@@ -61,7 +61,7 @@ internal sealed class SecretToolStore(string account, Action<string>? log = null
             using var process = Process.Start(info);
             if (process is null)
             {
-                return (false, -1, string.Empty);
+                return (false, -1, string.Empty, string.Empty);
             }
 
             if (stdin is not null)
@@ -71,19 +71,19 @@ internal sealed class SecretToolStore(string account, Action<string>? log = null
 
             process.StandardInput.Close();
             var output = process.StandardOutput.ReadToEndAsync();
-            _ = process.StandardError.ReadToEndAsync();
+            var error = process.StandardError.ReadToEndAsync();
             if (!process.WaitForExit(timeout ?? DefaultTimeout))
             {
                 // A keyring that waits for the developer to unlock it must not hold a hook or the sign-in forever.
                 process.Kill(entireProcessTree: true);
-                return (true, -1, string.Empty);
+                return (true, -1, string.Empty, "timed out");
             }
 
-            return (true, process.ExitCode, output.GetAwaiter().GetResult());
+            return (true, process.ExitCode, output.GetAwaiter().GetResult(), error.GetAwaiter().GetResult().Trim());
         }
         catch (Exception e) when (e is Win32Exception or IOException or InvalidOperationException)
         {
-            return (false, -1, string.Empty);
+            return (false, -1, string.Empty, string.Empty);
         }
     }
 }

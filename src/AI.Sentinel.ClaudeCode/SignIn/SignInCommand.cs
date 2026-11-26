@@ -78,9 +78,13 @@ internal static class SignInCommand
         var resident = ResidentSettings.Always(env);
         ResidentState.Open(resident).WritePinnedKeys(outcome.Organisation, outcome.Keys);
 
-        var (kept, earlierRemains) = await KeepAsync(outcome.Tokens, store, stderr).ConfigureAwait(false);
-
-        var handedOver = await HandOverAsync(env, resident, settings, outcome.Tokens, launch, start, ct).ConfigureAwait(false);
+        // A resident that takes the sign-in keeps it in the keychain itself, after any refresh it has in flight, so the keychain and the
+        // resident hold the same token. Only a sign-in no resident took is kept here.
+        var answer = await HandOverAsync(env, resident, settings, outcome.Tokens, launch, start, ct).ConfigureAwait(false);
+        var handedOver = answer is { Ok: true };
+        var state = await KeepAsync(handedOver ? answer : null, outcome.Tokens, store, stderr).ConfigureAwait(false);
+        var kept = state == KeychainState.Kept;
+        var earlierRemains = state == KeychainState.EarlierRemains;
         if (!handedOver && !kept)
         {
             await stderr.WriteLineAsync(
@@ -107,18 +111,25 @@ internal static class SignInCommand
     /// <summary>A client that does not follow a redirect: a token form is posted to the endpoint the provider advertised and to no other.</summary>
     internal static HttpClient NoRedirects() => new(new SocketsHttpHandler { AllowAutoRedirect = false });
 
-    // The refresh token goes into the keychain. Without one to keep, the token of an earlier sign-in must go, or a restart would resume it.
-    private static async Task<(bool Kept, bool EarlierRemains)> KeepAsync(TokenSet tokens, ITokenStore? store, TextWriter stderr)
+    // What the keychain holds: as the resident that took the sign-in reports it, or as this command keeps it when none did.
+    private static async Task<KeychainState> KeepAsync(ResidentResponse? taken, TokenSet tokens, ITokenStore? store, TextWriter stderr)
     {
-        var kept = tokens.RefreshToken is { } refresh && store is not null && store.Save(refresh);
-        var earlierRemains = !kept && store is not null && !store.Delete();
-        if (earlierRemains)
+        var state = taken is not null ? StateOf(taken.Keychain) : TokenSession.Keep(tokens.RefreshToken, store);
+        if (state == KeychainState.EarlierRemains)
         {
-            await stderr.WriteLineAsync($"the {store!.Name} still holds the refresh token of an earlier sign-in; it could not be removed. Remove it, or a restart of the resident process signs in as the earlier account.").ConfigureAwait(false);
+            await stderr.WriteLineAsync($"the {store?.Name ?? "keychain"} still holds the refresh token of an earlier sign-in; it could not be removed. Remove it, or a restart of the resident process signs in as the earlier account.").ConfigureAwait(false);
         }
 
-        return (kept, earlierRemains);
+        return state;
     }
+
+    // An answer without the field cannot say the keychain matches, so it counts as one that may still hold an earlier token.
+    private static KeychainState StateOf(string? keychain) => keychain switch
+    {
+        "kept" => KeychainState.Kept,
+        "memory_only" => KeychainState.MemoryOnly,
+        _ => KeychainState.EarlierRemains,
+    };
 
     private static void Show(TextWriter stdout, DeviceAuthorization a)
     {
@@ -130,13 +141,13 @@ internal static class SignInCommand
     }
 
     // The tokens go over the private local socket, only to the resident process of this user.
-    private static async Task<bool> HandOverAsync(
+    private static async Task<ResidentResponse?> HandOverAsync(
         IReadOnlyDictionary<string, string?> env, ResidentSettings resident, SignInSettings settings, TokenSet tokens, ResidentLaunch? launch,
         Func<ResidentLaunch, bool>? start, CancellationToken ct)
     {
         if (ResidentOff(env, resident))
         {
-            return false;
+            return null;
         }
 
         _ = ResidentLauncher.EnsureStarted(resident, launch ?? ResidentLaunch.ForThisHook(), start);
@@ -146,13 +157,13 @@ internal static class SignInCommand
             var response = await client.SendAsync(new ResidentRequest { Op = ResidentOps.SignIn, Tokens = tokens, Issuer = settings.Issuer.AbsoluteUri, ClientId = settings.ClientId }, TimeSpan.FromSeconds(2)).ConfigureAwait(false);
             if (response is not null)
             {
-                return response.Ok;
+                return response;
             }
 
             await Task.Delay(100, ct).ConfigureAwait(false);
         }
 
-        return false;
+        return null;
     }
 
     // The resident process is on only when the developer turned it on; sign-in does not start it on its own.

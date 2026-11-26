@@ -44,6 +44,12 @@ internal sealed class FakeOidcServer : HttpMessageHandler
     /// <summary>When set, a refresh answers this status with this body, whatever the refresh token is.</summary>
     public (HttpStatusCode Status, string Body)? RefreshRaw { get; set; }
 
+    /// <summary>What the token endpoint puts in access_token; the issued one when null.</summary>
+    public string? AccessTokenField { get; set; }
+
+    /// <summary>Awaited before a refresh is answered, so a test can hold a refresh in flight.</summary>
+    public Func<Task>? BeforeRefresh { get; set; }
+
     /// <summary>What the token endpoint puts in refresh_token; the issued one when null.</summary>
     public string? RefreshTokenField { get; set; }
 
@@ -102,7 +108,7 @@ internal sealed class FakeOidcServer : HttpMessageHandler
             }
 
             return string.Equals(grant, "refresh_token", StringComparison.Ordinal)
-                ? Refresh(form)
+                ? await RefreshAsync(form)
                 : Json(HttpStatusCode.BadRequest, new { error = "unsupported_grant_type" });
         }
 
@@ -143,6 +149,16 @@ internal sealed class FakeOidcServer : HttpMessageHandler
         return Tokens();
     }
 
+    private async Task<HttpResponseMessage> RefreshAsync(Dictionary<string, string> form)
+    {
+        if (BeforeRefresh is { } wait)
+        {
+            await wait();
+        }
+
+        return Refresh(form);
+    }
+
     private HttpResponseMessage Refresh(Dictionary<string, string> form)
     {
         if (RefreshRaw is { } raw)
@@ -176,7 +192,7 @@ internal sealed class FakeOidcServer : HttpMessageHandler
         refresh = RefreshTokenField ?? refresh;
         return Json(HttpStatusCode.OK, new
         {
-            access_token = "at-" + n,
+            access_token = AccessTokenField ?? "at-" + n,
             token_type = "Bearer",
             expires_in = AccessLifetimeSeconds,
             refresh_token = refresh,

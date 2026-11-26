@@ -19,6 +19,52 @@ public partial class DeviceCodeSignInTests
     }
 
     [Fact]
+    public async Task A_refresh_in_flight_cannot_write_the_earlier_account_over_a_new_sign_in()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = new FakeTokenStore();
+        store.Save("rt-earlier");
+        _server.ValidRefreshToken = "rt-earlier";
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _server.BeforeRefresh = async () =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+        };
+        var session = new TokenSession(Client(), store, _time);
+
+        // The earlier account refreshes, and rotates its refresh token, while the new sign-in is handed over.
+        var refreshing = session.GetAccessTokenAsync(ct);
+        await entered.Task.WaitAsync(ct);
+        var setting = Task.Run(() => session.Set(new TokenSet("at-new", "rt-new", _time.GetUtcNow().AddHours(1))), ct);
+        release.SetResult();
+        await refreshing;
+
+        Assert.Equal(KeychainState.Kept, await setting);
+        Assert.Equal("rt-new", store.Secret);
+        Assert.Equal("at-new", (await session.GetAccessTokenAsync(ct)).AccessToken);
+    }
+
+    [Fact]
+    public async Task An_empty_access_token_is_no_token_at_sign_in_nor_at_a_refresh()
+    {
+        var session = await SignedIn();
+        _server.AccessTokenField = "";
+
+        var failure = await Assert.ThrowsAsync<SignInException>(() => SignIn().RunAsync(_ => { }, TestContext.Current.CancellationToken));
+        Assert.Equal(SignInFailure.Protocol, failure.Kind);
+
+        // That second sign-in made the fake rotate; the session still holds the refresh token of the first one.
+        _server.ValidRefreshToken = "rt-1";
+        // Inside the early renewal window the refresh is tried, answers an empty token, and the token that is still valid is kept.
+        _time.Advance(TimeSpan.FromSeconds(3590));
+        var answer = await session.GetAccessTokenAsync(TestContext.Current.CancellationToken);
+        Assert.Equal(TokenAnswerKind.Token, answer.Kind);
+        Assert.Equal("at-1", answer.AccessToken);
+    }
+
+    [Fact]
     public async Task The_access_token_is_refreshed_without_a_new_sign_in()
     {
         var session = await SignedIn();

@@ -41,8 +41,9 @@ internal sealed class TokenSession(OidcDeviceClient client, ITokenStore? store, 
     /// <summary>True when the tokens of a sign-in at this issuer and client are ones this session can refresh.</summary>
     public bool Accepts(string? issuer, string? clientId) => client.IsFor(issuer, clientId);
 
-    /// <summary>Takes the tokens of a sign-in.</summary>
-    public void Set(TokenSet tokens)
+    /// <summary>Takes the tokens of a sign-in and keeps its refresh token in the keychain. Both happen under the gate, after a refresh
+    /// that is in flight has finished, so a refresh of an earlier account cannot write its token over the one of this sign-in.</summary>
+    public KeychainState Set(TokenSet tokens)
     {
         ArgumentNullException.ThrowIfNull(tokens);
         _gate.Wait();
@@ -52,11 +53,24 @@ internal sealed class TokenSession(OidcDeviceClient client, ITokenStore? store, 
             _refresh = tokens.RefreshToken;
             _expiresAt = tokens.ExpiresAt;
             _storeChecked = true;
+            return Keep(tokens.RefreshToken, store);
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>Keeps <paramref name="refresh"/> in <paramref name="store"/>. Without one to keep, the token of an earlier sign-in must
+    /// go, or a restart would resume it.</summary>
+    public static KeychainState Keep(string? refresh, ITokenStore? store)
+    {
+        if (refresh is not null && store is not null && store.Save(refresh))
+        {
+            return KeychainState.Kept;
+        }
+
+        return store is null || store.Delete() ? KeychainState.MemoryOnly : KeychainState.EarlierRemains;
     }
 
     /// <summary>The access token, renewed first when it is about to run out.</summary>

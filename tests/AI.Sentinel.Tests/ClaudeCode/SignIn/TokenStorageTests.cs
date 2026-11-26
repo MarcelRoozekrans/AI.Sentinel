@@ -234,6 +234,31 @@ public class TokenStorageTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("exit 1", true)]
+    [InlineData("echo 'secret-tool: Cannot autolaunch D-Bus' >&2; exit 1", false)]
+    [InlineData("exit 2", false)]
+    public void A_secret_tool_clear_that_matched_nothing_is_no_failure_and_one_that_failed_is(string clear, bool removed)
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS(), "a shell script stands in for secret-tool");
+        var folder = Directory.CreateTempSubdirectory("st-").FullName;
+        var script = Path.Combine(folder, "secret-tool");
+        File.WriteAllText(script, $"#!/bin/sh\n{clear}\n");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        try
+        {
+            Assert.Equal(removed, new SecretToolStore("acct", log: null, script).Delete());
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
     [Fact]
     public void A_secret_tool_that_hangs_is_stopped_and_counts_as_a_failure()
     {

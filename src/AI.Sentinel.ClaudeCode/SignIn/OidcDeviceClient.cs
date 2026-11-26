@@ -113,6 +113,12 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
 
     private TokenSet ToTokens(TokenResponseWire wire, string? previousRefreshToken)
     {
+        // An empty access token would go out as a bare "Bearer" header, so it is no token.
+        if (string.IsNullOrEmpty(wire.AccessToken))
+        {
+            throw new SignInException(SignInFailure.Protocol, "the token answer holds no access token");
+        }
+
         if (!string.Equals(wire.TokenType, "Bearer", StringComparison.OrdinalIgnoreCase))
         {
             throw new SignInException(SignInFailure.Protocol, "the provider issued a token that is not a bearer token");
