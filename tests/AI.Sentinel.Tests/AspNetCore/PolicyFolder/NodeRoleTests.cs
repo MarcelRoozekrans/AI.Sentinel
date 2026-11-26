@@ -213,6 +213,17 @@ public sealed class NodeRoleTests : IDisposable
     }
 
     [Fact]
+    public async Task A_decision_on_a_repository_that_no_node_owns_is_open_to_an_administrator_only_even_for_its_requester()
+    {
+        var roles = await RolesAsync();
+        const string Unowned = "github.com/else/where";
+
+        Assert.False(roles.MaySeeDecision(User("dave", "nobody"), Unowned, "dave"));
+        Assert.False(roles.MaySeeDecision(User("lena", "leads-a"), Unowned, "lena"));
+        Assert.True(roles.MaySeeDecision(User("root", "sec"), Unowned, "dave"));
+    }
+
+    [Fact]
     public async Task A_developer_may_not_decide_and_nobody_decides_their_own_request()
     {
         var roles = await RolesAsync();
@@ -249,6 +260,7 @@ public sealed class NodeRoleTests : IDisposable
         Assert.Equal(NodeRole.Developer, roles.RoleOn(User("root", "sec"), "acme"));
         Assert.False(roles.AllowsOnSession(User("root", "sec"), NodeRole.TeamLead, Repository));
         Assert.False(roles.IsAdministratorOf(User("root", "sec"), "acme"));
+        Assert.False(roles.MaySeeDecision(User("dave", "nobody"), Repository, "dave"));
     }
 
     [Fact]

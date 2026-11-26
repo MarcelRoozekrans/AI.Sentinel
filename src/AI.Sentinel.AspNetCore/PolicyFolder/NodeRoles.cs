@@ -55,11 +55,17 @@ internal sealed class NodeRoles(PolicyFolderLoader loader, IOptions<PolicyFolder
             return false;
         }
 
-        var groups = GroupsOf(user);
+        return AllowsOn(configuration, GroupsOf(user), needed, repository, ownsRequest: false);
+    }
+
+    // The role check on the node that owns the repository, in one configuration. A repository no node owns is open to an
+    // administrator only, whoever made the request; on an owned repository the requester's own request passes too.
+    private static bool AllowsOn(NodeConfiguration configuration, IReadOnlySet<string> groups, NodeRole needed, string repository, bool ownsRequest)
+    {
         var node = configuration.NodeFor(repository)?.Id;
         return node is null
             ? RoleIn(configuration, groups, OrganisationOf(configuration)) == NodeRole.Administrator
-            : RoleIn(configuration, groups, node) >= needed;
+            : ownsRequest || RoleIn(configuration, groups, node) >= needed;
     }
 
     /// <summary>Whether <paramref name="user"/> is an administrator of <paramref name="organisation"/>: the current node configuration
@@ -113,10 +119,19 @@ internal sealed class NodeRoles(PolicyFolderLoader loader, IOptions<PolicyFolder
     }
 
     /// <summary>Whether <paramref name="user"/> may read a decision about <paramref name="subject"/> on <paramref name="repository"/>:
-    /// a developer their own, a team lead and an administrator those on their node.</summary>
-    public bool MaySeeDecision(ClaimsPrincipal user, string repository, string subject) =>
-        (DeveloperOf(user) is { } developer && string.Equals(developer, subject, StringComparison.Ordinal))
-        || AllowsOnSession(user, NodeRole.TeamLead, repository);
+    /// a developer their own, a team lead and an administrator those on their node. A repository that no node owns is open to an
+    /// administrator only, and nothing is open before a configuration is published. The answer comes from one published
+    /// configuration, read once.</summary>
+    public bool MaySeeDecision(ClaimsPrincipal user, string repository, string subject)
+    {
+        if (loader.Current?.Nodes is not { } configuration)
+        {
+            return false;
+        }
+
+        var own = DeveloperOf(user) is { } developer && string.Equals(developer, subject, StringComparison.Ordinal);
+        return AllowsOn(configuration, GroupsOf(user), NodeRole.TeamLead, repository, ownsRequest: own);
+    }
 
     private static void AddGroups(HashSet<string> groups, string value)
     {
