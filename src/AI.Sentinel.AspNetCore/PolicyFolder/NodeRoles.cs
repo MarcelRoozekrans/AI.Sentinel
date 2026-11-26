@@ -42,6 +42,10 @@ internal sealed class NodeRoles(PolicyFolderLoader loader, IOptions<PolicyFolder
     public NodeRole RoleOn(ClaimsPrincipal user, string nodeId) =>
         loader.Current?.Nodes is { } configuration ? RoleIn(configuration, GroupsOf(user), nodeId) : NodeRole.Developer;
 
+    /// <summary>The configuration that is current now, for a request that asks several questions and needs every answer from one
+    /// version; null before a configuration is published.</summary>
+    public NodeRoleSnapshot? Snapshot() => loader.Current?.Nodes is { } configuration ? new NodeRoleSnapshot(configuration, this) : null;
+
     /// <summary>Whether <paramref name="user"/> holds at least <paramref name="needed"/> on <paramref name="nodeId"/>.</summary>
     public bool Allows(ClaimsPrincipal user, NodeRole needed, string nodeId) => RoleOn(user, nodeId) >= needed;
 
@@ -82,9 +86,9 @@ internal sealed class NodeRoles(PolicyFolderLoader loader, IOptions<PolicyFolder
         return RoleIn(published.Nodes, GroupsOf(user), OrganisationOf(published.Nodes)) == NodeRole.Administrator;
     }
 
-    private static string OrganisationOf(NodeConfiguration configuration) => configuration.Nodes.Single(n => n.IsOrganisation).Id;
+    internal static string OrganisationOf(NodeConfiguration configuration) => configuration.Nodes.Single(n => n.IsOrganisation).Id;
 
-    private static NodeRole RoleIn(NodeConfiguration configuration, IReadOnlySet<string> groups, string nodeId)
+    internal static NodeRole RoleIn(NodeConfiguration configuration, IReadOnlySet<string> groups, string nodeId)
     {
         if (configuration.Nodes.All(n => !string.Equals(n.Id, nodeId, StringComparison.Ordinal)))
         {
