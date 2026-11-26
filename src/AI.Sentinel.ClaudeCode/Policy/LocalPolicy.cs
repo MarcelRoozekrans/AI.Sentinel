@@ -118,12 +118,13 @@ internal sealed class LocalPolicy : IDisposable
     public SeverityActions Severities() => _severities ??= ReadSeverities();
 
     // With a fail mode a bundle that errors here is remembered and Decide denies by name; the severities are then none, which the
-    // denial makes moot. Without one the error is thrown, as before.
+    // denial makes moot. Without one the error is thrown, as before. A place that stays silent is no error: the severities are
+    // none and Decide leaves the call to the fail mode.
     private SeverityActions ReadSeverities()
     {
         try
         {
-            return _order.Evaluate("{}").Decision.SeverityActions ?? SeverityActions.None;
+            return _order.TryEvaluate("{}")?.Decision.SeverityActions ?? SeverityActions.None;
         }
         catch (Exception) when (_failMode is not null)
         {

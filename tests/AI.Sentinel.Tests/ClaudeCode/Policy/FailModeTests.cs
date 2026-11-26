@@ -155,6 +155,20 @@ public class FailModeTests
     }
 
     [Fact]
+    public void A_place_that_stays_silent_while_the_severities_are_read_is_not_a_bundle_error_so_the_fail_mode_still_decides()
+    {
+        using var policy = Policy(Profile(ProfileFailModes.Ask), Silent());
+
+        var severities = policy.Severities();
+        var bash = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
+        var read = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Read", Json("""{"file_path":"/work/repo/src/a.cs"}"""), "s");
+
+        Assert.Same(SeverityActions.None, severities);
+        Assert.Equal(DecisionOutcome.Ask, bash.Outcome!.Outcome);
+        Assert.Equal(DecisionOutcome.Allow, read.Outcome!.Outcome);
+    }
+
+    [Fact]
     public void Without_a_fail_mode_a_bundle_that_errors_while_the_severities_are_read_still_throws()
     {
         using var policy = Policy(null, Failing());
