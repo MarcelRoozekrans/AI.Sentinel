@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.1.0...v6.2.0) (2026-11-26)
+
+
+### Features
+
+* **hooks:** apply the profile fail mode when no decision can be made ([#699](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/699)) ([ff1a76e](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ff1a76e4ff388d71c8950356d0bf603ef2b38b09))
+
 ## [6.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.0.0...v6.1.0) (2026-11-26)
 
 
