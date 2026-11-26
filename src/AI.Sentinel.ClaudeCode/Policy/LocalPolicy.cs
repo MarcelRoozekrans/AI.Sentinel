@@ -233,11 +233,9 @@ internal sealed class LocalPolicy : IDisposable
             decisions.Add(new OutcomeDecision(policy.Outcome, string.Join("; ", policy.Reasons), [SourceOf(policy)], Version, place));
         }
 
-        // A folderless policy reads no command line itself, so what it cannot parse is not its to ask about.
-        if (!_folderless)
-        {
-            AddParserAsks(decisions, input);
-        }
+        // The repository's rules read the same command line, so what the parser cannot read asks in every mode: an Allow from them
+        // must not let it through.
+        AddParserAsks(decisions, input);
 
         if (decisions.Count == 1 && decisions[0].Outcome == DecisionOutcome.Defer)
         {

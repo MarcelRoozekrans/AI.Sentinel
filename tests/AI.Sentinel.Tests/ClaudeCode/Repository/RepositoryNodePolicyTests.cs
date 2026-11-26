@@ -126,15 +126,109 @@ public class RepositoryNodePolicyTests : IDisposable
     }
 
     [Fact]
-    public void A_remote_defined_in_an_included_file_is_read_in_place_and_a_loop_ends()
+    public void A_remote_defined_in_an_included_file_is_read_in_place()
     {
         var repo = Path.Combine(_root, "included");
         var git = Path.Combine(repo, ".git");
         Directory.CreateDirectory(Path.Combine(git, "conf"));
         File.WriteAllText(Path.Combine(git, "config"), "[core]\n\tbare = false\n[include]\n\tpath = conf/remotes.conf\n");
-        File.WriteAllText(Path.Combine(git, "conf", "remotes.conf"), "[remote \"origin\"]\n\turl = https://github.com/acme/widgets.git\n[include]\n\tpath = remotes.conf\n");
+        File.WriteAllText(Path.Combine(git, "conf", "remotes.conf"), "[remote \"origin\"]\n\turl = https://github.com/acme/widgets.git\n");
 
         Assert.Equal("https://github.com/acme/widgets.git", GitRemote.UrlOf(repo));
+    }
+
+    [Fact]
+    public void A_config_that_includes_itself_is_refused_as_git_refuses_it_and_the_call_is_blocked()
+    {
+        var repo = Path.Combine(_root, "loop");
+        var git = Path.Combine(repo, ".git");
+        Directory.CreateDirectory(git);
+        File.WriteAllText(
+            Path.Combine(git, "config"),
+            "[remote \"origin\"]\n\turl = https://github.com/acme/widgets.git\n[include]\n" + string.Concat(Enumerable.Repeat("\tpath = config\n", 10)));
+
+        var error = Assert.Throws<InvalidDataException>(() => GitRemote.UrlOf(repo));
+        Assert.Contains("nest deeper", error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Includes_that_fan_out_below_the_depth_limit_stop_at_the_file_budget()
+    {
+        var repo = Path.Combine(_root, "fan");
+        var git = Path.Combine(repo, ".git");
+        Directory.CreateDirectory(git);
+        static string Includes(string next) => "[include]\n" + string.Concat(Enumerable.Repeat($"\tpath = {next}\n", 10));
+        File.WriteAllText(Path.Combine(git, "config"), Includes("level1.conf"));
+        string[] levels = ["level1.conf", "level2.conf", "level3.conf", "level4.conf", "level5.conf"];
+        for (var level = 0; level < levels.Length - 1; level++)
+        {
+            File.WriteAllText(Path.Combine(git, levels[level]), Includes(levels[level + 1]));
+        }
+
+        File.WriteAllText(Path.Combine(git, "level5.conf"), "[remote \"origin\"]\n\turl = https://github.com/acme/widgets.git\n");
+
+        var error = Assert.Throws<InvalidDataException>(() => GitRemote.UrlOf(repo));
+        Assert.Contains(GitRemote.MaxConfigFiles.ToString(System.Globalization.CultureInfo.InvariantCulture), error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_url_continued_on_the_next_line_is_read_whole()
+    {
+        var repo = Path.Combine(_root, "continued");
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        File.WriteAllText(Path.Combine(repo, ".git", "config"), "[remote \"origin\"]\n\turl = https://github.com/acme/\\\nwidgets.git\n\tfetch = x\\\\\n");
+
+        Assert.Equal("https://github.com/acme/widgets.git", GitRemote.UrlOf(repo));
+    }
+
+    [Fact]
+    public void A_config_that_cannot_be_read_blocks_the_call()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var repo = Path.Combine(_root, "locked");
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        var config = Path.Combine(repo, ".git", "config");
+        File.WriteAllText(config, RepositoryTestSupport.Config("https://github.com/acme/widgets.git"));
+        File.SetUnixFileMode(config, UnixFileMode.None);
+        try
+        {
+            if (CanRead(config))
+            {
+                // A superuser reads it anyway, so there is nothing to refuse.
+                return;
+            }
+
+            var error = Assert.Throws<InvalidDataException>(() => GitRemote.UrlOf(repo));
+            Assert.Contains("cannot tell which node owns", error.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.SetUnixFileMode(config, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Fact]
+    public void An_include_under_the_home_folder_is_followed()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var name = $".sentinel-test-{Guid.NewGuid():N}.conf";
+        var included = Path.Combine(home, name);
+        var repo = Path.Combine(_root, "home");
+        Directory.CreateDirectory(Path.Combine(repo, ".git"));
+        File.WriteAllText(Path.Combine(repo, ".git", "config"), $"[include]\n\tpath = ~/{name}\n[remote \"origin\"]\n\turl = https://github.com/acme/own.git\n");
+        File.WriteAllText(included, "[remote \"origin\"]\n\turl = https://github.com/acme/home.git\n");
+        try
+        {
+            Assert.Equal("https://github.com/acme/home.git", GitRemote.UrlOf(repo));
+        }
+        finally
+        {
+            File.Delete(included);
+        }
     }
 
     [Fact]
@@ -413,6 +507,25 @@ public class RepositoryNodePolicyTests : IDisposable
     }
 
     [Fact]
+    public void Without_a_policy_folder_a_command_line_the_parser_cannot_read_asks_even_when_the_repository_allows()
+    {
+        var repo = RepositoryTestSupport.Repo(_root, "a", "https://github.com/acme/alpha.git");
+        var env = new Dictionary<string, string?>(StringComparer.Ordinal) { [ResidentSettings.EnableVariable] = "on", [ResidentSettings.DirectoryVariable] = _state };
+        ResidentState.Open(ResidentSettings.FromEnvironment(env)!).WriteNodeMap(new NodeMap([new("github.com/acme/alpha", "node-a")]));
+        using var policy = LocalPolicy.LoadRepositoryOnly(env, repo)!;
+        policy.RepositoryPolicy = new RepositoryPolicy(policy.RepositoryPolicy!.Scope, new RepositoryTestSupport.FakePolicies(
+            _ => RepositoryTestSupport.Decision(DecisionOutcome.Allow, "organisation allows it"),
+            (_, _) => RepositoryTestSupport.Decision(DecisionOutcome.Allow, "node allows it")));
+
+        var unreadable = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"echo $(whoami)"}"""), "s-1");
+        var plain = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s-1");
+
+        Assert.Equal(DecisionOutcome.Ask, unreadable.Outcome!.Outcome);
+        Assert.Equal(LocalPolicy.UnparseableReason, unreadable.Outcome.Reason);
+        Assert.Equal(DecisionOutcome.Allow, plain.Outcome!.Outcome);
+    }
+
+    [Fact]
     public void Without_a_policy_folder_a_node_map_that_cannot_be_read_blocks()
     {
         var env = new Dictionary<string, string?>(StringComparer.Ordinal) { [ResidentSettings.EnableVariable] = "on", [ResidentSettings.DirectoryVariable] = _state };
@@ -429,6 +542,19 @@ public class RepositoryNodePolicyTests : IDisposable
         var env = new Dictionary<string, string?>(StringComparer.Ordinal);
 
         Assert.Null(RepositoryPolicy.Open(env, _root));
+    }
+
+    private static bool CanRead(string file)
+    {
+        try
+        {
+            using var stream = File.OpenRead(file);
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private sealed class FixedClock(DateTimeOffset now) : TimeProvider
