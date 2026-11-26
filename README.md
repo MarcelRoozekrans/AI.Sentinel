@@ -1075,6 +1075,19 @@ An audit failure never changes a decision. `sentinel-hook` prints it to stderr w
 
 Groundwork for control by an organisation's server: a policy profile that the server signs with Ed25519 over a canonical JSON form, and that the plugin accepts only when a pinned server key signed it, or a pinned key endorsed the new key that did (key rotation). A profile expires after 7 days unless the organisation sets another lifetime; a cached one is used offline until then. These are internal types and nothing uses them yet: **every new setting is optional and off by default, and hook behaviour is unchanged.** Details are in the [Claude Code integration page](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#signed-policy-profile-groundwork-not-wired-in).
 
+### Administrative audit log (server part)
+
+The `AI.Sentinel.AspNetCore` server part can keep an append-only log of administrative actions. Approve and deny made through the dashboard are recorded today; pause, release, publish, rejected publish and rollback are not recorded yet and come with later issues, so an export holds no entries for them. Each entry records who, when, the target and the channel it came through (web, MCP or git). Entries are hash-chained per organisation with `AuditHashChain`, and the store refuses updates and deletes. An entry holds identifiers only, never file contents or secrets: a value over 256 characters or with a control character is refused.
+
+The host opts in with `AddAISentinelAdminAudit` (set `SigningKey`, the base64 of the deployment's 32 byte Ed25519 seed, and optionally `PolicyName` and `Organisation`) and `MapAISentinelAdminAudit`, which maps `GET /ai-sentinel/admin-audit/{organisation}/export`. The endpoint uses the host's ASP.NET Core authorization with the organisation as the resource; the role-on-node check is added later. An export lists the entries and ends with a head, the entry count, last hash, export time and organisation, signed with the deployment key. The log is in memory for now.
+
+```
+sentinel audit-verify <export.json> --organisation <org> --public-key <base64> [--public-key <base64> ...]
+  [--checkpoint-count <n> --checkpoint-hash <hash> --checkpoint-time <timestamp>]
+```
+
+`sentinel audit-verify` checks an export offline: the chain, the signed head against the pinned public key, and the organisation. When the audit is registered, an approve or deny made through the dashboard is recorded on the web channel under `Organisation` (default `default`). Without the registration nothing is recorded. An export with its newest entries cut off fails, because the signed head states the count. It prints the signed count, last hash and export time; pass those back as a checkpoint on a later run and an older export, or one that does not contain the checkpoint, is rejected. Exit codes: `0` verified, `1` usage error or unreadable file, `2` verification failed, with the first broken entry named. **Every new setting is optional and off by default; nothing is registered or mapped unless the host calls the two extensions.**
+
 ### Native binary
 
 `sentinel-hook`, `sentinel-copilot-hook` and `sentinel-mcp` are .NET 10 RID-specific tools. `dotnet tool install` needs the .NET 10 SDK, and on linux-x64, linux-arm64, linux-musl-x64, linux-musl-arm64 (Alpine), osx-arm64 and win-x64 it installs the Native AOT build, which skips the ~190 ms JIT startup on every hook call. Other platforms get a framework-dependent build.
