@@ -300,6 +300,37 @@ public class TokenStorageTests : IDisposable
         Assert.Null(store.Load());
     }
 
+    /// <summary>The edges of the keychain of this machine: nothing to remove is no failure, and Windows refuses a secret over its
+    /// blob limit and reads an empty one as none.</summary>
+    [Fact]
+    public void The_keychain_of_the_operating_system_has_nothing_to_remove_for_an_unknown_account_and_keeps_its_limits()
+    {
+        var settings = Settings() with { ClientId = "test-" + Guid.NewGuid().ToString("N") };
+        var store = TokenStores.ForCurrentOs(settings);
+        Assert.SkipWhen(store is null, "this platform has no keychain");
+        Assert.False(string.IsNullOrEmpty(store!.Name));
+        if (store is SecretToolStore && !store.Save("probe"))
+        {
+            Assert.Skip($"the {store.Name} is not available here");
+        }
+
+        try
+        {
+            Assert.True(store.Delete());
+            Assert.True(store.Delete());
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.False(store.Save(new string('x', 2561)));
+                Assert.True(store.Save(""));
+                Assert.Null(store.Load());
+            }
+        }
+        finally
+        {
+            store.Delete();
+        }
+    }
+
     // The folders a sign-in could write to: the state folder of the resident process and its temporary files.
     private void AssertNoTokenOnDisk()
     {
