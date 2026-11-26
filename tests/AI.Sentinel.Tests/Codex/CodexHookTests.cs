@@ -1,4 +1,8 @@
 using System.Text.Json;
+using AI.Sentinel.Approvals;
+using AI.Sentinel.Approvals.Configuration;
+using AI.Sentinel.Approvals.EntraPim;
+using AI.Sentinel.Approvals.Sqlite;
 using AI.Sentinel.Audit;
 using AI.Sentinel.Authorization;
 using AI.Sentinel.ClaudeCode;
@@ -6,6 +10,7 @@ using AI.Sentinel.ClaudeCode.Policy;
 using AI.Sentinel.Codex.Cli;
 using AI.Sentinel.Tests.ClaudeCode.Policy;
 using AI.Sentinel.Tests.Helpers;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace AI.Sentinel.Tests.Codex;
@@ -318,5 +323,100 @@ public class CodexHookTests : IDisposable
         Assert.Equal(1, exit);
         Assert.Empty(stdout);
         Assert.StartsWith("Usage: sentinel-codex-hook", stderr, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(HookEvent.PostToolUse, "PostToolUse")]
+    [InlineData(HookEvent.UserPromptSubmit, "UserPromptSubmit")]
+    public void Guidance_names_the_event_it_answers(HookEvent evt, string expected)
+    {
+        var output = new OutcomeDecision(DecisionOutcome.Guidance, "use the staging key", ["bundle-a"]).ToHookOutput(canAsk: false);
+
+        var wire = CodexWireOutput.From(evt, output);
+
+        Assert.NotNull(wire?.HookSpecificOutput);
+        Assert.Equal(expected, wire.HookSpecificOutput.HookEventName);
+        Assert.Equal("use the staging key", wire.HookSpecificOutput.AdditionalContext);
+    }
+
+    [Fact]
+    public async Task A_clean_prompt_without_a_reviewer_warns_that_semantic_detections_are_unreviewed()
+    {
+        var (exit, _, stderr) = await RunAsync("user-prompt-submit", """{"session_id":"cx-665","prompt":"hello"}""");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("capped at Medium", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_bad_review_setting_is_reported_on_stderr_by_name()
+    {
+        using var env = new EnvironmentScope(("SENTINEL_REVIEW_MODEL", "some-model"), ("SENTINEL_REVIEW_ENDPOINT", null));
+
+        var (exit, _, stderr) = await RunAsync("user-prompt-submit", """{"session_id":"cx-665","prompt":"hello"}""");
+
+        Assert.Equal(0, exit);
+        Assert.Contains("SENTINEL_REVIEW_ENDPOINT", stderr, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_audit_forwarder_receives_the_decision()
+    {
+        var ndjson = Path.Combine(_work, "audit.ndjson");
+        using var env = new EnvironmentScope((HookAuditTestSupport.NdjsonVar, ndjson));
+
+        var (exit, _, _) = await RunAsync("pre-tool-use", InjectionPreToolUse);
+
+        Assert.Equal(2, exit);
+        var lines = File.ReadAllLines(ndjson).Where(l => l.Length > 0).ToArray();
+        Assert.NotEmpty(lines);
+        Assert.Contains("\"codex\"", lines[0], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_sqlite_approval_backend_registers_the_sqlite_store()
+    {
+        var dbPath = Path.Combine(_work, "approvals.db");
+        var config = new ApprovalConfig(
+            Backend: "sqlite",
+            TenantId: null,
+            DatabasePath: dbPath,
+            DefaultGrantMinutes: 15,
+            DefaultJustificationTemplate: "{tool}",
+            IncludeConversationContext: true,
+            Tools: new Dictionary<string, IReadOnlyList<ApprovalToolConfig>>(StringComparer.Ordinal)
+            {
+                ["Bash"] = [new("DBA", GrantMinutes: null, RequireJustification: null)],
+            });
+
+        await using (var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: config))
+        {
+            Assert.IsType<AuditingApprovalAdminStore>(provider.GetRequiredService<IApprovalStore>());
+            Assert.IsType<SqliteApprovalStore>(provider.GetRequiredKeyedService<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey));
+        }
+
+        Assert.True(File.Exists(dbPath));
+    }
+
+    [Fact]
+    public async Task The_entra_pim_approval_backend_registers_the_entra_pim_store()
+    {
+        var config = new ApprovalConfig(
+            Backend: "entra-pim",
+            TenantId: "11111111-1111-1111-1111-111111111111",
+            DatabasePath: null,
+            DefaultGrantMinutes: 15,
+            DefaultJustificationTemplate: "{tool}",
+            IncludeConversationContext: true,
+            Tools: new Dictionary<string, IReadOnlyList<ApprovalToolConfig>>(StringComparer.Ordinal)
+            {
+                ["Bash"] = [new("Privileged Role Administrator", GrantMinutes: null, RequireJustification: null)],
+            });
+
+        await using var provider = Program.BuildProvider(embeddingGenerator: null, approvalConfig: config);
+
+        Assert.IsType<AuditingApprovalStore>(provider.GetRequiredService<IApprovalStore>());
+        Assert.IsType<EntraPimApprovalStore>(provider.GetRequiredKeyedService<IApprovalStore>(ApprovalStoreAuditing.InnerStoreKey));
+        Assert.Equal("11111111-1111-1111-1111-111111111111", provider.GetRequiredService<EntraPimOptions>().TenantId);
     }
 }
