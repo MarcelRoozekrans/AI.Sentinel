@@ -279,6 +279,18 @@ The policy of a tool call comes from the node that owns the repository, not from
 - **Combining.** The organisation's top-level rules, the bundle of the owning node and a local `SENTINEL_HOOK_POLICY_DIR` are all evaluated, and the strictest outcome wins. A deny of the organisation holds in every repository, also where the bundle of the node allows the call, and the local folder can only tighten.
 - **Not built yet.** The shipped CLIs wire `NoNodePolicies`, so the organisation's rules and the node bundles are not evaluated yet; only the repository and node names reach the policy input. Signing in to an organisation and the server's node configuration (#659, #664) fill the node map and the signed profiles; until then nothing in the shipped hooks writes them.
 
+## Fail mode
+
+When no policy decision can be made for a call, the `fail_mode` of the node's profile decides (ADR-237). **Every new setting is optional and off by default: no hook builds a fail mode from a setting yet, and without one the hooks behave exactly as before.** The profile, the sign-in and the pinned keys come with the server connection, so what is built and tested here is the decision itself, which the hook takes once it has a profile to read.
+
+- **closed**, the default. The call is denied, and the reason says why no decision could be made and what the developer can do.
+- **ask**, when the node chooses it. The call gets the outcome ask, mapped for each CLI as in [Decision outcomes](#decision-outcomes): where the CLI cannot ask, or the run is headless, it becomes a deny with instructions. There is no mode that lets such a call through.
+- **No profile.** When a server is configured and no profile is cached, including a developer who has not signed in yet, there is no `fail_mode` to read, so the hook uses closed and tells the developer to sign in. An expired profile still decides with its own `fail_mode`, which was signed, and the reason says it expired. A profile that fails its check has no readable `fail_mode`, so closed applies. With no server configured there is no profile to miss, and nothing changes.
+- **Read-only calls.** A `read` or `search` call whose paths all lie inside the repository, after symbolic links are followed, stays allowed in both modes.
+- **The repository's rules.** The organisation's rules and the node's bundle from [Which policy applies](#which-policy-applies) still apply next to the fail mode, and the strictest outcome wins.
+- **A bundle that errors.** A policy bundle that fails while it runs denies the call and names the bundle, whatever the fail mode. The error text is not repeated, because a module can echo the tool input.
+- **The hook itself.** An internal error, as under [When the hook itself fails](#when-the-hook-itself-fails), still blocks, whatever the fail mode.
+
 ## When the hook itself fails
 
 The hook fails closed on `PreToolUse`. When it cannot evaluate a tool call, it blocks the call with exit 2 and a reason that starts with `Sentinel internal error:` on stderr. This covers:
@@ -414,6 +426,32 @@ With `SENTINEL_HOOK_ON_HIGH=Block` and a typical Claude Code workflow:
 - **Repetitive or long tool output** — not flagged. The default [security preset](#detectors) leaves out `OPS-02` and `OPS-11`; with `SENTINEL_HOOK_DETECTORS=all`, repeated lines warn and output much larger than the tool call is withheld.
 
 Tune via env vars to match your risk appetite.
+
+## Administrative audit log (server part)
+
+The server part in `AI.Sentinel.AspNetCore` records approve and deny decisions made through the dashboard today (pause, release, publish, rejected publish and rollback are not recorded yet), with their actor, time, target and channel (web, MCP or git). The log is hash-chained per organisation, append-only, and holds identifiers only, never file contents or secrets. It is kept in memory in this version.
+
+```csharp
+services.AddAISentinelAdminAudit(o =>
+{
+    o.SigningKey = signingKeyBase64;      // base64 of the 32 byte Ed25519 seed, from the deployment
+    o.PolicyName = "AISentinelAdminAudit"; // the host's authorization policy; the organisation is the resource
+    o.Organisation = "acme";               // optional: where dashboard approve and deny decisions are recorded
+});
+app.MapAISentinelAdminAudit();            // GET /ai-sentinel/admin-audit/{organisation}/export
+```
+
+An export ends with a head signed with the deployment key: entry count, last hash, export time and organisation. Verify one offline with the pinned public key:
+
+```
+sentinel audit-verify export.json --organisation acme --public-key <base64>
+```
+
+An export with its newest entries cut off fails, because the signed count no longer matches. The command prints the signed count and export time. Pass them back with `--checkpoint-count`, `--checkpoint-hash` and `--checkpoint-time` on a later run, and an export that is older than the checkpoint or does not contain it is rejected, as is an export for another organisation. Exit codes: `0` verified, `1` usage error, `2` verification failed.
+
+When the audit is registered, an approve or deny made through the dashboard is recorded on the web channel under `Organisation` (default `default`), once the store reports that the decision took effect. Without the registration nothing is recorded and the dashboard behaves as before. An export without entries prints `last_hash=-`; `--checkpoint-count 0 --checkpoint-hash -` is the matching empty checkpoint and is accepted.
+
+Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelAdminAudit` and `MapAISentinelAdminAudit`.
 
 ## Tool kinds and policy input
 
