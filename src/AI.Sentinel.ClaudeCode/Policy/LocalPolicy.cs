@@ -174,7 +174,7 @@ internal sealed class LocalPolicy : IDisposable
             // Nobody answered and nobody failed: the fail mode decides. Without one it is an internal error, as before.
             return _failMode is null
                 ? throw new InvalidOperationException("no place could evaluate the policy: the resident process did not answer and the hook has no module to run")
-                : OutcomeDecision.Strictest([before, FailModeGate.Decide(_failMode, input, Version)]).ToHookOutput(canAsk: true);
+                : OutcomeDecision.Strictest([before, FailModeGate.Decide(_failMode, input, _repositoryRoot, Version)]).ToHookOutput(canAsk: true);
         }
 
         var (policy, place) = answer;

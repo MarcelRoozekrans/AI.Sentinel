@@ -122,7 +122,7 @@ internal static class PolicyInputBuilder
         return new PolicyPath(full, root is not null && IsInside(full, Path.GetFullPath(root)));
     }
 
-    private static bool IsInside(string full, string root)
+    internal static bool IsInside(string full, string root)
     {
         var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
         full = ComparisonForm(full);

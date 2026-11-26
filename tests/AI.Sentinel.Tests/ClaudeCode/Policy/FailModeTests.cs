@@ -205,6 +205,68 @@ public class FailModeTests
         Assert.Equal(DecisionOutcome.Deny, output.Outcome!.Outcome);
     }
 
+    [Theory]
+    [InlineData("outside-dir/secret.txt")]
+    [InlineData("outside-file.txt")]
+    public void A_read_through_a_link_that_leaves_the_repository_is_not_exempt(string relative)
+    {
+        var (repo, outside) = LinkedRepository();
+        try
+        {
+            using var policy = LocalPolicy.ForEvaluators("v1", ["org-baseline"], repo, [Silent()], Profile(ProfileFailModes.Closed));
+
+            var output = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Read", ReadOf(Path.Combine(repo, relative)), "s");
+
+            Assert.Equal(DecisionOutcome.Deny, output.Outcome!.Outcome);
+        }
+        finally
+        {
+            Directory.Delete(repo, recursive: true);
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_read_through_a_link_that_stays_inside_the_repository_and_a_repository_reached_through_a_link_stay_exempt()
+    {
+        var (repo, outside) = LinkedRepository();
+        var linkedRoot = repo + "-link";
+        Directory.CreateSymbolicLink(linkedRoot, repo);
+        try
+        {
+            using var policy = LocalPolicy.ForEvaluators("v1", ["org-baseline"], linkedRoot, [Silent()], Profile(ProfileFailModes.Closed));
+
+            var viaLink = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Read", ReadOf(Path.Combine(linkedRoot, "inside-link", "a.cs")), "s");
+            var direct = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Read", ReadOf(Path.Combine(repo, "src", "a.cs")), "s");
+
+            Assert.Equal(DecisionOutcome.Allow, viaLink.Outcome!.Outcome);
+            Assert.Equal(DecisionOutcome.Allow, direct.Outcome!.Outcome);
+        }
+        finally
+        {
+            File.Delete(linkedRoot);
+            Directory.Delete(repo, recursive: true);
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    private static JsonElement ReadOf(string path) => JsonSerializer.SerializeToElement(new { file_path = path });
+
+    // A repository with src/a.cs, a link inside-link to src, and links outside-dir and outside-file.txt to a folder and a file
+    // outside it.
+    private static (string Repo, string Outside) LinkedRepository()
+    {
+        var repo = Directory.CreateTempSubdirectory("sentinel-failmode-repo-").FullName;
+        var outside = Directory.CreateTempSubdirectory("sentinel-failmode-outside-").FullName;
+        Directory.CreateDirectory(Path.Combine(repo, "src"));
+        File.WriteAllText(Path.Combine(repo, "src", "a.cs"), "class A;");
+        File.WriteAllText(Path.Combine(outside, "secret.txt"), "secret");
+        Directory.CreateSymbolicLink(Path.Combine(repo, "inside-link"), Path.Combine(repo, "src"));
+        Directory.CreateSymbolicLink(Path.Combine(repo, "outside-dir"), outside);
+        File.CreateSymbolicLink(Path.Combine(repo, "outside-file.txt"), Path.Combine(outside, "secret.txt"));
+        return (repo, outside);
+    }
+
     [Fact]
     public void An_in_repository_read_does_not_loosen_what_the_other_checks_decided()
     {
