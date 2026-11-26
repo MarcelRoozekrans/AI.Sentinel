@@ -68,6 +68,38 @@ public class EvaluationOrderTests : IDisposable
         Assert.Contains("decided=resident", output.Outcome.Summary(), StringComparison.Ordinal);
     }
 
+    /// <summary>A hook that starts the process does not wait for it, so it decides in-process even when the new process listens by
+    /// the time the hook evaluates. Which place answers would otherwise depend on how fast the process starts.</summary>
+    [Fact]
+    public async Task A_hook_that_started_the_resident_process_decides_in_process_even_when_it_already_listens()
+    {
+        RegoPolicyTestSupport.Prime(_folder);
+        HostedResident? host = null;
+        try
+        {
+            using var policy = Load(budgetMs: 60_000, start: _ =>
+            {
+                host = new HostedResident(_state, compilers: RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()));
+                host.WaitUntilListeningAsync().Wait(TestContext.Current.CancellationToken);
+                Warm();
+                return true;
+            });
+
+            var output = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"rm -rf build"}"""), "s");
+
+            Assert.NotNull(host);
+            Assert.Equal(DecisionOutcome.Deny, output.Outcome!.Outcome);
+            Assert.Equal(OutcomeDecision.InProcess, output.Outcome.DecidedAt);
+        }
+        finally
+        {
+            if (host is not null)
+            {
+                await host.DisposeAsync();
+            }
+        }
+    }
+
     [Fact]
     public async Task The_resident_answer_is_the_answer_of_an_in_process_evaluation()
     {

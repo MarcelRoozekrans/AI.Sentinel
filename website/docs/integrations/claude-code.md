@@ -264,6 +264,17 @@ Platforms:
 - **Files.** Every file is written whole under a temporary name and moved onto its name, with the sha256 of its content in front, so a reader sees the old file or the new one and never half of one; a damaged profile cache reads as absent. A pause file that exists but cannot be read or parsed does not read as "nobody is paused": every `PreToolUse` is blocked with `Sentinel internal error: InvalidDataException: the pause state is unreadable ...` and an `AUTHZ-DENY` entry with the code `internal_error`, until the file is rewritten. A pause file that does not exist means nothing is paused.
 - **Fails closed.** A state folder that cannot be used blocks `PreToolUse` as an internal error. A resident process that is missing, slow or broken is not an error: the hook evaluates in-process.
 
+## Fail mode
+
+When no policy decision can be made for a call, the `fail_mode` of the node's profile decides (ADR-237). **Every new setting is optional and off by default: no hook builds a fail mode from a setting yet, and without one the hooks behave exactly as before.** The profile, the sign-in and the pinned keys come with the server connection, so what is built and tested here is the decision itself, which the hook takes once it has a profile to read.
+
+- **closed**, the default. The call is denied, and the reason says why no decision could be made and what the developer can do.
+- **ask**, when the node chooses it. The call gets the outcome ask, mapped for each CLI as in [Decision outcomes](#decision-outcomes): where the CLI cannot ask, or the run is headless, it becomes a deny with instructions. There is no mode that lets such a call through.
+- **No profile.** When a server is configured and no profile is cached, including a developer who has not signed in yet, there is no `fail_mode` to read, so the hook uses closed and tells the developer to sign in. An expired profile still decides with its own `fail_mode`, which was signed, and the reason says it expired. A profile that fails its check has no readable `fail_mode`, so closed applies. With no server configured there is no profile to miss, and nothing changes.
+- **Read-only calls.** A `read` or `search` call whose paths all lie inside the repository stays allowed in both modes.
+- **A bundle that errors.** A policy bundle that fails while it runs denies the call and names the bundle, whatever the fail mode. The error text is not repeated, because a module can echo the tool input.
+- **The hook itself.** An internal error, as under [When the hook itself fails](#when-the-hook-itself-fails), still blocks, whatever the fail mode.
+
 ## When the hook itself fails
 
 The hook fails closed on `PreToolUse`. When it cannot evaluate a tool call, it blocks the call with exit 2 and a reason that starts with `Sentinel internal error:` on stderr. This covers:

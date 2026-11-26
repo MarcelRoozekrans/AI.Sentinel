@@ -61,7 +61,7 @@ internal static class ProfileVerifier
         }
         if (now >= profile.ExpiresAt)
         {
-            return ProfileVerification.Rejected(ProfileRejection.Expired);
+            return ProfileVerification.Rejected(ProfileRejection.Expired, profile.FailMode);
         }
         return ProfileVerification.Accepted(profile, endorsedKey);
     }
