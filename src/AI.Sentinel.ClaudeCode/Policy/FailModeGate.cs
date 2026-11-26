@@ -66,8 +66,8 @@ internal static class FailModeGate
 
     /// <summary>
     /// <paramref name="full"/> with every symbolic link in it followed, component by component, so a link in a parent folder counts
-    /// as much as one at the end. A part that does not exist is kept as written. <see langword="null"/> when a link cannot be read or
-    /// the links loop.
+    /// as much as one at the end. A part that does not exist, or that sits in a folder the hook cannot enter, is kept as written: the
+    /// tool that reads it runs as the same user and cannot get past that folder either. <see langword="null"/> when the links loop.
     /// </summary>
     private static string? LinksFollowed(string full)
     {
@@ -85,20 +85,7 @@ internal static class FailModeGate
                 info = new DirectoryInfo(next);
             }
 
-            string? target;
-            try
-            {
-                target = info.LinkTarget;
-            }
-            catch (IOException)
-            {
-                return null;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                return null;
-            }
-
+            var target = info.LinkTarget;
             if (target is null)
             {
                 current = next;

@@ -250,6 +250,33 @@ public class FailModeTests
         }
     }
 
+    [Fact]
+    public void A_read_through_links_that_loop_is_not_exempt()
+    {
+        var (repo, outside) = LinkedRepository();
+        File.CreateSymbolicLink(Path.Combine(repo, "loop-a"), Path.Combine(repo, "loop-b"));
+        File.CreateSymbolicLink(Path.Combine(repo, "loop-b"), Path.Combine(repo, "loop-a"));
+        try
+        {
+            using var policy = LocalPolicy.ForEvaluators("v1", ["org-baseline"], repo, [Silent()], Profile(ProfileFailModes.Closed));
+
+            var output = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Read", ReadOf(Path.Combine(repo, "loop-a")), "s");
+
+            Assert.Equal(DecisionOutcome.Deny, output.Outcome!.Outcome);
+        }
+        finally
+        {
+            Directory.Delete(repo, recursive: true);
+            Directory.Delete(outside, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void No_cached_profile_means_not_signed_in()
+    {
+        Assert.Same(FailModeContext.NotSignedIn, FailModeContext.From(null));
+    }
+
     private static JsonElement ReadOf(string path) => JsonSerializer.SerializeToElement(new { file_path = path });
 
     // A repository with src/a.cs, a link inside-link to src, and links outside-dir and outside-file.txt to a folder and a file
