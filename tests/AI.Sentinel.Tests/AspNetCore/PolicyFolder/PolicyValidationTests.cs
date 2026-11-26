@@ -201,8 +201,43 @@ public sealed class PolicyValidationTests
     [InlineData("\"nodes\": [null]")]
     [InlineData("\"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}], \"roles\": [null]")]
     [InlineData("\"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\", \"settings\": {\"profile_lifetime_hours\": 2147483647}}]")]
+    [InlineData("\"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}], \"repositories\": {\" * \": \"acme\"}")]
+    [InlineData("\"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}], \"repositories\": {\"github.com/a/b\": \"acme\", \"https://github.com/a/b.git\": \"acme\"}")]
+    [InlineData("\"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}, {\"id\": \"t\", \"kind\": \"department\"}]")]
+    [InlineData("\"nodes\": [{\"id\": \"ac me\", \"kind\": \"organisation\"}]")]
+    [InlineData("\"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\", \"settings\": {\"profile_lifetime_hours\": 0}}]")]
+    [InlineData("\"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}], \"roles\": [{\"group\": \"g\", \"role\": \"administrator\", \"node\": \"nobody\"}]")]
     public void A_node_configuration_that_cannot_be_read_is_refused_and_does_not_throw(string body) =>
         Assert.Throws<InvalidDataException>(() => NodeConfiguration.Parse(System.Text.Encoding.UTF8.GetBytes("{\"organisation\": \"acme\", " + body + "}")));
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{\"organisation\": \" \", \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\"}]}")]
+    public void A_node_configuration_without_an_organisation_is_refused(string json) =>
+        Assert.Throws<InvalidDataException>(() => NodeConfiguration.Parse(System.Text.Encoding.UTF8.GetBytes(json)));
+
+    [Fact]
+    public void The_opa_binary_is_found_in_the_first_folder_of_the_search_path_that_holds_one()
+    {
+        var root = Directory.CreateTempSubdirectory("opa-path-").FullName;
+        try
+        {
+            var empty = Directory.CreateDirectory(Path.Combine(root, "empty")).FullName;
+            var first = Directory.CreateDirectory(Path.Combine(root, "first")).FullName;
+            var second = Directory.CreateDirectory(Path.Combine(root, "second")).FullName;
+            var exe = OperatingSystem.IsWindows() ? "opa.exe" : "opa";
+            File.WriteAllText(Path.Combine(first, exe), "");
+            File.WriteAllText(Path.Combine(second, exe), "");
+
+            Assert.Equal(Path.Combine(first, exe), AI.Sentinel.AspNetCore.PolicyFolderExtensions.FindOpa(string.Join(Path.PathSeparator, new[] { empty, first, second })));
+            Assert.Null(AI.Sentinel.AspNetCore.PolicyFolderExtensions.FindOpa(empty));
+            Assert.Null(AI.Sentinel.AspNetCore.PolicyFolderExtensions.FindOpa(null));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
 
     [Fact]
     public void A_path_with_a_link_above_the_folder_is_read_through_its_real_path()
