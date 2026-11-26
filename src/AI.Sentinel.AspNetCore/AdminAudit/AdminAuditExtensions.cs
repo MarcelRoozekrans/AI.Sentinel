@@ -61,7 +61,7 @@ public static class AdminAuditExtensions
         {
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
-        if (!await IsAdministratorAsync(http, authorization, organisation).ConfigureAwait(false))
+        if (!IsAdministrator(http, organisation))
         {
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
@@ -70,18 +70,8 @@ public static class AdminAuditExtensions
     }
 
     /// <summary>When the policy folder is registered, the export needs the administrator role on the organisation from the node
-    /// configuration as well as the host's policy. Without the policy folder there are no roles and the host policy decides alone.</summary>
-    private static async Task<bool> IsAdministratorAsync(HttpContext http, IAuthorizationService authorization, string organisation)
-    {
-        if (http.RequestServices.GetService<NodeRoles>() is not { } roles)
-        {
-            return true;
-        }
-        var node = roles.OrganisationNodeId;
-        if (node is null || !string.Equals(roles.OrganisationName, organisation, StringComparison.Ordinal))
-        {
-            return false;
-        }
-        return (await authorization.AuthorizeAsync(http.User, node, new NodeRoleRequirement(NodeRole.Administrator)).ConfigureAwait(false)).Succeeded;
-    }
+    /// configuration as well as the host's policy. Without the policy folder there are no roles and the host policy decides alone.
+    /// The organisation name and the role are read from one published configuration.</summary>
+    private static bool IsAdministrator(HttpContext http, string organisation) =>
+        http.RequestServices.GetService<NodeRoles>() is not { } roles || roles.IsAdministratorOf(http.User, organisation);
 }

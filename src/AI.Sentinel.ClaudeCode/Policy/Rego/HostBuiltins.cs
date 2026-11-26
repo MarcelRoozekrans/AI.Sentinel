@@ -22,8 +22,8 @@ internal static class HostBuiltins
     /// <summary>Runs <c>sprintf</c> on the JSON of its two arguments, a format string and an array. Returns the JSON of the
     /// result, or <see langword="null"/> when an argument has the wrong type, which is undefined in Rego.</summary>
     /// <remarks>OPA passes the arguments to Go's <c>fmt.Sprintf</c>, and so does this, with Go's verbs, flags, width,
-    /// precision, <c>%[n]</c> indexes and error markers. Not carried over: a <c>*</c> width or precision, which takes its
-    /// value from an argument, and <c>%w</c>, which Go reserves for errors.</remarks>
+    /// precision, <c>*</c> widths and precisions, <c>%[n]</c> indexes and error markers. Not carried over: <c>%w</c>, which
+    /// Go reserves for errors.</remarks>
     public static string? Sprintf(string formatJson, string argsJson)
     {
         using var format = JsonDocument.Parse(formatJson);
@@ -41,7 +41,7 @@ internal static class HostBuiltins
     {
         var values = args.ConvertAll(Arg.From);
         var sb = new StringBuilder();
-        var cursor = new Cursor(values.Count);
+        var cursor = new Cursor(values);
         for (var i = 0; i < format.Length; i++)
         {
             if (format[i] != '%')
@@ -51,7 +51,7 @@ internal static class HostBuiltins
             }
 
             i++;
-            var spec = ReadSpec(format, ref i, cursor);
+            var spec = ReadSpec(format, ref i, cursor, sb);
             if (spec.Verb == 'v')
             {
                 // Go reads %+v and %#v as forms of their own, and neither one signs or prefixes a value of these types.
@@ -89,9 +89,11 @@ internal static class HostBuiltins
     }
 
     /// <summary>The next argument, and whether a <c>%[n]</c> index was seen, which turns the EXTRA marker off.</summary>
-    private sealed class Cursor(int count)
+    private sealed class Cursor(List<Arg> values)
     {
-        public int Count { get; } = count;
+        public List<Arg> Values { get; } = values;
+
+        public int Count => Values.Count;
 
         public int Next { get; set; }
 
@@ -108,23 +110,26 @@ internal static class HostBuiltins
             if (e.ValueKind == JsonValueKind.Number)
             {
                 var raw = e.GetRawText();
-                return BigInteger.TryParse(raw, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var n)
-                    ? new Arg('i', n, 0, raw)
-                    : new Arg('f', BigInteger.Zero, e.GetDouble(), raw);
+                if (BigInteger.TryParse(raw, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var n))
+                {
+                    return new Arg('i', n, 0, raw);
+                }
+
+                // A number beyond the range of a float64 is no float to OPA, which hands Go its text as a string.
+                return double.IsFinite(e.GetDouble()) ? new Arg('f', BigInteger.Zero, e.GetDouble(), raw) : new Arg('s', BigInteger.Zero, 0, raw);
             }
 
             return new Arg('s', BigInteger.Zero, 0, Value(e));
         }
 
-        private bool IsBig => Kind == 'i' && (Integer < long.MinValue || Integer > long.MaxValue);
+        /// <summary>An integer that does not fit an int64, which Go formats as a big.Int.</summary>
+        public bool IsBig => Kind == 'i' && (Integer < long.MinValue || Integer > long.MaxValue);
 
         /// <summary>The type name in a bad-verb marker.</summary>
-        public string Type => Kind switch { 'i' => IsBig ? "big.Int" : "int64", 'f' => "float64", _ => "string" };
+        public string Type => Kind switch { 'i' => "int64", 'f' => "float64", _ => "string" };
 
         /// <summary>The type name in the EXTRA marker, which Go takes from reflection.</summary>
         public string ExtraType => IsBig ? "*big.Int" : Type;
-
-        public bool TakesString => Kind == 's' || IsBig;
     }
 
     private sealed record Spec(bool Minus, bool Plus, bool Space, bool Zero, bool Sharp, int Width, int Precision, char Verb, bool GoodIndex = true)
@@ -140,7 +145,7 @@ internal static class HostBuiltins
 
     // Go's order: flags, an index, a width, then a dot with an index and a precision, and an index before the verb when
     // none came yet. An index right in front of a width or a dot, as in %[2]5d, is bad.
-    private static Spec ReadSpec(string f, ref int i, Cursor cursor)
+    private static Spec ReadSpec(string f, ref int i, Cursor cursor, StringBuilder sb)
     {
         bool minus = false, plus = false, space = false, zero = false, sharp = false;
         for (; i < f.Length && f[i] is '-' or '+' or ' ' or '0' or '#'; i++)
@@ -154,15 +159,43 @@ internal static class HostBuiltins
 
         var good = true;
         var afterIndex = TakeIndex(f, ref i, cursor, ref good);
-        var width = ReadNumber(f, ref i);
-        good &= !(afterIndex && width >= 0);
+        int width;
+        if (i < f.Length && f[i] == '*')
+        {
+            // The width is an argument; a negative one left-justifies, and one that is not a small integer is BADWIDTH.
+            i++;
+            width = ArgumentNumber(cursor, sb, precision: false);
+            if (width < 0)
+            {
+                width = -width;
+                minus = true;
+                zero = false;
+            }
+
+            afterIndex = false;
+        }
+        else
+        {
+            width = ReadNumber(f, ref i);
+            good &= !(afterIndex && width >= 0);
+        }
+
         var precision = -1;
         if (i + 1 < f.Length && f[i] == '.')
         {
             i++;
             good &= !afterIndex;
             afterIndex = TakeIndex(f, ref i, cursor, ref good);
-            precision = Math.Max(ReadNumber(f, ref i), 0);
+            if (i < f.Length && f[i] == '*')
+            {
+                i++;
+                precision = ArgumentNumber(cursor, sb, precision: true);
+                afterIndex = false;
+            }
+            else
+            {
+                precision = Math.Max(ReadNumber(f, ref i), 0);
+            }
         }
 
         if (!afterIndex)
@@ -171,6 +204,21 @@ internal static class HostBuiltins
         }
 
         return new Spec(minus, plus, space, zero, sharp, Math.Max(width, 0), precision, i < f.Length ? f[i] : '\0', good);
+    }
+
+    // Go's intFromArg for a * width or precision: the next argument, which is used up even when it is no good. Anything but
+    // an integer of at most a million in size writes the marker and is -1, which a precision reads as absent; a width reads
+    // it as none too, and a negative precision is just as bad.
+    private static int ArgumentNumber(Cursor cursor, StringBuilder sb, bool precision)
+    {
+        var arg = cursor.Next < cursor.Count ? cursor.Values[cursor.Next++] : null;
+        if (arg is { Kind: 'i', IsBig: false } && BigInteger.Abs(arg.Integer) <= 1_000_000 && (arg.Integer >= 0 || !precision))
+        {
+            return (int)arg.Integer;
+        }
+
+        sb.Append(precision ? "%!(BADPREC)" : "%!(BADWIDTH)");
+        return precision ? -1 : 0;
     }
 
     // A [n] at i: the n-th argument becomes the next one. A number outside the arguments, or a bracket that holds no
@@ -228,27 +276,29 @@ internal static class HostBuiltins
     // the type has no meaning for gives Go's bad-verb marker, which prints the argument with %v and the same flags.
     private static string Verb(Spec spec, Arg arg) => (arg.Kind, spec.Verb) switch
     {
-        ('i', 'd' or 'v' or 's') when spec.Verb != 's' || arg.TakesString => Integer(arg.Integer, spec with { Plus = spec.Plus || (spec.PlusV && arg.TakesString) }, 10),
-        ('i', 'b') => Integer(arg.Integer, spec, 2),
-        ('i', 'o') => Integer(arg.Integer, spec, 8),
-        ('i', 'O') => Integer(arg.Integer, spec with { Sharp = spec.Sharp && !arg.TakesString }, 8), // a big.Int ignores # for %O
-        ('i', 'x' or 'X') => Integer(arg.Integer, spec, 16),
-        ('i', 'c') when !arg.TakesString => Pad(ToRune(arg.Integer).ToString(), spec, zeroAfterSign: false),
-        ('i', 'q') when !arg.TakesString => Pad(GoQuote(ToRune(arg.Integer).ToString(), spec.Plus, '\''), spec, zeroAfterSign: false),
-        ('i', 'U') when !arg.TakesString => Pad(Unicode(arg.Integer, spec), spec with { Zero = false }, zeroAfterSign: false),
+        (_, 'T') => Pad(Truncate(arg.ExtraType, spec.Precision), spec, zeroAfterSign: false), // the Go type name, formatted as a string
+        ('i', 'd' or 'v' or 's') when spec.Verb != 's' || arg.IsBig => Integer(arg.Integer, spec with { Plus = spec.Plus || (spec.PlusV && arg.IsBig) }, 10, arg.IsBig),
+        ('i', 'b') => Integer(arg.Integer, spec, 2, arg.IsBig),
+        ('i', 'o') => Integer(arg.Integer, spec, 8, arg.IsBig),
+        ('i', 'O') => Integer(arg.Integer, spec with { Sharp = spec.Sharp && !arg.IsBig }, 8, arg.IsBig), // a big.Int ignores # for %O
+        ('i', 'x' or 'X') => Integer(arg.Integer, spec, 16, arg.IsBig),
+        ('i', 'c') when !arg.IsBig => Pad(ToRune(arg.Integer).ToString(), spec, zeroAfterSign: false),
+        ('i', 'q') when !arg.IsBig => Pad(GoQuote(ToRune(arg.Integer).ToString(), spec.Plus, '\''), spec, zeroAfterSign: false),
+        ('i', 'U') when !arg.IsBig => Pad(Unicode(arg.Integer, spec), spec with { Zero = false }, zeroAfterSign: false),
         ('f', 'v' or 'b' or 'e' or 'E' or 'f' or 'F' or 'g' or 'G' or 'x' or 'X') => Float(arg.Float, spec),
         ('s', 'v') when spec.Quoted => Pad(GoQuote(Truncate(arg.Text, spec.Precision), ascii: false, '"'), spec, zeroAfterSign: false),
         ('s', 's' or 'v') => Pad(Truncate(arg.Text, spec.Precision), spec, zeroAfterSign: false),
         ('s', 'q') => Pad(Quoted(Truncate(arg.Text, spec.Precision), spec), spec, zeroAfterSign: false),
         ('s', 'x' or 'X') => Pad(Hex(arg.Text, spec), spec, zeroAfterSign: false),
         // A big.Int formats itself, and prints its bad-verb marker without the flags.
-        ('i', _) when arg.TakesString => $"%!{spec.Verb}(big.Int={arg.Integer.ToString(CultureInfo.InvariantCulture)})",
+        ('i', _) when arg.IsBig => $"%!{spec.Verb}(big.Int={arg.Integer.ToString(CultureInfo.InvariantCulture)})",
         _ => $"%!{spec.Verb}({arg.Type}={Verb(spec with { Verb = 'v' }, arg)})",
     };
 
     // Go's fmtInteger: the precision is a minimum number of digits, and without one the zero flag pads the digits to the
     // width; the # prefix and the sign come after that, and the rest of the width is spaces.
-    private static string Integer(BigInteger value, Spec spec, int radix)
+    // A big.Int formats itself: its zero padding counts the prefix in the width, where an int64 pads the digits alone.
+    private static string Integer(BigInteger value, Spec spec, int radix, bool big)
     {
         var magnitude = BigInteger.Abs(value);
         if (spec.Precision == 0 && magnitude.IsZero)
@@ -264,23 +314,26 @@ internal static class HostBuiltins
 
         var sign = Sign(value.Sign < 0, spec);
         var minimum = spec.Precision >= 0 ? spec.Precision
-            : spec.Zero && !spec.Minus && spec.Width > 0 ? spec.Width - sign.Length
+            : spec.Zero && !spec.Minus && spec.Width > 0 ? spec.Width - sign.Length - (big ? Prefix(digits, spec, radix, big).Length : 0)
             : 0;
         digits = digits.PadLeft(minimum, '0');
+        var prefix = Prefix(digits, spec, radix, big);
+        return Pad(sign + prefix + digits, spec with { Zero = false }, zeroAfterSign: false);
+    }
+
+    // The # prefix of a number: an octal int64 starts with a 0 of its own already when the padding gave it one. %O always
+    // has 0o.
+    private static string Prefix(string digits, Spec spec, int radix, bool big)
+    {
         var prefix = !spec.Sharp ? string.Empty
             : radix switch
             {
                 2 => "0b",
-                8 => digits.StartsWith('0') ? string.Empty : "0",
+                8 => !big && digits.StartsWith('0') ? string.Empty : "0",
                 16 => spec.Verb == 'X' ? "0X" : "0x",
                 _ => string.Empty,
             };
-        if (spec.Verb == 'O')
-        {
-            prefix = "0o" + prefix;
-        }
-
-        return Pad(sign + prefix + digits, spec with { Zero = false }, zeroAfterSign: false);
+        return spec.Verb == 'O' ? "0o" + prefix : prefix;
     }
 
     // %c and %q of a number take it as a code point; one that is not a valid one is U+FFFD.

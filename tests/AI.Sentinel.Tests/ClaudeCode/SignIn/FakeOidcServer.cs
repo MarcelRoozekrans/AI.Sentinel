@@ -38,6 +38,21 @@ internal sealed class FakeOidcServer : HttpMessageHandler
     /// <summary>When true the token endpoint is down for a refresh (503).</summary>
     public bool RefreshUnavailable { get; set; }
 
+    /// <summary>The issuer the discovery document names; the real one when null.</summary>
+    public string? DiscoveryIssuer { get; set; }
+
+    /// <summary>When set, a refresh answers this status with this body, whatever the refresh token is.</summary>
+    public (HttpStatusCode Status, string Body)? RefreshRaw { get; set; }
+
+    /// <summary>What the token endpoint puts in access_token; the issued one when null.</summary>
+    public string? AccessTokenField { get; set; }
+
+    /// <summary>Awaited before a refresh is answered, so a test can hold a refresh in flight.</summary>
+    public Func<Task>? BeforeRefresh { get; set; }
+
+    /// <summary>What the token endpoint puts in refresh_token; the issued one when null.</summary>
+    public string? RefreshTokenField { get; set; }
+
     public string Organisation { get; set; } = "acme";
 
     public List<string> ServerKeys { get; set; } = [];
@@ -64,7 +79,7 @@ internal sealed class FakeOidcServer : HttpMessageHandler
         {
             return Json(HttpStatusCode.OK, new
             {
-                issuer = Issuer,
+                issuer = DiscoveryIssuer ?? Issuer,
                 device_authorization_endpoint = DeviceEndpoint ?? Issuer + "/device",
                 token_endpoint = Issuer + "/token",
             });
@@ -93,7 +108,7 @@ internal sealed class FakeOidcServer : HttpMessageHandler
             }
 
             return string.Equals(grant, "refresh_token", StringComparison.Ordinal)
-                ? Refresh(form)
+                ? await RefreshAsync(form)
                 : Json(HttpStatusCode.BadRequest, new { error = "unsupported_grant_type" });
         }
 
@@ -134,8 +149,23 @@ internal sealed class FakeOidcServer : HttpMessageHandler
         return Tokens();
     }
 
+    private async Task<HttpResponseMessage> RefreshAsync(Dictionary<string, string> form)
+    {
+        if (BeforeRefresh is { } wait)
+        {
+            await wait();
+        }
+
+        return Refresh(form);
+    }
+
     private HttpResponseMessage Refresh(Dictionary<string, string> form)
     {
+        if (RefreshRaw is { } raw)
+        {
+            return new HttpResponseMessage(raw.Status) { Content = new StringContent(raw.Body, Encoding.UTF8, "application/json") };
+        }
+
         if (RefreshUnavailable)
         {
             return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
@@ -159,9 +189,10 @@ internal sealed class FakeOidcServer : HttpMessageHandler
         var n = ++_issued;
         var refresh = IssueRefreshToken ? "rt-" + n : null;
         ValidRefreshToken = refresh;
+        refresh = RefreshTokenField ?? refresh;
         return Json(HttpStatusCode.OK, new
         {
-            access_token = "at-" + n,
+            access_token = AccessTokenField ?? "at-" + n,
             token_type = "Bearer",
             expires_in = AccessLifetimeSeconds,
             refresh_token = refresh,
