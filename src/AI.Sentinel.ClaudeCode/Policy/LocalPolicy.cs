@@ -74,8 +74,9 @@ internal sealed class LocalPolicy : IDisposable
         ArgumentNullException.ThrowIfNull(env);
         var cache = PolicyCache.DefaultDirectory(env);
         var root = repositoryRoot ?? Directory.GetCurrentDirectory();
-        // A state folder that is not private is not talked to: the socket in it could be another user's.
-        if (resident is null || resident.Start == ResidentStart.Unusable)
+        // A state folder that is not private is not talked to: the socket in it could be another user's. Only a process that
+        // already ran is asked: a hook that started one, or failed to, does not wait for it and decides this call in-process.
+        if (resident is null || resident.Start != ResidentStart.AlreadyRunning)
         {
             var policy = RegoPolicy.Load(folder, cache, compilers);
             var only = new InProcessPolicyEvaluator(policy);
