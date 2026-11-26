@@ -6,8 +6,8 @@ namespace AI.Sentinel.ClaudeCode.Policy;
 /// <param name="Tool">The CLI's own tool name.</param>
 /// <param name="Details">The details of the kind.</param>
 /// <param name="Findings">Detector findings for this call.</param>
-/// <param name="Repository">The repository. Empty until the issue that resolves it fills it.</param>
-/// <param name="Node">The owning node. Empty until the issue that resolves it fills it.</param>
+/// <param name="Repository">The normalised name of the git remote of the working directory (#656); empty outside git or without a node map.</param>
+/// <param name="Node">The node that owns the repository; empty when none does.</param>
 /// <param name="Session">The session id.</param>
 internal sealed record PolicyInput(
     string Kind,

@@ -220,7 +220,7 @@ public class EvaluationOrderTests : IDisposable
     }
 
     [Fact]
-    public void A_state_folder_that_is_open_to_others_is_not_talked_to()
+    public void A_state_folder_that_is_open_to_others_is_not_talked_to_and_the_call_is_blocked()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -235,11 +235,15 @@ public class EvaluationOrderTests : IDisposable
         try
         {
             var session = ResidentSession.Open(Env(), _ => throw new InvalidOperationException("nothing is started"))!;
-            using var policy = LocalPolicy.Load(_folder, Env(), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()), session);
-            var output = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
+
+            // The hooks fail closed: what the folder holds, such as the node map, could be another user's, so the load fails and
+            // the caller blocks the call.
+            var error = Assert.Throws<UnauthorizedAccessException>(
+                () => LocalPolicy.Load(_folder, Env(), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()), session));
 
             Assert.Equal(ResidentStart.Unusable, session.Start);
-            Assert.Equal(OutcomeDecision.InProcess, output.Outcome?.DecidedAt ?? OutcomeDecision.InProcess);
+            Assert.Contains(_state, error.Message, StringComparison.Ordinal);
+            Assert.Contains("open to other users", error.Message, StringComparison.Ordinal);
         }
         finally
         {

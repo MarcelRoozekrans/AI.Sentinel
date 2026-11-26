@@ -24,12 +24,13 @@ internal static class ProfileDecider
     /// <param name="inputJson">The policy input.</param>
     /// <param name="cacheDirectory">Where the compiled forms are kept.</param>
     /// <param name="compilers">The compilers for a module that is not cached.</param>
+    /// <param name="slot">Which cached profile to read; <see langword="null"/> for the one profile of the state folder.</param>
     public static ProfileDecision Decide(
         ResidentState state, PinnedProfileKeys pinned, string organisation, string repository, DateTimeOffset now,
-        string inputJson, string cacheDirectory, IReadOnlyList<IRegoCompiler>? compilers)
+        string inputJson, string cacheDirectory, IReadOnlyList<IRegoCompiler>? compilers, string? slot = null)
     {
         ArgumentNullException.ThrowIfNull(state);
-        var verification = state.ReadProfile(pinned, organisation, repository, now);
+        var verification = state.ReadProfile(pinned, organisation, repository, now, slot);
         if (verification is null)
         {
             return new ProfileDecision(null, null);

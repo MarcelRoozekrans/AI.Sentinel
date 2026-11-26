@@ -179,12 +179,15 @@ internal static class PolicyCache
     }
 
     /// <summary>The payload of the file, or <see langword="null"/> when the file is missing or does not match its digest.</summary>
-    public static byte[]? TryRead(string path)
+    public static byte[]? TryRead(string path) => ReadFile(path) is { } bytes ? Verify(bytes) : null;
+
+    /// <summary>The bytes of the file, or <see langword="null"/> when the file is missing. Any other failure to read it throws, so a
+    /// caller can tell a file that is not there from one it cannot read.</summary>
+    public static byte[]? ReadFile(string path)
     {
-        byte[] bytes;
         try
         {
-            bytes = File.ReadAllBytes(path);
+            return File.ReadAllBytes(path);
         }
         catch (FileNotFoundException)
         {
@@ -194,7 +197,12 @@ internal static class PolicyCache
         {
             return null;
         }
+    }
 
+    /// <summary>The payload of <paramref name="bytes"/>, or <see langword="null"/> when they do not match their digest.</summary>
+    public static byte[]? Verify(byte[] bytes)
+    {
+        ArgumentNullException.ThrowIfNull(bytes);
         if (bytes.Length < DigestLength)
         {
             return null;

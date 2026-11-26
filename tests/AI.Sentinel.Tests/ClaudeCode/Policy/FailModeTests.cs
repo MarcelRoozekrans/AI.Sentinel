@@ -2,8 +2,10 @@ using System.Text.Json;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.ClaudeCode.Policy;
 using AI.Sentinel.ClaudeCode.Policy.Rego;
+using AI.Sentinel.ClaudeCode.Policy.Repository;
 using AI.Sentinel.ClaudeCode.Resident;
 using AI.Sentinel.Profiles;
+using AI.Sentinel.Tests.ClaudeCode.Repository;
 using AI.Sentinel.Tests.ClaudeCode.Resident;
 using Xunit;
 
@@ -292,6 +294,26 @@ public class FailModeTests
         Directory.CreateSymbolicLink(Path.Combine(repo, "outside-dir"), outside);
         File.CreateSymbolicLink(Path.Combine(repo, "outside-file.txt"), Path.Combine(outside, "secret.txt"));
         return (repo, outside);
+    }
+
+    [Fact]
+    public void The_rules_of_the_repository_still_apply_when_the_fail_mode_decides()
+    {
+        using var policy = Policy(Profile(ProfileFailModes.Closed), Silent());
+        policy.RepositoryPolicy = new RepositoryPolicy(
+            new RepositoryScope("github.com/acme/app", "n", StrictMode: true),
+            new RepositoryTestSupport.FakePolicies(
+                input => input.Contains("secrets", StringComparison.Ordinal)
+                    ? RepositoryTestSupport.Decision(DecisionOutcome.Deny, "the organisation denies reading secrets")
+                    : null,
+                (_, _) => null));
+
+        var secrets = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Read", Json("""{"file_path":"/work/repo/secrets.txt"}"""), "s");
+        var code = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Read", Json("""{"file_path":"/work/repo/src/a.cs"}"""), "s");
+
+        Assert.Equal(DecisionOutcome.Deny, secrets.Outcome!.Outcome);
+        Assert.Contains("the organisation denies reading secrets", secrets.Reason, StringComparison.Ordinal);
+        Assert.Equal(DecisionOutcome.Allow, code.Outcome!.Outcome);
     }
 
     [Fact]

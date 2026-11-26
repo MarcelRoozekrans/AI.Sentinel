@@ -27,16 +27,18 @@ internal sealed class LocalPolicy : IDisposable
     public const string UnparseableReason = "AI.Sentinel could not parse this shell command line, so it cannot say what it does.";
 
     private readonly EvaluationOrder _order;
-    private readonly InProcessPolicyEvaluator _inProcess;
+    private readonly InProcessPolicyEvaluator? _inProcess;
     private readonly string? _repositoryRoot;
     private readonly string _bundleSource;
     private readonly string _bundleNames;
     private readonly FailModeContext? _failMode;
     private readonly List<PolicyFinding> _findings = [];
     private SeverityActions? _severities;
+    private Repository.RepositoryPolicy? _repository;
+    private bool _folderless;
     private bool _bundleFailed;
 
-    private LocalPolicy(string version, IReadOnlyList<string> bundles, string? repositoryRoot, EvaluationOrder order, InProcessPolicyEvaluator inProcess, FailModeContext? failMode)
+    private LocalPolicy(string version, IReadOnlyList<string> bundles, string? repositoryRoot, EvaluationOrder order, InProcessPolicyEvaluator? inProcess, FailModeContext? failMode)
     {
         _failMode = failMode;
         _bundleNames = string.Join(", ", bundles);
@@ -74,13 +76,22 @@ internal sealed class LocalPolicy : IDisposable
         ArgumentNullException.ThrowIfNull(env);
         var cache = PolicyCache.DefaultDirectory(env);
         var root = repositoryRoot ?? Directory.GetCurrentDirectory();
-        // A state folder that is not private is not talked to: the socket in it could be another user's. Only a process that
-        // already ran is asked: a hook that started one, or failed to, does not wait for it and decides this call in-process.
+        // A state folder that is not private is not used: the socket and the node map in it could be another user's. The hooks fail
+        // closed, so the load fails and the caller blocks the call.
+        if (resident?.Start == ResidentStart.Unusable)
+        {
+            throw new UnauthorizedAccessException(
+                $"the resident state folder '{resident.Settings.StateDirectory}' and its .private sibling are open to other users, so the hook cannot use them; make the folder private to you");
+        }
+
+        var repository = Repository.RepositoryPolicy.Open(env, root);
+        // Only a process that already ran is asked: a hook that started one, or failed to, does not wait for it and decides this call
+        // in-process.
         if (resident is null || resident.Start != ResidentStart.AlreadyRunning)
         {
             var policy = RegoPolicy.Load(folder, cache, compilers);
             var only = new InProcessPolicyEvaluator(policy);
-            return new LocalPolicy(policy.Version, policy.Bundles, root, new EvaluationOrder([only]), only, failMode);
+            return new LocalPolicy(policy.Version, policy.Bundles, root, new EvaluationOrder([only]), only, failMode) { _repository = repository };
         }
 
         // Reading the sources throws for a folder that cannot be read, as loading the module does. The module is not loaded here:
@@ -89,6 +100,7 @@ internal sealed class LocalPolicy : IDisposable
         var inProcess = new InProcessPolicyEvaluator(() => LoadRecorded(folder, cache, compilers, sources.Version));
         var residentEvaluator = new ResidentPolicyEvaluator(resident.Client, Path.GetFullPath(folder), sources.Version, Path.GetFullPath(cache));
         var local = new LocalPolicy(sources.Version, sources.Bundles, root, new EvaluationOrder([residentEvaluator, inProcess]), inProcess, failMode);
+        local._repository = repository;
         try
         {
             // Evaluated now so that a policy that cannot run fails the load, which blocks the call with the policy as its reason.
@@ -104,6 +116,25 @@ internal sealed class LocalPolicy : IDisposable
         return local;
     }
 
+    /// <summary>What the block reason names for a repository policy that cannot be read, where a policy folder would be named.</summary>
+    public const string RepositoryOnlyName = "repository policy";
+
+    /// <summary>The policy of a PC that has a cached node map and no policy folder (#656): only the organisation's rules and the
+    /// node's bundle of the repository judge a call, with no folder policy next to them. <see langword="null"/> when no node map is
+    /// cached, and then the hook does what it did before. It evaluates no module, so it always has an answer and the fail mode
+    /// never applies to it.</summary>
+    /// <param name="env">The <c>SENTINEL_HOOK_</c> settings.</param>
+    /// <param name="repositoryRoot">The working directory of the hook; the current directory when <see langword="null"/>.</param>
+    /// <exception cref="InvalidDataException">The cached node map cannot be read; the caller blocks the call.</exception>
+    public static LocalPolicy? LoadRepositoryOnly(IReadOnlyDictionary<string, string?> env, string? repositoryRoot = null)
+    {
+        ArgumentNullException.ThrowIfNull(env);
+        var root = repositoryRoot ?? Directory.GetCurrentDirectory();
+        return Repository.RepositoryPolicy.Open(env, root) is { } repository
+            ? new LocalPolicy("repository", [], root, new EvaluationOrder([]), inProcess: null, failMode: null) { _repository = repository, _folderless = true }
+            : null;
+    }
+
     /// <summary>A policy over <paramref name="evaluators"/>, for a test that needs a place that is silent or fails.</summary>
     internal static LocalPolicy ForEvaluators(
         string version, IReadOnlyList<string> bundles, string? repositoryRoot, IReadOnlyList<IPolicyEvaluator> evaluators, FailModeContext? failMode) =>
@@ -116,7 +147,7 @@ internal sealed class LocalPolicy : IDisposable
     /// <summary>The outcomes the policy sets per finding severity with <c>severity_actions</c>, read before the scan so the
     /// severity decision knows them. The rule is evaluated with an empty input, so it cannot depend on the tool call.</summary>
     /// <exception cref="FormatException">The policy names a severity or an outcome that does not exist; the caller blocks.</exception>
-    public SeverityActions Severities() => _severities ??= ReadSeverities();
+    public SeverityActions Severities() => _folderless ? SeverityActions.None : _severities ??= ReadSeverities();
 
     // With a fail mode a bundle that errors here is remembered and Decide denies by name; the severities are then none, which the
     // denial makes moot. Without one the error is thrown, as before. A place that stays silent is no error: the severities are
@@ -132,6 +163,14 @@ internal sealed class LocalPolicy : IDisposable
             _bundleFailed = true;
             return SeverityActions.None;
         }
+    }
+
+    /// <summary>The repository policy of the node that owns the repository (#656), or <see langword="null"/> when no node map is
+    /// cached; the policy input then names no repository.</summary>
+    internal Repository.RepositoryPolicy? RepositoryPolicy
+    {
+        get => _repository;
+        set => _repository = value;
     }
 
     /// <summary>The version of the loaded policy, which an audit entry carries.</summary>
@@ -151,7 +190,8 @@ internal sealed class LocalPolicy : IDisposable
     public HookOutput Decide(HookOutput existing, string cli, string toolName, JsonElement toolInput, string session)
     {
         ArgumentNullException.ThrowIfNull(existing);
-        var input = PolicyInputBuilder.Build(cli, toolName, toolInput, session, _findings, _repositoryRoot);
+        var input = PolicyInputBuilder.Build(
+            cli, toolName, toolInput, session, _findings, _repositoryRoot, _repository?.Scope.Repository ?? "", _repository?.Scope.Node ?? "");
         var json = PolicyInputSerializer.Serialize(input);
         var before = existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource);
         if (_bundleFailed)
@@ -159,10 +199,16 @@ internal sealed class LocalPolicy : IDisposable
             return OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true);
         }
 
+        // The organisation's rules and the node's bundle (#656) are combined with the local folder strictest-wins, so the folder
+        // can tighten what the profile sets and never loosen it.
+        var repository = _repository?.Decisions(json) ?? [];
         PolicyAnswer? answer;
         try
         {
-            answer = _order.TryEvaluate(json);
+            // Without a folder there is no module of this process to ask; the repository's decisions are the whole policy.
+            answer = _folderless
+                ? new PolicyAnswer(new RegoDecision(DecisionOutcome.Defer, []), OutcomeDecision.InProcess)
+                : _order.TryEvaluate(json);
         }
         catch (Exception) when (_failMode is not null)
         {
@@ -172,32 +218,24 @@ internal sealed class LocalPolicy : IDisposable
 
         if (answer is null)
         {
-            // Nobody answered and nobody failed: the fail mode decides. Without one it is an internal error, as before.
+            // Nobody answered and nobody failed: the fail mode decides, and the repository's decisions still apply next to it. Without
+            // one it is an internal error, as before.
             return _failMode is null
                 ? throw new InvalidOperationException("no place could evaluate the policy: the resident process did not answer and the hook has no module to run")
-                : OutcomeDecision.Strictest([before, FailModeGate.Decide(_failMode, input, _repositoryRoot, Version)]).ToHookOutput(canAsk: true);
+                : OutcomeDecision.Strictest([before, .. repository, FailModeGate.Decide(_failMode, input, _repositoryRoot, Version)]).ToHookOutput(canAsk: true);
         }
 
         var (policy, place) = answer;
-        var decisions = new List<OutcomeDecision>(3)
-        {
-            existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource),
-        };
+        var decisions = new List<OutcomeDecision>(3) { before };
+        decisions.AddRange(repository);
         if (policy.Outcome != DecisionOutcome.Defer)
         {
             decisions.Add(new OutcomeDecision(policy.Outcome, string.Join("; ", policy.Reasons), [SourceOf(policy)], Version, place));
         }
 
-        var unparseable = input.Details.Shell is { Unparseable: true };
-        if (unparseable)
-        {
-            decisions.Add(new OutcomeDecision(DecisionOutcome.Ask, UnparseableReason, [ParserSource], Version));
-        }
-
-        if (input.Details.Paths is not { Count: > 0 } && PolicyInputBuilder.IsPatch(input))
-        {
-            decisions.Add(new OutcomeDecision(DecisionOutcome.Ask, PatchTargetsReason, [ParserSource], Version));
-        }
+        // The repository's rules read the same command line, so what the parser cannot read asks in every mode: an Allow from them
+        // must not let it through.
+        AddParserAsks(decisions, input);
 
         if (decisions.Count == 1 && decisions[0].Outcome == DecisionOutcome.Defer)
         {
@@ -206,6 +244,20 @@ internal sealed class LocalPolicy : IDisposable
 
         var combined = OutcomeDecision.Strictest(decisions) with { PolicyVersion = Version };
         return combined.ToHookOutput(canAsk: true);
+    }
+
+    // A shell command line the parser cannot read, or a patch whose targets it cannot find, asks at least.
+    private void AddParserAsks(List<OutcomeDecision> decisions, PolicyInput input)
+    {
+        if (input.Details.Shell is { Unparseable: true })
+        {
+            decisions.Add(new OutcomeDecision(DecisionOutcome.Ask, UnparseableReason, [ParserSource], Version));
+        }
+
+        if (input.Details.Paths is not { Count: > 0 } && PolicyInputBuilder.IsPatch(input))
+        {
+            decisions.Add(new OutcomeDecision(DecisionOutcome.Ask, PatchTargetsReason, [ParserSource], Version));
+        }
     }
 
     // The message of the exception is left out: a module that aborts may echo what it was given, and that is the tool input.
@@ -232,5 +284,5 @@ internal sealed class LocalPolicy : IDisposable
     // A refused builtin is the host's doing, not a bundle's, so it names the builtin as its source.
     private string SourceOf(RegoDecision policy) => policy.Refused is { } builtin ? "builtin:" + builtin : _bundleSource;
 
-    public void Dispose() => _inProcess.Dispose();
+    public void Dispose() => _inProcess?.Dispose();
 }

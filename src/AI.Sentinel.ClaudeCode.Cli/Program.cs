@@ -54,9 +54,14 @@ public static class Program
         Func<ResidentLaunch, bool>? residentStart = null,
         FailModeContext? failMode = null)
     {
+        if (SessionStartCommand.Matches(args))
+        {
+            return await SessionStartCommand.RunAsync(BuildHookEnvVars(), Directory.GetCurrentDirectory(), stdout, stderr).ConfigureAwait(false);
+        }
+
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
-            await stderr.WriteAsync("Usage: sentinel-hook <user-prompt-submit|pre-tool-use|post-tool-use>\n").ConfigureAwait(false);
+            await stderr.WriteAsync("Usage: sentinel-hook <user-prompt-submit|pre-tool-use|post-tool-use|session-start>\n").ConfigureAwait(false);
             return 1;
         }
 
@@ -412,20 +417,24 @@ public static class Program
     private static (LocalPolicy? Policy, string? Folder, Exception? Error) TryLoadPolicy(
         HookEvent evt, IReadOnlyDictionary<string, string?> env, IReadOnlyList<IRegoCompiler>? compilers, ResidentSession? resident, FailModeContext? failMode)
     {
-        if (evt != HookEvent.PreToolUse || LocalPolicy.FolderFrom(env) is not { } folder)
+        if (evt != HookEvent.PreToolUse)
         {
             return (null, null, null);
         }
 
+        // Without a policy folder a cached node map still gives the repository its policy (#656); with neither, nothing is loaded.
+        var folder = LocalPolicy.FolderFrom(env);
         try
         {
-            return (LocalPolicy.Load(folder, env, compilers: compilers, resident: resident, failMode: failMode), folder, null);
+            return folder is null
+                ? (LocalPolicy.LoadRepositoryOnly(env), LocalPolicy.RepositoryOnlyName, null)
+                : (LocalPolicy.Load(folder, env, compilers: compilers, resident: resident, failMode: failMode), folder, null);
         }
 #pragma warning disable CA1031 // Every load failure is reported; on PreToolUse it blocks the call.
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            return (null, folder, ex);
+            return (null, folder ?? LocalPolicy.RepositoryOnlyName, ex);
         }
     }
 
