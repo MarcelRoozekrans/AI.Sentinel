@@ -15,6 +15,7 @@ using AI.Sentinel.Sqlite.Local;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.ClaudeCode.Policy;
 using AI.Sentinel.ClaudeCode.Policy.Rego;
+using AI.Sentinel.ClaudeCode.Resident;
 
 namespace AI.Sentinel.ClaudeCode.Cli;
 
@@ -26,6 +27,12 @@ public static class Program
         if (PolicyCompileCommand.Matches(args))
         {
             return PolicyCompileCommand.Run(args, Console.Error);
+        }
+
+        // The hook starts itself with this to keep the compiled policy warm between calls (SENTINEL_HOOK_RESIDENT=on).
+        if (ResidentCommand.Matches(args))
+        {
+            return await ResidentCommand.RunAsync(RegoPolicy.HookCompilers(), Console.Error).ConfigureAwait(false);
         }
 
         return await RunAsync(args, Console.In, Console.Out, Console.Error, embeddingGenerator: null, reviewer: null, RegoPolicy.HookCompilers()).ConfigureAwait(false);
@@ -43,7 +50,8 @@ public static class Program
         string[] args, TextReader stdin, TextWriter stdout, TextWriter stderr,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         IDetectionReviewer? reviewer,
-        IReadOnlyList<IRegoCompiler>? policyCompilers)
+        IReadOnlyList<IRegoCompiler>? policyCompilers,
+        Func<ResidentLaunch, bool>? residentStart = null)
     {
         if (args.Length < 1 || !TryParseEvent(args[0], out var evt))
         {
@@ -53,7 +61,7 @@ public static class Program
 
         try
         {
-            return await RunCoreAsync(args, evt, stdin, stdout, stderr, embeddingGenerator, reviewer, policyCompilers).ConfigureAwait(false);
+            return await RunCoreAsync(args, evt, stdin, stdout, stderr, embeddingGenerator, reviewer, policyCompilers, residentStart).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -75,7 +83,8 @@ public static class Program
         string[] args, HookEvent evt, TextReader stdin, TextWriter stdout, TextWriter stderr,
         IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
         IDetectionReviewer? reviewer,
-        IReadOnlyList<IRegoCompiler>? policyCompilers)
+        IReadOnlyList<IRegoCompiler>? policyCompilers,
+        Func<ResidentLaunch, bool>? residentStart)
     {
         var hookEnv = BuildHookEnvVars();
         var config = HookConfig.FromEnvironment(hookEnv);
@@ -114,7 +123,7 @@ public static class Program
         }
 
         // A local Rego policy (SENTINEL_HOOK_POLICY_DIR) judges a PreToolUse; one that cannot be loaded blocks the call.
-        var (policy, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, policyCompilers, config, audit, auditProblems, stderr).ConfigureAwait(false);
+        var (policy, resident, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, policyCompilers, residentStart, config, audit, auditProblems, stderr).ConfigureAwait(false);
         if (blocked is { } blockedExit) return blockedExit;
         using var policyScope = policy;
         HookOutput output;
@@ -124,7 +133,7 @@ public static class Program
         {
             (output, semanticWarning) = await EvaluateAsync(
                 evt, input, WithFindingSink(config, policy), hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
-            output = DecideWithPolicy(policy, output, input);
+            output = DecideWithPolicy(policy, resident, output, input);
         }
         catch (Exception ex) when (evt == HookEvent.PreToolUse)
         {
@@ -370,33 +379,36 @@ public static class Program
             .Where(e => e.Key is string key && key.StartsWith("SENTINEL_HOOK_", StringComparison.Ordinal))
             .ToDictionary(e => (string)e.Key, e => e.Value as string, StringComparer.Ordinal);
 
-    /// <summary><paramref name="config"/> with the policy collecting the findings of the scan; as it is when no policy is loaded.</summary>
+    /// <summary><paramref name="config"/> with the policy collecting the findings of the scan and the severity outcomes it sets;
+    /// as it is when no policy is loaded.</summary>
     private static HookConfig WithFindingSink(HookConfig config, LocalPolicy? policy) =>
-        policy is null ? config : config with { FindingSink = policy.FindingSink };
+        policy is null ? config : config with { FindingSink = policy.FindingSink, SeverityOutcomes = policy.Severities() };
 
     /// <summary>Loads the policy, see <see cref="TryLoadPolicy"/>. One that cannot be loaded blocks the call as an internal
     /// error, and its exit code is returned; running without it would skip every rule it holds.</summary>
-    private static async Task<(LocalPolicy? Policy, int? Exit)> OpenPolicyAsync(
-        string[] args, HookEvent evt, HookInput input, IReadOnlyDictionary<string, string?> hookEnv, IReadOnlyList<IRegoCompiler>? compilers, HookConfig config,
+    private static async Task<(LocalPolicy? Policy, ResidentSession? Resident, int? Exit)> OpenPolicyAsync(
+        string[] args, HookEvent evt, HookInput input, IReadOnlyDictionary<string, string?> hookEnv, IReadOnlyList<IRegoCompiler>? compilers, Func<ResidentLaunch, bool>? residentStart, HookConfig config,
         LocalAuditSession audit, List<string> auditProblems, TextWriter stderr)
     {
-        var (policy, folder, error) = TryLoadPolicy(evt, hookEnv, compilers);
+        // With SENTINEL_HOOK_RESIDENT=on a hook that finds no resident process starts one, detached, and goes on in-process.
+        var resident = evt == HookEvent.PreToolUse ? ResidentSession.Open(hookEnv, residentStart) : null;
+        var (policy, folder, error) = TryLoadPolicy(evt, hookEnv, compilers, resident);
         if (error is null)
         {
-            return (policy, null);
+            return (policy, resident, null);
         }
 
         var exit = await BlockOnInternalErrorAsync(
             args, input.ToolName, input.SessionId, HookInternalError.PolicyReason(folder!, error),
             audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
-        return (null, exit);
+        return (null, resident, exit);
     }
 
     /// <summary>Loads the policy folder when the event is PreToolUse and <c>SENTINEL_HOOK_POLICY_DIR</c> is set; all null
     /// otherwise. A failure of any kind, an unreadable folder, a policy that does not compile or use a refused builtin, or a
     /// platform without the Wasmtime library, is returned rather than thrown, so the caller blocks.</summary>
     private static (LocalPolicy? Policy, string? Folder, Exception? Error) TryLoadPolicy(
-        HookEvent evt, IReadOnlyDictionary<string, string?> env, IReadOnlyList<IRegoCompiler>? compilers)
+        HookEvent evt, IReadOnlyDictionary<string, string?> env, IReadOnlyList<IRegoCompiler>? compilers, ResidentSession? resident)
     {
         if (evt != HookEvent.PreToolUse || LocalPolicy.FolderFrom(env) is not { } folder)
         {
@@ -405,7 +417,7 @@ public static class Program
 
         try
         {
-            return (LocalPolicy.Load(folder, env, compilers: compilers), folder, null);
+            return (LocalPolicy.Load(folder, env, compilers: compilers, resident: resident), folder, null);
         }
 #pragma warning disable CA1031 // Every load failure is reported; on PreToolUse it blocks the call.
         catch (Exception ex)
@@ -415,15 +427,18 @@ public static class Program
         }
     }
 
-    /// <summary>The decision of <paramref name="policy"/> combined with <paramref name="output"/>, the strictest winning;
-    /// <paramref name="output"/> as it is when no policy is loaded.</summary>
-    private static HookOutput DecideWithPolicy(LocalPolicy? policy, HookOutput output, HookInput input) =>
-        policy is null
+    /// <summary>The decision of <paramref name="policy"/> combined with <paramref name="output"/>, the strictest winning, and then the
+    /// pause state of the resident process (#658) applied; <paramref name="output"/> as it is when neither is on.</summary>
+    private static HookOutput DecideWithPolicy(LocalPolicy? policy, ResidentSession? resident, HookOutput output, HookInput input)
+    {
+        var decided = policy is null
             ? output
             : policy.Decide(
                 output, PolicyClis.ClaudeCode,
                 string.IsNullOrWhiteSpace(input.ToolName) ? throw new InvalidOperationException("PreToolUse input has no tool name") : input.ToolName,
                 input.ToolInput ?? default, input.SessionId);
+        return resident is null ? decided : resident.ApplyPause(decided, input.SessionId, DateTimeOffset.UtcNow);
+    }
 
     /// <summary>Loads <c>SENTINEL_APPROVAL_CONFIG</c> when it is set. A failure of any kind is returned rather than
     /// thrown, with the path, so the caller decides whether it blocks.</summary>

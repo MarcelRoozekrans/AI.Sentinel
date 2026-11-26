@@ -330,27 +330,34 @@ public static class HookPipelineRunner
     /// The most restrictive per-detection decision, and on a tie the higher severity for the reason. Deciding per
     /// detection, rather than mapping the most restrictive action's representative, keeps an Alert, such as a
     /// compliance finding in the hook CLIs, from being lost when it co-fires with a Quarantine detection whose
-    /// severity HookConfig maps to Allow.
+    /// severity HookConfig maps to Allow. A policy may map a severity to ask or allow, which a hook decision cannot say,
+    /// so the output then carries the outcome.
     /// </summary>
     internal static HookOutput Decide(IReadOnlyList<ScanFinding> findings, HookConfig config)
     {
         DetectionResult? reason = null;
-        var decision = HookDecision.Allow;
+        var best = DecisionOutcome.Defer;
         foreach (var finding in findings)
         {
             config.FindingSink?.Invoke(finding.Detection.DetectorId.Value, SeverityName(finding.Detection.Severity));
-            if (DecisionFor(finding, config) is not { } candidate) continue;
-            if (reason is null || candidate > decision
-                || (candidate == decision && finding.Detection.Severity > reason.Severity))
+            if (OutcomeFor(finding, config) is not { } candidate) continue;
+            if (reason is null || candidate < best
+                || (candidate == best && finding.Detection.Severity > reason.Severity))
             {
-                decision = candidate;
+                best = candidate;
                 reason = finding.Detection;
             }
         }
 
-        return reason is null
-            ? new HookOutput { Decision = HookDecision.Allow }
-            : new HookOutput { Decision = decision, Reason = $"{reason.DetectorId.Value} {reason.Severity}: {reason.Reason}" };
+        if (reason is null)
+        {
+            return new HookOutput { Decision = HookDecision.Allow };
+        }
+
+        var text = $"{reason.DetectorId.Value} {reason.Severity}: {reason.Reason}";
+        return best is DecisionOutcome.Ask or DecisionOutcome.Allow
+            ? new OutcomeDecision(best, text, [Policy.LocalPolicy.ChecksSource]).ToHookOutput(canAsk: true)
+            : new HookOutput { Decision = DecisionOutcomes.ToHook(best), Reason = text };
     }
 
     /// <summary>The lower-case severity name policy input carries.</summary>
@@ -368,13 +375,13 @@ public static class HookPipelineRunner
     /// mapped its severity to Allow. Log and PassThrough allow without a reason, so they return
     /// <see langword="null"/>.
     /// </summary>
-    private static HookDecision? DecisionFor(ScanFinding finding, HookConfig config)
+    private static DecisionOutcome? OutcomeFor(ScanFinding finding, HookConfig config)
     {
-        var mapped = HookSeverityMapper.Map(finding.Detection.Severity, config);
+        var mapped = HookSeverityMapper.MapOutcome(finding.Detection.Severity, config);
         return finding.Action switch
         {
             SentinelAction.Quarantine => mapped,
-            SentinelAction.Alert => mapped < HookDecision.Warn ? mapped : HookDecision.Warn,
+            SentinelAction.Alert => mapped < DecisionOutcome.Guidance ? DecisionOutcome.Guidance : mapped,
             _ => null,
         };
     }

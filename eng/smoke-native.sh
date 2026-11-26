@@ -1,7 +1,7 @@
 #!/bin/sh
-# Smoke-tests one sentinel-hook, sentinel-copilot-hook or sentinel-mcp binary.
+# Smoke-tests one sentinel-hook, sentinel-codex-hook, sentinel-copilot-hook or sentinel-mcp binary.
 #
-# Usage: sh eng/smoke-native.sh <binary> <hook|copilot-hook|mcp>
+# Usage: sh eng/smoke-native.sh <binary> <hook|codex-hook|copilot-hook|mcp>
 #
 # Used by .github/workflows/native-cli.yml on every RID runner, against the native binary
 # extracted from the RID tool package, so the PR check and the release test the same bits.
@@ -9,12 +9,12 @@
 # musl-arm64) and Git Bash on Windows.
 #
 #   mcp:          no arguments must exit 1 with Usage in the output.
-#   hook/copilot: a benign prompt exits 0 and creates the SQLite audit file; a blocking prompt
+#   hook/codex/copilot: a benign prompt exits 0 and creates the SQLite audit file; a blocking prompt
 #                 exits 2 and forwards a SEC-01 entry to the NDJSON file; no audit problem is printed.
 set -u
 
-binary=${1:?usage: smoke-native.sh <binary> <hook|copilot-hook|mcp>}
-kind=${2:?usage: smoke-native.sh <binary> <hook|copilot-hook|mcp>}
+binary=${1:?usage: smoke-native.sh <binary> <hook|codex-hook|copilot-hook|mcp>}
+kind=${2:?usage: smoke-native.sh <binary> <hook|codex-hook|copilot-hook|mcp>}
 
 fail() {
   echo "::error::$1"
@@ -22,7 +22,7 @@ fail() {
 }
 
 case "$kind" in
-  hook) hook_event=user-prompt-submit ;;
+  hook | codex-hook) hook_event=user-prompt-submit ;;
   copilot-hook) hook_event=user-prompt-submitted ;;
   mcp) ;;
   *) fail "Unknown kind: $kind" ;;

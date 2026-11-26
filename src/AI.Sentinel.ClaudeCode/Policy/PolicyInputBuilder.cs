@@ -66,11 +66,11 @@ internal static class PolicyInputBuilder
         return split < 0 ? new McpDetails(rest, "", "") : new McpDetails(rest[..split], "", rest[(split + 2)..]);
     }
 
-    // Copilot sends apply_patch as the patch text itself, or in an object, never as file_path. Its targets are the file headers.
+    // Copilot sends apply_patch as the patch text itself, or in an object, and Codex in tool_input.command; never as file_path. Its targets are the file headers.
     private static PolicyDetails PatchPaths(JsonElement input, string? root)
     {
         var args = ReadObject(input);
-        var text = String(args, "input") ?? String(args, "patch") ?? (input.ValueKind == JsonValueKind.String ? Decode(input) : null);
+        var text = String(args, "input") ?? String(args, "patch") ?? String(args, "command") ?? (input.ValueKind == JsonValueKind.String ? Decode(input) : null);
         var paths = new List<PolicyPath>();
         foreach (var line in (text ?? string.Empty).Split('\n'))
         {

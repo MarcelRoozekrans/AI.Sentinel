@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="..\..\eng\NativeTool.props" />
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <ToolCommandName>sentinel-codex-hook</ToolCommandName>
+    <PackageId>AI.Sentinel.Codex.Cli</PackageId>
+    <Description>Codex CLI hook command for AI.Sentinel — wire into hooks.json or config.toml to scan tool calls.</Description>
+    <Version>0.1.0</Version>
+    <Authors>Marcel Roozekrans</Authors>
+    <PackageTags>ai;security;chatclient;codex;hooks;dotnet-tool</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/MarcelRoozekrans/AI.Sentinel</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- IL2104: Microsoft.Kiota.Serialization.Json (transitive via AI.Sentinel.Approvals.EntraPim)
+         emits assembly-level trim-warnings. The entra-pim code path is opt-in at runtime; AOT-
+         published CLI invocations that don't use it never reach the Kiota code paths. -->
+    <NoWarn>$(NoWarn);IL2104</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AI.Sentinel.ClaudeCode\AI.Sentinel.ClaudeCode.csproj" />
+    <ProjectReference Include="..\AI.Sentinel.Approvals.Sqlite\AI.Sentinel.Approvals.Sqlite.csproj" />
+    <ProjectReference Include="..\AI.Sentinel.Sqlite\AI.Sentinel.Sqlite.csproj" />
+    <ProjectReference Include="..\AI.Sentinel.Approvals.EntraPim\AI.Sentinel.Approvals.EntraPim.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15" />
+  </ItemGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>AI.Sentinel.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+</Project>

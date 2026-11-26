@@ -12,7 +12,7 @@
 
 Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 56 detectors, plus 4 opt-in EU AI Act Art. 5 compliance detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
-> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same detectors, same audit trail, zero code changes in the host.
+> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), [Codex CLI](#codex-cli) (`sentinel-codex-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same detectors, same audit trail, zero code changes in the host.
 
 > **Approval workflows for high-stakes tool calls** (`delete_database`, `send_payment`, `rotate_secrets`) — pluggable backends include in-memory, SQLite (persists across CLI invocations), and **native Microsoft Entra PIM** (approvers act in the portal they already use). Operators approve/deny from the dashboard or the PIM portal; the conversation resumes when approval lands. See the [approvals docs](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview).
 
@@ -46,6 +46,7 @@ The embedded dashboard ships in `AI.Sentinel.AspNetCore`. Mount it on any ASP.NE
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI, `sentinel dashboard` to browse the audit file the hooks and the MCP proxy write, and `sentinel report` for a compliance report from it |
 | `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
 | `AI.Sentinel.Copilot` / `AI.Sentinel.Copilot.Cli` | GitHub Copilot native hook adapter — wire into `hooks.json` to scan userPromptSubmitted, preToolUse, postToolUse |
+| `AI.Sentinel.Codex.Cli` | Codex CLI hook adapter, `sentinel-codex-hook` — wire into `hooks.json` to scan UserPromptSubmit, PreToolUse, PostToolUse; shares the library code of `AI.Sentinel.ClaudeCode` |
 | `AI.Sentinel.Mcp` / `AI.Sentinel.Mcp.Cli` | `dotnet tool install AI.Sentinel.Mcp.Cli` — stdio MCP proxy that scans `tools/call` + `prompts/get` for any MCP-speaking host (Cursor, Continue, Cline, Windsurf, Copilot) |
 
 ```
@@ -855,6 +856,32 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
 
 Both hooks map each tool onto a shared tool kind (`shell`, `read`, `search`, `write`, `edit`, `fetch`, `mcp`, `agent` or `other`) and build the policy input for it, with a parsed command line for shell calls. It is the input of the [local Rego policy](#local-rego-policy), read only when `SENTINEL_HOOK_POLICY_DIR` is set; the hooks behave as before without it. See [Tool kinds and policy input](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#tool-kinds-and-policy-input).
 
+### Codex CLI
+
+```
+dotnet tool install -g AI.Sentinel.Codex.Cli
+```
+
+Add to `~/.codex/hooks.json`, or `.codex/hooks.json` in a trusted project, then review the hook with `/hooks` in Codex, which runs no hook it has not trusted:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "sentinel-codex-hook user-prompt-submit", "timeout": 10 }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "sentinel-codex-hook pre-tool-use", "timeout": 45 }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "sentinel-codex-hook post-tool-use", "timeout": 10 }] }
+    ]
+  }
+}
+```
+
+`sentinel-codex-hook` shares the detectors, approval config, local audit (`Source` is `codex`), severity settings, local Rego policy and fail-closed behaviour of `sentinel-hook`. Codex cannot ask from a hook and cannot replace a tool result, so an ask is a deny with instructions and nothing is redacted. Every new setting is optional and off by default; the adapter adds none. The events, the outcome table and the sources are on the [Codex CLI page](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/codex).
+
 ### MCP proxy
 
 For any MCP-speaking agent (Cursor, Continue, Cline, Windsurf, Copilot's MCP path), install the proxy and point your MCP host at it instead of at the target server directly:
@@ -940,7 +967,7 @@ A hook decision has one of five outcomes, strictest first: deny, ask, guidance, 
 
 ### Local Rego policy
 
-`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files, and `sentinel-hook` and `sentinel-copilot-hook` evaluate it against each `PreToolUse` call, with no server. **Every new setting is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset the hooks behave exactly as before.**
+`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files, and `sentinel-hook`, `sentinel-codex-hook` and `sentinel-copilot-hook` evaluate it against each `PreToolUse` call, with no server. **Every new setting is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset the hooks behave exactly as before.**
 
 | Variable | Default | Values |
 |---|---|---|
@@ -949,9 +976,23 @@ A hook decision has one of five outcomes, strictest first: deny, ask, guidance, 
 
 A bundle adds a reason to `deny`, `ask`, `guidance` or `allow`, for example `deny contains "recursive delete" if { ... }`; the host owns `outcome`, `reasons` and `decision`, and the folder name `_sentinel_host`. The strictest outcome of the policy wins, and then the strictest of the policy and the other checks (detectors, approval rules, the placeholder guard); a shell command line the parser cannot read asks at least, even when the policy allows. The agent sees the reason, and the local audit records it as an `OUTCOME` entry with the bundles that caused it and the policy version, the first 16 characters of the sha256 of the sources. Copilot CLI cannot ask, so there an ask is a deny with instructions, and a PowerShell command, which the parser does not read, always asks.
 
+A policy can also set the outcome per finding severity with `severity_actions contains {"severity": "high", "outcome": "guidance"}`, using `critical`, `high`, `medium` or `low` and `deny`, `ask`, `guidance`, `allow` or `defer`. Bundles that set the same severity differently give the strictest. Where a `SENTINEL_HOOK_ON_*` variable was set too, the stricter of the two applies; a variable that is not set does not count, so its built-in default applies only when the policy sets nothing for that severity. A profile's severity defaults are read the same way. Optional and off by default; see [Outcomes per severity](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#outcomes-per-severity).
+
 The first call after a policy change compiles the folder in a child process of the hook, so a crash of the compiler, a Go library, blocks that call instead of ending the hook; the module and its native code are then cached under the hash of the sources, so later calls load native code and decide in a few milliseconds. The compiler is the OpaDotNet interop compiler on linux-x64 and win-x64, and the `opa` binary on the `PATH` elsewhere. A policy that uses `http.send`, `net.lookup_ip_addr` or `opa.runtime` is refused when compiled, and a module that meets one anyway denies the call and names it. The host runs `sprintf` and no other builtin that the OPA module imports from its host; a call of one denies and names it.
 
 A folder that cannot be read, compiled or loaded blocks `PreToolUse` with a `Sentinel internal error: policy '<folder>' could not be evaluated` reason, so an unreadable policy never lets a call through. That includes a platform without the Wasmtime library, which has no build for musl (Alpine), and a machine with neither a compiler for the policy nor a cached module. See [Local Rego policy](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#local-rego-policy) for the input, an example and the platform notes.
+
+### Resident local process
+
+`SENTINEL_HOOK_RESIDENT=on` lets `sentinel-hook` and `sentinel-copilot-hook` use one resident process per user, started from the hook binary itself with `--resident`. **Every new setting is optional and off by default: without `SENTINEL_HOOK_RESIDENT` no process is started and the hooks behave exactly as before; `SENTINEL_HOOK_POLICY_DIR` alone does not turn it on.** It keeps the compiled policy module warm and answers the policy evaluation of each `PreToolUse` over a per-user Unix domain socket, and its private state folder has room for the pause state and the signed profile cache. A hook reads `pause.json` from that folder, with no network traffic, and denies the calls of a paused session. Nothing writes a pause yet, and no hook uses the profile cache: the methods that store and read both exist in the library, and wiring a writer and profile consumption into the hooks is deferred to the sign-in and server work. A hook that finds no process starts one, detached, and evaluates that call in-process; the process exits after 30 idle minutes, and no OS service is installed. The order is resident process, then in-process, then the server once there is one, with a target of 50 ms per call for a decision whose policy is cached (a cold policy cache compiles first, which the resident budget does not bound), and each decision records `decided=resident`, `decided=in-process` or `decided=server` in its audit entry.
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_RESIDENT` | `off` | `on` / `1` / `true` / `yes` → use the resident process |
+| `SENTINEL_HOOK_RESIDENT_DIR` | `ai-sentinel/resident` under the user's local application data | The per-user state folder; keep the path short, as a Unix socket path is limited to about 100 characters |
+| `SENTINEL_HOOK_RESIDENT_BUDGET_MS` | `15` | How long a hook waits for the process to answer before it evaluates in-process |
+
+A paused session has every tool call denied with the reason. See [Resident local process](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#resident-local-process) for the channel, the state files and what fails closed.
 
 ### Severity → action mapping
 
