@@ -20,7 +20,7 @@ internal static class ResidentHost
     /// <param name="ct">Stops the process.</param>
     /// <param name="listening">Called once the socket accepts connections.</param>
     public static async Task<ResidentExit> RunAsync(
-        ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null)
+        ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null, SignIn.TokenSession? tokens = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ResidentPaths.Prepare(settings);
@@ -58,7 +58,7 @@ internal static class ResidentHost
         await File.WriteAllTextAsync(pidPath, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), CancellationToken.None).ConfigureAwait(false);
         try
         {
-            return await ServeAsync(listener, settings, new ResidentService(compilers), ct, listening).ConfigureAwait(false);
+            return await ServeAsync(listener, settings, new ResidentService(compilers, tokens), ct, listening).ConfigureAwait(false);
         }
         finally
         {

@@ -20,6 +20,9 @@ internal sealed class ResidentState(string directory)
     /// <summary>The file that holds the last valid signed profile.</summary>
     public const string ProfileFile = "profile.json";
 
+    /// <summary>The file that holds the server keys pinned at sign-in, and the organisation they belong to. Public keys, not secrets.</summary>
+    public const string PinnedKeysFile = "pinned-keys.json";
+
     /// <summary>The file that holds the map of repositories to the nodes that own them (#656).</summary>
     public const string NodesFile = "nodes.json";
 
@@ -101,7 +104,7 @@ internal sealed class ResidentState(string directory)
     /// that passes is used offline until it expires. <see langword="null"/> when nothing is cached.</summary>
     public ProfileVerification? ReadProfile(PinnedProfileKeys pinned, string organisation, string repository, DateTimeOffset now, string? slot = null)
     {
-        if (PolicyCache.TryRead(Path.Combine(Directory, ProfileFileOf(slot))) is not { } bytes)
+        if (ReadOrNull(Path.Combine(Directory, ProfileFileOf(slot))) is not { } bytes)
         {
             return null;
         }
@@ -109,6 +112,51 @@ internal sealed class ResidentState(string directory)
         return SignedProfile.Parse(Encoding.UTF8.GetString(bytes)) is { } signed
             ? ProfileVerifier.Verify(signed, pinned, organisation, repository, now)
             : ProfileVerification.Rejected(ProfileRejection.Malformed);
+    }
+
+    /// <summary>Pins the server keys of a sign-in (#671). A new sign-in replaces them: it is the moment the developer chooses to trust a
+    /// server.</summary>
+    public void WritePinnedKeys(string organisation, PinnedProfileKeys keys)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(organisation);
+        ArgumentNullException.ThrowIfNull(keys);
+        var record = new PinnedKeysFileContent { Organisation = organisation, Keys = [.. keys.ToBase64()] };
+        PolicyCache.Write(Path.Combine(Directory, PinnedKeysFile), JsonSerializer.SerializeToUtf8Bytes(record, ResidentStateJsonContext.Default.PinnedKeysFileContent));
+    }
+
+    /// <summary>The pinned keys and their organisation; <see langword="null"/> when the developer has not signed in, or the file is
+    /// unusable. With no pinned key every profile is refused, so a damaged file fails closed.</summary>
+    public (string Organisation, PinnedProfileKeys Keys)? ReadPinnedKeys()
+    {
+        if (ReadOrNull(Path.Combine(Directory, PinnedKeysFile)) is not { } bytes)
+        {
+            return null;
+        }
+
+        try
+        {
+            var record = JsonSerializer.Deserialize(bytes, ResidentStateJsonContext.Default.PinnedKeysFileContent);
+            return string.IsNullOrEmpty(record?.Organisation) || record.Keys is null
+                ? null
+                : (record.Organisation, PinnedProfileKeys.FromBase64(record.Keys));
+        }
+        catch (Exception e) when (e is JsonException or FormatException or ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    // A file that exists and cannot be read is as good as absent for the profile and the pins; a pause file is the one that fails closed.
+    private static byte[]? ReadOrNull(string path)
+    {
+        try
+        {
+            return PolicyCache.TryRead(path);
+        }
+        catch (Exception e) when (e is UnauthorizedAccessException or IOException)
+        {
+            return null;
+        }
     }
 
     /// <summary>The cache file of a profile: the one profile of the state folder, or the one of <paramref name="slot"/>, which keeps a

@@ -994,6 +994,19 @@ A folder that cannot be read, compiled or loaded blocks `PreToolUse` with a `Sen
 
 A paused session has every tool call denied with the reason. See [Resident local process](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#resident-local-process) for the channel, the state files and what fails closed.
 
+### Sign in with an OIDC device code
+
+`sentinel-hook --sign-in` (and `sentinel-copilot-hook --sign-in`) signs the developer in once with the OIDC device authorization grant, against any identity provider that supports it, so the server knows which developer a hook belongs to. **Every new setting is optional and off by default: without the three settings below no sign-in runs, no token is held and nothing changes.** The command prints an address and a code, pins the server's public keys for signed profiles, keeps the refresh token in the OS keychain and hands the tokens to the resident process, which holds and refreshes them. When the provider no longer accepts the refresh token, the process reports that sign-in is needed. A provider that issues no refresh token still works: the access token is used until it expires.
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_SERVER_URL` | unset | The Sentinel server; https, or http on loopback |
+| `SENTINEL_HOOK_OIDC_ISSUER` | unset | The identity provider; its discovery document names the endpoints |
+| `SENTINEL_HOOK_OIDC_CLIENT_ID` | unset | The public client of the plugin at the provider |
+| `SENTINEL_HOOK_OIDC_SCOPE` | `openid offline_access` | The scopes asked for |
+
+The refresh token goes into Windows Credential Manager, the macOS Keychain, or the Linux Secret Service through `secret-tool`. Where there is none, such as a headless Linux, it is kept in the memory of the resident process only, so sign in again after the process restarts; it is never written to a file. Tokens never appear in logs, the audit or the policy input. See [Sign-in](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#sign-in).
+
 ### Which policy applies
 
 The policy of a tool call is the policy of the node that owns the repository, not of the developer's team (ADR-232, ADR-246). The repository is the git remote of the working directory, read from `.git/config` with no `git` process and no network, through worktrees and submodules. The url is normalised, so the ssh and https forms and a `.git` suffix or different case name one repository, and credentials in a url are dropped before the policy input or the audit sees it. The input's `repository` and `node` fields carry the result. **Every new setting is optional and off by default: without a cached node map, which needs `SENTINEL_HOOK_RESIDENT=on` and a server, and with the organisation and node bundles not yet enforced by the shipped CLIs (they wire `NoNodePolicies` until #659 and #664), the input names no repository and the hooks behave exactly as before.**

@@ -6,7 +6,7 @@ namespace AI.Sentinel.ClaudeCode.Resident;
 /// What the resident process answers besides ping and shutdown: it keeps the compiled policy modules loaded, so a hook does not pay
 /// for loading one. A module is kept per policy folder, and replaced when the hook names another version of that folder.
 /// </summary>
-internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers) : IDisposable
+internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, SignIn.TokenSession? tokens = null) : IDisposable
 {
     /// <summary>The most policy folders kept loaded; the least recently asked for goes first.</summary>
     private const int MaxLoaded = 8;
@@ -17,6 +17,11 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers) :
     public ResidentResponse Answer(ResidentRequest request)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.Op is ResidentOps.SignIn or ResidentOps.SignInStatus)
+        {
+            return AnswerSignIn(request);
+        }
+
         if (!string.Equals(request.Op, ResidentOps.Evaluate, StringComparison.Ordinal))
         {
             return new ResidentResponse { Error = $"unknown operation '{request.Op}'" };
@@ -41,6 +46,48 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers) :
         {
             return new ResidentResponse { Error = e.GetType().Name };
         }
+    }
+
+    private ResidentResponse AnswerSignIn(ResidentRequest request)
+    {
+        if (tokens is null)
+        {
+            return new ResidentResponse { Error = "sign-in is not configured", SignIn = "off" };
+        }
+
+        string? keychain = null;
+        if (string.Equals(request.Op, ResidentOps.SignIn, StringComparison.Ordinal))
+        {
+            if (request.Tokens is null)
+            {
+                return new ResidentResponse { Error = "a sign-in carries tokens", SignIn = "sign_in_needed" };
+            }
+
+            // A refresh token goes to the token endpoint of the issuer the resident was started for, so tokens of another issuer are refused.
+            if (!tokens.Accepts(request.Issuer, request.ClientId))
+            {
+                return new ResidentResponse
+                {
+                    Error = "the resident process is signed in at another identity provider; restart it to use this sign-in",
+                    SignIn = "issuer_mismatch",
+                };
+            }
+
+            keychain = tokens.Set(request.Tokens) switch
+            {
+                SignIn.KeychainState.Kept => "kept",
+                SignIn.KeychainState.MemoryOnly => "memory_only",
+                _ => "earlier_remains",
+            };
+        }
+
+        return new ResidentResponse
+        {
+            Ok = true,
+            Pid = Environment.ProcessId,
+            SignIn = tokens.Status == SignIn.SignInStatus.SignedIn ? "signed_in" : "sign_in_needed",
+            Keychain = keychain,
+        };
     }
 
     // Called under the gate. A WasmEvaluator is not thread safe, so one evaluation runs at a time.

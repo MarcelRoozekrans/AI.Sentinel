@@ -36,25 +36,25 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Device code sign-in
 
-- [ ] Add a sign-in command using the device authorization grant against a configured issuer; pin the server keys at sign-in.
-- [ ] Failing tests first in `DeviceCodeSignInTests` against a fake provider.
-- [ ] Commit.
+- [x] Add a sign-in command using the device authorization grant against a configured issuer; pin the server keys at sign-in.
+- [x] Failing tests first in `DeviceCodeSignInTests` against a fake provider.
+- [x] Commit.
 
 ### Task 2: Token storage
 
-- [ ] Store the refresh token in Windows Credential Manager, macOS Keychain or Linux Secret Service; fall back to memory in the resident process. Never a file.
-- [ ] Tests in `TokenStorageTests`, including a check that nothing is written to disk.
-- [ ] Commit.
+- [x] Store the refresh token in Windows Credential Manager, macOS Keychain or Linux Secret Service; fall back to memory in the resident process. Never a file.
+- [x] Tests in `TokenStorageTests`, including a check that nothing is written to disk.
+- [x] Commit.
 
 ### Task 3: Use and refresh
 
-- [ ] Send the access token on server requests, refresh it, and report when sign-in is needed. Without a refresh token, use the access token until it expires, then report that sign-in is needed; test it in `DeviceCodeSignInTests`. Keep tokens out of audit and logs.
-- [ ] Commit.
+- [x] Send the access token on server requests, refresh it, and report when sign-in is needed. Without a refresh token, use the access token until it expires, then report that sign-in is needed; test it in `DeviceCodeSignInTests`. Keep tokens out of audit and logs.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
