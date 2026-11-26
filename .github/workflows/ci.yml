@@ -59,6 +59,44 @@ jobs:
           disable_search: true   # only the files above, not every *.xml the search finds
           fail_ci_if_error: false
 
+  # The keychain stores call Windows Credential Manager and the macOS Keychain through their native APIs, which the ubuntu
+  # job cannot load. This runs the keychain round trip on each system and uploads its coverage, which Codecov merges with
+  # the ubuntu reports.
+  keychain:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write   # Codecov upload via OIDC, no token secret
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: |
+            10.0.x
+            11.0.x
+
+      - name: Build
+        run: dotnet build tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj -c Release -f net10.0
+
+      - name: Test the keychain of the operating system
+        run: dotnet test --project tests/AI.Sentinel.Tests/AI.Sentinel.Tests.csproj --no-build -c Release -f net10.0 --filter-query "/*/*/TokenStorageTests/The_keychain_of_the_operating_system*" --coverage --coverage-output-format cobertura --coverage-settings coverage.config.xml --results-directory TestResults
+
+      - name: Upload coverage to Codecov
+        if: '!cancelled()'
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          files: "TestResults/**/*.cobertura.xml"
+          disable_search: true
+          fail_ci_if_error: false
+
   # The NDJSON forwarder's cross-process locking depends on Windows file sharing semantics that the
   # ubuntu job cannot exercise. Building the test project also builds the NdjsonWriter helper that
   # the multi-process test starts. The two queries select tests whose class or method name contains
