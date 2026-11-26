@@ -233,7 +233,7 @@ public class FailModeTests
     {
         var (repo, outside) = LinkedRepository();
         var linkedRoot = repo + "-link";
-        Directory.CreateSymbolicLink(linkedRoot, repo);
+        TestLinks.Directory(linkedRoot, repo);
         try
         {
             using var policy = LocalPolicy.ForEvaluators("v1", ["org-baseline"], linkedRoot, [Silent()], Profile(ProfileFailModes.Closed));
@@ -256,8 +256,8 @@ public class FailModeTests
     public void A_read_through_links_that_loop_is_not_exempt()
     {
         var (repo, outside) = LinkedRepository();
-        File.CreateSymbolicLink(Path.Combine(repo, "loop-a"), Path.Combine(repo, "loop-b"));
-        File.CreateSymbolicLink(Path.Combine(repo, "loop-b"), Path.Combine(repo, "loop-a"));
+        TestLinks.File(Path.Combine(repo, "loop-a"), Path.Combine(repo, "loop-b"));
+        TestLinks.File(Path.Combine(repo, "loop-b"), Path.Combine(repo, "loop-a"));
         try
         {
             using var policy = LocalPolicy.ForEvaluators("v1", ["org-baseline"], repo, [Silent()], Profile(ProfileFailModes.Closed));
@@ -290,9 +290,9 @@ public class FailModeTests
         Directory.CreateDirectory(Path.Combine(repo, "src"));
         File.WriteAllText(Path.Combine(repo, "src", "a.cs"), "class A;");
         File.WriteAllText(Path.Combine(outside, "secret.txt"), "secret");
-        Directory.CreateSymbolicLink(Path.Combine(repo, "inside-link"), Path.Combine(repo, "src"));
-        Directory.CreateSymbolicLink(Path.Combine(repo, "outside-dir"), outside);
-        File.CreateSymbolicLink(Path.Combine(repo, "outside-file.txt"), Path.Combine(outside, "secret.txt"));
+        TestLinks.Directory(Path.Combine(repo, "inside-link"), Path.Combine(repo, "src"));
+        TestLinks.Directory(Path.Combine(repo, "outside-dir"), outside);
+        TestLinks.File(Path.Combine(repo, "outside-file.txt"), Path.Combine(outside, "secret.txt"));
         return (repo, outside);
     }
 

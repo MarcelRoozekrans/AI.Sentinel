@@ -447,7 +447,7 @@ Tune via env vars to match your risk appetite.
 
 ## Administrative audit log (server part)
 
-The server part in `AI.Sentinel.AspNetCore` records approve and deny decisions made through the dashboard today (pause, release, publish, rejected publish and rollback are not recorded yet), with their actor, time, target and channel (web, MCP or git). The log is hash-chained per organisation, append-only, and holds identifiers only, never file contents or secrets. It is kept in memory in this version.
+The server part in `AI.Sentinel.AspNetCore` records approve and deny decisions made through the dashboard, and a publish and a rejected publish of the policy folder, today (pause, release and rollback are not recorded yet), with their actor, time, target and channel (web, MCP or git). The log is hash-chained per organisation, append-only, and holds identifiers only, never file contents or secrets. It is kept in memory in this version.
 
 ```csharp
 services.AddAISentinelAdminAudit(o =>
@@ -470,6 +470,71 @@ An export with its newest entries cut off fails, because the signed count no lon
 When the audit is registered, an approve or deny made through the dashboard is recorded on the web channel under `Organisation` (default `default`), once the store reports that the decision took effect. Without the registration nothing is recorded and the dashboard behaves as before. An export without entries prints `last_hash=-`; `--checkpoint-count 0 --checkpoint-hash -` is the matching empty checkpoint and is accepted.
 
 Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelAdminAudit` and `MapAISentinelAdminAudit`.
+
+## Policy folder and signed profiles (server part)
+
+The server part in `AI.Sentinel.AspNetCore` reads policy and node configuration from a folder (ADR-107). It never accepts either over HTTP: no endpoint takes a request body. A central product fills the folder from the protected branch of a git repository; a standalone deployment keeps a git checkout of that branch there, for example with a git-sync sidecar.
+
+```csharp
+services.AddAISentinelAdminAudit(o => o.SigningKey = signingKeyBase64);
+services.AddAISentinelPolicyFolder(o =>
+{
+    o.Path = "/policy/current";           // the folder, or a link to it, as git-sync keeps it
+    o.SigningKey = signingKeyBase64;      // base64 of the 32 byte Ed25519 seed, from the deployment
+    o.PreviousSigningKey = null;          // set during a key rotation
+    o.OpaPath = null;                     // the opa executable; looked up on the PATH when unset
+    o.PolicyName = "AISentinelDeveloper"; // the host's policy; the organisation is the resource
+});
+app.MapAISentinelPolicyServer();          // GET /.well-known/ai-sentinel/profile-keys,
+                                          // GET /ai-sentinel/policy/profile?repository=, GET /ai-sentinel/policy/node-map
+```
+
+### The folder
+
+```
+nodes.json            organisation, nodes, repositories, roles
+acme.rego             the bundle of the organisation node (a file named after the node id, or a folder)
+team-a/rules.rego     the bundle of the node team-a
+```
+
+```json
+{
+  "organisation": "acme",
+  "nodes": [
+    {"id": "acme", "kind": "organisation", "settings": {"fail_mode": "closed", "profile_lifetime_hours": 168}},
+    {"id": "team-a", "kind": "team", "settings": {"detailed_logging": true}}
+  ],
+  "repositories": {"github.com/acme/widgets": "team-a"},
+  "roles": [{"group": "security", "role": "administrator", "node": "acme"},
+            {"group": "team-a-leads", "role": "team_lead", "node": "team-a"}]
+}
+```
+
+A team inherits the settings it leaves out from the organisation. `fail_mode` is `closed` (the default) or `ask` (ADR-237); anything else, `open` included, refuses the configuration. The profile lifetime defaults to 7 days and is at most 876000 hours, 100 years; more refuses the configuration. `version` is optional: without it the server counts its publishes. Bundles are written in `package sentinel` and add reasons with `deny contains`, `ask contains` and the other outcome sets. A bundle below the organisation cannot define an `allow` rule (ADR-232). A link inside the folder is not followed and refuses the folder.
+
+### Reading is one complete version
+
+Whatever fills the folder has to swap it atomically, as git-sync does with a link. The server waits for changes to settle, resolves the real path once, reads every file into memory and compiles from that copy. It then reads the files again and compares them with the copy, and checks that the folder still resolves to the same place. On any difference, or when a read fails, nothing is published and the pass is tried again with bounded backoff. Reloads run one at a time, so an older version never replaces a newer one. A link swap raises no file event, so the folder is also looked at every `PollInterval` (30 seconds by default).
+
+### Compiling and validating
+
+All bundles of a version are merged into one Rego module, identified by its sha256. That module is not compiled as one, because two bundles may each declare the same default rule. Each profile carries the module of one node, merged the same way and compiled on its own, which is what the plugin compiles. The server compiles it in a child process with the `opa` binary, with a capabilities document that leaves out the builtins that reach outside the process (`http.send`, `net.lookup_ip_addr`, `opa.runtime`). The Rego engine is the one of the hook adapter, referenced by the server part; where it finally lives is tracked in #694. A configuration that fails validation is not published, the last good one stays in force, and a `rejected_publish` entry is written to the [audit log](#administrative-audit-log-server-part) on the git channel; a `publish` entry is written for each published version. Entries hold a short reason code and a hash, never file content. A `publish` entry holds the start of the sha256 of the merged module; a change that only touches `nodes.json` can leave it as it was, so it does not identify a change of the node configuration. A `rejected_publish` entry holds the reason code and the start of a fingerprint of every file that was read, `nodes.json` included. A rejection because the folder cannot be read, for example a link inside it, holds the reason code alone. A compiler that cannot run is not a rejection: nothing is published, the pass is retried and the failure is logged.
+
+### Signed profiles
+
+The server signs one profile per repository with the deployment key and serves it to a signed-in developer of the organisation. All three endpoints use the host's authorization policy with the organisation as the resource, and answer `503` until a first configuration is published.
+
+| Endpoint | Answers |
+|---|---|
+| `GET /.well-known/ai-sentinel/profile-keys` | `{"organisation": "...", "keys": ["base64 Ed25519 public key"]}`, the keys the sign-in pins |
+| `GET {prefix}/profile?repository=` | the signed profile of the repository; `404` when no node owns it |
+| `GET {prefix}/node-map` | repository to node id, the map the hooks cache |
+
+The profiles follow the convention the hooks read. The profile for the repository `*` is the organisation's top-level rules (the bundle of the organisation node), and the profile for a repository is the bundle of the node that owns it, so a node never carries another node's rules; the hooks combine the two strictest-wins. A repository that is not in `nodes.json` gets `404`, which is strict repository mode. The node map is the same type the hooks cache as `nodes.json` in their state folder.
+
+While the server is unreachable a hook does not apply a deny rule from the last valid cached profile yet. The hooks read cached profiles when the server connection is added.
+
+Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelPolicyFolder` and `MapAISentinelPolicyServer`.
 
 ## Tool kinds and policy input
 
