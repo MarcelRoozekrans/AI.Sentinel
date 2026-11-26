@@ -248,6 +248,29 @@ public sealed class NodeRoleTests : IDisposable
 
         Assert.Equal(NodeRole.Developer, roles.RoleOn(User("root", "sec"), "acme"));
         Assert.False(roles.AllowsOnSession(User("root", "sec"), NodeRole.TeamLead, Repository));
+        Assert.False(roles.IsAdministratorOf(User("root", "sec"), "acme"));
+    }
+
+    [Fact]
+    public async Task An_administrator_is_one_of_the_organisation_the_published_configuration_names_and_of_no_other()
+    {
+        var roles = await RolesAsync();
+
+        Assert.True(roles.IsAdministratorOf(User("root", "sec"), "acme"));
+        Assert.False(roles.IsAdministratorOf(User("root", "sec"), "globex"));
+        Assert.False(roles.IsAdministratorOf(User("lead", "leads-a"), "acme"));
+    }
+
+    [Theory]
+    [InlineData("[not json")]
+    [InlineData("[\"sec\"")]
+    public async Task A_groups_claim_that_starts_like_an_array_but_is_not_one_is_one_group_name(string value)
+    {
+        var roles = await RolesAsync();
+        var user = new ClaimsPrincipal(new ClaimsIdentity([new Claim("sub", "eve"), new Claim("groups", value)], "test"));
+
+        Assert.Equal([value], roles.GroupsOf(user), StringComparer.Ordinal);
+        Assert.False(roles.IsAdministratorOf(user, "acme"));
     }
 
     [Fact]
