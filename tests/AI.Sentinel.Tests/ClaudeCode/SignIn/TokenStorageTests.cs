@@ -235,6 +235,33 @@ public class TokenStorageTests : IDisposable
     }
 
     [Fact]
+    public void A_secret_tool_that_hangs_is_stopped_and_counts_as_a_failure()
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS(), "a shell script stands in for secret-tool");
+        var folder = Directory.CreateTempSubdirectory("st-").FullName;
+        var script = Path.Combine(folder, "secret-tool");
+        File.WriteAllText(script, "#!/bin/sh\nsleep 30\n");
+        if (!OperatingSystem.IsWindows())
+        {
+            File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        try
+        {
+            var store = new SecretToolStore("acct", log: null, script, TimeSpan.FromMilliseconds(200));
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+
+            Assert.False(store.Save("rt-x"));
+            Assert.False(store.Delete());
+            Assert.True(watch.Elapsed < TimeSpan.FromSeconds(20));
+        }
+        finally
+        {
+            Directory.Delete(folder, recursive: true);
+        }
+    }
+
+    [Fact]
     public void A_missing_secret_tool_means_memory_only()
     {
         var log = new List<string>();
