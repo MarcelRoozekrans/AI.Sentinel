@@ -10,7 +10,12 @@ namespace AI.Sentinel.ClaudeCode.Resident;
 /// <param name="evaluators">The places, in the order they are asked.</param>
 internal sealed class EvaluationOrder(IReadOnlyList<IPolicyEvaluator> evaluators)
 {
-    public PolicyAnswer Evaluate(string inputJson)
+    public PolicyAnswer Evaluate(string inputJson) =>
+        TryEvaluate(inputJson) ?? throw new InvalidOperationException("no place could evaluate the policy: the resident process did not answer and the hook has no module to run");
+
+    /// <summary>The answer of the first place that has one; <see langword="null"/> when none has, and none failed, which is the case
+    /// the fail mode decides (#673). A failure of a place is rethrown when none answers, as for <see cref="Evaluate"/>.</summary>
+    public PolicyAnswer? TryEvaluate(string inputJson)
     {
         ArgumentNullException.ThrowIfNull(inputJson);
         ExceptionDispatchInfo? firstFailure = null;
@@ -32,6 +37,6 @@ internal sealed class EvaluationOrder(IReadOnlyList<IPolicyEvaluator> evaluators
         }
 
         firstFailure?.Throw();
-        throw new InvalidOperationException("no place could evaluate the policy: the resident process did not answer and the hook has no module to run");
+        return null;
     }
 }

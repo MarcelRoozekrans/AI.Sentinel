@@ -37,31 +37,31 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Entry and chain
 
-- [ ] Add the entry with action, actor, time, target and channel, chained per organisation with `AuditHashChain`.
-- [ ] Failing tests first in `AdminAuditLogTests`.
-- [ ] Commit.
+- [x] Add the entry with action, actor, time, target and channel, chained per organisation with `AuditHashChain`.
+- [x] Failing tests first in `AdminAuditLogTests`.
+- [x] Commit.
 
 ### Task 2: Append-only store
 
-- [ ] Add the store; updates and deletes are refused, shown by a test.
-- [ ] Commit.
+- [x] Add the store; updates and deletes are refused, shown by a test.
+- [x] Commit.
 
 ### Task 3: Export endpoint
 
-- [ ] Add the export per organisation behind the host's authorization policy; authorize with the organisation as the resource; end it with the head, entry count, last hash, export time and organisation, signed with the deployment's key through #671.
-- [ ] Commit.
+- [x] Add the export per organisation behind the host's authorization policy; authorize with the organisation as the resource; end it with the head, entry count, last hash, export time and organisation, signed with the deployment's key through #671.
+- [x] Commit.
 
 ### Task 4: Offline verify command
 
-- [ ] Add a `sentinel` command that verifies an export with `AuditChainVerification` and names the first broken entry, and checks the signed head against a pinned public key.
-- [ ] Accept an optional checkpoint (count, hash and export time from an earlier export or verify run) and reject an export that is older or does not contain it. Take the expected organisation and reject an export for another.
-- [ ] Tests in `AdminAuditVerifyCommandTests`, including an export with its last entry removed, and an older complete export checked against a newer checkpoint, the same entries exported before the checkpoint's time, and an export for another organisation; all fail. In `AdminAuditLogTests`, a caller refused on organisation B asks for its export and is denied.
-- [ ] Commit.
+- [x] Add a `sentinel` command that verifies an export with `AuditChainVerification` and names the first broken entry, and checks the signed head against a pinned public key.
+- [x] Accept an optional checkpoint (count, hash and export time from an earlier export or verify run) and reject an export that is older or does not contain it. Take the expected organisation and reject an export for another.
+- [x] Tests in `AdminAuditVerifyCommandTests`, including an export with its last entry removed, and an older complete export checked against a newer checkpoint, the same entries exported before the checkpoint's time, and an export for another organisation; all fail. In `AdminAuditLogTests`, a caller refused on organisation B asks for its export and is denied.
+- [x] Commit.
 
 ### Task 5: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks

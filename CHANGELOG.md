@@ -9,6 +9,24 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.1.0...v6.2.0) (2026-11-26)
+
+
+### Features
+
+* **hooks:** apply the profile fail mode when no decision can be made ([#699](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/699)) ([ff1a76e](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ff1a76e4ff388d71c8950356d0bf603ef2b38b09))
+
+## [6.1.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.0.0...v6.1.0) (2026-11-26)
+
+
+### Features
+
+* **audit:** append-only administrative audit log with a signed export and offline verify ([#691](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/691)) ([c76fc59](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/c76fc5967dc331098f21d3acff75ef004efecc5d))
+* **codex:** add sentinel-codex-hook for OpenAI's Codex CLI ([#703](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/703)) ([0baa69b](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/0baa69bc8b1e60295e480f6c9417f52bd3dcb52e))
+* **hooks:** add the resident local process that answers policy decisions ([#697](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/697)) ([82d7049](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/82d704997ed94de97fe4eeba9c5dcef9645f804a))
+* **hooks:** evaluate a local Rego policy folder on PreToolUse ([#693](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/693)) ([90f5e11](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/90f5e1194d304310129a0d6d79c7c8335cac1e23))
+* **hooks:** set outcomes per finding severity from a Rego policy ([#696](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/696)) ([f351f2a](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/f351f2a3db802806426d8670f2cf7eae06695c3d))
+
 ## [6.0.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v5.2.2...v6.0.0) (2026-11-23)
 
 

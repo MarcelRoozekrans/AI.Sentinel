@@ -68,6 +68,38 @@ public class EvaluationOrderTests : IDisposable
         Assert.Contains("decided=resident", output.Outcome.Summary(), StringComparison.Ordinal);
     }
 
+    /// <summary>A hook that starts the process does not wait for it, so it decides in-process even when the new process listens by
+    /// the time the hook evaluates. Which place answers would otherwise depend on how fast the process starts.</summary>
+    [Fact]
+    public async Task A_hook_that_started_the_resident_process_decides_in_process_even_when_it_already_listens()
+    {
+        RegoPolicyTestSupport.Prime(_folder);
+        HostedResident? host = null;
+        try
+        {
+            using var policy = Load(budgetMs: 60_000, start: _ =>
+            {
+                host = new HostedResident(_state, compilers: RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()));
+                host.WaitUntilListeningAsync().Wait(TestContext.Current.CancellationToken);
+                Warm();
+                return true;
+            });
+
+            var output = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"rm -rf build"}"""), "s");
+
+            Assert.NotNull(host);
+            Assert.Equal(DecisionOutcome.Deny, output.Outcome!.Outcome);
+            Assert.Equal(OutcomeDecision.InProcess, output.Outcome.DecidedAt);
+        }
+        finally
+        {
+            if (host is not null)
+            {
+                await host.DisposeAsync();
+            }
+        }
+    }
+
     [Fact]
     public async Task The_resident_answer_is_the_answer_of_an_in_process_evaluation()
     {
@@ -188,7 +220,7 @@ public class EvaluationOrderTests : IDisposable
     }
 
     [Fact]
-    public void A_state_folder_that_is_open_to_others_is_not_talked_to()
+    public void A_state_folder_that_is_open_to_others_is_not_talked_to_and_the_call_is_blocked()
     {
         if (OperatingSystem.IsWindows())
         {
@@ -203,11 +235,15 @@ public class EvaluationOrderTests : IDisposable
         try
         {
             var session = ResidentSession.Open(Env(), _ => throw new InvalidOperationException("nothing is started"))!;
-            using var policy = LocalPolicy.Load(_folder, Env(), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()), session);
-            var output = policy.Decide(Allowed, PolicyClis.ClaudeCode, "Bash", Json("""{"command":"ls"}"""), "s");
+
+            // The hooks fail closed: what the folder holds, such as the node map, could be another user's, so the load fails and
+            // the caller blocks the call.
+            var error = Assert.Throws<UnauthorizedAccessException>(
+                () => LocalPolicy.Load(_folder, Env(), "/work/repo", RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()), session));
 
             Assert.Equal(ResidentStart.Unusable, session.Start);
-            Assert.Equal(OutcomeDecision.InProcess, output.Outcome?.DecidedAt ?? OutcomeDecision.InProcess);
+            Assert.Contains(_state, error.Message, StringComparison.Ordinal);
+            Assert.Contains("open to other users", error.Message, StringComparison.Ordinal);
         }
         finally
         {

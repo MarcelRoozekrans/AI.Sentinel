@@ -41,6 +41,16 @@ internal static class ToolKinds
         ["task"] = ToolKind.Agent,
     }.ToFrozenDictionary(StringComparer.Ordinal);
 
+    // Codex hook tool names. A file edit is always apply_patch: Edit and Write are matcher aliases only, and the hook
+    // input still reports apply_patch. Reads, searches and fetches go through Bash or MCP tools, so they map to those.
+    private static readonly FrozenDictionary<string, ToolKind> Codex = new Dictionary<string, ToolKind>(StringComparer.Ordinal)
+    {
+        ["Bash"] = ToolKind.Shell,
+        ["apply_patch"] = ToolKind.Edit,
+        ["spawn_agent"] = ToolKind.Agent,
+        ["Agent"] = ToolKind.Agent,
+    }.ToFrozenDictionary(StringComparer.Ordinal);
+
     /// <summary>The kind of <paramref name="toolName"/> in <paramref name="cli"/>. Names match ordinally.</summary>
     public static ToolKind Map(string cli, string? toolName)
     {
@@ -52,6 +62,7 @@ internal static class ToolKinds
         if (toolName.StartsWith(McpPrefix, StringComparison.Ordinal) && toolName.Length > McpPrefix.Length)
         {
             return string.Equals(cli, PolicyClis.ClaudeCode, StringComparison.Ordinal) || string.Equals(cli, PolicyClis.Copilot, StringComparison.Ordinal)
+                || string.Equals(cli, PolicyClis.Codex, StringComparison.Ordinal)
                 ? ToolKind.Mcp
                 : ToolKind.Other;
         }
@@ -65,6 +76,11 @@ internal static class ToolKinds
         {
             // A PascalCase hook event makes Copilot send the VS Code payload with Claude tool names.
             return Copilot.TryGetValue(toolName, out var kind) ? kind : ClaudeCode.GetValueOrDefault(toolName);
+        }
+
+        if (string.Equals(cli, PolicyClis.Codex, StringComparison.Ordinal))
+        {
+            return Codex.GetValueOrDefault(toolName);
         }
 
         return ToolKind.Other;

@@ -124,6 +124,10 @@ How each outcome is expressed for Copilot CLI:
 
 `sentinel-copilot-hook` takes part in the resident local process the same way `sentinel-hook` does, and the two share one process per user: `SENTINEL_HOOK_RESIDENT=on` lets a `preToolUse` ask it for the policy evaluation, falls back to evaluating in-process when it does not answer within `SENTINEL_HOOK_RESIDENT_BUDGET_MS` (15 by default), and denies the calls of a session that the pause state names. **All three settings are optional and off by default: without `SENTINEL_HOOK_RESIDENT` no process is started and the hook behaves exactly as before.** The channel, the state folder, the lifecycle and the evaluation order are on the [Claude Code page](./claude-code#resident-local-process). Copilot CLI cannot ask, so a pause is a deny, as it is for Claude Code.
 
+## Fail mode
+
+`sentinel-copilot-hook` applies the same fail mode as `sentinel-hook`: closed denies a call no policy decision can be made for, ask asks, a read or search inside the repository stays allowed, a bundle that errors always denies by name, and an internal error still blocks. Copilot cannot ask, so an ask becomes a deny with instructions. **Every new setting is optional and off by default.** See [Fail mode](./claude-code#fail-mode).
+
 ## When the hook itself fails
 
 The hook fails closed on `preToolUse`. When it cannot evaluate a tool call, it blocks the call with exit 2 and a reason that starts with `Sentinel internal error:` on stderr. This covers:

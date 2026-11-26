@@ -256,7 +256,7 @@ Platforms:
 
 - **What it does.** It keeps the compiled policy module loaded and answers the policy evaluation of each `PreToolUse`, so a hook does not load the module itself. Its state folder is where the pause state and the signed profile cache are kept, once something writes them. It has no connection to a server yet, and forwards nothing.
 - **Starting and stopping.** A hook that finds no resident process starts one, detached, with its standard streams not inherited, so the hook exits when it has decided; that call is evaluated in-process. A lock file opened without sharing in the state folder keeps it to one process per user, and the operating system releases the lock when the process ends, however it ends. On Linux and macOS the process calls `setsid` first, so it leaves the process group and session of the hook and survives a CLI that kills that group. On Windows nothing is done: .NET cannot start a process outside the job of its parent, so a CLI that runs hooks in a job that kills its members takes the resident process with it, and the next hook starts a new one. It exits after 30 idle minutes. No OS service is installed.
-- **The channel.** A Unix domain socket in the state folder, which works on Linux, macOS and Windows 10 and later. The folder is private to the user (mode 700 on Unix, an ACL for the user alone on Windows) and the socket is mode 600, so another user cannot connect. A folder that already exists and is open to others is not used: the process moves to a `.private` sibling, as the policy cache does.
+- **The channel.** A Unix domain socket in the state folder, which works on Linux, macOS and Windows 10 and later. The folder is private to the user (mode 700 on Unix, an ACL for the user alone on Windows) and the socket is mode 600, so another user cannot connect. A folder that already exists and is open to others is not used: the process moves to a `.private` sibling, as the policy cache does. If that sibling is open to others too, the hook blocks the call and names the folder, since the socket and the cached node map in it could be another user's.
 - **Evaluation order.** The resident process answers first. When it does not answer within the budget, or fails, the hook evaluates the module in-process; the budget is one for the whole call, shared by every evaluation of it, and it starts when the call is made. When that fails too the call is blocked as an internal error, as it is without the resident process, and once a server exists it is asked at that point. The whole decision aims at 50 ms per call, a target for a decision whose policy is cached and not a guarantee for every call: compiling a policy that is not cached can take up to 30 seconds, and the resident budget does not bound that.
 - **Where a decision was made.** The audit entry of a decision that carries an outcome ends in `decided=resident`, `decided=in-process` or `decided=server`.
 - **Pause state.** A hook reads the paused sessions from `pause.json` in the state folder. Nothing writes that file yet: the library can write it, but connecting a writer, so that a pause can be set through the resident process, comes later. The hook reads the file, with no network traffic and no running process, and denies every tool call of a paused session with the reason, whatever else it decided. A pause names a session and can have an end.
@@ -281,6 +281,33 @@ Platforms:
 - **The resident process.** It takes the tokens over its private socket, so it needs `SENTINEL_HOOK_RESIDENT=on`, or a running process. It refreshes the access token without a new sign-in, and reports that sign-in is needed once the provider rejects the refresh token. A provider that issues no refresh token still signs in: the access token is used until it expires, and then sign-in is needed. A provider that is down is not a reason to sign in again.
 - **Requests to the server.** The resident process does not call the server yet, so no request carries the token today. The handler that will attach it puts the access token on a request to the server's scheme, host and port only. Validating the token and reading the developer and groups from it is server work that comes with #674.
 - **No token leaks.** A token is never printed, logged, written to the audit or put in the policy input, and no exception message holds one.
+
+## Which policy applies
+
+The policy of a tool call comes from the node that owns the repository, not from the developer's team (ADR-232, ADR-246). `SENTINEL_HOOK_TEAM` does not exist. **Every new setting is optional and off by default: until a node map is cached in the state folder, which needs `SENTINEL_HOOK_RESIDENT=on` and an organisation's server, the policy input's `repository` and `node` stay empty and the hooks behave exactly as before.**
+
+| Variable | Default | Values |
+|---|---|---|
+| `SENTINEL_HOOK_STRICT_REPOSITORY` | `on` | `off` / `0` / `false` / `no` → an unowned repository is not restricted. Applies only once a node map is cached |
+
+- **The repository.** The git remote of the working directory, `origin` when there is one, else the first remote with a url. The hook reads `.git/config` itself and starts no `git` process. It reads it as git does: includes in place, `~/` included, and a value continued on the next line with a backslash. A config that cannot be read, or whose includes nest deeper than the 10 levels git follows or expand past 1000 files, blocks `PreToolUse` and names the folder, since the hook cannot tell which node owns the repository. A `.git` file is followed: a worktree to the common folder that holds the config, a submodule to its own folder under the superproject, so a submodule reports its own remote.
+- **The name.** The url is reduced to host and path in lower case, without scheme, port, credentials or `.git` suffix, so `git@github.com:Acme/Widgets.git` and `https://github.com/acme/widgets` are one repository. Nothing of the userinfo is kept, so a token embedded in a url reaches neither the policy input nor the audit.
+- **The node.** The node map, the server's node configuration, is cached as `nodes.json` in the state folder and read with no network. A map that is cached and cannot be read blocks `PreToolUse` as an internal error rather than reading as "no node owns anything".
+- **Strict repository mode.** On by default. A repository no node owns, or a folder outside git, gets only the organisation's top-level rules, and no events go to the server (the resident forwarder of #661 honours this; the hook has no server forwarder). A local `SENTINEL_HOOK_POLICY_DIR` still applies, since strict mode limits the organisation and node rules only. `sentinel-hook session-start` prints a message with that for the developer, and nothing for an owned repository or a PC without a node map. The plugin has no `SessionStart` entry yet, so run it by hand or add that entry to the plugin's `hooks.json`. It applies with or without `SENTINEL_HOOK_POLICY_DIR`; with no cached node map nothing changes.
+- **Combining.** The organisation's top-level rules, the bundle of the owning node and a local `SENTINEL_HOOK_POLICY_DIR` are all evaluated, and the strictest outcome wins. A deny of the organisation holds in every repository, also where the bundle of the node allows the call, and the local folder can only tighten. A shell command line the parser cannot read asks whatever these rules say, also without a local folder.
+- **Not built yet.** The shipped CLIs wire `NoNodePolicies`, so the organisation's rules and the node bundles are not evaluated yet; only the repository and node names reach the policy input. Signing in to an organisation and the server's node configuration (#659, #664) fill the node map and the signed profiles; until then nothing in the shipped hooks writes them.
+
+## Fail mode
+
+When no policy decision can be made for a call, the `fail_mode` of the node's profile decides (ADR-237). **Every new setting is optional and off by default: no hook builds a fail mode from a setting yet, and without one the hooks behave exactly as before.** The profile, the sign-in and the pinned keys come with the server connection, so what is built and tested here is the decision itself, which the hook takes once it has a profile to read.
+
+- **closed**, the default. The call is denied, and the reason says why no decision could be made and what the developer can do.
+- **ask**, when the node chooses it. The call gets the outcome ask, mapped for each CLI as in [Decision outcomes](#decision-outcomes): where the CLI cannot ask, or the run is headless, it becomes a deny with instructions. There is no mode that lets such a call through.
+- **No profile.** When a server is configured and no profile is cached, including a developer who has not signed in yet, there is no `fail_mode` to read, so the hook uses closed and tells the developer to sign in. An expired profile still decides with its own `fail_mode`, which was signed, and the reason says it expired. A profile that fails its check has no readable `fail_mode`, so closed applies. With no server configured there is no profile to miss, and nothing changes.
+- **Read-only calls.** A `read` or `search` call whose paths all lie inside the repository, after symbolic links are followed, stays allowed in both modes.
+- **The repository's rules.** The organisation's rules and the node's bundle from [Which policy applies](#which-policy-applies) still apply next to the fail mode, and the strictest outcome wins.
+- **A bundle that errors.** A policy bundle that fails while it runs denies the call and names the bundle, whatever the fail mode. The error text is not repeated, because a module can echo the tool input.
+- **The hook itself.** An internal error, as under [When the hook itself fails](#when-the-hook-itself-fails), still blocks, whatever the fail mode.
 
 ## When the hook itself fails
 
@@ -417,6 +444,32 @@ With `SENTINEL_HOOK_ON_HIGH=Block` and a typical Claude Code workflow:
 - **Repetitive or long tool output** — not flagged. The default [security preset](#detectors) leaves out `OPS-02` and `OPS-11`; with `SENTINEL_HOOK_DETECTORS=all`, repeated lines warn and output much larger than the tool call is withheld.
 
 Tune via env vars to match your risk appetite.
+
+## Administrative audit log (server part)
+
+The server part in `AI.Sentinel.AspNetCore` records approve and deny decisions made through the dashboard today (pause, release, publish, rejected publish and rollback are not recorded yet), with their actor, time, target and channel (web, MCP or git). The log is hash-chained per organisation, append-only, and holds identifiers only, never file contents or secrets. It is kept in memory in this version.
+
+```csharp
+services.AddAISentinelAdminAudit(o =>
+{
+    o.SigningKey = signingKeyBase64;      // base64 of the 32 byte Ed25519 seed, from the deployment
+    o.PolicyName = "AISentinelAdminAudit"; // the host's authorization policy; the organisation is the resource
+    o.Organisation = "acme";               // optional: where dashboard approve and deny decisions are recorded
+});
+app.MapAISentinelAdminAudit();            // GET /ai-sentinel/admin-audit/{organisation}/export
+```
+
+An export ends with a head signed with the deployment key: entry count, last hash, export time and organisation. Verify one offline with the pinned public key:
+
+```
+sentinel audit-verify export.json --organisation acme --public-key <base64>
+```
+
+An export with its newest entries cut off fails, because the signed count no longer matches. The command prints the signed count and export time. Pass them back with `--checkpoint-count`, `--checkpoint-hash` and `--checkpoint-time` on a later run, and an export that is older than the checkpoint or does not contain it is rejected, as is an export for another organisation. Exit codes: `0` verified, `1` usage error, `2` verification failed.
+
+When the audit is registered, an approve or deny made through the dashboard is recorded on the web channel under `Organisation` (default `default`), once the store reports that the decision took effect. Without the registration nothing is recorded and the dashboard behaves as before. An export without entries prints `last_hash=-`; `--checkpoint-count 0 --checkpoint-hash -` is the matching empty checkpoint and is accepted.
+
+Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelAdminAudit` and `MapAISentinelAdminAudit`.
 
 ## Tool kinds and policy input
 
