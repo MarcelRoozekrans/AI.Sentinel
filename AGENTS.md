@@ -17,7 +17,7 @@ This repository is part of a .NET product line. Read the [product-line standards
   model. CI builds it so it cannot drift from the internals it reads.
 - `samples/` and `benchmarks/` have their own `Directory.Build.props` that clears `TargetFrameworks`,
   so each project sets its own `TargetFramework`.
-- `src/AI.Sentinel.ClaudeCode.Cli`, `Copilot.Cli` and `Mcp.Cli` target `net10.0` only and share
+- `src/AI.Sentinel.ClaudeCode.Cli`, `Codex.Cli`, `Copilot.Cli` and `Mcp.Cli` target `net10.0` only and share
   `eng/NativeTool.props`. Both legs of `AI.Sentinel.Tests` reference their `net10.0` build.
 - `artifacts/` is ignored; local pack output can go there.
 - `website/` is the Docusaurus docs site, built by `docs.yml` only.

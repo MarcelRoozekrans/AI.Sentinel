@@ -65,8 +65,8 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
                 ?? throw new InvalidOperationException(
                     "no Rego compiler can run here: " + string.Join("; ", compilers.Select(c => $"{c.Name}: {c.Unavailable()}")));
             // The plugin compiles each of these texts on its own, with the host rules added as they are there. All bundles together
-            // identify the configuration; each profile carries one node's module, which has to compile alone.
-            compiler.CompileWasm(PolicySources.FromFiles([new PolicyFile("profile.rego", module)]), restrictBuiltins: true);
+            // identify the configuration but are never compiled as one: two bundles may each declare the same default rule, which
+            // only one module rejects. Each profile carries one node's module, which has to compile alone.
             foreach (var own in modules.Values.DistinctBy(m => m.ModuleHash, StringComparer.Ordinal))
             {
                 compiler.CompileWasm(PolicySources.FromFiles([new PolicyFile("profile.rego", own.Module)]), restrictBuiltins: true);
@@ -120,8 +120,8 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
     }
 
     /// <summary>Whether Rego text has a rule head named <c>allow</c>: <c>allow if</c>, <c>allow contains</c>, <c>allow := ...</c>,
-    /// <c>default allow</c> and the like. Comments are left out.</summary>
-    internal static bool DefinesAllow(string body) => AllowHead().IsMatch(StripComments(body));
+    /// <c>default allow</c> and the like. Comments are left out, and so is <c>allow</c> as a value in a head, as in <c>deny contains allow if</c>.</summary>
+    internal static bool DefinesAllow(string body) => AllowHead().IsMatch(TopLevel(body));
 
     private static string Merge(List<KeyValuePair<string, byte[]>> rego)
     {
@@ -146,16 +146,21 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
         string? package = null;
         var imports = new List<string>();
         var body = new StringBuilder();
-        foreach (var line in source.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        var lines = source.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var insideRaw = RawStringStarts(lines);
+        for (var i = 0; i < lines.Length; i++)
         {
+            var line = lines[i];
             var trimmed = line.Trim();
-            if (trimmed.StartsWith("package ", StringComparison.Ordinal) && package is null && body.ToString().Trim().Length == 0)
+            // A line that begins inside a raw string is string content, whatever it looks like. A comment before the package
+            // declaration is allowed and stays in the body.
+            if (!insideRaw[i] && AfterKeyword(trimmed, "package") is { } declared && package is null && StripComments(body.ToString()).Trim().Length == 0)
             {
-                package = StripComments(trimmed["package ".Length..]).Trim();
+                package = StripComments(declared).Trim();
             }
-            else if (trimmed.StartsWith("import ", StringComparison.Ordinal))
+            else if (!insideRaw[i] && AfterKeyword(trimmed, "import") is { } imported)
             {
-                imports.Add(StripComments(trimmed).Trim());
+                imports.Add("import " + StripComments(imported).Trim());
             }
             else
             {
@@ -166,37 +171,124 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
         return (package, imports, body.ToString());
     }
 
-    // A # outside a string starts a comment. Raw strings and multi-line strings are rare in a policy and not handled.
-    private static string StripComments(string text)
+    // What follows the keyword when the line starts with it and a whitespace character of any kind, a tab included, ends it.
+    private static string? AfterKeyword(string trimmed, string keyword) =>
+        trimmed.Length > keyword.Length && trimmed.StartsWith(keyword, StringComparison.Ordinal) && char.IsWhiteSpace(trimmed[keyword.Length])
+            ? trimmed[(keyword.Length + 1)..]
+            : null;
+
+    // For each line, whether it begins inside a raw string, which is quoted by backticks and can span lines.
+    private static bool[] RawStringStarts(string[] lines)
     {
-        var result = new StringBuilder();
-        foreach (var line in text.Split('\n'))
+        var starts = new bool[lines.Length];
+        var raw = false;
+        for (var i = 0; i < lines.Length; i++)
         {
+            starts[i] = raw;
             var quoted = false;
-            var end = line.Length;
-            for (var i = 0; i < line.Length; i++)
+            for (var j = 0; j < lines[i].Length; j++)
             {
-                if (line[i] == '\\' && quoted)
+                var c = lines[i][j];
+                if (raw)
                 {
-                    i++;
+                    raw = c != '`';
                 }
-                else if (line[i] == '"')
+                else if (c == '\\' && quoted)
+                {
+                    j++;
+                }
+                else if (c == '"')
                 {
                     quoted = !quoted;
                 }
-                else if (line[i] == '#' && !quoted)
+                else if (c == '`' && !quoted)
                 {
-                    end = i;
+                    raw = true;
+                }
+                else if (c == '#' && !quoted)
+                {
                     break;
                 }
             }
+        }
 
-            result.Append(line, 0, end).Append('\n');
+        return starts;
+    }
+
+    // A # outside a string starts a comment. Double quoted and raw strings are both skipped, the raw ones across lines.
+    private static string StripComments(string text) => Scan(text, blankStrings: false, blankNested: false);
+
+    /// <summary>The text with comments removed, string contents emptied and everything inside braces, brackets and parentheses
+    /// emptied, so what is left is what stands at the top level of a module: the heads of its rules.</summary>
+    private static string TopLevel(string text) => Scan(text, blankStrings: true, blankNested: true);
+
+    private static string Scan(string text, bool blankStrings, bool blankNested)
+    {
+        var result = new StringBuilder(text.Length);
+        var depth = 0;
+        var quote = '\0';
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            var emit = !(blankNested && depth > 0);
+            if (quote != '\0')
+            {
+                // The content of a string is kept or blanked; the quotes that frame it are kept where the text is kept.
+                var escape = quote == '"' && c == '\\' && i + 1 < text.Length;
+                var closes = !escape && c == quote;
+                if (emit && (!blankStrings || closes))
+                {
+                    result.Append(c);
+                    if (escape)
+                    {
+                        result.Append(text[i + 1]);
+                    }
+                }
+
+                i += escape ? 1 : 0;
+                quote = closes ? '\0' : quote;
+            }
+            else if (c == '#')
+            {
+                i = EndOfLine(text, i);
+            }
+            else if (c is '"' or '`')
+            {
+                quote = c;
+                AppendIf(result, emit, c);
+            }
+            else if (blankNested && c is '{' or '[' or '(')
+            {
+                AppendIf(result, depth++ == 0, c);
+            }
+            else if (blankNested && c is '}' or ']' or ')')
+            {
+                AppendIf(result, depth > 0 && --depth == 0, c);
+            }
+            else
+            {
+                AppendIf(result, emit || c == '\n', c);
+            }
         }
 
         return result.ToString();
     }
 
-    [GeneratedRegex(@"^\s*(default\s+)?allow\s*(contains\b|if\b|:=|=|\{|\[|\()", RegexOptions.Multiline | RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1000)]
+    // The index of the last character of the line that starts the comment at <paramref name="from"/>; the newline itself stays.
+    private static int EndOfLine(string text, int from)
+    {
+        var end = text.IndexOf('\n', from);
+        return end < 0 ? text.Length : end - 1;
+    }
+
+    private static void AppendIf(StringBuilder result, bool condition, char c)
+    {
+        if (condition)
+        {
+            result.Append(c);
+        }
+    }
+
+    [GeneratedRegex(@"(?<![\w.])(?<!(contains|:=|=)[ \t]*)allow\s*(contains\b|if\b|:=|=|\{|\[|\()", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1000)]
     private static partial Regex AllowHead();
 }

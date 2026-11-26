@@ -9,9 +9,11 @@ namespace AI.Sentinel.ClaudeCode.Policy.Repository;
 internal sealed class NodeMap
 {
     /// <summary>A map that no node owns anything in.</summary>
-    public static readonly NodeMap Empty = new([]);
+    public static readonly NodeMap Empty = new(Array.Empty<KeyValuePair<string, string>>());
 
     private readonly Dictionary<string, string> _owners;
+
+    private NodeMap(Dictionary<string, string> owners) => _owners = owners;
 
     /// <summary>The map of <paramref name="owners"/>, repository url or name to node. A key is normalised as a remote url is, so the
     /// map can be written in either form.</summary>
@@ -37,7 +39,20 @@ internal sealed class NodeMap
     /// <summary>The map as JSON, the form of the cache file.</summary>
     public byte[] ToJson() => JsonSerializer.SerializeToUtf8Bytes(_owners, NodeMapJsonContext.Default.DictionaryStringString);
 
-    /// <summary>Reads the cache file form; throws <see cref="JsonException"/> when the bytes are not a map.</summary>
-    public static NodeMap FromJson(ReadOnlySpan<byte> json) =>
-        new(JsonSerializer.Deserialize(json, NodeMapJsonContext.Default.DictionaryStringString) ?? throw new JsonException("no map"));
+    /// <summary>Reads the cache file form; throws <see cref="JsonException"/> when the bytes are not a map. The keys of the file are
+    /// the names the map normalised when it was written, so they are kept as they are and not normalised a second time.</summary>
+    public static NodeMap FromJson(ReadOnlySpan<byte> json)
+    {
+        var stored = JsonSerializer.Deserialize(json, NodeMapJsonContext.Default.DictionaryStringString) ?? throw new JsonException("no map");
+        var owners = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (name, node) in stored)
+        {
+            if (!string.IsNullOrWhiteSpace(node))
+            {
+                owners[name] = node;
+            }
+        }
+
+        return new NodeMap(owners);
+    }
 }

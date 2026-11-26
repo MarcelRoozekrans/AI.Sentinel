@@ -33,7 +33,7 @@ public static class PolicyFolderExtensions
         services.AddOptions<PolicyFolderOptions>().Configure(configure);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IReadOnlyList<IRegoCompiler>>(sp =>
-            [new OpaBinaryCompiler(sp.GetRequiredService<IOptions<PolicyFolderOptions>>().Value.OpaPath is { Length: > 0 } path ? path : FindOpa(), ChildProcessRegoCompiler.DefaultTimeout)]);
+            [new OpaBinaryCompiler(sp.GetRequiredService<IOptions<PolicyFolderOptions>>().Value.OpaPath is { Length: > 0 } path ? path : FindOpa(Environment.GetEnvironmentVariable("PATH")), ChildProcessRegoCompiler.DefaultTimeout)]);
         services.TryAddSingleton(sp =>
         {
             var o = sp.GetRequiredService<IOptions<PolicyFolderOptions>>().Value;
@@ -147,10 +147,11 @@ public static class PolicyFolderExtensions
         return failure ?? Results.Bytes(configuration!.Nodes.Map.ToJson(), "application/json");
     }
 
-    private static string? FindOpa()
+    /// <summary>The <c>opa</c> binary in the first folder of <paramref name="searchPath"/> that holds one, or null.</summary>
+    internal static string? FindOpa(string? searchPath)
     {
         var exe = OperatingSystem.IsWindows() ? "opa.exe" : "opa";
-        foreach (var dir in (Environment.GetEnvironmentVariable("PATH") ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        foreach (var dir in (searchPath ?? string.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
         {
             var candidate = Path.Combine(dir, exe);
             if (File.Exists(candidate))

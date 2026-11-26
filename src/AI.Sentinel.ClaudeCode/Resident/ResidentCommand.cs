@@ -33,7 +33,7 @@ internal static class ResidentCommand
         }
 
         // Sign-in is optional: without its settings the process holds no token (#659).
-        using var http = new HttpClient();
+        using var http = SignIn.SignInCommand.NoRedirects();
         var tokens = SignIn.SignInCommand.OpenSession(ResidentSettings.ProcessEnvironment(), http, stderr);
         // The link to the server for pauses and profiles needs the sign-in as well as the server address; it is off without them.
         var signIn = SignIn.SignInSettings.FromEnvironment(ResidentSettings.ProcessEnvironment(), out _);

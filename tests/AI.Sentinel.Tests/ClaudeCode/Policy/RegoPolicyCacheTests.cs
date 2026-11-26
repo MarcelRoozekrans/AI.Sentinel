@@ -136,6 +136,26 @@ public class RegoPolicyCacheTests : IDisposable
             LocalPolicy.Load(_folder, RegoPolicyTestSupport.Env(_cache), "/work/repo", [new MissingCompiler()]));
     }
 
+    [Fact]
+    public void A_native_library_that_cannot_be_loaded_is_a_platform_error_that_names_the_library_and_the_cause()
+    {
+        var error = Assert.Throws<PlatformNotSupportedException>(() => Load(new LibraryMissingCompiler()));
+
+        Assert.Contains("Wasmtime", error.Message, StringComparison.Ordinal);
+        Assert.Contains("libregoc.so is not here", error.Message, StringComparison.Ordinal);
+        Assert.IsType<DllNotFoundException>(error.InnerException);
+        Assert.Empty(Directory.GetFiles(_cache));
+    }
+
+    private sealed class LibraryMissingCompiler : IRegoCompiler
+    {
+        public string Name => "native";
+
+        public string? Unavailable() => null;
+
+        public byte[] CompileWasm(PolicySources sources, bool restrictBuiltins) => throw new DllNotFoundException("libregoc.so is not here");
+    }
+
     private static readonly UnixFileMode OwnerOnly = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
     private static readonly UnixFileMode Open = OwnerOnly | UnixFileMode.GroupWrite | UnixFileMode.OtherRead;
 
