@@ -7,3 +7,4 @@ using System.Runtime.CompilerServices;
 [assembly: InternalsVisibleTo("AI.Sentinel.Mcp")]
 [assembly: InternalsVisibleTo("AI.Sentinel.ClaudeCode.Cli")]
 [assembly: InternalsVisibleTo("AI.Sentinel.Copilot.Cli")]
+[assembly: InternalsVisibleTo("AI.Sentinel.Codex.Cli")]
