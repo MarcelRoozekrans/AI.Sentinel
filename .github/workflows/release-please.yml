@@ -148,12 +148,14 @@ jobs:
               -o ./nupkg
           done
 
-      # The three hook/MCP CLIs are RID-specific tools (eng/NativeTool.props): a pointer package,
+      # The four hook/MCP CLIs are RID-specific tools (eng/NativeTool.props): a pointer package,
       # one Native AOT package per RID from the native job, and a framework-dependent any fallback.
       - name: Pack the CLI pointer and any packages
         run: |
-          for cli in ClaudeCode.Cli Copilot.Cli Mcp.Cli; do
+          for cli in ClaudeCode.Cli Codex.Cli Copilot.Cli Mcp.Cli; do
             proj=src/AI.Sentinel.$cli/AI.Sentinel.$cli.csproj
+            # A republished tag from before this CLI existed has no project for it.
+            [ -f "$proj" ] || continue
             dotnet pack "$proj" -c Release --no-build -p:PackageVersion=$VERSION -o ./nupkg-pointer
             dotnet pack "$proj" -c Release -r any -p:PublishAot=false \
               -p:PackageVersion=$VERSION -p:Version=$VERSION -o ./nupkg-rid
