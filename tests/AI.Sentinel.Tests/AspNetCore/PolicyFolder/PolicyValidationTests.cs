@@ -84,7 +84,7 @@ public sealed class PolicyValidationTests
         }
 
         Assert.Single(await f.AuditAsync());
-        Assert.Equal(1, f.Compiler.Calls);
+        Assert.Equal(2, f.Compiler.Calls);
     }
 
     [Fact]
@@ -157,14 +157,18 @@ public sealed class PolicyValidationTests
     [InlineData("noop if { true } allow contains \"team grant\"", true)]
     [InlineData("noop := 1; allow if true", true)]
     [InlineData("deny contains \"x\" if data.sentinel.allow", false)]
+    [InlineData("deny contains allow if { allow := input.reason }", false)]
+    [InlineData("deny contains allow if input.reason", false)]
+    [InlineData("deny := allow if { allow := input.reason }", false)]
+    [InlineData("deny contains allow if { allow := input.reason }\nallow if true", true)]
     [InlineData("x := `\nallow if true\n`", false)]
     public void An_allow_rule_is_found_by_its_head_and_not_by_a_comment_or_a_string(string rego, bool expected) =>
         Assert.Equal(expected, ConfigurationCompiler.DefinesAllow(rego));
 
     [Fact]
-    public async Task Two_teams_that_each_define_a_default_for_one_rule_are_both_accepted()
+    public async Task Two_teams_that_each_define_a_default_for_one_rule_are_both_accepted_by_the_real_compiler()
     {
-        using var f = new PolicyFolderFixture();
+        using var f = new PolicyFolderFixture(real: new ChildProcessCompiler());
         var team = "package sentinel\n\nimport rego.v1\n\ndefault enabled := false\n\nask contains \"x\" if input.kind == \"fetch\"\n";
         f.Write("v1", teamRules: team);
         File.WriteAllText(Path.Combine(f.Version("v1"), "team-b.rego"), team);
@@ -173,6 +177,18 @@ public sealed class PolicyValidationTests
         f.LinkTo("v1");
 
         Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+    }
+
+    [Fact]
+    public async Task A_package_and_an_import_followed_by_a_tab_are_read_as_declarations()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1", orgRules: "package\tsentinel\n\nimport\trego.v1\n\ndeny contains \"recursive delete\" if input.kind == \"shell\"\n");
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+        Assert.Equal(1, f.Loader.Current!.Module.Split("import rego.v1", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("\t", f.Loader.Current.Module, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -245,7 +261,7 @@ public sealed class PolicyValidationTests
         using var f = new PolicyFolderFixture();
         f.Write("v1");
         var link = Path.Combine(Path.GetDirectoryName(f.Version("v1"))!, "current-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateSymbolicLink(link, Path.GetDirectoryName(f.Version("v1"))!);
+        TestLinks.Directory(link, Path.GetDirectoryName(f.Version("v1"))!);
         try
         {
             Assert.Equal(ConfigurationFiles.Resolve(f.Version("v1")), ConfigurationFiles.Resolve(Path.Combine(link, Path.GetFileName(f.Version("v1")))));
@@ -372,13 +388,78 @@ public sealed class PolicyValidationTests
 
         using var f = new PolicyFolderFixture();
         var dir = f.Write("v1");
-        File.CreateSymbolicLink(Path.Combine(dir, "team-a", "leak.rego"), "/etc/hostname");
+        TestLinks.File(Path.Combine(dir, "team-a", "leak.rego"), "/etc/hostname");
         f.LinkTo("v1");
 
         Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
 
         Assert.Null(f.Loader.Current);
         Assert.Equal(0, f.Compiler.Calls);
+    }
+
+    [Fact]
+    public async Task A_link_to_a_file_that_is_no_policy_input_is_not_followed_and_the_folder_is_refused()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var f = new PolicyFolderFixture();
+        var dir = f.Write("v1");
+        TestLinks.File(Path.Combine(dir, "README"), "/etc/hostname");
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+
+        Assert.Null(f.Loader.Current);
+        Assert.Equal(0, f.Compiler.Calls);
+    }
+
+    [Fact]
+    public async Task A_backslash_in_a_file_name_on_unix_is_part_of_the_name_and_never_a_folder_separator()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var f = new PolicyFolderFixture();
+        var dir = f.Write("v1");
+        File.WriteAllText(Path.Combine(dir, "team-a\\rules.rego"), Rules("deny contains \"shadow\" if input.kind == \"fetch\""));
+        f.LinkTo("v1");
+
+        Assert.Equal(PassResult.Rejected, await f.Loader.ReloadAsync(Ct));
+
+        Assert.Null(f.Loader.Current);
+        Assert.EndsWith(" unknown_bundle", Assert.Single(await f.AuditAsync()).Target, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_publish_that_is_not_audited_does_not_use_up_the_first_implicit_version()
+    {
+        using var f = new PolicyFolderFixture();
+        f.Write("v1");
+        f.LinkTo("v1");
+        f.FailAudit = true;
+        Assert.Equal(PassResult.Retry, await f.Loader.ReloadAsync(Ct));
+        Assert.Null(f.Loader.Current);
+
+        f.FailAudit = false;
+        Assert.Equal(PassResult.Published, await f.Loader.ReloadAsync(Ct));
+
+        Assert.Equal(1, f.Loader.Current!.Version);
+    }
+
+    [Fact]
+    public void A_profile_lifetime_of_a_hundred_years_is_accepted_and_one_hour_more_is_refused()
+    {
+        string Json(int hours) => "{\"organisation\": \"acme\", \"nodes\": [{\"id\": \"acme\", \"kind\": \"organisation\", \"settings\": {\"profile_lifetime_hours\": " + hours + "}}]}";
+
+        var accepted = NodeConfiguration.Parse(System.Text.Encoding.UTF8.GetBytes(Json(NodeConfiguration.MaxProfileLifetimeHours)));
+
+        Assert.Equal(TimeSpan.FromHours(NodeConfiguration.MaxProfileLifetimeHours), accepted.Nodes.Single().ProfileLifetime);
+        Assert.Throws<InvalidDataException>(() => NodeConfiguration.Parse(System.Text.Encoding.UTF8.GetBytes(Json(NodeConfiguration.MaxProfileLifetimeHours + 1))));
     }
 
     [Fact]

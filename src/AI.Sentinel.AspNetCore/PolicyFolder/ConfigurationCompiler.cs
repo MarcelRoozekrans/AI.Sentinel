@@ -65,8 +65,8 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
                 ?? throw new InvalidOperationException(
                     "no Rego compiler can run here: " + string.Join("; ", compilers.Select(c => $"{c.Name}: {c.Unavailable()}")));
             // The plugin compiles each of these texts on its own, with the host rules added as they are there. All bundles together
-            // identify the configuration; each profile carries one node's module, which has to compile alone.
-            compiler.CompileWasm(PolicySources.FromFiles([new PolicyFile("profile.rego", module)]), restrictBuiltins: true);
+            // identify the configuration but are never compiled as one: two bundles may each declare the same default rule, which
+            // only one module rejects. Each profile carries one node's module, which has to compile alone.
             foreach (var own in modules.Values.DistinctBy(m => m.ModuleHash, StringComparer.Ordinal))
             {
                 compiler.CompileWasm(PolicySources.FromFiles([new PolicyFile("profile.rego", own.Module)]), restrictBuiltins: true);
@@ -120,7 +120,7 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
     }
 
     /// <summary>Whether Rego text has a rule head named <c>allow</c>: <c>allow if</c>, <c>allow contains</c>, <c>allow := ...</c>,
-    /// <c>default allow</c> and the like. Comments are left out.</summary>
+    /// <c>default allow</c> and the like. Comments are left out, and so is <c>allow</c> as a value in a head, as in <c>deny contains allow if</c>.</summary>
     internal static bool DefinesAllow(string body) => AllowHead().IsMatch(TopLevel(body));
 
     private static string Merge(List<KeyValuePair<string, byte[]>> rego)
@@ -154,13 +154,13 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
             var trimmed = line.Trim();
             // A line that begins inside a raw string is string content, whatever it looks like. A comment before the package
             // declaration is allowed and stays in the body.
-            if (!insideRaw[i] && trimmed.StartsWith("package ", StringComparison.Ordinal) && package is null && StripComments(body.ToString()).Trim().Length == 0)
+            if (!insideRaw[i] && AfterKeyword(trimmed, "package") is { } declared && package is null && StripComments(body.ToString()).Trim().Length == 0)
             {
-                package = StripComments(trimmed["package ".Length..]).Trim();
+                package = StripComments(declared).Trim();
             }
-            else if (!insideRaw[i] && trimmed.StartsWith("import ", StringComparison.Ordinal))
+            else if (!insideRaw[i] && AfterKeyword(trimmed, "import") is { } imported)
             {
-                imports.Add(StripComments(trimmed).Trim());
+                imports.Add("import " + StripComments(imported).Trim());
             }
             else
             {
@@ -170,6 +170,12 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
 
         return (package, imports, body.ToString());
     }
+
+    // What follows the keyword when the line starts with it and a whitespace character of any kind, a tab included, ends it.
+    private static string? AfterKeyword(string trimmed, string keyword) =>
+        trimmed.Length > keyword.Length && trimmed.StartsWith(keyword, StringComparison.Ordinal) && char.IsWhiteSpace(trimmed[keyword.Length])
+            ? trimmed[(keyword.Length + 1)..]
+            : null;
 
     // For each line, whether it begins inside a raw string, which is quoted by backticks and can span lines.
     private static bool[] RawStringStarts(string[] lines)
@@ -283,6 +289,6 @@ internal sealed partial class ConfigurationCompiler(IReadOnlyList<IRegoCompiler>
         }
     }
 
-    [GeneratedRegex(@"(?<![\w.])allow\s*(contains\b|if\b|:=|=|\{|\[|\()", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1000)]
+    [GeneratedRegex(@"(?<![\w.])(?<!(contains|:=|=)[ \t]*)allow\s*(contains\b|if\b|:=|=|\{|\[|\()", RegexOptions.CultureInvariant | RegexOptions.ExplicitCapture, matchTimeoutMilliseconds: 1000)]
     private static partial Regex AllowHead();
 }

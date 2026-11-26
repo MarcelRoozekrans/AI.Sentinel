@@ -191,7 +191,8 @@ internal sealed class PolicyFolderLoader
 
     private async Task<PassResult> PublishAsync(ConfigurationFiles files, ConfigurationVerdict verdict, CancellationToken ct)
     {
-        var version = verdict.Nodes!.Version ?? Interlocked.Increment(ref _sequence);
+        // The implicit version is a candidate until the publish is in the audit log; a failed audit leaves the sequence as it was.
+        var version = verdict.Nodes!.Version ?? _sequence + 1;
         var configuration = new PublishedConfiguration(
             verdict.Organisation!, version, files.Fingerprint, verdict.Module!, verdict.ModuleHash!, verdict.Modules!, verdict.Nodes!);
         try
@@ -204,6 +205,11 @@ internal sealed class PolicyFolderLoader
         {
             _log.LogError("The publish could not be written to the audit log ({Error}); not published.", e.GetType().Name);
             return PassResult.Retry;
+        }
+
+        if (verdict.Nodes.Version is null)
+        {
+            _sequence = version;
         }
 
         Volatile.Write(ref _current, configuration);

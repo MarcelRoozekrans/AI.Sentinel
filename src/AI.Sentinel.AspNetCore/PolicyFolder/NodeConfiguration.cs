@@ -11,6 +11,10 @@ namespace AI.Sentinel.AspNetCore.PolicyFolder;
 internal sealed class NodeConfiguration
 {
     public const string FileName = "nodes.json";
+
+    /// <summary>The longest profile lifetime a node may set: 100 years. A profile expires far below the last time a date can hold.</summary>
+    public const int MaxProfileLifetimeHours = 876_000;
+
     public const string Administrator = "administrator";
     public const string TeamLead = "team_lead";
 
@@ -157,9 +161,9 @@ internal sealed class NodeConfiguration
             throw new InvalidDataException($"the node '{node.Id}' has a profile lifetime of no hours");
         }
 
-        if (settings?.ProfileLifetimeHours is { } most && most > (long)TimeSpan.MaxValue.TotalHours)
+        if (settings?.ProfileLifetimeHours is { } most && most > MaxProfileLifetimeHours)
         {
-            throw new InvalidDataException($"the node '{node.Id}' has a profile lifetime that is longer than a duration can hold");
+            throw new InvalidDataException($"the node '{node.Id}' has a profile lifetime of more than {MaxProfileLifetimeHours} hours");
         }
 
         var lifetime = settings?.ProfileLifetimeHours is { } hours ? TimeSpan.FromHours(hours) : parent?.ProfileLifetime;

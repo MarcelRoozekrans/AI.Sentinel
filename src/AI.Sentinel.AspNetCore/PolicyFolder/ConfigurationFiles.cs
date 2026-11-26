@@ -91,7 +91,8 @@ internal sealed class ConfigurationFiles
         long total = 0;
         foreach (var path in Enumerate(realPath))
         {
-            var relative = Path.GetRelativePath(realPath, path).Replace('\\', '/');
+            // Only the separator of this platform becomes a slash: a backslash is a letter of a name on Unix.
+            var relative = Path.GetRelativePath(realPath, path).Replace(Path.DirectorySeparatorChar, '/');
             if (File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
             {
                 throw new InvalidDataException($"{relative}: a link inside the policy folder is not followed");
@@ -118,12 +119,13 @@ internal sealed class ConfigurationFiles
     private static byte[] ReadFile(string path, string relative)
     {
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        if (stream.Length > MaxFileBytes)
+        var length = stream.Length;
+        if (length > MaxFileBytes)
         {
             throw new InvalidDataException($"{relative}: larger than the server reads");
         }
 
-        var bytes = new byte[stream.Length];
+        var bytes = new byte[length];
         stream.ReadExactly(bytes);
         return bytes;
     }
@@ -145,13 +147,15 @@ internal sealed class ConfigurationFiles
                 }
 
                 var attributes = File.GetAttributes(entry);
+                // A link is refused whatever it points to and whatever it is called, so a link to a file that is no policy input cannot
+                // pass as a folder without links.
+                if (attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    throw new InvalidDataException($"{Path.GetRelativePath(root, entry)}: a link inside the policy folder is not followed");
+                }
+
                 if (attributes.HasFlag(FileAttributes.Directory))
                 {
-                    if (attributes.HasFlag(FileAttributes.ReparsePoint))
-                    {
-                        throw new InvalidDataException($"{Path.GetRelativePath(root, entry)}: a link inside the policy folder is not followed");
-                    }
-
                     pending.Push(entry);
                 }
                 else if (name.EndsWith(".rego", StringComparison.Ordinal) || (string.Equals(dir, root, StringComparison.Ordinal) && string.Equals(name, NodeConfiguration.FileName, StringComparison.Ordinal)))

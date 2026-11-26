@@ -9,8 +9,9 @@ namespace AI.Sentinel.Tests.AspNetCore.PolicyFolder;
 
 public sealed class PolicyFolderTests
 {
-    /// <summary>One pass compiles the module of all bundles and then the module of each of the two nodes alone.</summary>
-    private const int CompilesPerPass = 3;
+    /// <summary>One pass compiles the module of each of the two nodes alone. The module of all bundles together only names the
+    /// configuration: two bundles may each declare the same default rule, which one module cannot hold.</summary>
+    private const int CompilesPerPass = 2;
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -23,12 +24,17 @@ public sealed class PolicyFolderTests
         f.Write("v1");
         f.LinkTo("v1");
 
+        var compiled = new List<string>();
+        f.Compiler.OnCompile = (sources, _) => compiled.AddRange(sources.Files.Where(s => string.Equals(s.Path, "profile.rego", StringComparison.Ordinal)).Select(s => s.Text));
+
         var result = await f.Loader.ReloadAsync(Ct);
 
         Assert.Equal(PassResult.Published, result);
         var current = f.Loader.Current!;
         Assert.Equal(Organisation, current.Organisation, StringComparer.Ordinal);
         Assert.Equal(CompilesPerPass, f.Compiler.Calls);
+        Assert.Equal(current.Modules.Values.Select(m => m.Module).Order(StringComparer.Ordinal), compiled.Order(StringComparer.Ordinal), StringComparer.Ordinal);
+        Assert.DoesNotContain(current.Module, compiled, StringComparer.Ordinal);
         Assert.Contains("recursive delete", current.Module, StringComparison.Ordinal);
         Assert.Contains("team asks", current.Module, StringComparison.Ordinal);
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(current.Module))), current.ModuleHash, StringComparer.Ordinal);
