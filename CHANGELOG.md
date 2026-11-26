@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.3.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.2.0...v6.3.0) (2026-11-26)
+
+
+### Features
+
+* **hooks:** judge a call by the node that owns the repository ([#700](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/700)) ([ed98197](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ed98197fea961b09952b42d7bcc5621486d72087))
+
 ## [6.2.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.1.0...v6.2.0) (2026-11-26)
 
 
