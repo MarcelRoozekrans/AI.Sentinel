@@ -447,7 +447,7 @@ Tune via env vars to match your risk appetite.
 
 ## Administrative audit log (server part)
 
-The server part in `AI.Sentinel.AspNetCore` records approve and deny decisions made through the dashboard today (pause, release, publish, rejected publish and rollback are not recorded yet), with their actor, time, target and channel (web, MCP or git). The log is hash-chained per organisation, append-only, and holds identifiers only, never file contents or secrets. It is kept in memory in this version.
+The server part in `AI.Sentinel.AspNetCore` records approve and deny decisions made through the dashboard, and a publish and a rejected publish of the policy folder, today (pause, release and rollback are not recorded yet), with their actor, time, target and channel (web, MCP or git). The log is hash-chained per organisation, append-only, and holds identifiers only, never file contents or secrets. It is kept in memory in this version.
 
 ```csharp
 services.AddAISentinelAdminAudit(o =>
