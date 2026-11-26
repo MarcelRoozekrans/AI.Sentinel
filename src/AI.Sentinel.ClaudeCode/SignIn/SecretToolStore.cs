@@ -35,8 +35,9 @@ internal sealed class SecretToolStore(string account, Action<string>? log = null
     public bool Delete()
     {
         var result = Run(["clear", "service", "ai-sentinel", "account", account], stdin: null);
-        // secret-tool clear exits 0 when nothing matched too, so any exit but a failure to start is fine only when it is 0.
-        return result is { Started: true, ExitCode: 0 };
+        // secret-tool clear exits 0 when nothing matched too, so a started program must exit 0. A program that does not start keeps
+        // nothing this store could load again, since Load goes through the same program, so there is nothing to remove.
+        return !result.Started || result.ExitCode == 0;
     }
 
     private (bool Started, int ExitCode, string Output) Run(string[] arguments, string? stdin)

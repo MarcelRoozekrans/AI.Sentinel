@@ -241,7 +241,7 @@ public class TokenStorageTests : IDisposable
         var store = new SecretToolStore("acct", log.Add, "/nonexistent/secret-tool");
         Assert.False(store.Save("rt-x"));
         Assert.Null(store.Load());
-        Assert.False(store.Delete());
+        Assert.True(store.Delete());
         Assert.Contains(log, l => l.Contains("memory only", StringComparison.Ordinal));
         Assert.DoesNotContain(log, l => l.Contains("rt-x", StringComparison.Ordinal));
     }
