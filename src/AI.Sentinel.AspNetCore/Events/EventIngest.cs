@@ -12,8 +12,8 @@ namespace AI.Sentinel.AspNetCore.Events;
 /// <summary>The ingest endpoint: authorisation, allowlist, codes, deduplication and retention.</summary>
 internal static class EventIngest
 {
-    private static string? OrganisationOf(System.Security.Claims.ClaimsPrincipal user, NodeRoles roles, ServerEventOptions options) =>
-        user.FindFirst(options.OrganisationClaim)?.Value is { Length: > 0 } claim ? claim : roles.OrganisationName;
+    private static string OrganisationOf(ClaimsPrincipal user, NodeRoleSnapshot current, ServerEventOptions options) =>
+        user.FindFirst(options.OrganisationClaim)?.Value is { Length: > 0 } claim ? claim : current.Organisation;
 
     public static async Task<IResult> IngestAsync(HttpContext http)
     {
@@ -25,13 +25,14 @@ internal static class EventIngest
             return Results.StatusCode(StatusCodes.Status401Unauthorized);
         }
 
-        var sender = OrganisationOf(http.User, roles, options);
-        if (sender is null)
+        // The organisation is read once, so the sender is compared with the configuration of one version.
+        if (roles.Snapshot() is not { } current)
         {
             return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
-        if (!string.Equals(sender, roles.OrganisationName, StringComparison.Ordinal))
+        var sender = OrganisationOf(http.User, current, options);
+        if (!string.Equals(sender, current.Organisation, StringComparison.Ordinal))
         {
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
