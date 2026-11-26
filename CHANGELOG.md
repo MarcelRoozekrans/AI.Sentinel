@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.4.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.3.0...v6.4.0) (2026-11-26)
+
+
+### Features
+
+* **hooks:** sign in with an OIDC device code and keep the token in the keychain ([#701](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/701)) ([12dc97c](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/12dc97c9b4badb1b2104081feae1a033956ea947))
+
 ## [6.3.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.2.0...v6.3.0) (2026-11-26)
 
 
