@@ -12,6 +12,10 @@ internal sealed class NodeRoleSnapshot(NodeConfiguration configuration, NodeRole
     /// <summary>The id of the organisation node.</summary>
     public string OrganisationNodeId => NodeRoles.OrganisationOf(configuration);
 
+    /// <summary>Whether <paramref name="nodeId"/> has detailed logging in this configuration; false for a node it does not hold.</summary>
+    public bool DetailedLogging(string? nodeId) =>
+        configuration.Nodes.FirstOrDefault(n => string.Equals(n.Id, nodeId, StringComparison.Ordinal))?.DetailedLogging == true;
+
     /// <summary>Whether <paramref name="user"/> holds at least <paramref name="needed"/> on <paramref name="nodeId"/> in this
     /// configuration. A node the configuration does not hold gives the lowest role.</summary>
     public bool Allows(ClaimsPrincipal user, NodeRole needed, string nodeId) =>

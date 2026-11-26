@@ -56,7 +56,7 @@ internal static class EventIngest
         }
 
         var code = services.GetRequiredService<PseudonymKeys>().CodeFor(sender, developer);
-        return await StoreAsync(services, options, batch, sender, code, http.RequestAborted).ConfigureAwait(false);
+        return await StoreAsync(services, options, current, batch, sender, code, http.RequestAborted).ConfigureAwait(false);
     }
 
     private static async Task<(ParsedBatch? Batch, IResult? Failure)> ReadBatchAsync(HttpContext http, int limit)
@@ -85,19 +85,19 @@ internal static class EventIngest
     }
 
     private static async Task<IResult> StoreAsync(
-        IServiceProvider services, ServerEventOptions options, ParsedBatch batch, string sender, string code, CancellationToken ct)
+        IServiceProvider services, ServerEventOptions options, NodeRoleSnapshot current, ParsedBatch batch, string sender, string code, CancellationToken ct)
     {
         var store = services.GetRequiredService<IServerEventStore>();
-        var loader = services.GetService<PolicyFolderLoader>();
         var now = services.GetRequiredService<TimeProvider>().GetUtcNow();
         var accepted = 0;
         var duplicates = 0;
         var dropped = new Dictionary<string, int>(batch.Dropped, StringComparer.Ordinal);
         foreach (var e in batch.Events)
         {
-            // Reason text only comes with detailed logging, which the node settles; without it the text is dropped, not kept.
+            // Reason text only comes with detailed logging, which the node settles in the configuration the sender was admitted
+            // with; without it the text is dropped, not kept.
             var reason = e.Reason;
-            if (reason is not null && !DetailedLoggingOn(loader, e.Node))
+            if (reason is not null && !current.DetailedLogging(e.Node))
             {
                 reason = null;
                 dropped["reason"] = dropped.GetValueOrDefault("reason") + 1;
@@ -131,7 +131,4 @@ internal static class EventIngest
                 $"{{\"accepted\":{accepted},\"duplicates\":{duplicates},\"rejected\":{batch.Rejected},\"dropped_fields\":{dropped.Count}}}"),
             "application/json");
     }
-
-    private static bool DetailedLoggingOn(PolicyFolderLoader? loader, string? node) =>
-        loader?.Current?.Nodes.Nodes.FirstOrDefault(n => string.Equals(n.Id, node, StringComparison.Ordinal))?.DetailedLogging == true;
 }

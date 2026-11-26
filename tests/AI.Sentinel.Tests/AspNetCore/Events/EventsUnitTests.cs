@@ -102,12 +102,34 @@ public sealed class EventsUnitTests
     [InlineData(",\"redactions\":{\"email\":\"x\"}")]
     [InlineData(",\"at\":5")]
     [InlineData(",\"node\":\"\"")]
+    [InlineData(",\"session\":\"/home/someone/private\"")]
+    [InlineData(",\"session\":\"C:\\\\work\\\\repo\"")]
+    [InlineData(",\"session\":\"two words\"")]
     public void Reader_RejectsAnEventWithAMalformedField(string extra)
     {
         var batch = ReadEvents(EventJson(extra));
         Assert.NotNull(batch);
         Assert.Empty(batch.Events);
         Assert.Equal(1, batch.Rejected);
+    }
+
+    [Theory]
+    [InlineData("0b9a3f1e-6c2d-4f5a-9e8b-7d1c2a3b4c5d")]
+    [InlineData("copilot:session_1.2")]
+    public void Reader_KeepsASessionThatIsAnIdentifier(string session) =>
+        Assert.Equal(session, Assert.Single(ReadEvents(EventJson(",\"session\":\"" + session + "\""))!.Events).Session);
+
+    [Fact]
+    public void Snapshot_SaysDetailedLoggingOnlyForANodeOfItsOwnConfigurationThatHasIt()
+    {
+        var configuration = AI.Sentinel.AspNetCore.PolicyFolder.NodeConfiguration.Parse(System.Text.Encoding.UTF8.GetBytes(
+            "{\"organisation\":\"acme\",\"nodes\":[{\"id\":\"acme\",\"kind\":\"organisation\"},{\"id\":\"team-a\",\"kind\":\"team\",\"settings\":{\"detailed_logging\":true}},{\"id\":\"team-b\",\"kind\":\"team\"}]}"));
+        var snapshot = new AI.Sentinel.AspNetCore.PolicyFolder.NodeRoleSnapshot(configuration, null!);
+
+        Assert.True(snapshot.DetailedLogging("team-a"));
+        Assert.False(snapshot.DetailedLogging("team-b"));
+        Assert.False(snapshot.DetailedLogging("no-such-node"));
+        Assert.False(snapshot.DetailedLogging(null));
     }
 
     [Fact]
