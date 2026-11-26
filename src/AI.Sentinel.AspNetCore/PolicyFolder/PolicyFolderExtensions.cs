@@ -65,6 +65,8 @@ public static class PolicyFolderExtensions
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<PolicyFolderLoader>());
         });
         services.TryAddSingleton<ProfileIssuer>();
+        services.TryAddSingleton<NodeRoles>();
+        services.AddSingleton<IAuthorizationHandler, NodeRoleHandler>();
         services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService>(sp => new PolicyFolderService(
             sp.GetRequiredService<PolicyFolderLoader>(),
             sp.GetRequiredService<IOptions<PolicyFolderOptions>>().Value.Path!,

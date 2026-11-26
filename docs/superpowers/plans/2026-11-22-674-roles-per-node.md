@@ -35,19 +35,19 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Bindings and roles
 
-- [ ] Read group-to-role bindings from the node configuration; map the developer and groups from the validated token's claims; resolve a user's roles from those groups, applying down the tree.
-- [ ] Failing tests first in `NodeRoleTests`.
-- [ ] Commit.
+- [x] Read group-to-role bindings from the node configuration; map the developer and groups from the validated token's claims; resolve a user's roles from those groups, applying down the tree.
+- [x] Failing tests first in `NodeRoleTests`.
+- [x] Commit.
 
 ### Task 2: Check
 
-- [ ] Add the role-on-node and role-on-session check for endpoints; reload on folder change.
-- [ ] Commit.
+- [x] Add the role-on-node and role-on-session check for endpoints; reload on folder change.
+- [x] Commit.
 
 ### Task 3: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks

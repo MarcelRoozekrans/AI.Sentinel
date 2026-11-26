@@ -1,4 +1,5 @@
 using AI.Sentinel.AspNetCore.AdminAudit;
+using AI.Sentinel.AspNetCore.PolicyFolder;
 using AI.Sentinel.Profiles;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -60,7 +61,17 @@ public static class AdminAuditExtensions
         {
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
+        if (!IsAdministrator(http, organisation))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
         var body = await log.ExportAsync(organisation, http.RequestAborted).ConfigureAwait(false);
         return Results.Bytes(body, "application/json");
     }
+
+    /// <summary>When the policy folder is registered, the export needs the administrator role on the organisation from the node
+    /// configuration as well as the host's policy. Without the policy folder there are no roles and the host policy decides alone.
+    /// The organisation name and the role are read from one published configuration.</summary>
+    private static bool IsAdministrator(HttpContext http, string organisation) =>
+        http.RequestServices.GetService<NodeRoles>() is not { } roles || roles.IsAdministratorOf(http.User, organisation);
 }

@@ -27,6 +27,16 @@ public sealed class PolicyFolderOptions
     /// organisation is passed as the resource, as a string. The host defines the policy. Defaults to <c>AISentinelDeveloper</c>.</summary>
     public string PolicyName { get; set; } = "AISentinelDeveloper";
 
+    /// <summary>The default of <see cref="DeveloperClaim"/>.</summary>
+    internal const string DefaultDeveloperClaim = "sub";
+
+    /// <summary>The claim of the validated token that names the developer. Defaults to <c>sub</c>. Optional.</summary>
+    public string DeveloperClaim { get; set; } = DefaultDeveloperClaim;
+
+    /// <summary>The claim of the validated token that lists the identity-provider groups, which the node configuration binds to
+    /// roles on nodes. Defaults to <c>groups</c>. Optional.</summary>
+    public string GroupsClaim { get; set; } = "groups";
+
     /// <summary>How long the folder has to stay unchanged before it is read. Defaults to half a second.</summary>
     public TimeSpan SettleDelay { get; set; } = TimeSpan.FromMilliseconds(500);
 
