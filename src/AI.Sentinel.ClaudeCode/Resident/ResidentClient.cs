@@ -38,12 +38,28 @@ internal sealed class ResidentClient(ResidentSettings settings)
         }
 
         var limit = new CancellationTokenSource(wait);
+        // Whoever takes the claim first disposes the source: the exchange when it ends first, this call when it gives up first, and
+        // then only after it has cancelled. Cancel never runs on a disposed source.
+        var claimed = 0;
         var exchange = Task.Run(() => SendAsync(request, limit.Token), CancellationToken.None);
-        _ = exchange.ContinueWith(_ => limit.Dispose(), CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        _ = exchange.ContinueWith(
+            _ =>
+            {
+                if (Interlocked.Exchange(ref claimed, 1) == 0)
+                {
+                    limit.Dispose();
+                }
+            },
+            CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
         // WaitAny does not throw for a failed exchange; the result below does, with the original exception.
         if (Task.WaitAny([exchange], wait) < 0)
         {
-            limit.Cancel();
+            if (Interlocked.Exchange(ref claimed, 1) == 0)
+            {
+                limit.Cancel();
+                limit.Dispose();
+            }
+
             return null;
         }
 

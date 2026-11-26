@@ -36,4 +36,8 @@ internal sealed record ResidentResponse
     /// <summary>For the sign-in operations: <c>signed_in</c>, <c>sign_in_needed</c>, or <c>off</c> when sign-in is not configured.</summary>
     [JsonPropertyName("sign_in")]
     public string? SignIn { get; init; }
+
+    /// <summary>For a sign-in the resident took: what its keychain holds now, <c>kept</c>, <c>memory_only</c> or <c>earlier_remains</c>.</summary>
+    [JsonPropertyName("keychain")]
+    public string? Keychain { get; init; }
 }

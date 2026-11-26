@@ -16,6 +16,7 @@ internal interface ITokenStore
     /// <summary>The kept secret, or <see langword="null"/> when there is none or the keychain cannot be read.</summary>
     string? Load();
 
-    /// <summary>Removes the kept secret. False when the keychain failed; a secret that is not there is not a failure.</summary>
+    /// <summary>Removes the kept secret. False when the keychain failed while it may still hold one; a secret that is not there is not a
+    /// failure, and neither is a keychain this store cannot reach at all, since <see cref="Load"/> cannot read a secret from it either.</summary>
     bool Delete();
 }

@@ -61,6 +61,7 @@ internal sealed class OpaBinaryCompiler : IRegoCompiler
         using var process = Process.Start(psi) ?? throw new InvalidOperationException("opa did not start");
         var error = process.StandardError.ReadToEndAsync();
         var output = process.StandardOutput.ReadToEndAsync();
+        var clock = Stopwatch.StartNew();
         if (!process.WaitForExit(_timeout))
         {
             process.Kill(entireProcessTree: true);
@@ -68,11 +69,16 @@ internal sealed class OpaBinaryCompiler : IRegoCompiler
             throw new TimeoutException($"opa did not finish within {_timeout.TotalSeconds:0} s and was stopped");
         }
 
-        // The exit is in; this waits for the output streams to close.
-        process.WaitForExit();
         if (process.ExitCode != 0)
         {
-            // opa build prints its compile errors on stdout.
+            // A child that opa left running can hold its output pipes open, so what opa printed is read within the same
+            // deadline, never until the pipes close. opa build prints its compile errors on stdout.
+            var remaining = _timeout - clock.Elapsed;
+            if (!Task.WaitAll([output, error], remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero))
+            {
+                throw new TimeoutException($"opa failed and its output did not close within {_timeout.TotalSeconds:0} s");
+            }
+
             throw RegoCompileException.From(output.GetAwaiter().GetResult() + error.GetAwaiter().GetResult());
         }
 
