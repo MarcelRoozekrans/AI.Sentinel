@@ -165,6 +165,19 @@ public sealed class SignedProfileTests
         Assert.Equal(Now.AddHours(12), profile.ExpiresAt);
     }
 
+    [Theory]
+    [InlineData(long.MaxValue)]
+    [InlineData(2_592_000_000_000_000_000L)]
+    public void A_lifetime_that_runs_past_the_last_representable_time_ends_there_and_the_profile_is_still_valid(long ticks)
+    {
+        var (signer, pins) = Server();
+
+        var result = Check(signer.Issue(Sample(), TimeSpan.FromTicks(ticks)), pins);
+
+        Assert.True(result.IsAccepted);
+        Assert.Equal(ProfileSigner.LatestExpiry, result.Profile!.ExpiresAt);
+    }
+
     [Fact]
     public void A_lifetime_under_a_second_is_refused()
     {

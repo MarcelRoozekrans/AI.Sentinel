@@ -15,7 +15,8 @@ public sealed class ServerEventOptions
     public string? PseudonymKey { get; set; }
 
     /// <summary>The claim of the validated token that names the organisation of the sender. Optional. Defaults to <c>organisation</c>;
-    /// when the token has none, the organisation of the published node configuration is the sender's.</summary>
+    /// when the token has none, the organisation of the published node configuration is the sender's. A claim that names any other
+    /// organisation than the published one is refused with 403, because the read endpoints serve only the published organisation.</summary>
     public string OrganisationClaim { get; set; } = "organisation";
 
     /// <summary>The largest batch the ingest endpoint reads, in bytes. A larger body is refused with 413. Defaults to 1 MiB.</summary>

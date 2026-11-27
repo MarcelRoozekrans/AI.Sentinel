@@ -185,6 +185,43 @@ public sealed class ServerEventIngestTests
     }
 
     [Fact]
+    public async Task A_sender_whose_claim_names_another_organisation_than_the_published_one_is_refused()
+    {
+        using var host = await StartAsync(o => o.OrganisationClaim = "org");
+
+        var response = await host.SendAsync(Post(Batch("rival", Event("e-1")), "rival"));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Empty(await host.Store.ReadEventsAsync("rival", Ct));
+    }
+
+    [Theory]
+    [InlineData(",\"redactions\":{\"secret\":\"x\"}")]
+    [InlineData(",\"redactions\":{\"secret\":-1}")]
+    public async Task A_redaction_count_that_is_not_a_number_rejects_that_event_only(string extra)
+    {
+        using var host = await StartAsync();
+
+        var response = await host.SendAsync(Post(Batch("acme", Event("bad", extra: extra), Event("good")), "acme"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("good", Assert.Single(await StoredAsync(host)).Id);
+    }
+
+    [Fact]
+    public async Task A_gap_count_that_is_not_a_number_is_ignored_without_failing_the_batch()
+    {
+        using var host = await StartAsync();
+        var json = Batch("acme", Event("e-1")).TrimEnd('}') + ",\"gap\":{\"pruned\":\"7\"}}";
+
+        var response = await host.SendAsync(Post(json, "acme"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty(await host.Store.ReadGapsAsync("acme", Ct));
+        Assert.Single(await StoredAsync(host));
+    }
+
+    [Fact]
     public async Task A_gap_report_with_a_count_of_pruned_events_is_stored_and_readable()
     {
         using var host = await StartAsync();

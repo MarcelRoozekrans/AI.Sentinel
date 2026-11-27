@@ -21,19 +21,19 @@ internal static class EventReads
         var services = http.RequestServices;
         var options = services.GetRequiredService<IOptions<ServerEventOptions>>().Value;
         var roles = services.GetRequiredService<NodeRoles>();
-        var loader = services.GetRequiredService<PolicyFolderLoader>();
         if (http.User.Identity?.IsAuthenticated != true)
         {
             return Results.StatusCode(StatusCodes.Status401Unauthorized);
         }
 
-        if (roles.OrganisationName is null)
+        // One configuration answers the organisation check and every role check of this request.
+        if (roles.Snapshot() is not { } current)
         {
             return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
         var authorization = services.GetRequiredService<IAuthorizationService>();
-        if (!string.Equals(roles.OrganisationName, organisation, StringComparison.Ordinal)
+        if (!string.Equals(current.Organisation, organisation, StringComparison.Ordinal)
             || !(await authorization.AuthorizeAsync(http.User, organisation, options.PolicyName).ConfigureAwait(false)).Succeeded)
         {
             return Results.StatusCode(StatusCodes.Status403Forbidden);
@@ -53,26 +53,28 @@ internal static class EventReads
         var store = services.GetRequiredService<IServerEventStore>();
         var stored = await store.ReadEventsAsync(organisation, http.RequestAborted).ConfigureAwait(false);
         var storedGaps = await store.ReadGapsAsync(organisation, http.RequestAborted).ConfigureAwait(false);
-        var visibility = new TeamVisibility(loader.Current?.Nodes, stored, storedGaps, options.MinimumTeamPeople);
+        var visibility = new TeamVisibility(current.Configuration, stored, storedGaps, options.MinimumTeamPeople);
         var events = stored
-            .Select(e => new ShownEvent(e, visibility.NodeFor(e.Node), Own(own, e.Developer) || visibility.ShowsName(e)))
+            .Select(e => new ShownEvent(e, visibility.NodeFor(e.Node) ?? current.OrganisationNodeId, Own(own, e.Developer) || visibility.ShowsName(e)))
             .Where(s => (!blockedOnly || s.Event.IsBlocked)
                 && (node.Length == 0 || string.Equals(s.Node, node, StringComparison.Ordinal))
                 && (session.Length == 0 || string.Equals(s.Event.Session, session, StringComparison.Ordinal))
                 && (from is null || s.Event.At >= from) && (to is null || s.Event.At <= to)
-                && May(roles, http.User, s.Node, s.Event.Developer, own))
+                && May(current, http.User, s.Node, s.Event.Developer, own))
             .OrderBy(s => s.Event.At).ToList();
         var gaps = blockedOnly
             ? []
             : storedGaps
-                .Select(g => new ShownGap(g, visibility.NodeFor(g.Node) ?? roles.OrganisationNodeId, Own(own, g.Developer)))
-                .Where(s => May(roles, http.User, s.Node, s.Gap.Developer, own)).ToList();
+                .Select(g => new ShownGap(g, visibility.NodeFor(g.Node) ?? current.OrganisationNodeId, Own(own, g.Developer)))
+                .Where(s => (node.Length == 0 || string.Equals(s.Node, node, StringComparison.Ordinal))
+                    && (from is null || s.Gap.ReceivedAt >= from) && (to is null || s.Gap.ReceivedAt <= to)
+                    && May(current, http.User, s.Node, s.Gap.Developer, own)).ToList();
         return Results.Bytes(EventWriter.Write(events, blockedOnly ? null : gaps), "application/json");
     }
 
     private static bool Own(string? own, string developer) => own is not null && string.Equals(own, developer, StringComparison.Ordinal);
 
-    private static bool May(NodeRoles roles, System.Security.Claims.ClaimsPrincipal user, string? node, string developer, string? own) =>
+    private static bool May(NodeRoleSnapshot roles, ClaimsPrincipal user, string? node, string developer, string? own) =>
         (own is not null && string.Equals(own, developer, StringComparison.Ordinal))
         || (node is not null && roles.Allows(user, NodeRole.TeamLead, node));
 

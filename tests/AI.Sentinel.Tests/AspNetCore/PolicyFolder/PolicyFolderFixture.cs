@@ -40,7 +40,15 @@ internal sealed class PolicyFolderFixture : IDisposable
         Loader = new PolicyFolderLoader(
             Folder,
             new ConfigurationCompiler([real ?? Compiler]),
-            async (organisation, action, target, ct) => await Log.RecordAsync(organisation, action, "policy-folder", target, AdminAuditChannel.Git, ct),
+            async (organisation, action, target, ct) =>
+            {
+                if (FailAudit)
+                {
+                    throw new IOException("the audit log cannot be written");
+                }
+
+                await Log.RecordAsync(organisation, action, "policy-folder", target, AdminAuditChannel.Git, ct);
+            },
             "fallback-org",
             TimeProvider.System,
             new PolicyFolderTiming(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(5), TimeSpan.FromMilliseconds(40), 12),
@@ -48,6 +56,9 @@ internal sealed class PolicyFolderFixture : IDisposable
     }
 
     public ScriptedCompiler Compiler { get; }
+
+    /// <summary>Makes every write to the audit log fail.</summary>
+    public bool FailAudit { get; set; }
 
     public InMemoryAdminAuditStore Store { get; }
 
@@ -88,21 +99,20 @@ internal sealed class PolicyFolderFixture : IDisposable
                 Directory.Delete(Folder);
             }
 
-            Directory.CreateSymbolicLink(Folder, Version(name));
+            TestLinks.Directory(Folder, Version(name));
             return;
         }
 
         var staging = Path.Combine(_root, $"swap-{Guid.NewGuid():N}");
-        Directory.CreateSymbolicLink(staging, Version(name));
-        // rename(2) through mv -T replaces the old link in one step, as git-sync does.
-        var psi = new System.Diagnostics.ProcessStartInfo("mv") { UseShellExecute = false };
-        psi.ArgumentList.Add("-T");
-        psi.ArgumentList.Add(staging);
-        psi.ArgumentList.Add(Folder);
-        using var process = System.Diagnostics.Process.Start(psi)!;
-        process.WaitForExit();
-        Assert.Equal(0, process.ExitCode);
+        TestLinks.Directory(staging, Version(name));
+        // rename(2) replaces the old link in one step on Linux and macOS alike, as git-sync does; mv -T exists on GNU only.
+        Assert.Equal(0, rename(staging, Folder));
     }
+
+    [System.Runtime.InteropServices.DllImport("libc", SetLastError = true)]
+    private static extern int rename(
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string oldPath,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPUTF8Str)] string newPath);
 
     public async Task<IReadOnlyList<AdminAuditEntry>> AuditAsync(string organisation = Organisation) =>
         await Store.ReadAsync(organisation, TestContext.Current.CancellationToken);

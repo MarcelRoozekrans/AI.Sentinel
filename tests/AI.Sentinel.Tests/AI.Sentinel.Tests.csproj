@@ -8,10 +8,11 @@
     <NoWarn>$(NoWarn);MA0004</NoWarn>
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
   </PropertyGroup>
-  <!-- The three hook/MCP CLIs target net10.0 only (RID-specific .NET 10 tool packages, eng/NativeTool.props);
+  <!-- The four hook/MCP CLIs target net10.0 only (RID-specific .NET 10 tool packages, eng/NativeTool.props);
        the net11.0 leg of this project references their net10.0 build. -->
   <ItemGroup>
     <ProjectReference Include="..\..\src\AI.Sentinel.ClaudeCode.Cli\AI.Sentinel.ClaudeCode.Cli.csproj" />
+    <ProjectReference Include="..\..\src\AI.Sentinel.Codex.Cli\AI.Sentinel.Codex.Cli.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Copilot.Cli\AI.Sentinel.Copilot.Cli.csproj" />
     <ProjectReference Include="..\..\src\AI.Sentinel.Mcp.Cli\AI.Sentinel.Mcp.Cli.csproj" />
   </ItemGroup>
@@ -34,6 +35,7 @@
     <PackageReference Include="Microsoft.Extensions.AI" Version="10.11.1" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.15" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.15" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.15" />
   </ItemGroup>
   <ItemGroup>
     <None Update="Fixtures\**\*.*">

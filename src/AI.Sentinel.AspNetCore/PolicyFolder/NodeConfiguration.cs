@@ -11,6 +11,10 @@ namespace AI.Sentinel.AspNetCore.PolicyFolder;
 internal sealed class NodeConfiguration
 {
     public const string FileName = "nodes.json";
+
+    /// <summary>The longest profile lifetime a node may set: 100 years. A profile expires far below the last time a date can hold.</summary>
+    public const int MaxProfileLifetimeHours = 876_000;
+
     public const string Administrator = "administrator";
     public const string TeamLead = "team_lead";
 
@@ -73,6 +77,12 @@ internal sealed class NodeConfiguration
         if (wire is null || string.IsNullOrWhiteSpace(wire.Organisation))
         {
             throw new InvalidDataException("nodes.json names no organisation");
+        }
+
+        // The wire types do not stop a JSON null as an element of an array.
+        if ((wire.Nodes ?? []).Any(n => n is null) || (wire.Roles ?? []).Any(r => r is null))
+        {
+            throw new InvalidDataException("nodes.json holds a null where a node or a role binding is expected");
         }
 
         var nodes = ParseNodes(wire);
@@ -149,6 +159,11 @@ internal sealed class NodeConfiguration
         if (settings?.ProfileLifetimeHours is <= 0)
         {
             throw new InvalidDataException($"the node '{node.Id}' has a profile lifetime of no hours");
+        }
+
+        if (settings?.ProfileLifetimeHours is { } most && most > MaxProfileLifetimeHours)
+        {
+            throw new InvalidDataException($"the node '{node.Id}' has a profile lifetime of more than {MaxProfileLifetimeHours} hours");
         }
 
         var namesApproval = parent?.NamesApproval;
