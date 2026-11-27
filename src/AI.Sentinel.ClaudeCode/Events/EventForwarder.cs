@@ -27,11 +27,12 @@ internal sealed class EventForwarder(
     /// <summary>Sends what the server has not taken yet.</summary>
     public async Task<ForwardResult> ForwardAsync(CancellationToken ct)
     {
-        var stored = cursor.Read();
-        var hasCursor = stored is not null;
-        var after = stored ?? 0;
-        var sent = 0;
-        var prunedTotal = 0;
+        if (await StartAsync(ct).ConfigureAwait(false) is not var (after, hasCursor))
+        {
+            return new ForwardResult(0, 0, Failed: true);
+        }
+
+        var (sent, prunedTotal) = (0, 0);
         while (true)
         {
             var page = await source.ReadAfterAsync(after, batchSize, ct).ConfigureAwait(false);
@@ -45,7 +46,7 @@ internal sealed class EventForwarder(
             {
                 // The audit file was replaced by a newer one, so its sequences start again. Nothing was pruned: start from the top.
                 (after, hasCursor) = (0, false);
-                if (!TryStore(0))
+                if (!TryStore(0, hash: null))
                 {
                     return new ForwardResult(sent, prunedTotal, Failed: true);
                 }
@@ -62,7 +63,7 @@ internal sealed class EventForwarder(
             {
                 // Store where this audit starts before the first send, so entries pruned while it keeps failing are still counted.
                 hasCursor = true;
-                if (!TryStore(after = page.Rows[0].Sequence - 1))
+                if (!TryStore(after = page.Rows[0].Sequence - 1, page.Rows[0].Entry.PreviousHash))
                 {
                     return new ForwardResult(sent, prunedTotal, Failed: true);
                 }
@@ -71,7 +72,6 @@ internal sealed class EventForwarder(
             var lastSequence = page.Rows[^1].Sequence;
             var pruned = (int)Math.Clamp(page.Rows[0].Sequence - after - 1, 0, int.MaxValue);
             var events = MapEvents(page);
-
             if ((events.Count > 0 || pruned > 0) && !await SendAsync(events, pruned, ct).ConfigureAwait(false))
             {
                 return new ForwardResult(sent, prunedTotal, Failed: true);
@@ -81,7 +81,7 @@ internal sealed class EventForwarder(
             prunedTotal += pruned;
             after = lastSequence;
             hasCursor = true;
-            if (!TryStore(after))
+            if (!TryStore(after, page.Rows[^1].Entry.Hash))
             {
                 return new ForwardResult(sent, prunedTotal, Failed: true);
             }
@@ -142,11 +142,42 @@ internal sealed class EventForwarder(
         return events;
     }
 
-    private bool TryStore(long sequence)
+    /// <summary>Where this pass starts: the stored cursor, or the top of the audit when the file was replaced; <see langword="null"/>
+    /// when the restart could not be stored.</summary>
+    private async Task<(long After, bool HasCursor)?> StartAsync(CancellationToken ct)
+    {
+        var stored = cursor.ReadContent();
+        if (stored is not { Hash: { Length: > 0 } hash } || !await IsReplacedAsync(stored.Sequence, hash, ct).ConfigureAwait(false))
+        {
+            return (stored?.Sequence ?? 0, stored is not null);
+        }
+
+        // A new audit file that already holds the old cursor's sequence: its entries at and below it were never sent.
+        log?.Invoke("the audit file was replaced; forwarding starts again from its first entry");
+        return TryStore(0, hash: null) ? (0, false) : null;
+    }
+
+    /// <summary>True when the audit is not the one the cursor was stored for: the entry at the cursor has another hash, or, with that
+    /// entry pruned, the next one does not link to it. With neither entry left there is nothing to compare, and pruned entries are a gap.</summary>
+    private async Task<bool> IsReplacedAsync(long after, string hash, CancellationToken ct)
+    {
+        var probe = await source.ReadAfterAsync(after - 1, 1, ct).ConfigureAwait(false);
+        if (probe.ReadFailed || probe.Rows.Count == 0)
+        {
+            return false;
+        }
+
+        var (sequence, entry) = probe.Rows[0];
+        return sequence == after
+            ? !string.Equals(entry.Hash, hash, StringComparison.Ordinal)
+            : sequence == after + 1 && !string.Equals(entry.PreviousHash, hash, StringComparison.Ordinal);
+    }
+
+    private bool TryStore(long sequence, string? hash)
     {
         try
         {
-            cursor.Write(sequence);
+            cursor.Write(sequence, hash);
             return true;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)

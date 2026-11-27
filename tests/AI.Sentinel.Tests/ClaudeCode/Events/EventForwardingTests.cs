@@ -383,6 +383,57 @@ public sealed class EventForwardingTests : IDisposable
     }
 
     [Fact]
+    public async Task A_replaced_audit_that_already_holds_more_entries_than_the_cursor_is_sent_from_its_first_entry()
+    {
+        var path = Path.Combine(_dir, "replaced.db");
+        await FillAsync(path, 3, "old");
+        var log = new List<string>();
+        EventForwarder Forward() => new(new SqliteAuditSource(path), new EventCursor(_dir), new HttpClient(_server), Endpoint, () => "acme", _ => false, log.Add);
+        Assert.Equal(3, (await Forward().ForwardAsync(CancellationToken.None)).Sent);
+
+        SqliteConnection.ClearAllPools();
+        foreach (var file in new[] { path, path + "-wal", path + "-shm" })
+        {
+            File.Delete(file);
+        }
+
+        await FillAsync(path, 5, "new");
+        var result = await Forward().ForwardAsync(CancellationToken.None);
+
+        Assert.Equal(5, result.Sent);
+        Assert.Equal(0, result.Pruned);
+        Assert.Equal(5, new EventCursor(_dir).Read());
+        Assert.Contains(log, line => line.StartsWith("the audit file was replaced", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Sent_entries_that_were_pruned_do_not_read_as_a_replaced_audit()
+    {
+        var log = new List<string>();
+        EventForwarder Forward() => new(new SqliteAuditSource(_db), new EventCursor(_dir), new HttpClient(_server), Endpoint, () => "acme", _ => false, log.Add);
+        await AppendManyAsync(3);
+        Assert.Equal(3, (await Forward().ForwardAsync(CancellationToken.None)).Sent);
+        await PruneThroughAsync(3);
+        await AppendManyAsync(2, "n");
+
+        var result = await Forward().ForwardAsync(CancellationToken.None);
+
+        Assert.Equal(2, result.Sent);
+        Assert.Equal(0, result.Pruned);
+        Assert.Empty(log);
+        Assert.Equal(5, _server.Events.Count());
+    }
+
+    private static async Task FillAsync(string path, int count, string prefix)
+    {
+        await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = path });
+        for (var i = 0; i < count; i++)
+        {
+            await store.AppendAsync(Entry("SEC-01", Severity.High, $"{prefix}{i}"), CancellationToken.None);
+        }
+    }
+
+    [Fact]
     public async Task Nothing_is_sent_before_the_developer_has_signed_in()
     {
         await AppendManyAsync(1);

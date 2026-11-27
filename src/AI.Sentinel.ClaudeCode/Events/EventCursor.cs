@@ -13,12 +13,15 @@ internal sealed class EventCursor(string directory)
     private string Path => System.IO.Path.Combine(directory, FileName);
 
     /// <summary>The stored sequence, or <see langword="null"/> when there is none yet or the file cannot be used.</summary>
-    public long? Read()
+    public long? Read() => ReadContent()?.Sequence;
+
+    /// <summary>The stored sequence and the hash of its entry, or <see langword="null"/> when there is none yet or the file cannot be used.</summary>
+    public EventCursorContent? ReadContent()
     {
         try
         {
             return PolicyCache.TryRead(Path) is { } bytes
-                ? JsonSerializer.Deserialize(bytes, EventsJsonContext.Default.EventCursorContent)?.Sequence
+                ? JsonSerializer.Deserialize(bytes, EventsJsonContext.Default.EventCursorContent)
                 : null;
         }
         catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
@@ -27,7 +30,10 @@ internal sealed class EventCursor(string directory)
         }
     }
 
-    /// <summary>Stores <paramref name="sequence"/>.</summary>
-    public void Write(long sequence) =>
-        PolicyCache.Write(Path, JsonSerializer.SerializeToUtf8Bytes(new EventCursorContent { Sequence = sequence }, EventsJsonContext.Default.EventCursorContent));
+    /// <summary>Stores <paramref name="sequence"/> and the <paramref name="hash"/> of its entry, when known.</summary>
+    public void Write(long sequence, string? hash = null) =>
+        PolicyCache.Write(
+            Path,
+            JsonSerializer.SerializeToUtf8Bytes(
+                new EventCursorContent { Sequence = sequence, Hash = string.IsNullOrEmpty(hash) ? null : hash }, EventsJsonContext.Default.EventCursorContent));
 }
