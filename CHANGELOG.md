@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.8.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.7.0...v6.8.0) (2026-11-27)
+
+
+### Features
+
+* **hooks:** forward events to the server from the resident process ([#722](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/722)) ([20397ba](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/20397baeab9689034a1de0200c88cc0cde8785c8)), closes [#661](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/661)
+
 ## [6.7.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.6.0...v6.7.0) (2026-11-27)
 
 
