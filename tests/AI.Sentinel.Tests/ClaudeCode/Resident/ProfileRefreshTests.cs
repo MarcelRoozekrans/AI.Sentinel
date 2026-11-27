@@ -128,6 +128,23 @@ public sealed class ProfileRefreshTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_configuration_announced_after_one_profile_of_the_round_was_served_fetches_that_profile_again()
+    {
+        _server.Repositories.Add(FakePolicyServer.Widgets);
+        _server.ProfileDelay = TimeSpan.FromMilliseconds(300);
+        var refresher = StartLink(Timing());
+
+        // The organisation profile is in at version 1 and the profile of the repository is still being served.
+        await WaitForAsync(() => refresher.HeldVersionOf("*") == 1 && refresher.HeldVersionOf(FakePolicyServer.Widgets) is null, "the organisation profile");
+        _server.Version = 2;
+        _server.Push("configuration", """{"version":2}""");
+
+        // The repository profile comes in at version 2, so the newest version held matches the announcement; the organisation's does not.
+        await WaitForAsync(() => refresher.HeldVersionOf("*") == 2, "the organisation profile of the announced configuration");
+        Assert.Equal(2, refresher.HeldVersionOf(FakePolicyServer.Widgets));
+    }
+
+    [Fact]
     public async Task A_fetch_that_fails_once_after_a_reconnect_succeeds_on_retry_without_another_trigger()
     {
         _server.FailProfiles(1);
