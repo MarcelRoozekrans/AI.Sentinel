@@ -124,6 +124,7 @@ internal static class ApprovalBackendSelector
             "in-memory" => ApprovalBackendKind.InMemory,
             "sqlite" => ApprovalBackendKind.Sqlite,
             "entra-pim" => ApprovalBackendKind.EntraPim,
+            "http" => ApprovalBackendKind.Http,
             _ => throw new InvalidOperationException(
                 $"Unknown backend '{backend}'. Loader should have caught this — fix Validate."),
         };

@@ -33,6 +33,11 @@ internal sealed record ResidentResponse
     [JsonPropertyName("severities")]
     public IReadOnlyList<ResidentSeverity>? Severities { get; init; }
 
+    /// <summary>For the approval operations: the state the server answered. <see cref="Error"/> then holds a <see cref="ResidentApprovalAnswer"/>
+    /// when there is none.</summary>
+    [JsonPropertyName("approval")]
+    public ServerApprovals.ApprovalStateWire? Approval { get; init; }
+
     /// <summary>For the sign-in operations: <c>signed_in</c>, <c>sign_in_needed</c>, or <c>off</c> when sign-in is not configured.</summary>
     [JsonPropertyName("sign_in")]
     public string? SignIn { get; init; }

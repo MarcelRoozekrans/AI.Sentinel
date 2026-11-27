@@ -21,8 +21,10 @@ internal static class ResidentHost
     /// <param name="listening">Called once the socket accepts connections.</param>
     /// <param name="tokens">The sign-in the process holds.</param>
     /// <param name="server">The server to keep a link to, for pauses and profiles; none when <see langword="null"/>, or when there is no sign-in.</param>
+    /// <param name="approvals">Where the approval operations go (#662), or <see langword="null"/> when no server is configured.</param>
     public static async Task<ResidentExit> RunAsync(
-        ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null, SignIn.TokenSession? tokens = null, ServerLinkSettings? server = null)
+        ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null, SignIn.TokenSession? tokens = null, ServerLinkSettings? server = null,
+        ServerApprovals.IApprovalChannel? approvals = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ResidentPaths.Prepare(settings);
@@ -62,7 +64,7 @@ internal static class ResidentHost
         {
             var state = ResidentState.Open(settings);
             var board = new PauseBoard(state);
-            var service = new ResidentService(compilers, tokens, board);
+            var service = new ResidentService(compilers, tokens, board, approvals: approvals);
             return await ServeAsync(listener, settings, service, ct, listening, LinkOf(state, board, service, tokens, server)).ConfigureAwait(false);
         }
         finally
@@ -182,7 +184,7 @@ internal static class ResidentHost
                 return;
             }
 
-            var response = Answer(line, service, shutdown);
+            var response = await AnswerAsync(line, service, shutdown, limit.Token).ConfigureAwait(false);
             await ResidentChannel.WriteAsync(stream, response, ResidentJsonContext.Default.ResidentResponse, limit.Token).ConfigureAwait(false);
             idle.CancelAfter(settings.IdleTimeout);
         }
@@ -192,7 +194,7 @@ internal static class ResidentHost
         }
     }
 
-    private static ResidentResponse Answer(string line, ResidentService service, CancellationTokenSource shutdown)
+    private static async Task<ResidentResponse> AnswerAsync(string line, ResidentService service, CancellationTokenSource shutdown, CancellationToken ct)
     {
         ResidentRequest? request;
         try
@@ -217,7 +219,7 @@ internal static class ResidentHost
                 shutdown.Cancel();
                 return new ResidentResponse { Ok = true, Pid = Environment.ProcessId };
             default:
-                return service.Answer(request);
+                return await service.AnswerAsync(request, ct).ConfigureAwait(false);
         }
     }
 }

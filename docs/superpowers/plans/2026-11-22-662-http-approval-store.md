@@ -37,19 +37,19 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Server endpoints
 
-- [ ] Add create, list, approve and deny endpoints with #674's check, refusing a decision by the requester; a failing test first for a team lead approving their own request; write approve and deny to #672's log; keep redacted tool input and delete 30 days after decision.
-- [ ] Failing tests first in `HttpApprovalStoreTests`.
-- [ ] Commit.
+- [x] Add create, list, approve and deny endpoints with #674's check, refusing a decision by the requester; a failing test first for a team lead approving their own request; write approve and deny to #672's log; keep redacted tool input and delete 30 days after decision.
+- [x] Failing tests first in `HttpApprovalStoreTests`.
+- [x] Commit.
 
 ### Task 2: `http` backend
 
-- [ ] Add the `http` backend to the approval config, going through the resident process; deny until a grant exists, with the unreachable message when the server cannot be reached.
-- [ ] Commit.
+- [x] Add the `http` backend to the approval config, going through the resident process; deny until a grant exists, with the unreachable message when the server cannot be reached.
+- [x] Commit.
 
 ### Task 3: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
