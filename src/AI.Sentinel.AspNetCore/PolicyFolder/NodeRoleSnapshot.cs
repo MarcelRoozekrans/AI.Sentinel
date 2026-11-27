@@ -12,6 +12,13 @@ internal sealed class NodeRoleSnapshot(NodeConfiguration configuration, NodeRole
     /// <summary>The id of the organisation node.</summary>
     public string OrganisationNodeId => NodeRoles.OrganisationOf(configuration);
 
+    /// <summary>The configuration the snapshot was taken from.</summary>
+    public NodeConfiguration Configuration => configuration;
+
+    /// <summary>Whether events of <paramref name="nodeId"/> are stored with the developer's code in this configuration; a node the
+    /// configuration does not hold answers as the organisation does.</summary>
+    public bool ShowsNames(string? nodeId) => Events.TeamVisibility.NodeOf(configuration, nodeId)?.ShowNames == true;
+
     /// <summary>Whether <paramref name="nodeId"/> has detailed logging in this configuration; false for a node it does not hold.</summary>
     public bool DetailedLogging(string? nodeId) =>
         configuration.Nodes.FirstOrDefault(n => string.Equals(n.Id, nodeId, StringComparison.Ordinal))?.DetailedLogging == true;

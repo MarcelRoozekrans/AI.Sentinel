@@ -29,6 +29,9 @@ public sealed class ServerEventOptions
     /// <summary>Retention per organisation, keyed by the organisation name.</summary>
     public IDictionary<string, ServerEventRetention> Retention { get; } = new Dictionary<string, ServerEventRetention>(StringComparer.Ordinal);
 
+    /// <summary>How many people a team needs before it is shown on its own (ADR-239). Fixed at 3; the tests lower it.</summary>
+    internal int MinimumTeamPeople { get; set; } = 3;
+
     internal ServerEventRetention RetentionOf(string organisation) =>
         Retention.TryGetValue(organisation, out var own) ? own : DefaultRetention;
 }

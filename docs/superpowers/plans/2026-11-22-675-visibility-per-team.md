@@ -36,19 +36,19 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Names setting
 
-- [ ] Read the names setting per node; refuse it without an approval reference.
-- [ ] Failing tests first in `TeamVisibilityTests`.
-- [ ] Commit.
+- [x] Read the names setting per node; refuse it without an approval reference.
+- [x] Failing tests first in `TeamVisibilityTests`.
+- [x] Commit.
 
 ### Task 2: Minimum team size and stamping
 
-- [ ] Fold teams under 3 people into the node above; stamp records with the visibility in force; hide names at once when turned off.
-- [ ] Commit.
+- [x] Fold teams under 3 people into the node above; stamp records with the visibility in force; hide names at once when turned off.
+- [x] Commit.
 
 ### Task 3: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
