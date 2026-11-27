@@ -7,6 +7,8 @@ namespace AI.Sentinel.ClaudeCode.Resident;
 [JsonSerializable(typeof(ResidentResponse))]
 [JsonSerializable(typeof(ResidentSeverity))]
 [JsonSerializable(typeof(SignIn.TokenSet))]
+[JsonSerializable(typeof(ServerApprovals.ApprovalRequestWire))]
+[JsonSerializable(typeof(ServerApprovals.ApprovalStateWire))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

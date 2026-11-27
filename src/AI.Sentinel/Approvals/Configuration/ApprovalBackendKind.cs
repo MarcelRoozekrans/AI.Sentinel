@@ -16,4 +16,8 @@ internal enum ApprovalBackendKind
 
     /// <summary>Entra PIM store. Backend = "entra-pim". Requires <see cref="ApprovalConfig.TenantId"/>.</summary>
     EntraPim,
+
+    /// <summary>The approval server (#662). Backend = "http". Only <c>sentinel-hook</c> serves it, through the resident process;
+    /// the server address and the sign-in are the hook's <c>SENTINEL_HOOK_</c> settings, so the file names nothing else.</summary>
+    Http,
 }

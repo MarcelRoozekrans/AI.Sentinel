@@ -15,7 +15,9 @@ using AI.Sentinel.Sqlite.Local;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.ClaudeCode.Policy;
 using AI.Sentinel.ClaudeCode.Policy.Rego;
+using AI.Sentinel.ClaudeCode.Policy.Repository;
 using AI.Sentinel.ClaudeCode.Resident;
+using AI.Sentinel.ClaudeCode.ServerApprovals;
 using AI.Sentinel.ClaudeCode.SignIn;
 
 namespace AI.Sentinel.ClaudeCode.Cli;
@@ -148,7 +150,7 @@ public static class Program
         try
         {
             (output, semanticWarning) = await EvaluateAsync(
-                evt, input, WithFindingSink(config, policy), hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
+                evt, input, WithFindingSink(config, policy), hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer, resident).ConfigureAwait(false);
             output = DecideWithPolicy(policy, resident, evt == HookEvent.PreToolUse ? failMode : null, output, input);
         }
         catch (Exception ex) when (evt == HookEvent.PreToolUse)
@@ -209,7 +211,7 @@ public static class Program
     private static async Task<(HookOutput Output, string? SemanticWarning)> EvaluateAsync(
         HookEvent evt, HookInput input, HookConfig config, Dictionary<string, string?> hookEnv, ApprovalConfig? approvalConfig,
         LocalAuditSession audit, List<string> approvalWarnings, TextWriter stderr, IEmbeddingGenerator<string, Embedding<float>>? embeddingGenerator,
-        IDetectionReviewer? reviewer)
+        IDetectionReviewer? reviewer, ResidentSession? resident)
     {
         // A caller-supplied generator wins; otherwise read SENTINEL_EMBEDDING_* so the hook can do
         // semantic detection at all. A misconfigured setting is reported rather than leaving SEC-01
@@ -238,7 +240,8 @@ public static class Program
         var provider = BuildProvider(embeddingGenerator ?? embeddings?.Generator, approvalConfig, embeddings?.ExampleCache, message => stderr.WriteLine(message), approvalWarnings.Add, audit,
             reviewer: reviewer ?? review?.Reviewer, reviewLimits: ReviewLimitsFor(review),
             enableComplianceDetectors: config.EnableComplianceDetectors, detectors: DetectorPresets.Parse(hookEnv.GetValueOrDefault("SENTINEL_HOOK_DETECTORS")),
-            maxScanBytes: HookConfig.ParseMaxScanBytes(hookEnv, "SENTINEL_HOOK_MAX_SCAN_BYTES"));
+            maxScanBytes: HookConfig.ParseMaxScanBytes(hookEnv, "SENTINEL_HOOK_MAX_SCAN_BYTES"),
+            approvalChannel: resident is null ? null : new ResidentApprovalChannel(resident.Client));
         await using var _ = provider.ConfigureAwait(false);
         // Semantic approvals only act on a tool call, so only PreToolUse says they are inert. It goes with the
         // approval warnings: kept off the stderr that carries a block reason, unless verbose.
@@ -512,24 +515,15 @@ public static class Program
         DetectorPreset detectors = DetectorPreset.Security,
         IDetectionReviewer? reviewer = null,
         ReviewLimits? reviewLimits = null,
-        int maxScanBytes = SentinelOptions.DefaultMaxScanBytes)
+        int maxScanBytes = SentinelOptions.DefaultMaxScanBytes,
+        IApprovalChannel? approvalChannel = null)
     {
         var services = new ServiceCollection();
         var backendKind = approvalConfig is null
             ? ApprovalBackendKind.None
             : ApprovalBackendSelector.GetBackend(approvalConfig);
 
-        switch (backendKind)
-        {
-            case ApprovalBackendKind.Sqlite:
-                services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = approvalConfig!.DatabasePath!);
-                break;
-            case ApprovalBackendKind.EntraPim:
-                services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig!.TenantId!);
-                break;
-                // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
-                // carry an ApprovalSpec.
-        }
+        AddApprovalBackend(services, backendKind, approvalConfig, approvalChannel);
 
         // No logging stack here, so the notifier's warnings, such as a failed POST, go to a sink the caller reports
         // under the same rule as audit problems: they must stay off the stderr that carries a block reason.
@@ -573,6 +567,31 @@ public static class Program
         }
 
         return services.BuildServiceProvider();
+    }
+
+    /// <summary>Registers the store of the backend the approval config selected. It goes before <c>AddAISentinel</c>, see
+    /// <see cref="BuildProvider"/>.</summary>
+    private static void AddApprovalBackend(
+        IServiceCollection services, ApprovalBackendKind backendKind, ApprovalConfig? approvalConfig, IApprovalChannel? approvalChannel)
+    {
+        switch (backendKind)
+        {
+            case ApprovalBackendKind.Sqlite:
+                services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = approvalConfig!.DatabasePath!);
+                break;
+            case ApprovalBackendKind.EntraPim:
+                services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig!.TenantId!);
+                break;
+            case ApprovalBackendKind.Http:
+                // The server decides (#662). The hook reaches it through the resident process only; without one every call that needs
+                // approval is denied as unreachable. The tool input is redacted before it leaves the PC.
+                services.AddSingleton<IApprovalStore>(sp => new HttpApprovalStore(
+                    approvalChannel, args => ApprovalArgsRedaction.Redact(sp, args),
+                    RepositoryUrl.Normalize(GitRemote.UrlOf(Directory.GetCurrentDirectory())) ?? string.Empty));
+                break;
+                // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
+                // carry an ApprovalSpec.
+        }
     }
 
     private static async Task<int> WriteReasonAndReturn(TextWriter stderr, string? reason, int exitCode)

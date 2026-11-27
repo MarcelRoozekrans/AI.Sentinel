@@ -34,6 +34,14 @@ internal sealed record ResidentRequest
     [JsonPropertyName("issuer")]
     public string? Issuer { get; init; }
 
+    /// <summary>For <see cref="ResidentOps.ApprovalEnsure"/>: the request to open. It holds the redacted tool input and no token.</summary>
+    [JsonPropertyName("approval")]
+    public ServerApprovals.ApprovalRequestWire? Approval { get; init; }
+
+    /// <summary>For <see cref="ResidentOps.ApprovalGet"/>: the request to read.</summary>
+    [JsonPropertyName("request_id")]
+    public string? RequestId { get; init; }
+
     /// <summary>For <see cref="ResidentOps.SignIn"/>: the OIDC client the tokens were issued to.</summary>
     [JsonPropertyName("client_id")]
     public string? ClientId { get; init; }

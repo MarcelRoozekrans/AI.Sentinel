@@ -291,6 +291,20 @@ internal static class ProxyCommand
             services, approvalConfig, warning => stderr.WriteLine(FormatWarning(warning)));
     }
 
+    /// <summary>Only the Claude Code hook reaches the approval server, through its resident process (#662). Starting on an in-memory
+    /// store instead would leave every approval undecidable, so the backend is a configuration error here.</summary>
+    private static async Task<bool> RejectsHttpBackendAsync(ApprovalConfig approvalConfig, string path, TextWriter stderr)
+    {
+        if (ApprovalBackendSelector.GetBackend(approvalConfig) != ApprovalBackendKind.Http)
+        {
+            return false;
+        }
+
+        await stderr.WriteLineAsync(
+            $"sentinel-mcp: the approval config '{path}' uses backend 'http', which only sentinel-hook supports").ConfigureAwait(false);
+        return true;
+    }
+
     /// <summary>
     /// Loads <c>SENTINEL_APPROVAL_CONFIG</c> (if set), builds an <see cref="IToolCallGuard"/> +
     /// <see cref="IApprovalStore"/> via a small DI container, and resolves
@@ -325,6 +339,8 @@ internal static class ProxyCommand
                 $"sentinel-mcp: failed to load approval config from '{path}': {ex.Message}").ConfigureAwait(false);
             return (null, null, null, null, true);
         }
+
+        if (await RejectsHttpBackendAsync(approvalConfig, path, stderr).ConfigureAwait(false)) return (null, null, null, null, true);
 
         // Backend stores must be registered BEFORE AddAISentinel: when bindings carry an
         // ApprovalSpec and no IApprovalStore is yet registered, AddAISentinel auto-registers

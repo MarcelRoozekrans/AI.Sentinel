@@ -32,7 +32,10 @@ internal sealed class ProfileRefresher(
     private long _fetches;
     private readonly Lock _sync = new();
     private long _announced;
-    private long _satisfied;
+    // The oldest configuration version among the profiles the last round brought; long.MaxValue when it brought none.
+    private long _covered = long.MaxValue;
+    // Whether the node map changed while the last round ran, after an announcement that came once the round had read it.
+    private bool _mapChanged;
     private bool _noKeys;
     private bool _running;
 
@@ -47,6 +50,18 @@ internal sealed class ProfileRefresher(
             lock (_held)
             {
                 return _held.Count == 0 ? 0 : _held.Values.Max(p => p.ConfigurationVersion);
+            }
+        }
+    }
+
+    // The oldest configuration version held, or 0: an announcement newer than it leaves at least one profile out of date.
+    private long OldestHeldVersion
+    {
+        get
+        {
+            lock (_held)
+            {
+                return _held.Count == 0 ? 0 : _held.Values.Min(p => p.ConfigurationVersion);
             }
         }
     }
@@ -68,14 +83,14 @@ internal sealed class ProfileRefresher(
     }
 
     /// <summary>The server announced that <paramref name="version"/> came into force. Nothing is fetched for a version that is not newer
-    /// than the one held.</summary>
+    /// than every profile held.</summary>
     public void Announce(long version)
     {
         lock (_sync)
         {
             _announced = Math.Max(_announced, version);
             // A round that is running now may fetch this version itself; when it ends it looks again.
-            if (_running || version <= HeldVersion)
+            if (_running || version <= OldestHeldVersion)
             {
                 return;
             }
@@ -99,12 +114,10 @@ internal sealed class ProfileRefresher(
                     continue;
                 }
 
-                long target;
                 lock (_sync)
                 {
                     _forced = false;
                     _running = true;
-                    target = _announced;
                 }
 
                 var ok = await RoundAsync(ct).ConfigureAwait(false);
@@ -115,10 +128,11 @@ internal sealed class ProfileRefresher(
                     // a sign-in reconnects the link and wakes this.
                     if (ok && !_noKeys)
                     {
-                        // Every profile of the round was asked for after the announcement it started with; one of them may have been
-                        // fetched before a later one, so the newest version held does not show that all of them are current.
-                        _satisfied = Math.Max(_satisfied, target);
-                        if (_announced > _satisfied || _announced > HeldVersion)
+                        // Every profile carries the version of the configuration it was issued from, so the round brought an announced
+                        // version only when none of its profiles is older. One fetched before the announcement may be; the newest version
+                        // held does not show that, and when the round started says nothing about when each profile was served.
+                        // The node map carries no version, so a map read before the announcement is checked again instead.
+                        if (_announced > _covered || _mapChanged)
                         {
                             _forced = true;
                         }
@@ -164,6 +178,9 @@ internal sealed class ProfileRefresher(
                 return true;
             }
 
+            _covered = long.MaxValue;
+            _mapChanged = false;
+            var announcedAtMap = AnnouncedVersion;
             var map = await FetchNodeMapAsync(ct).ConfigureAwait(false);
             var allOk = map is not null;
             var repositories = new List<string> { CachedNodePolicies.OrganisationRepository };
@@ -177,12 +194,31 @@ internal sealed class ProfileRefresher(
                 allOk &= await FetchProfileAsync(repository, ct).ConfigureAwait(false);
             }
 
+            if (map is not null && AnnouncedVersion > announcedAtMap)
+            {
+                // A map refused now is a failed round, tried again with backoff; one that names other repositories asks for another.
+                var again = await FetchNodeMapAsync(ct).ConfigureAwait(false);
+                allOk &= again is not null;
+                _mapChanged = again is not null && !again.Repositories.ToHashSet(StringComparer.Ordinal).SetEquals(map.Repositories);
+            }
+
             return allOk;
         }
         catch (Exception e) when (e is HttpRequestException or IOException or JsonException or InvalidDataException or SignIn.SignInRequiredException or TaskCanceledException && !ct.IsCancellationRequested)
         {
             log?.Invoke($"the profiles could not be fetched ({e.GetType().Name}); the last valid profile stays in force");
             return false;
+        }
+    }
+
+    private long AnnouncedVersion
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _announced;
+            }
         }
     }
 
@@ -217,7 +253,14 @@ internal sealed class ProfileRefresher(
         }
 
         var signed = SignedProfile.Parse(await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false));
-        return signed is not null && await OfferAsync(repository, signed, ct).ConfigureAwait(false) != ProfileOffer.Refused;
+        if (signed is null || await OfferAsync(repository, signed, ct).ConfigureAwait(false) == ProfileOffer.Refused)
+        {
+            return false;
+        }
+
+        // A stale offer leaves a profile in force that is at least as new as the one offered.
+        _covered = Math.Min(_covered, HeldVersionOf(repository) ?? 0);
+        return true;
     }
 
     /// <summary>Checks <paramref name="signed"/> and, when it is valid and newer than the profile in force, writes it to the cache and
