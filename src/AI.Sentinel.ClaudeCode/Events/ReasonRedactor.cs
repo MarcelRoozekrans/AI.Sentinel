@@ -25,6 +25,7 @@ internal static partial class ReasonRedactor
         text = Email().Replace(text, "<email>");
         text = Quoted().Replace(text, "<value>");
         text = WindowsPath().Replace(text, "<path>");
+        text = RelativeWindowsPath().Replace(text, "<path>");
         text = UnixPath().Replace(text, "<path>");
         text = RelativePath().Replace(text, m => IsRelativePath(m.Value) ? "<path>" : m.Value);
         text = text.Trim();
@@ -82,6 +83,10 @@ internal static partial class ReasonRedactor
 
     [GeneratedRegex(@"\b[A-Za-z]:[\\/][^\s'""<>|]*|\\\\[^\s'""<>|]+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
     private static partial Regex WindowsPath();
+
+    // Prose does not join words with a backslash, so every run of names joined by one is a path, as in src\private\settings.json.
+    [GeneratedRegex(@"(?<![\w<>:.\-\\])[A-Za-z0-9_.\-]+(?:\\[A-Za-z0-9_.\-]+)+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
+    private static partial Regex RelativeWindowsPath();
 
     [GeneratedRegex(@"(?<![\w<>.:/])(?:~|\.{1,2})?/[^\s'"",;:)\]]+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
     private static partial Regex UnixPath();
