@@ -47,35 +47,20 @@ internal sealed class ResidentState(string directory)
         var path = Path.Combine(Directory, PauseFile);
         try
         {
-            // Absence is told by the read itself: File.Exists says false for a file it cannot get at, which would read as nobody paused.
-            var bytes = PolicyCache.TryRead(path);
-            if (bytes is null)
+            // One read tells absence from damage. File.Exists says false for a file it cannot get at, and asking again after the read
+            // races the first write: a file created in between would read as damaged, and every session as paused.
+            if (PolicyCache.ReadFile(path) is not { } raw)
             {
-                // TryRead says absent for a missing file, and for one that is short or fails its digest.
-                return IsMissing(path) ? [] : throw new InvalidDataException("fails its digest");
+                return [];
             }
 
+            var bytes = PolicyCache.Verify(raw) ?? throw new InvalidDataException("fails its digest");
             return JsonSerializer.Deserialize(bytes, ResidentStateJsonContext.Default.PausedSessionArray)?.Where(p => p?.Session is not null).ToArray()
                 ?? throw new InvalidDataException("holds no list");
         }
         catch (Exception e) when (e is InvalidDataException or JsonException or IOException or UnauthorizedAccessException)
         {
             throw new InvalidDataException($"the pause state is unreadable ({e.Message}); every session is treated as paused until it is rewritten", e);
-        }
-    }
-
-    // Opening is what separates a file that is not there from one that is there and cannot be read: the second throws
-    // UnauthorizedAccessException or IOException, which the caller turns into an error.
-    private static bool IsMissing(string path)
-    {
-        try
-        {
-            using var _ = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-            return false;
-        }
-        catch (Exception e) when (e is FileNotFoundException or DirectoryNotFoundException)
-        {
-            return true;
         }
     }
 

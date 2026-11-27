@@ -36,6 +36,29 @@ public sealed class ResidentHardeningTests : IDisposable
     }
 
     [Fact]
+    public async Task A_pause_file_written_for_the_first_time_while_a_hook_reads_it_never_reads_as_damaged()
+    {
+        var state = State();
+        var path = Path.Combine(state.Directory, ResidentState.PauseFile);
+        for (var round = 0; round < 200; round++)
+        {
+            File.Delete(path);
+            using var written = new CancellationTokenSource();
+            var reader = Task.Run(() =>
+            {
+                while (!written.IsCancellationRequested)
+                {
+                    // Before the write the file is absent, after it the pause is there; never anything else.
+                    Assert.True(state.FindPause("s-1", DateTimeOffset.UtcNow) is null or { Session: "s-1" });
+                }
+            }, Ct);
+            state.WritePauses([new PausedSession("s-1", "incident review", null)]);
+            await written.CancelAsync();
+            await reader;
+        }
+    }
+
+    [Fact]
     public void A_missing_pause_file_is_not_unreadable()
     {
         Assert.False(new PauseBoard(State()).Unreadable);
