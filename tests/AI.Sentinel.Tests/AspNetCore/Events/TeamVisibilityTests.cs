@@ -82,8 +82,24 @@ public sealed class TeamVisibilityTests
 
         var events = await ReadAsync(host, "acme/audit", "root", "sec");
 
+        Assert.Equal(["ev-a1", "ev-a2", "ev-a3"], events.Where(e => Is(NodeOf(e), "team-a")).Select(IdOf).Order(StringComparer.Ordinal), StringComparer.Ordinal);
+        Assert.Equal(["ev-b1", "ev-b2"], events.Where(e => !Is(NodeOf(e), "team-a")).Select(IdOf).Order(StringComparer.Ordinal), StringComparer.Ordinal);
         Assert.All(events.Where(e => Is(NodeOf(e), "team-a")), e => Assert.StartsWith("dev-", e.GetProperty("developer").GetString(), StringComparison.Ordinal));
         Assert.All(events.Where(e => !Is(NodeOf(e), "team-a")), e => Assert.False(e.TryGetProperty("developer", out _)));
+    }
+
+    [Fact]
+    public async Task A_small_team_shown_under_the_organisation_follows_the_names_setting_of_the_organisation()
+    {
+        using var host = await StartAsync(nodes: NamesOn);
+        await SendAsync(host, "a1", "ev-a1");
+        await SendAsync(host, "a2", "ev-a2");
+
+        var events = await ReadAsync(host, "acme/audit", "root", "sec");
+
+        Assert.Equal(["ev-a1", "ev-a2"], events.Select(IdOf).Order(StringComparer.Ordinal), StringComparer.Ordinal);
+        Assert.All(events, e => Assert.Equal("acme", NodeOf(e)));
+        Assert.All(events, e => Assert.False(e.TryGetProperty("developer", out _)));
     }
 
     [Theory]

@@ -55,7 +55,8 @@ internal static class EventReads
         var storedGaps = await store.ReadGapsAsync(organisation, http.RequestAborted).ConfigureAwait(false);
         var visibility = new TeamVisibility(current.Configuration, stored, storedGaps, options.MinimumTeamPeople);
         var events = stored
-            .Select(e => new ShownEvent(e, visibility.NodeFor(e.Node) ?? current.OrganisationNodeId, Own(own, e.Developer) || visibility.ShowsName(e)))
+            .Select(e => (Event: e, Node: visibility.NodeFor(e.Node) ?? current.OrganisationNodeId))
+            .Select(x => new ShownEvent(x.Event, x.Node, Own(own, x.Event.Developer) || visibility.ShowsName(x.Event, x.Node)))
             .Where(s => (!blockedOnly || s.Event.IsBlocked)
                 && (node.Length == 0 || string.Equals(s.Node, node, StringComparison.Ordinal))
                 && (session.Length == 0 || string.Equals(s.Event.Session, session, StringComparison.Ordinal))

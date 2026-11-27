@@ -57,7 +57,8 @@ internal sealed class TeamVisibility
     public string? NodeFor(string? node) =>
         node is not null && _small.Contains(node) ? _configuration?.Nodes.First(n => n.IsOrganisation).Id : node;
 
-    /// <summary>Whether the code of the developer of a record is shown: the node shows names now and the record was stored with them.</summary>
-    public bool ShowsName(ServerEvent e) =>
-        string.Equals(e.Visibility, ServerEvent.WithNames, StringComparison.Ordinal) && NodeOf(_configuration, e.Node)?.ShowNames == true;
+    /// <summary>Whether the code of the developer of a record is shown: the node the record is shown under shows names now and the
+    /// record was stored with them. A small team's record is shown under the organisation, so the organisation's setting decides.</summary>
+    public bool ShowsName(ServerEvent e, string? shownNode) =>
+        string.Equals(e.Visibility, ServerEvent.WithNames, StringComparison.Ordinal) && NodeOf(_configuration, shownNode)?.ShowNames == true;
 }
