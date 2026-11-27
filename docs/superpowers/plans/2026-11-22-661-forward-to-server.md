@@ -36,20 +36,20 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Cursor and send
 
-- [ ] Store an event id with each local audit entry; read the local SQLite audit from a stored cursor and send allowlisted events in order, once; report pruned entries as a gap.
-- [ ] Failing tests first in `EventForwardingTests`, including a resend that keeps its event id and an outage with `SENTINEL_HOOK_AUDIT_MAX_MB=0` that loses nothing and reports no gap.
-- [ ] Commit.
+- [x] Store an event id with each local audit entry; read the local SQLite audit from a stored cursor and send allowlisted events in order, once; report pruned entries as a gap.
+- [x] Failing tests first in `EventForwardingTests`, including a resend that keeps its event id and an outage with `SENTINEL_HOOK_AUDIT_MAX_MB=0` that loses nothing and reports no gap.
+- [x] Commit.
 
 ### Task 2: Detailed logging
 
-- [ ] Send reason text only with detailed logging on; redact paths, URLs, email addresses and quoted values; drop a reason that looks like a secret.
-- [ ] Tests in `ReasonRedactionTests`.
-- [ ] Commit.
+- [x] Send reason text only with detailed logging on; redact paths, URLs, email addresses and quoted values; drop a reason that looks like a secret.
+- [x] Tests in `ReasonRedactionTests`.
+- [x] Commit.
 
 ### Task 3: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks

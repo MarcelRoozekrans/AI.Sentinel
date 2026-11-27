@@ -37,6 +37,10 @@ internal sealed class LocalAuditSession : IAsyncDisposable
     /// <summary>The store to register. It tags each entry's source and never throws on append.</summary>
     public IAuditStore Store => _store;
 
+    /// <summary>Routes every entry appended from now on to the server: it gets this tool kind and node (#661). Never called when no
+    /// server is configured or the repository is in strict mode, and then no entry is forwarded.</summary>
+    public void RouteEvents(string toolKind, string? node) => _store.Route = (toolKind, node);
+
     /// <summary>The forwarders to register, each counting the entries it has sent.</summary>
     public IReadOnlyList<IAuditForwarder> Forwarders => _forwarders;
 

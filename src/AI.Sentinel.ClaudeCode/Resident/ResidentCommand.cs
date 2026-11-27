@@ -37,6 +37,8 @@ internal static class ResidentCommand
         var env = ResidentSettings.ProcessEnvironment();
         var tokens = SignIn.SignInCommand.OpenSession(env, http, stderr);
         var signIn = SignIn.SignInSettings.FromEnvironment(env, out _);
+        // Events go to the server only with the server configured; without it there is no forwarder (#661).
+        var forwarder = Events.EventForwarding.Open(env, settings, tokens, inner: null, stderr);
         // The link to the server for pauses and profiles needs the sign-in as well as the server address; it is off without them.
         var server = tokens is not null && signIn is not null ? new ServerLinkSettings(signIn.ServerUrl, ServerLinkTiming.Default) : null;
         // The approval endpoints (#662) are asked with the token of this process, so the server settings and the sign-in go together.
@@ -44,7 +46,7 @@ internal static class ResidentCommand
             ? ServerApprovals.ApprovalServerClients.NewHttpClient(tokens, signIn.ServerUrl)
             : null;
         var approvals = serverHttp is null ? null : new ServerApprovals.ApprovalServerClient(serverHttp);
-        var exit = await ResidentHost.RunAsync(settings, compilers, CancellationToken.None, listening: null, tokens, server, approvals).ConfigureAwait(false);
+        var exit = await ResidentHost.RunAsync(settings, compilers, CancellationToken.None, listening: null, tokens, server, approvals, forwarder).ConfigureAwait(false);
         return exit == ResidentExit.Failed ? 1 : 0;
     }
 }
