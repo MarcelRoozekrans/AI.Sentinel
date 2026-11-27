@@ -495,6 +495,29 @@ public class HostRedactionTests
     }
 
     [Fact]
+    public void TryRedactJson_WithoutRedactors_ReturnsTheInputAsItIs()
+    {
+        var (pipeline, _) = Build(o => o.RedactByDefault = false);
+        var input = Json($$"""{"command":"mail {{Email}}"}""");
+
+        var redacted = pipeline.TryRedactJson(input, knownPlaceholders: null);
+
+        Assert.Equal(Email, redacted!.Value.GetProperty("command").GetString()![5..]);
+    }
+
+    [Fact]
+    public void TryRedactJson_WhenARedactorThrows_ReturnsNullSoTheInputIsNotSent()
+    {
+        var (pipeline, _) = Build(o =>
+        {
+            o.AddDetector(_ => new ThrowingRedactor());
+            o.Configure<ThrowingRedactor>(c => c.Action = SentinelAction.Redact);
+        });
+
+        Assert.Null(pipeline.TryRedactJson(Json($$"""{"command":"mail {{Email}}"}"""), knownPlaceholders: null));
+    }
+
+    [Fact]
     public async Task NoRedactors_ScansUnchanged()
     {
         var (pipeline, audit) = Build(o => o.RedactByDefault = false);

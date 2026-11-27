@@ -38,6 +38,17 @@ internal sealed class FakePolicyServer : HttpMessageHandler
     /// <summary>The module text of the profile of the repository; the organisation profile is <c>*</c>.</summary>
     public Func<string, string> Module { get; set; } = _ => Rule("deny contains \"v" + "1\" if input.kind == \"shell\"");
 
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (TaskCompletionSource Arrived, TaskCompletionSource Release)> _holds = new(StringComparer.Ordinal);
+
+    /// <summary>Holds the next profile request of <paramref name="repository"/> until the test releases it; the profile is issued at
+    /// the version in force at the release.</summary>
+    public (Task Arrived, Action Release) Hold(string repository)
+    {
+        var hold = (new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously), new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously));
+        _holds[repository] = hold;
+        return (hold.Item1.Task, () => hold.Item2.TrySetResult());
+    }
+
     /// <summary>How long a profile request takes to answer.</summary>
     public TimeSpan ProfileDelay { get; set; }
 
@@ -111,6 +122,13 @@ internal sealed class FakePolicyServer : HttpMessageHandler
         if (ProfileDelay > TimeSpan.Zero && request.RequestUri!.AbsolutePath.EndsWith("/profile", StringComparison.Ordinal))
         {
             await Task.Delay(ProfileDelay, cancellationToken);
+        }
+
+        if (request.RequestUri!.AbsolutePath.EndsWith("/profile", StringComparison.Ordinal)
+            && _holds.TryRemove(Uri.UnescapeDataString(request.RequestUri.Query.Split("repository=", 2)[1]), out var hold))
+        {
+            hold.Arrived.TrySetResult();
+            await hold.Release.Task.WaitAsync(cancellationToken);
         }
 
         return Answer(request);

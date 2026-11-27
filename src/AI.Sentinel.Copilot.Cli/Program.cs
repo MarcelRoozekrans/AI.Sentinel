@@ -500,17 +500,7 @@ public static class Program
             ? ApprovalBackendKind.None
             : ApprovalBackendSelector.GetBackend(approvalConfig);
 
-        switch (backendKind)
-        {
-            case ApprovalBackendKind.Sqlite:
-                services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = approvalConfig!.DatabasePath!);
-                break;
-            case ApprovalBackendKind.EntraPim:
-                services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig!.TenantId!);
-                break;
-                // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
-                // carry an ApprovalSpec.
-        }
+        AddApprovalBackend(services, backendKind, approvalConfig);
 
         // No logging stack here, so the notifier's warnings, such as a failed POST, go to a sink the caller reports
         // under the same rule as audit problems: they must stay off the stderr that carries a block reason.
@@ -554,6 +544,27 @@ public static class Program
         }
 
         return services.BuildServiceProvider();
+    }
+
+    /// <summary>Registers the store of the backend the approval config selected. It goes before <c>AddAISentinel</c>, see
+    /// <see cref="BuildProvider"/>.</summary>
+    private static void AddApprovalBackend(IServiceCollection services, ApprovalBackendKind backendKind, ApprovalConfig? approvalConfig)
+    {
+        switch (backendKind)
+        {
+            case ApprovalBackendKind.Sqlite:
+                services.AddSentinelSqliteApprovalStore(o => o.DatabasePath = approvalConfig!.DatabasePath!);
+                break;
+            case ApprovalBackendKind.EntraPim:
+                services.AddSentinelEntraPimApprovalStore(o => o.TenantId = approvalConfig!.TenantId!);
+                break;
+            case ApprovalBackendKind.Http:
+                // Only the Claude Code hook reaches the approval server, through its resident process (#662). Failing here keeps
+                // a rule that needs approval from being served by an in-memory store that nobody can decide on.
+                throw new InvalidOperationException("approval backend 'http' is only supported by sentinel-hook");
+                // None / InMemory: AddAISentinel auto-registers InMemoryApprovalStore when bindings
+                // carry an ApprovalSpec.
+        }
     }
 
     private static async Task<int> WriteReasonAndReturn(TextWriter stderr, string? reason, int exitCode)
