@@ -199,7 +199,7 @@ public sealed class SqliteAuditStoreTests : IDisposable
     {
         await using var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath });
         var version = await store.GetSchemaVersionForTestingAsync(CancellationToken.None);
-        Assert.Equal(5, version);
+        Assert.Equal(6, version);
     }
 
     [Fact]
