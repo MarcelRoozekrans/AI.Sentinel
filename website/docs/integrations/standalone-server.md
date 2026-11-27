@@ -197,7 +197,9 @@ Without these variables the plugin does not sign in and does not open a connecti
 
 ## 7. Approve, deny, pause and release
 
-Approve and deny go through the dashboard of the host, at `/ai-sentinel`, or its two endpoints. The host in section 1 accepts bearer tokens only, so a browser that opens `/ai-sentinel` without one gets `401`, not a sign-in page, and the plugin sign-in does not give the browser a session. To use the dashboard page in a browser, add a browser sign-in to the host, such as cookie authentication with OpenID Connect against the same provider. Without one, use the two endpoints:
+Approve and deny go through the dashboard of the host, at `/ai-sentinel`, or its two endpoints. The host in section 1 accepts bearer tokens only, so a browser that opens `/ai-sentinel` without one gets `401`, not a sign-in page, and the plugin sign-in does not give the browser a session. To use the dashboard page in a browser, add a browser sign-in to the host, such as cookie authentication with OpenID Connect against the same provider. Without one, use the two endpoints.
+
+The sample starts with an empty `InMemoryApprovalStore` and adds no request to it, so there is nothing to approve until one arrives. `$ID` below is the id of a request that your host adds to its `IApprovalStore`. If the host also maps the [approval server](./claude-code#approvals-decided-on-the-server) with `AddAISentinelApprovalServer` and `MapAISentinelApprovalServer`, the id comes from a request a hook opened there. The sample does not map the approval server, which has its own routes under `/ai-sentinel/approvals`. The commands below use the dashboard routes:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" https://sentinel.example.com/ai-sentinel/api/approvals/$ID/approve
