@@ -36,6 +36,18 @@ public partial class DeviceCodeSignInTests : IDisposable
 
     private DeviceCodeSignIn SignIn() => new(Client(), Http(), _settings);
 
+    [Theory]
+    [InlineData("https://sentinel.example.com/prefix", "https://sentinel.example.com/prefix/")]
+    [InlineData("https://sentinel.example.com/prefix/", "https://sentinel.example.com/prefix/")]
+    public void The_client_for_the_approval_server_keeps_a_path_of_the_server_and_bounds_each_call(string server, string expected)
+    {
+        using var client = AI.Sentinel.ClaudeCode.ServerApprovals.ApprovalServerClients.NewHttpClient(new TokenSession(Client(), null, _time), new Uri(server));
+
+        Assert.Equal(expected, client.BaseAddress!.AbsoluteUri);
+        Assert.Equal(new Uri(expected + "ai-sentinel/approvals"), new Uri(client.BaseAddress, "ai-sentinel/approvals"));
+        Assert.Equal(AI.Sentinel.ClaudeCode.ServerApprovals.ApprovalServerClients.CallTimeout, client.Timeout);
+    }
+
     [Fact]
     public void Nothing_is_configured_by_default()
     {

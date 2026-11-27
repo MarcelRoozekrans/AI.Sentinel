@@ -90,6 +90,25 @@ public sealed partial class HttpApprovalStoreTests
         }
     }
 
+    [Fact]
+    public async Task A_server_that_refuses_the_request_through_the_resident_process_denies_with_the_refused_reason()
+    {
+        var dir = ResidentTestSupport.NewDir();
+        try
+        {
+            await using var resident = new HostedResident(dir, approvals: new ScriptedChannel(new ApprovalChannelReply(ApprovalChannelStatus.Refused)));
+            await resident.WaitUntilListeningAsync();
+
+            var state = await HookOf(new ResidentApprovalChannel(new ResidentClient(resident.Settings))).EnsureRequestAsync(new Caller("hook"), Spec(), Context(), Ct);
+
+            Assert.Equal(HttpApprovalStore.RefusedReason, Assert.IsType<ApprovalState.Denied>(state).Reason);
+        }
+        finally
+        {
+            ResidentTestSupport.Delete(dir);
+        }
+    }
+
     private const string HttpConfig = """{ "backend": "http", "tools": { "Bash": { "role": "Ops" } } }""";
 
     private static async Task<(int Exit, string Stderr)> PreToolUseAsync()

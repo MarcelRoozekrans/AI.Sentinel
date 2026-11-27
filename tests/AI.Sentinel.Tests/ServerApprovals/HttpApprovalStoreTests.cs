@@ -422,6 +422,52 @@ public sealed partial class HttpApprovalStoreTests : IAsyncDisposable
 
     private const int ApprovalEndpointsLimit = ApprovalEndpoints.MaxBodyBytes;
 
+    public static TheoryData<string> InvalidRequests => new()
+    {
+        "blank policy", "long policy", "blank tool", "long tool", "long repository", "long justification", "long reason", "no grant", "long grant",
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidRequests))]
+    public async Task A_request_whose_fields_are_out_of_bounds_is_refused(string what)
+    {
+        await StartAsync();
+        var valid = new ApprovalRequestWire { Repository = Repository, Policy = "approval:Bash", Tool = "Bash", GrantSeconds = 60 };
+        var name = new string('x', 513);
+        var text = new string('x', 4097);
+        var request = what switch
+        {
+            "blank policy" => valid with { Policy = " " },
+            "long policy" => valid with { Policy = name },
+            "blank tool" => valid with { Tool = "" },
+            "long tool" => valid with { Tool = name },
+            "long repository" => valid with { Repository = name },
+            "long justification" => valid with { Justification = text },
+            "long reason" => valid with { Reason = text },
+            "no grant" => valid with { GrantSeconds = 0 },
+            _ => valid with { GrantSeconds = (int)TimeSpan.FromDays(31).TotalSeconds },
+        };
+
+        var response = await Dave().PostAsync(Path, Body(request), Ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(0, _store!.Count);
+    }
+
+    [Fact]
+    public async Task A_request_without_a_tool_input_is_kept_without_one()
+    {
+        await StartAsync();
+        var response = await Dave().PostAsync(Path, Body(new ApprovalRequestWire { Repository = Repository, Policy = "approval:Bash", Tool = "Bash", GrantSeconds = 60 }), Ct);
+
+        Assert.True(response.IsSuccessStatusCode);
+        var state = await response.Content.ReadFromJsonAsync(ApprovalWireJsonContext.Default.ApprovalStateWire, Ct);
+        Assert.Null(_store!.Find(state!.Id)!.Args);
+    }
+
+    private static StringContent Body(ApprovalRequestWire request) =>
+        new(JsonSerializer.Serialize(request, ApprovalWireJsonContext.Default.ApprovalRequestWire), Encoding.UTF8, "application/json");
+
     // ---- acceptance: the audit log --------------------------------------------------------------------------------------------
 
     [Fact]
@@ -581,6 +627,36 @@ public sealed partial class HttpApprovalStoreTests : IAsyncDisposable
             System.CreateTimer(callback, state, TimeSpan.Zero, Timeout.InfiniteTimeSpan);
     }
 
+    public static TheoryData<string, string> Replies => new()
+    {
+        { nameof(ApprovalChannelStatus.SignInNeeded), HttpApprovalStore.SignInNeededReason },
+        { nameof(ApprovalChannelStatus.Refused), HttpApprovalStore.RefusedReason },
+        { nameof(ApprovalChannelStatus.NotFound), "unknown request" },
+        { nameof(ApprovalChannelStatus.Off), HttpApprovalStore.OffReason },
+        { nameof(ApprovalChannelStatus.Unreachable), HttpApprovalStore.UnreachableReason },
+        // An answer that says it worked and carries no state is no answer.
+        { nameof(ApprovalChannelStatus.Ok), HttpApprovalStore.UnreachableReason },
+    };
+
+    [Theory]
+    [MemberData(nameof(Replies))]
+    public async Task Every_reply_of_the_channel_that_carries_no_state_denies_with_its_reason(string status, string reason)
+    {
+        var reply = new ApprovalChannelReply(Enum.Parse<ApprovalChannelStatus>(status));
+        var hook = new HttpApprovalStore(new ScriptedChannel(reply), args => args, Repository);
+
+        var state = await hook.WaitForDecisionAsync("req-1", TimeSpan.FromSeconds(5), Ct);
+
+        Assert.Equal(reason, Assert.IsType<ApprovalState.Denied>(state).Reason);
+    }
+
+    private sealed class ScriptedChannel(ApprovalChannelReply reply) : IApprovalChannel
+    {
+        public Task<ApprovalChannelReply> EnsureAsync(ApprovalRequestWire request, CancellationToken ct) => Task.FromResult(reply);
+
+        public Task<ApprovalChannelReply> GetAsync(string requestId, CancellationToken ct) => Task.FromResult(reply);
+    }
+
     private sealed class PendingChannel : IApprovalChannel
     {
         public int Gets { get; private set; }
@@ -603,6 +679,10 @@ public sealed partial class HttpApprovalStoreTests : IAsyncDisposable
         var config = ApprovalConfigLoader.Parse(JsonDocument.Parse("""{"backend":"http","tools":{"Bash":{"role":"Ops"}}}""").RootElement);
 
         Assert.Equal(ApprovalBackendKind.Http, ApprovalBackendSelector.GetBackend(config));
+        Assert.Equal(ApprovalBackendKind.InMemory, ApprovalBackendSelector.GetBackend(
+            ApprovalConfigLoader.Parse(JsonDocument.Parse("""{"backend":"in-memory"}""").RootElement)));
+        Assert.Equal(ApprovalBackendKind.None, ApprovalBackendSelector.GetBackend(
+            ApprovalConfigLoader.Parse(JsonDocument.Parse("""{"backend":"none"}""").RootElement)));
         Assert.Equal(ApprovalBackendKind.Sqlite, ApprovalBackendSelector.GetBackend(
             ApprovalConfigLoader.Parse(JsonDocument.Parse("""{"backend":"sqlite","databasePath":"a.db"}""").RootElement)));
         Assert.Throws<InvalidOperationException>(() => ApprovalConfigLoader.Parse(JsonDocument.Parse("""{"backend":"ftp"}""").RootElement));
