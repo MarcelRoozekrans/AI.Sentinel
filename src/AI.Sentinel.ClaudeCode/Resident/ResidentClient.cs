@@ -4,7 +4,8 @@ using System.Text.Json;
 namespace AI.Sentinel.ClaudeCode.Resident;
 
 /// <summary>The hook side of the local channel. Every call is bounded by a budget, and a process that is missing, slow or
-/// broken is no answer, never an exception: the hook then evaluates in-process.</summary>
+/// broken is no answer, never an exception: the hook then evaluates in-process. The one exception is a bundle that failed while it
+/// ran in the process (#716): that was an evaluation, and <see cref="Evaluate"/> throws <see cref="Policy.Rego.PolicyBundleException"/>.</summary>
 internal sealed class ResidentClient(ResidentSettings settings)
 {
     public ResidentSettings Settings { get; } = settings;
@@ -14,13 +15,14 @@ internal sealed class ResidentClient(ResidentSettings settings)
     public async Task<bool> ShutdownAsync() => (await SendAsync(new ResidentRequest { Op = ResidentOps.Shutdown }, Settings.Budget).ConfigureAwait(false))?.Ok == true;
 
     /// <summary>Asks the process to evaluate a policy folder. <see langword="null"/> when no answer came within the budget or the process
-    /// could not evaluate it; the hook then evaluates in-process. The budget runs from the moment of the call, so the time the exchange
+    /// could not load the module; the hook then evaluates in-process. The budget runs from the moment of the call, so the time the exchange
     /// waits to be scheduled counts against it, and an exchange that is still running when it ends is cancelled before this returns.</summary>
     /// <param name="folder">The policy folder.</param>
     /// <param name="version">The version of the folder the hook read.</param>
     /// <param name="cacheDirectory">Where the compiled forms are kept.</param>
     /// <param name="inputJson">The policy input.</param>
     /// <param name="budget">How long to wait; <see cref="ResidentSettings.Budget"/> when <see langword="null"/>.</param>
+    /// <exception cref="Policy.Rego.PolicyBundleException">The bundle failed while it ran in the process.</exception>
     public Policy.Rego.RegoDecision? Evaluate(string folder, string version, string cacheDirectory, string inputJson, TimeSpan? budget = null)
     {
         var request = new ResidentRequest

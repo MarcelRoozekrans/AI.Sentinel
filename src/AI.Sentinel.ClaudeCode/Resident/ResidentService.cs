@@ -71,19 +71,38 @@ internal sealed class ResidentService(
         }
 
         AfterPauseCheck?.Invoke();
+        lock (_gate)
+        {
+            RegoPolicy policy;
+            try
+            {
+                policy = Policy(request.Folder, request.Version, request.CacheDirectory);
+            }
+            // A module this process cannot load, or a folder that changed since the hook read it, is no answer: the hook loads the
+            // version it read in-process, where a module that cannot load blocks the call.
+#pragma warning disable CA1031 // Any load failure is no answer; see above.
+            catch (Exception e)
+#pragma warning restore CA1031
+            {
+                return new ResidentResponse { Error = e.GetType().Name };
+            }
+
+            return Evaluated(policy, request.Input);
+        }
+    }
+
+    // The bundle ran here and failed: that is a bundle error, which the hook denies by name (ADR-237, #716), never no answer.
+    private static ResidentResponse Evaluated(RegoPolicy policy, string input)
+    {
         try
         {
-            lock (_gate)
-            {
-                var policy = Policy(request.Folder, request.Version, request.CacheDirectory);
-                return ResidentDecisionWire.ToResponse(policy.Evaluate(request.Input));
-            }
+            return ResidentDecisionWire.ToResponse(policy.Evaluate(input));
         }
-#pragma warning disable CA1031 // The hook gets the failure as no answer, and evaluates in-process, where the same failure blocks the call.
+#pragma warning disable CA1031 // Any failure of the run is the bundle's; the wire carries its type only.
         catch (Exception e)
 #pragma warning restore CA1031
         {
-            return new ResidentResponse { Error = e.GetType().Name };
+            return ResidentDecisionWire.ToBundleError(e);
         }
     }
 
@@ -147,26 +166,17 @@ internal sealed class ResidentService(
             return paused;
         }
 
-        try
+        lock (_gate)
         {
-            lock (_gate)
+            if (!_profiles.TryGetValue(request.Repository, out var held))
             {
-                if (!_profiles.TryGetValue(request.Repository, out var held))
-                {
-                    return new ResidentResponse { Error = "no profile is held for the repository" };
-                }
-
-                // An expired profile is not used, as ProfileDecider and the cache do not use one; the caller falls back to its fail mode.
-                return (time ?? TimeProvider.System).GetUtcNow() >= held.ExpiresAt
-                    ? new ResidentResponse { Error = "the profile held for the repository has expired" }
-                    : ResidentDecisionWire.ToResponse(held.Policy.Evaluate(request.Input));
+                return new ResidentResponse { Error = "no profile is held for the repository" };
             }
-        }
-#pragma warning disable CA1031 // The hook gets the failure as no answer, and evaluates in-process, where the same failure blocks the call.
-        catch (Exception e)
-#pragma warning restore CA1031
-        {
-            return new ResidentResponse { Error = e.GetType().Name };
+
+            // An expired profile is not used, as ProfileDecider and the cache do not use one; the caller falls back to its fail mode.
+            return (time ?? TimeProvider.System).GetUtcNow() >= held.ExpiresAt
+                ? new ResidentResponse { Error = "the profile held for the repository has expired" }
+                : Evaluated(held.Policy, request.Input);
         }
     }
 

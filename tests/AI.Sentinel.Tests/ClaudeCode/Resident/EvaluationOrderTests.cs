@@ -309,6 +309,18 @@ public class EvaluationOrderTests : IDisposable
         Assert.Equal("module failed", error.Message);
     }
 
+    /// <summary>A place that ran the bundle and saw it fail has evaluated it: ADR-237 denies that, so no later place is asked for
+    /// another answer (#716).</summary>
+    [Fact]
+    public void A_bundle_error_stops_the_order_so_a_later_place_cannot_answer_in_its_place()
+    {
+        var resident = new FakePolicyEvaluator(OutcomeDecision.Resident, () => throw new PolicyBundleException(nameof(InvalidOperationException)));
+        var inProcess = new FakePolicyEvaluator(OutcomeDecision.InProcess, () => new RegoDecision(DecisionOutcome.Allow, ["allowed"]));
+
+        Assert.Throws<PolicyBundleException>(() => new EvaluationOrder([resident, inProcess]).TryEvaluate("{}"));
+        Assert.Equal(0, inProcess.Calls);
+    }
+
     [Fact]
     public void When_nobody_answers_and_nobody_fails_the_order_throws_too()
     {

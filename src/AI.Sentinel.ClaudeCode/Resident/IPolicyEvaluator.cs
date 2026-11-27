@@ -9,6 +9,7 @@ internal interface IPolicyEvaluator
     /// and <see cref="OutcomeDecision.Server"/>.</summary>
     string Place { get; }
 
-    /// <summary>The decision, or <see langword="null"/> when this place has no answer within its budget. A failure throws.</summary>
+    /// <summary>The decision, or <see langword="null"/> when this place has no answer within its budget. A failure throws; a bundle that
+    /// failed while it ran here throws <see cref="PolicyBundleException"/>, which no later place may answer in place of.</summary>
     RegoDecision? Evaluate(string inputJson);
 }

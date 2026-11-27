@@ -19,10 +19,23 @@ internal static class ResidentDecisionWire
         };
     }
 
+    /// <summary>The answer for a bundle that failed while it ran: the type of the error, never its message, which may echo the input.</summary>
+    public static ResidentResponse ToBundleError(Exception error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        return new ResidentResponse { Pid = Environment.ProcessId, BundleError = true, Error = error.GetType().Name };
+    }
+
     /// <summary>The decision of an answer, or <see langword="null"/> when the answer is not a decision.</summary>
+    /// <exception cref="PolicyBundleException">The bundle failed while it ran in the resident process; the hook denies that by name.</exception>
     public static RegoDecision? FromResponse(ResidentResponse response)
     {
         ArgumentNullException.ThrowIfNull(response);
+        if (response.BundleError)
+        {
+            throw PolicyBundleException.FromResident(response.Error);
+        }
+
         if (!response.Ok || response.Reasons is null || OutcomeOf(response.Outcome) is not { } outcome)
         {
             return null;

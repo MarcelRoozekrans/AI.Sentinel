@@ -28,7 +28,7 @@ public class FailModeTests
     private static LocalPolicy Policy(FailModeContext? failMode, params IPolicyEvaluator[] evaluators) =>
         LocalPolicy.ForEvaluators("v1", ["org-baseline", "team-guidance"], Root, evaluators, failMode);
 
-    private static FailModeContext Profile(string failMode) =>
+    internal static FailModeContext Profile(string failMode) =>
         FailModeContext.From(ProfileVerification.Accepted(new PolicyProfile
         {
             Organisation = "acme",

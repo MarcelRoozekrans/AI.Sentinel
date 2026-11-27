@@ -17,6 +17,11 @@ internal sealed record ResidentResponse
     [JsonPropertyName("error")]
     public string? Error { get; init; }
 
+    /// <summary>For an evaluation: true when the bundle failed while it ran (#716). <see cref="Error"/> then holds the type of the
+    /// error only. A hook denies that by bundle name and asks no other place; any other failure is no answer.</summary>
+    [JsonPropertyName("bundle_error")]
+    public bool BundleError { get; init; }
+
     /// <summary>For an evaluation: the outcome name.</summary>
     [JsonPropertyName("outcome")]
     public string? Outcome { get; init; }
