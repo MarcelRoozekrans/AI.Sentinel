@@ -212,7 +212,8 @@ internal sealed class LocalPolicy : IDisposable
         }
         catch (Exception) when (_failMode is not null)
         {
-            // A place that failed ran the bundle and the bundle errored: that denies by name, whatever the fail mode.
+            // A place that failed ran the bundle and the bundle errored: that denies by name, whatever the fail mode. A bundle error of
+            // the resident process ends the order before the in-process module is asked (#716), so its answer cannot stand in.
             return OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true);
         }
 
