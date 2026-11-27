@@ -20,7 +20,7 @@ A working host is in [`samples/AI.Sentinel.ServerSample`](https://github.com/Mar
 | Identity provider | yours: Keycloak, Entra ID or any OIDC provider with the device authorization grant | Signs developers in and puts their groups in the token |
 | Plugin | each developer's PC: `sentinel-hook` or `sentinel-copilot-hook` | Signs in, holds the signed profile, applies pauses |
 
-Three other pieces of the server part are separate items and have their own pages once they are merged: the event endpoints that receive events from developer machines, the approval store that takes requests over HTTP, and the per-team visibility of the dashboard. This page does not rely on them. Approvals reach the dashboard through whatever `IApprovalStore` the host registers; the sample uses `InMemoryApprovalStore`.
+Three other parts of the server are optional and have their own sections: the [event endpoints](./claude-code#events-and-the-decision-log-server-part) that receive events from developer machines, which the resident process [forwards](./claude-code#forward-events-to-the-server), the [approval server](./claude-code#approvals-decided-on-the-server) that takes approval requests over HTTP, and the per-team visibility of those events, set per node in `nodes.json`. This page does not rely on them. Without the approval server, approvals reach the dashboard through whatever `IApprovalStore` the host registers; the sample uses `InMemoryApprovalStore`.
 
 ## 1. Host the server in an ASP.NET Core app
 
