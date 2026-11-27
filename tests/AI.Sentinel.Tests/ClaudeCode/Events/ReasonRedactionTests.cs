@@ -21,6 +21,9 @@ public sealed class ReasonRedactionTests
     [InlineData("blocked C:/Users/Alice/notes.txt", "blocked <path>")]
     [InlineData(@"Blocked access to src\private\settings.json", "Blocked access to <path>")]
     [InlineData(@"writes to .\build\out and ..\x", "writes to <path> and <path>")]
+    [InlineData("blocked src/private", "blocked <path>")]
+    [InlineData("blocked src/客户/settings.json", "blocked <path>")]
+    [InlineData(@"blocked src\客户\settings.json", "blocked <path>")]
     public void Paths_urls_emails_and_quoted_values_are_replaced(string reason, string expected) =>
         Assert.Equal(expected, ReasonRedactor.Redact(reason));
 

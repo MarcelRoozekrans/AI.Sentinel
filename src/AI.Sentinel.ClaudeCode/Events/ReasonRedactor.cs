@@ -42,9 +42,11 @@ internal static partial class ReasonRedactor
     internal static bool LooksSecret(string text) =>
         SecretShape().IsMatch(text) || Assignment().IsMatch(text) || RandomRun().Matches(text).Any(m => IsMixed(m.Value));
 
-    // Words joined by one slash, as in and/or, are prose. A path has two or more slashes, or a file extension after one.
-    private static bool IsRelativePath(string token) =>
-        token.Count(c => c == '/') >= 2 || token[(token.LastIndexOf('/') + 1)..].Contains('.', StringComparison.Ordinal);
+    // Only the joined words of prose are kept. Anything else with a slash is taken for a path, also src/private without an extension:
+    // a local path must not leave the machine, and a prose pair that is not listed only reads as <path>.
+    private static readonly HashSet<string> ProsePairs = new(StringComparer.OrdinalIgnoreCase) { "and/or", "either/or" };
+
+    private static bool IsRelativePath(string token) => !ProsePairs.Contains(token);
 
     private static bool IsMixed(string run)
     {
@@ -85,12 +87,13 @@ internal static partial class ReasonRedactor
     private static partial Regex WindowsPath();
 
     // Prose does not join words with a backslash, so every run of names joined by one is a path, as in src\private\settings.json.
-    [GeneratedRegex(@"(?<![\w<>:.\-\\])[A-Za-z0-9_.\-]+(?:\\[A-Za-z0-9_.\-]+)+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
+    // Names may hold any letter or digit, not only ASCII ones; the same goes for the relative paths with a slash below.
+    [GeneratedRegex(@"(?<![\w<>:.\-\\])[\p{L}\p{N}_.\-]+(?:\\[\p{L}\p{N}_.\-]+)+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
     private static partial Regex RelativeWindowsPath();
 
     [GeneratedRegex(@"(?<![\w<>.:/])(?:~|\.{1,2})?/[^\s'"",;:)\]]+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
     private static partial Regex UnixPath();
 
-    [GeneratedRegex(@"(?<![\w<>.:/~\-])[A-Za-z0-9_.\-]+(?:/[A-Za-z0-9_.\-]+)+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
+    [GeneratedRegex(@"(?<![\w<>.:/~\-])[\p{L}\p{N}_.\-]+(?:/[\p{L}\p{N}_.\-]+)+", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 200)]
     private static partial Regex RelativePath();
 }
