@@ -42,4 +42,8 @@ public sealed class PolicyFolderOptions
 
     /// <summary>How often the folder is looked at when no change was seen, because swapping a link raises no file event. Defaults to 30 seconds.</summary>
     public TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>How often the stream of session control events carries a heartbeat, so a resident process can tell a quiet server from
+    /// a dead connection. Defaults to 15 seconds. Optional.</summary>
+    public TimeSpan SessionStreamHeartbeat { get; set; } = TimeSpan.FromSeconds(15);
 }

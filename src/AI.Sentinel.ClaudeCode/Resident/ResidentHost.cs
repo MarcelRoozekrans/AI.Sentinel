@@ -19,10 +19,11 @@ internal static class ResidentHost
     /// <see langword="null"/>.</param>
     /// <param name="ct">Stops the process.</param>
     /// <param name="listening">Called once the socket accepts connections.</param>
-    /// <param name="tokens">The tokens of the sign-in, or <see langword="null"/> when sign-in is not configured.</param>
+    /// <param name="tokens">The sign-in the process holds.</param>
+    /// <param name="server">The server to keep a link to, for pauses and profiles; none when <see langword="null"/>, or when there is no sign-in.</param>
     /// <param name="approvals">Where the approval operations go (#662), or <see langword="null"/> when no server is configured.</param>
     public static async Task<ResidentExit> RunAsync(
-        ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null, SignIn.TokenSession? tokens = null,
+        ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null, SignIn.TokenSession? tokens = null, ServerLinkSettings? server = null,
         ServerApprovals.IApprovalChannel? approvals = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
@@ -61,7 +62,10 @@ internal static class ResidentHost
         await File.WriteAllTextAsync(pidPath, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), CancellationToken.None).ConfigureAwait(false);
         try
         {
-            return await ServeAsync(listener, settings, new ResidentService(compilers, tokens, approvals), ct, listening).ConfigureAwait(false);
+            var state = ResidentState.Open(settings);
+            var board = new PauseBoard(state);
+            var service = new ResidentService(compilers, tokens, board, approvals: approvals);
+            return await ServeAsync(listener, settings, service, ct, listening, LinkOf(state, board, service, tokens, server)).ConfigureAwait(false);
         }
         finally
         {
@@ -70,8 +74,29 @@ internal static class ResidentHost
         }
     }
 
+    // The link to the server exists only when the developer signed in and a server is set; otherwise nothing runs and nothing changes.
+    private static Func<CancellationToken, Task>? LinkOf(
+        ResidentState state, PauseBoard board, ResidentService service, SignIn.TokenSession? tokens, ServerLinkSettings? server)
+    {
+        if (server is null || tokens is null)
+        {
+            return null;
+        }
+
+        var http = new HttpClient(new SignIn.BearerTokenHandler(tokens, server.Handler ?? new SocketsHttpHandler(), server.ServerUrl), disposeHandler: true)
+        {
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+        var link = new ServerLink(http, server.ServerUrl, board, new ProfileRefresher(state, http, server.ServerUrl, service, server.Timing, TimeProvider.System), server.Timing, TimeProvider.System);
+        return async ct =>
+        {
+            using var _ = http;
+            await link.RunAsync(ct).ConfigureAwait(false);
+        };
+    }
+
     private static async Task<ResidentExit> ServeAsync(
-        Socket listener, ResidentSettings settings, ResidentService service, CancellationToken ct, Action? listening)
+        Socket listener, ResidentSettings settings, ResidentService service, CancellationToken ct, Action? listening, Func<CancellationToken, Task>? link)
     {
         using var _ = service;
         using var idle = new CancellationTokenSource();
@@ -79,6 +104,9 @@ internal static class ResidentHost
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct, idle.Token, shutdown.Token);
         idle.CancelAfter(settings.IdleTimeout);
         listening?.Invoke();
+        // The link runs until the process stops; it never touches the lock a decision is made under, apart from swapping in a new profile.
+        var linkStop = CancellationTokenSource.CreateLinkedTokenSource(ct, shutdown.Token, idle.Token);
+        var linked = link is null ? Task.CompletedTask : Task.Run(() => link(linkStop.Token), CancellationToken.None);
         var inFlight = new List<Task>();
         while (!stop.IsCancellationRequested)
         {
@@ -104,6 +132,20 @@ internal static class ResidentHost
         catch (TimeoutException)
         {
             // A request that does not finish in a second is dropped with the process.
+        }
+
+        await linkStop.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await linked.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is TimeoutException or OperationCanceledException)
+        {
+            // A link that does not stop in two seconds is dropped with the process.
+        }
+        finally
+        {
+            linkStop.Dispose();
         }
 
         if (shutdown.IsCancellationRequested)

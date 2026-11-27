@@ -45,4 +45,13 @@ internal sealed record ResidentRequest
     /// <summary>For <see cref="ResidentOps.SignIn"/>: the OIDC client the tokens were issued to.</summary>
     [JsonPropertyName("client_id")]
     public string? ClientId { get; init; }
+
+    /// <summary>For an evaluation: the session of the call. When a team lead has paused it the process answers deny, whatever the
+    /// policy says.</summary>
+    [JsonPropertyName("session")]
+    public string? Session { get; init; }
+
+    /// <summary>For <see cref="ResidentOps.EvaluateProfile"/>: the repository whose profile judges the call.</summary>
+    [JsonPropertyName("repository")]
+    public string? Repository { get; init; }
 }

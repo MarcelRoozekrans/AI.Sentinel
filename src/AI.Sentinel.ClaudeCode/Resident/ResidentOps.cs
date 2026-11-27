@@ -20,4 +20,7 @@ internal static class ResidentOps
 
     /// <summary>Reads the state of an approval request from the server (#662).</summary>
     public const string ApprovalGet = "approval_get";
+
+    /// <summary>Evaluates the policy module of the signed profile the process holds for a repository.</summary>
+    public const string EvaluateProfile = "evaluate_profile";
 }
