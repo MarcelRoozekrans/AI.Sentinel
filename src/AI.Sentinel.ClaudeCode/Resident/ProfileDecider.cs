@@ -61,7 +61,7 @@ internal static class ProfileDecider
 
     /// <summary>The folder that holds <paramref name="module"/> as a policy folder, named by the hash of the module text and written
     /// once, whole, by moving a finished folder into place.</summary>
-    private static string ModuleFolder(ResidentState state, string module)
+    internal static string ModuleFolder(ResidentState state, string module)
     {
         var name = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(module)))[..32];
         var root = Path.Combine(state.Directory, ModulesFolder);
