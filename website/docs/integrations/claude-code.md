@@ -563,6 +563,19 @@ Only an administrator, or a team lead of the node that owns the repository of th
 
 On a PC, set `"backend": "http"` in the file named by `SENTINEL_APPROVAL_CONFIG`, with the server and the sign-in settings above and `SENTINEL_HOOK_RESIDENT=on`. The hook asks the server through the resident process, which holds the token. Until a grant exists the call is denied with a receipt that says it waits for approval; the agent retries after the approval. While the server cannot be reached, or the developer is not signed in, the call is denied with a message that says so. Only `sentinel-hook` supports this backend: `sentinel-copilot-hook` and `sentinel-mcp` refuse it.
 
+## Events and the decision log (server part)
+
+`AddAISentinelServerEvents` and `MapAISentinelServerEvents` add endpoints that receive events from developer machines and serve blocked calls and the audit trail. They need `AddAISentinelPolicyFolder`, because the roles per node and the organisation come from the node configuration. Set `ServerEventOptions.PseudonymKey` (the base64 of at least 16 random bytes). It reaches the server through the deployment and is never stored.
+
+- `POST /ai-sentinel/events/ingest` takes `{"organisation": "...", "events": [...], "gap": {"pruned": 3, "node": "..."}}`. An event holds only `event_id`, `at`, `tool_kind`, `outcome`, `policies`, `policy_version`, `decided` (where it was decided), `node`, `cli`, `session` (an identifier of ASCII letters, digits and `- _ . :`; any other value rejects the event), `detector`, `severity`, `redactions` (kind to count) and `reason`. The server keeps those and counts the names of any other field, dropping the value, so a command, a path or tool input is never kept. `reason` is kept only for a node with `detailed_logging`; the plugin has already redacted it. An event id that was stored before is not stored again.
+- The sender is the signed-in developer. The organisation is the sender's, from the claim named in `OrganisationClaim` or else the published node configuration; a sender whose claim names an organisation other than the published one, and a batch that names another organisation than the sender's, are refused with 403 and nothing is stored. The developer is replaced on arrival by a code that is stable within one organisation and different across organisations. The key for the codes lives apart from the event store.
+- `gap.pruned` reports how many events the machine pruned before it could send them. Gaps are listed with the audit trail.
+- `GET /ai-sentinel/events/{organisation}/blocked` lists denied calls and `GET /ai-sentinel/events/{organisation}/audit` lists every event and the gaps. Both filter on `node`, `session`, `from` and `to`. They show a code per developer, never a name. A team lead reads the events of their node, an administrator all of them and a developer their own.
+- All endpoints use the host's ASP.NET Core authorization policy named in `ServerEventOptions.PolicyName` (default `AISentinelEvents`) with the organisation as the resource, then the role on the node.
+- Retention is per organisation: 90 days for events and 13 months for daily counts, set with `DefaultRetention` and `Retention[organisation]`. Older data is deleted on each ingest. The store is in memory for now.
+
+Every new setting is optional and off by default. Showing names, and which teams see which sessions, is a separate item.
+
 ## Tool kinds and policy input
 
 The hook CLIs map each tool of the CLI onto one shared tool kind, so one policy rule can cover the same kind of tool in every CLI (ADR-235). This is the input that the policy work of the central server milestone evaluates against. It is read only when [`SENTINEL_HOOK_POLICY_DIR`](#local-rego-policy) is set, an optional setting that is off by default: without it the input is not built and the hooks behave exactly as before.
