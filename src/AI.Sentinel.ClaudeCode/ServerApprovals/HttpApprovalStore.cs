@@ -84,8 +84,17 @@ internal sealed class HttpApprovalStore(
                 return state;
             }
 
-            // Wait out the rest of the timeout, not only whole poll intervals, then ask once more.
-            await Task.Delay(remaining < interval ? remaining : interval, _time, ct).ConfigureAwait(false);
+            if (remaining > interval)
+            {
+                await Task.Delay(interval, _time, ct).ConfigureAwait(false);
+                continue;
+            }
+
+            // Wait out the rest of the timeout, not only whole poll intervals, then ask once more and stop. The clock is not asked
+            // again: a delay can end a moment before the deadline, and a rest under a millisecond is no delay at all, so a loop on
+            // the clock would poll the server without pause until it passes.
+            await Task.Delay(remaining, _time, ct).ConfigureAwait(false);
+            return ToState(await channel.GetAsync(requestId, ct).ConfigureAwait(false));
         }
     }
 

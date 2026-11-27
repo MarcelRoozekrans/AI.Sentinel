@@ -545,6 +545,29 @@ public sealed partial class HttpApprovalStoreTests : IAsyncDisposable
         Assert.Equal(2, channel.Gets);
     }
 
+    [Fact]
+    public async Task A_wait_that_ends_before_the_deadline_asks_the_server_once_more_and_does_not_poll_without_pause()
+    {
+        var channel = new PendingChannel();
+        var hook = new HttpApprovalStore(channel, args => args, Repository, new EarlyClock(), pollInterval: TimeSpan.FromSeconds(30));
+
+        var state = await hook.WaitForDecisionAsync("req-1", TimeSpan.FromMilliseconds(300), Ct);
+
+        Assert.IsType<ApprovalState.Pending>(state);
+        Assert.Equal(2, channel.Gets);
+    }
+
+    // Every delay ends at once and the clock stands still: the worst case of a delay that ends a moment before the deadline.
+    private sealed class EarlyClock : TimeProvider
+    {
+        private readonly DateTimeOffset _now = DateTimeOffset.UnixEpoch;
+
+        public override DateTimeOffset GetUtcNow() => _now;
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            System.CreateTimer(callback, state, TimeSpan.Zero, Timeout.InfiniteTimeSpan);
+    }
+
     private sealed class PendingChannel : IApprovalChannel
     {
         public int Gets { get; private set; }
