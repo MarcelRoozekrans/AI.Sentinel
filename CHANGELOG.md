@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.6.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.5.0...v6.6.0) (2026-11-27)
+
+
+### Features
+
+* **server:** pause and release a session from the server ([#706](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/706)) ([076ec1a](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/076ec1ac53e693fa12a1e1ebb68ab43d46293f78))
+
 ## [6.5.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.4.0...v6.5.0) (2026-11-26)
 
 
