@@ -131,17 +131,38 @@ public sealed class ProfileRefreshTests : IAsyncDisposable
     public async Task A_configuration_announced_after_one_profile_of_the_round_was_served_fetches_that_profile_again()
     {
         _server.Repositories.Add(FakePolicyServer.Widgets);
-        _server.ProfileDelay = TimeSpan.FromMilliseconds(300);
+        var (arrived, release) = _server.Hold(FakePolicyServer.Widgets);
         var refresher = StartLink(Timing());
 
-        // The organisation profile is in at version 1 and the profile of the repository is still being served.
-        await WaitForAsync(() => refresher.HeldVersionOf("*") == 1 && refresher.HeldVersionOf(FakePolicyServer.Widgets) is null, "the organisation profile");
+        // The organisation profile is in at version 1 and the profile of the repository is held until the announcement is in.
+        await arrived.WaitAsync(Ct);
+        Assert.Equal(1, refresher.HeldVersionOf("*"));
         _server.Version = 2;
-        _server.Push("configuration", """{"version":2}""");
+        refresher.Announce(2);
+        release();
 
         // The repository profile comes in at version 2, so the newest version held matches the announcement; the organisation's does not.
         await WaitForAsync(() => refresher.HeldVersionOf("*") == 2, "the organisation profile of the announced configuration");
         Assert.Equal(2, refresher.HeldVersionOf(FakePolicyServer.Widgets));
+        Assert.Equal(1, _server.Connections);
+    }
+
+    [Fact]
+    public async Task A_repository_that_a_configuration_announced_after_the_node_map_was_read_adds_is_fetched_without_another_trigger()
+    {
+        var (arrived, release) = _server.Hold("*");
+        var refresher = StartLink(Timing());
+
+        // The round has read a node map without the repository; the configuration that adds it comes before the profile is served.
+        await arrived.WaitAsync(Ct);
+        _server.Version = 2;
+        _server.Repositories.Add(FakePolicyServer.Widgets);
+        refresher.Announce(2);
+        release();
+
+        await WaitForAsync(() => refresher.HeldVersionOf(FakePolicyServer.Widgets) == 2, "the profile of the added repository");
+        Assert.Equal(2, refresher.HeldVersionOf("*"));
+        Assert.Equal(1, _server.Connections);
     }
 
     [Fact]

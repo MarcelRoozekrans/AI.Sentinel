@@ -34,6 +34,8 @@ internal sealed class ProfileRefresher(
     private long _announced;
     // The oldest configuration version among the profiles the last round brought; long.MaxValue when it brought none.
     private long _covered = long.MaxValue;
+    // Whether the node map changed while the last round ran, after an announcement that came once the round had read it.
+    private bool _mapChanged;
     private bool _noKeys;
     private bool _running;
 
@@ -129,7 +131,8 @@ internal sealed class ProfileRefresher(
                         // Every profile carries the version of the configuration it was issued from, so the round brought an announced
                         // version only when none of its profiles is older. One fetched before the announcement may be; the newest version
                         // held does not show that, and when the round started says nothing about when each profile was served.
-                        if (_announced > _covered)
+                        // The node map carries no version, so a map read before the announcement is checked again instead.
+                        if (_announced > _covered || _mapChanged)
                         {
                             _forced = true;
                         }
@@ -176,6 +179,8 @@ internal sealed class ProfileRefresher(
             }
 
             _covered = long.MaxValue;
+            _mapChanged = false;
+            var announcedAtMap = AnnouncedVersion;
             var map = await FetchNodeMapAsync(ct).ConfigureAwait(false);
             var allOk = map is not null;
             var repositories = new List<string> { CachedNodePolicies.OrganisationRepository };
@@ -189,12 +194,31 @@ internal sealed class ProfileRefresher(
                 allOk &= await FetchProfileAsync(repository, ct).ConfigureAwait(false);
             }
 
+            if (map is not null && AnnouncedVersion > announcedAtMap)
+            {
+                // A map refused now is a failed round, tried again with backoff; one that names other repositories asks for another.
+                var again = await FetchNodeMapAsync(ct).ConfigureAwait(false);
+                allOk &= again is not null;
+                _mapChanged = again is not null && !again.Repositories.ToHashSet(StringComparer.Ordinal).SetEquals(map.Repositories);
+            }
+
             return allOk;
         }
         catch (Exception e) when (e is HttpRequestException or IOException or JsonException or InvalidDataException or SignIn.SignInRequiredException or TaskCanceledException && !ct.IsCancellationRequested)
         {
             log?.Invoke($"the profiles could not be fetched ({e.GetType().Name}); the last valid profile stays in force");
             return false;
+        }
+    }
+
+    private long AnnouncedVersion
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _announced;
+            }
         }
     }
 
