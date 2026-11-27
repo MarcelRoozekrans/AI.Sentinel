@@ -73,7 +73,10 @@ internal sealed class ApprovalEndpoints(
         IEnumerable<ServerApproval> requests;
         if (mine == true)
         {
-            requests = roles.DeveloperOf(http.User) is { } developer ? store.OfRequester(developer) : [];
+            // The requester's own list follows the rule a read of one request does: on a repository no node owns, only an administrator.
+            requests = roles.DeveloperOf(http.User) is { } developer
+                ? store.OfRequester(developer).Where(a => roles.MaySeeDecision(http.User, a.Repository, a.Requester))
+                : [];
         }
         else
         {

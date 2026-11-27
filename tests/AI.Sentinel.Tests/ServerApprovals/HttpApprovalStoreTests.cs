@@ -394,6 +394,19 @@ public sealed partial class HttpApprovalStoreTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task The_own_list_of_a_requester_leaves_out_a_request_on_a_repository_that_no_node_owns_as_a_read_of_it_does()
+    {
+        await StartAsync();
+        var owned = await OpenAsync(HookOf(Dave()));
+        var unowned = await OpenAsync(HookOf(Dave(), "github.com/else/where"), "approval:unowned");
+
+        var own = await Dave().GetFromJsonAsync(Path + "?mine=true", ApprovalWireJsonContext.Default.ApprovalListWire, Ct);
+
+        Assert.Equal(owned.RequestId, Assert.Single(own!.Requests).Id);
+        Assert.Equal(HttpStatusCode.NotFound, (await Dave().GetAsync($"{Path}/{unowned.RequestId}", Ct)).StatusCode);
+    }
+
+    [Fact]
     public async Task The_endpoints_refuse_what_is_not_a_request()
     {
         await StartAsync();

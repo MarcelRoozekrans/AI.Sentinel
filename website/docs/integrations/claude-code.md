@@ -574,8 +574,8 @@ The `http` backend of the approval config sends an approval request to the serve
 On the server, call `AddAISentinelApprovalServer()` and `MapAISentinelApprovalServer()` next to the policy folder and the administrative audit log, which it needs. A team can run this part on its own, with no central product, and approve and deny over the HTTP API:
 
 - `POST /ai-sentinel/approvals` opens a request for the signed-in developer, or returns the open one of the same rule.
-- `GET /ai-sentinel/approvals` lists the pending requests the caller may decide, and `?mine=true` lists their own.
-- `GET /ai-sentinel/approvals/{id}` reads one request, for its requester and for those who may decide it. Anyone else gets 404.
+- `GET /ai-sentinel/approvals` lists the pending requests the caller may decide, and `?mine=true` lists their own on a repository a node owns.
+- `GET /ai-sentinel/approvals/{id}` reads one request, for its requester when a node owns the repository, and for those who may decide it. Anyone else gets 404. A request on a repository that no node owns is read by an administrator alone; the hook still learns of an approval when the agent retries, as opening the request again returns its state.
 - `POST /ai-sentinel/approvals/{id}/approve` and `/deny` decide it, with an optional `{"note": ...}` or `{"reason": ...}`.
 
 Only an administrator, or a team lead of the node that owns the repository of the request, may decide it, and nobody decides their own request (403). Each approve and deny is written to the administrative audit log with the channel `web`, naming the decider and the request id and never the tool input. A request carries the tool input after AI.Sentinel's redaction, so the approver sees what they approve; an input that cannot be redacted is withheld, not sent. A decided request is deleted 30 days after the decision. Requests are kept in memory, so a restart of the server loses the pending ones, and the hook opens a new request when the agent retries.
