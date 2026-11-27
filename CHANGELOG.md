@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.9.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.9.0...v6.9.1) (2026-11-27)
+
+
+### Bug Fixes
+
+* **hooks:** deny by bundle name when the bundle fails in the resident process ([#727](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/727)) ([ac2a506](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/ac2a506b83466bcdadfac6d74a73eb6c928aee37)), closes [#716](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/716)
+
 ## [6.9.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.8.0...v6.9.0) (2026-11-27)
 
 
