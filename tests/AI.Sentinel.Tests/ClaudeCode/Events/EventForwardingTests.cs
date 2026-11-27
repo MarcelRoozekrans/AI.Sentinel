@@ -374,7 +374,7 @@ public sealed class EventForwardingTests : IDisposable
         }
 
         Assert.Equal(0, (await Forwarder().ForwardAsync(CancellationToken.None)).Sent);
-        Assert.Equal(0, new EventCursor(_dir).Read());
+        Assert.Equal(3, new EventCursor(_dir).Read());
         await AppendManyAsync(1, "n");
         var result = await Forwarder().ForwardAsync(CancellationToken.None);
 

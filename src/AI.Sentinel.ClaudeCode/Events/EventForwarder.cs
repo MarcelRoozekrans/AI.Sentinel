@@ -42,9 +42,9 @@ internal sealed class EventForwarder(
                 return new ForwardResult(sent, prunedTotal, Failed: hasCursor);
             }
 
-            if (page.Last < after)
+            if (page.Last > 0 && page.Last < after)
             {
-                // The audit file was replaced by a newer one, so its sequences start again. Nothing was pruned: start from the top.
+                // A replaced audit file starts its sequences again; nothing was pruned. An empty one says nothing, so it keeps the cursor.
                 (after, hasCursor) = (0, false);
                 if (!TryStore(0, hash: null))
                 {
