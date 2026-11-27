@@ -34,18 +34,18 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Smoke test first
 
-- [ ] Add `StandaloneServerSampleTests` that hosts the sample in-process and runs approve, deny, pause and release, against an empty `samples/AI.Sentinel.ServerSample` project. See it fail.
-- [ ] Commit.
+- [x] Add `StandaloneServerSampleTests` that hosts the sample in-process and runs approve, deny, pause and release, against an empty `samples/AI.Sentinel.ServerSample` project. See it fail.
+- [x] Commit.
 
 ### Task 2: Sample host
 
-- [ ] Fill `samples/AI.Sentinel.ServerSample` with the server endpoints, a policy folder, signing key from configuration, sign-in and authorization configured, until `StandaloneServerSampleTests` passes.
-- [ ] Commit.
+- [x] Fill `samples/AI.Sentinel.ServerSample` with the server endpoints, a policy folder, signing key from configuration, sign-in and authorization configured, until `StandaloneServerSampleTests` passes.
+- [x] Commit.
 
 ### Task 3: Docs page
 
-- [ ] Add the page under `website/docs`: policy folder kept up to date by a git checkout or git-sync sidecar, signing key, identity provider and role bindings, audit export and offline verify. Link it from the README.
-- [ ] Commit as `docs`.
+- [x] Add the page under `website/docs`: policy folder kept up to date by a git checkout or git-sync sidecar, signing key, identity provider and role bindings, audit export and offline verify. Link it from the README.
+- [x] Commit as `docs`.
 
 
 ## Checks

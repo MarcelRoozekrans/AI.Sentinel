@@ -478,7 +478,7 @@ Tune via env vars to match your risk appetite.
 
 ## Administrative audit log (server part)
 
-The server part in `AI.Sentinel.AspNetCore` records approve and deny decisions made through the dashboard, and a publish and a rejected publish of the policy folder, today (pause, release and rollback are not recorded yet), with their actor, time, target and channel (web, MCP or git). The log is hash-chained per organisation, append-only, and holds identifiers only, never file contents or secrets. It is kept in memory in this version.
+The server part in `AI.Sentinel.AspNetCore` records approve, deny, pause, release, publish and rejected publish, with their actor, time, target and channel (web, MCP or git). The log is hash-chained per organisation, append-only, and holds identifiers only, never file contents or secrets. It is kept in memory in this version.
 
 ```csharp
 services.AddAISentinelAdminAudit(o =>
@@ -503,6 +503,8 @@ When the audit is registered, an approve or deny made through the dashboard is r
 Every new setting is optional and off by default. Nothing is registered or mapped unless the host calls `AddAISentinelAdminAudit` and `MapAISentinelAdminAudit`.
 
 ## Policy folder and signed profiles (server part)
+
+To run the whole server part without a central product, see [Run the server part on its own](./standalone-server).
 
 The server part in `AI.Sentinel.AspNetCore` reads policy and node configuration from a folder (ADR-107). It never accepts either over HTTP: no endpoint takes a request body. A central product fills the folder from the protected branch of a git repository; a standalone deployment keeps a git checkout of that branch there, for example with a git-sync sidecar.
 
@@ -545,7 +547,7 @@ team-a/rules.rego     the bundle of the node team-a
 }
 ```
 
-A team inherits the settings it leaves out from the organisation. `fail_mode` is `closed` (the default) or `ask` (ADR-237); anything else, `open` included, refuses the configuration. The profile lifetime defaults to 7 days and is at most 876000 hours, 100 years; more refuses the configuration. `version` is optional: without it the server counts its publishes. Bundles are written in `package sentinel` and add reasons with `deny contains`, `ask contains` and the other outcome sets. A bundle below the organisation cannot define an `allow` rule (ADR-232). A link inside the folder is not followed and refuses the folder.
+A team inherits the settings it leaves out from the organisation. `fail_mode` is `closed` (the default) or `ask` (ADR-237); anything else, `open` included, refuses the configuration. The profile lifetime defaults to 7 days and is at most 876000 hours, 100 years; more refuses the configuration. `version` is optional: without it the server counts its publishes in memory, so the count starts again at 1 after a server restart, and a plugin that holds a higher version keeps its old profile until the count passes it. Set `version` and raise it with every change. Bundles are written in `package sentinel` and add reasons with `deny contains`, `ask contains` and the other outcome sets. A bundle below the organisation cannot define an `allow` rule (ADR-232). A link inside the folder is not followed and refuses the folder.
 
 ### Reading is one complete version
 
@@ -575,7 +577,7 @@ Every new setting is optional and off by default. Nothing is registered or mappe
 
 The `roles` list of `nodes.json` binds identity-provider groups to roles on nodes. There are three roles: an administrator, bound on the organisation, a team lead, bound on a team, and everyone else, who is a developer. A role applies to its node and the nodes below it, so an administrator holds it on every node and a team lead on their team. The server reads the signed-in user from the validated token: the developer is its `sub` claim and the groups are its `groups` claim, either as one claim per group or as one claim holding a JSON array. `PolicyFolderOptions.DeveloperClaim` and `PolicyFolderOptions.GroupsClaim` rename them. Name a claim as it appears on the signed-in user: the JWT bearer handler maps some inbound names, for example `roles` to the role claim type, unless the host sets `MapInboundClaims` to `false`. The bindings are read from the configuration that is current at each check, so a change of the policy folder changes them without a restart.
 
-The server part has the checks for these rules: a team lead may approve, deny, pause and release only sessions of repositories on their node, a developer reads their own decisions, and nobody decides their own approval request, whatever the role. A repository that no node owns is the organisation's to settle, so only an administrator is allowed on it. These checks are helpers for later integration: no approve, deny or pause handler calls them yet. The only endpoint that enforces a role so far is the audit export: with the policy folder registered, `GET /ai-sentinel/admin-audit/{organisation}/export` needs the administrator role on the organisation, after the host policy named in `AdminAuditOptions.PolicyName`. Each check reads one published node configuration, so a decision never mixes two versions. Which sessions each team sees in the dashboard is a separate item.
+A team lead pauses and releases only sessions of repositories on their node, and a developer reads their own decisions. The dashboard approve and deny do not check these roles or who made the request: they accept any signed-in user that the authorization on the `MapAISentinel` route group lets in. No `PolicyName` applies to them, so give that group a named policy that admits only approvers, for example `.RequireAuthorization("Approvers")`. A repository that no node owns is the organisation's to settle, so only an administrator is allowed on it. The check goes through the host's ASP.NET Core authorization, after the host policy named in `PolicyName`, and uses the node configuration for the role. With the policy folder registered, `GET /ai-sentinel/admin-audit/{organisation}/export` also needs the administrator role on the organisation. The roles are for the whole server part; which sessions each team sees in the dashboard is a separate item.
 
 Every new setting is optional and off by default. Without `AddAISentinelPolicyFolder` there are no roles and the host policy decides alone.
 

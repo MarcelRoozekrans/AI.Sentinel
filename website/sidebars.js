@@ -78,6 +78,7 @@ const sidebars = {
         'integrations/codex',
         'integrations/copilot',
         'integrations/mcp-proxy',
+        'integrations/standalone-server',
       ],
     },
     {
