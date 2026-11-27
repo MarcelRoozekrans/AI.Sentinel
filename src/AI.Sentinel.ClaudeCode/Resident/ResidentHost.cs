@@ -22,9 +22,10 @@ internal static class ResidentHost
     /// <param name="tokens">The sign-in the process holds.</param>
     /// <param name="server">The server to keep a link to, for pauses and profiles; none when <see langword="null"/>, or when there is no sign-in.</param>
     /// <param name="approvals">Where the approval operations go (#662), or <see langword="null"/> when no server is configured.</param>
+    /// <param name="forwarder">Sends the local audit to the server as events; none when <see langword="null"/>.</param>
     public static async Task<ResidentExit> RunAsync(
         ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null, SignIn.TokenSession? tokens = null, ServerLinkSettings? server = null,
-        ServerApprovals.IApprovalChannel? approvals = null)
+        ServerApprovals.IApprovalChannel? approvals = null, Events.EventForwarder? forwarder = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ResidentPaths.Prepare(settings);
@@ -65,7 +66,7 @@ internal static class ResidentHost
             var state = ResidentState.Open(settings);
             var board = new PauseBoard(state);
             var service = new ResidentService(compilers, tokens, board, approvals: approvals);
-            return await ServeAsync(listener, settings, service, ct, listening, LinkOf(state, board, service, tokens, server)).ConfigureAwait(false);
+            return await ServeAsync(listener, settings, service, ct, listening, LinkOf(state, board, service, tokens, server), forwarder).ConfigureAwait(false);
         }
         finally
         {
@@ -96,13 +97,16 @@ internal static class ResidentHost
     }
 
     private static async Task<ResidentExit> ServeAsync(
-        Socket listener, ResidentSettings settings, ResidentService service, CancellationToken ct, Action? listening, Func<CancellationToken, Task>? link)
+        Socket listener, ResidentSettings settings, ResidentService service, CancellationToken ct, Action? listening, Func<CancellationToken, Task>? link,
+        Events.EventForwarder? forwarder)
     {
         using var _ = service;
         using var idle = new CancellationTokenSource();
         using var shutdown = new CancellationTokenSource();
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(ct, idle.Token, shutdown.Token);
         idle.CancelAfter(settings.IdleTimeout);
+        // The audit is read and sent beside the hooks' requests; no request waits for it, so it cannot change a decision (#661).
+        var forwarding = forwarder?.RunAsync(Events.EventForwarding.DefaultInterval, stop.Token) ?? Task.CompletedTask;
         listening?.Invoke();
         // The link runs until the process stops; it never touches the lock a decision is made under, apart from swapping in a new profile.
         var linkStop = CancellationTokenSource.CreateLinkedTokenSource(ct, shutdown.Token, idle.Token);
@@ -134,6 +138,19 @@ internal static class ResidentHost
             // A request that does not finish in a second is dropped with the process.
         }
 
+        await FinishForwardingAsync(forwarder, forwarding, stop).ConfigureAwait(false);
+        await StopLinkAsync(linkStop, linked).ConfigureAwait(false);
+        if (shutdown.IsCancellationRequested)
+        {
+            return ResidentExit.Shutdown;
+        }
+
+        return ct.IsCancellationRequested ? ResidentExit.Cancelled : ResidentExit.Idle;
+    }
+
+    /// <summary>Stops the link to the server and waits for it to end.</summary>
+    private static async Task StopLinkAsync(CancellationTokenSource linkStop, Task linked)
+    {
         await linkStop.CancelAsync().ConfigureAwait(false);
         try
         {
@@ -147,13 +164,20 @@ internal static class ResidentHost
         {
             linkStop.Dispose();
         }
+    }
 
-        if (shutdown.IsCancellationRequested)
+    /// <summary>Stops the forwarding loop and gives the entries written since its last pass one more try, bounded, before the process ends.</summary>
+    private static async Task FinishForwardingAsync(Events.EventForwarder? forwarder, Task forwarding, CancellationTokenSource stop)
+    {
+        if (forwarder is null)
         {
-            return ResidentExit.Shutdown;
+            return;
         }
 
-        return ct.IsCancellationRequested ? ResidentExit.Cancelled : ResidentExit.Idle;
+        await stop.CancelAsync().ConfigureAwait(false);
+        await forwarding.ConfigureAwait(false);
+        using var last = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+        await forwarder.TryForwardAsync(last.Token).ConfigureAwait(false);
     }
 
     private static FileStream? TryTakeLock(string path)

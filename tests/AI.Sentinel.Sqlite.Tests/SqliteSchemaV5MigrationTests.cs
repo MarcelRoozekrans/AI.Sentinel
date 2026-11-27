@@ -86,7 +86,7 @@ public sealed class SqliteSchemaV5MigrationTests : IDisposable
 
         await using (var store = new SqliteAuditStore(new SqliteAuditStoreOptions { DatabasePath = _dbPath }))
         {
-            Assert.Equal(5, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
+            Assert.Equal(6, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
         }
 
         Assert.Equal(0L, await ScalarAsync("""SELECT "notnull" FROM pragma_table_info('audit_entries') WHERE name = 'source';"""));
@@ -119,7 +119,7 @@ public sealed class SqliteSchemaV5MigrationTests : IDisposable
 
             foreach (var store in await Task.WhenAll(opens))
             {
-                Assert.Equal(5, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
+                Assert.Equal(6, await store.GetSchemaVersionForTestingAsync(CancellationToken.None));
             }
             Assert.Equal(1L, await ScalarAsync("SELECT COUNT(*) FROM pragma_table_info('audit_entries') WHERE name = 'source';"));
         }
