@@ -310,6 +310,14 @@ public static class HookPipelineRunner
         return known;
     }
 
+    /// <summary>The placeholder-shaped tokens in <paramref name="text"/>; null when there are none.</summary>
+    internal static HashSet<string>? PlaceholdersIn(string? text)
+    {
+        HashSet<string>? known = null;
+        CollectPlaceholderTokens(text, ref known);
+        return known;
+    }
+
     /// <summary>Adds the placeholder-shaped tokens in <paramref name="text"/> to <paramref name="known"/>, creating it
     /// on the first one.</summary>
     private static void CollectPlaceholderTokens(string? text, ref HashSet<string>? known)
@@ -387,7 +395,7 @@ public static class HookPipelineRunner
     }
 
     // IChatClient satisfying BuildSentinelPipeline's signature. Never invoked.
-    private sealed class UnusedChatClient : IChatClient
+    internal sealed class UnusedChatClient : IChatClient
     {
         public static readonly UnusedChatClient Instance = new();
         public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)

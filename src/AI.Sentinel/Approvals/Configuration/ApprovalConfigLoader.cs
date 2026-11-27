@@ -381,10 +381,10 @@ internal static class ApprovalConfigLoader
     private static void Validate(ApprovalConfig config)
     {
         var backend = config.Backend.Trim().ToLowerInvariant();
-        if (backend is not ("in-memory" or "sqlite" or "entra-pim" or "none"))
+        if (backend is not ("in-memory" or "sqlite" or "entra-pim" or "none" or "http"))
         {
             throw new InvalidOperationException(
-                $"backend must be one of: in-memory, sqlite, entra-pim, none. Got: '{config.Backend}'");
+                $"backend must be one of: in-memory, sqlite, entra-pim, none, http. Got: '{config.Backend}'");
         }
         if (config.DefaultGrantMinutes <= 0)
         {

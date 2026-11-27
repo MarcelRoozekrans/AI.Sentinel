@@ -567,6 +567,21 @@ The server part has the checks for these rules: a team lead may approve, deny, p
 
 Every new setting is optional and off by default. Without `AddAISentinelPolicyFolder` there are no roles and the host policy decides alone.
 
+### Approvals decided on the server
+
+The `http` backend of the approval config sends an approval request to the server, where an administrator or a team lead decides it. Every part is optional and off by default: with no `"backend": "http"` and without `AddAISentinelApprovalServer`, approvals behave as before.
+
+On the server, call `AddAISentinelApprovalServer()` and `MapAISentinelApprovalServer()` next to the policy folder and the administrative audit log, which it needs. A team can run this part on its own, with no central product, and approve and deny over the HTTP API:
+
+- `POST /ai-sentinel/approvals` opens a request for the signed-in developer, or returns the open one of the same rule.
+- `GET /ai-sentinel/approvals` lists the pending requests the caller may decide, and `?mine=true` lists their own on a repository a node owns.
+- `GET /ai-sentinel/approvals/{id}` reads one request, for its requester when a node owns the repository, and for those who may decide it. Anyone else gets 404. A request on a repository that no node owns is read by an administrator alone; the hook still learns of an approval when the agent retries, as opening the request again returns its state.
+- `POST /ai-sentinel/approvals/{id}/approve` and `/deny` decide it, with an optional `{"note": ...}` or `{"reason": ...}`.
+
+Only an administrator, or a team lead of the node that owns the repository of the request, may decide it, and nobody decides their own request (403). Each approve and deny is written to the administrative audit log with the channel `web`, naming the decider and the request id and never the tool input. A request carries the tool input after AI.Sentinel's redaction, so the approver sees what they approve; an input that cannot be redacted is withheld, not sent. A decided request is deleted 30 days after the decision. Requests are kept in memory, so a restart of the server loses the pending ones, and the hook opens a new request when the agent retries.
+
+On a PC, set `"backend": "http"` in the file named by `SENTINEL_APPROVAL_CONFIG`, with the server and the sign-in settings above and `SENTINEL_HOOK_RESIDENT=on`. The hook asks the server through the resident process, which holds the token. Until a grant exists the call is denied with a receipt that says it waits for approval; the agent retries after the approval. While the server cannot be reached, or the developer is not signed in, the call is denied with a message that says so. Only `sentinel-hook` supports this backend: `sentinel-copilot-hook` and `sentinel-mcp` refuse it.
+
 ## Events and the decision log (server part)
 
 `AddAISentinelServerEvents` and `MapAISentinelServerEvents` add endpoints that receive events from developer machines and serve blocked calls and the audit trail. They need `AddAISentinelPolicyFolder`, because the roles per node and the organisation come from the node configuration. Set `ServerEventOptions.PseudonymKey` (the base64 of at least 16 random bytes). It reaches the server through the deployment and is never stored.

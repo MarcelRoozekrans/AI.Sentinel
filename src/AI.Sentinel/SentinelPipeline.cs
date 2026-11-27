@@ -540,6 +540,29 @@ public sealed partial class SentinelPipeline
         => ScanMessagesCoreAsync(messages, chatOptions: null, sessionId, findings: null, exemptPlaceholders, newMessagesFrom, ct);
 
     /// <summary>
+    /// Redacts the string values of <paramref name="json"/> with a new <see cref="RedactionSession"/>, without scanning
+    /// or auditing it: for a host that shows the content to a person, such as an approver. With no redacting detector the
+    /// input is returned as it is. <see langword="null"/> when the redaction fails, so the caller never sends the input
+    /// unredacted; the exception is dropped, because its message can carry the value.
+    /// </summary>
+    /// <param name="json">The JSON to redact.</param>
+    /// <param name="knownPlaceholders">Placeholders minted earlier; they are left as they are.</param>
+    internal System.Text.Json.JsonElement? TryRedactJson(System.Text.Json.JsonElement json, IReadOnlySet<string>? knownPlaceholders)
+    {
+        var redactors = pipeline.Redactors;
+        if (redactors.Count == 0)
+            return json;
+        try
+        {
+            return new RedactionSession(redactors) { KnownPlaceholders = knownPlaceholders }.RedactJsonValues(json);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// Redacts content a host hands Sentinel on its way to the model, such as a tool result in the MCP proxy or a
     /// hook, and scans the redacted copy. Never calls the inner client.
     /// </summary>

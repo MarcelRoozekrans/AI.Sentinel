@@ -6,7 +6,9 @@ namespace AI.Sentinel.ClaudeCode.Resident;
 /// What the resident process answers besides ping and shutdown: it keeps the compiled policy modules loaded, so a hook does not pay
 /// for loading one. A module is kept per policy folder, and replaced when the hook names another version of that folder.
 /// </summary>
-internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, SignIn.TokenSession? tokens = null, PauseBoard? pauses = null, TimeProvider? time = null) : IDisposable
+internal sealed class ResidentService(
+    IReadOnlyList<IRegoCompiler>? compilers, SignIn.TokenSession? tokens = null, PauseBoard? pauses = null, TimeProvider? time = null,
+    ServerApprovals.IApprovalChannel? approvals = null) : IDisposable
 {
     /// <summary>The most policy folders kept loaded; the least recently asked for goes first.</summary>
     private const int MaxLoaded = 8;
@@ -83,6 +85,40 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
         {
             return new ResidentResponse { Error = e.GetType().Name };
         }
+    }
+
+    /// <summary>Answers the approval operations by asking the server with the token of this process (#662); other operations are
+    /// answered as <see cref="Answer"/> does.</summary>
+    public async Task<ResidentResponse> AnswerAsync(ResidentRequest request, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Op is not (ResidentOps.ApprovalEnsure or ResidentOps.ApprovalGet))
+        {
+            return Answer(request);
+        }
+
+        var ensure = string.Equals(request.Op, ResidentOps.ApprovalEnsure, StringComparison.Ordinal);
+        if (approvals is null)
+        {
+            return new ResidentResponse { Error = ServerApprovals.ResidentApprovalChannel.OffError };
+        }
+
+        if (ensure ? request.Approval is null : string.IsNullOrEmpty(request.RequestId))
+        {
+            return new ResidentResponse { Error = "an approval operation names its request" };
+        }
+
+        var reply = ensure
+            ? await approvals.EnsureAsync(request.Approval!, ct).ConfigureAwait(false)
+            : await approvals.GetAsync(request.RequestId!, ct).ConfigureAwait(false);
+        return reply.Status switch
+        {
+            ServerApprovals.ApprovalChannelStatus.Ok when reply.State is not null => new ResidentResponse { Ok = true, Pid = Environment.ProcessId, Approval = reply.State },
+            ServerApprovals.ApprovalChannelStatus.SignInNeeded => new ResidentResponse { Error = ResidentApprovalAnswer.SignInNeeded },
+            ServerApprovals.ApprovalChannelStatus.Refused => new ResidentResponse { Error = ResidentApprovalAnswer.Refused },
+            ServerApprovals.ApprovalChannelStatus.NotFound => new ResidentResponse { Error = ResidentApprovalAnswer.NotFound },
+            _ => new ResidentResponse { Error = ResidentApprovalAnswer.Unreachable },
+        };
     }
 
     // The pause is checked before the evaluation starts and never during it: a call that is running when the pause arrives completes.
