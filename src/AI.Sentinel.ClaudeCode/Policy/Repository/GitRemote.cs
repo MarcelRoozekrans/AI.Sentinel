@@ -11,6 +11,9 @@ internal static class GitRemote
 
     /// <summary>The url of the remote of the repository that contains <paramref name="folder"/>: <c>origin</c> when there is one,
     /// else the first remote with a url. <see langword="null"/> for a folder outside git or a repository without a remote.</summary>
+    /// <exception cref="InvalidDataException">The git files cannot be read, or their includes nest deeper than git follows or
+    /// expand past <see cref="MaxConfigFiles"/> files. The hook blocks the call: it cannot tell which node owns the repository, and
+    /// git itself stops on such a config too.</exception>
     public static string? UrlOf(string folder)
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
@@ -20,8 +23,8 @@ internal static class GitRemote
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            // What cannot be read names no repository, which strict repository mode treats as one no node owns.
-            return null;
+            // Treating an unreadable config as no repository would drop the owning node's rules, so the call is blocked instead.
+            throw new InvalidDataException($"the git config of '{folder}' cannot be read, so the hook cannot tell which node owns the repository: {e.Message}", e);
         }
     }
 
@@ -89,24 +92,34 @@ internal static class GitRemote
         return found.Origin ?? found.First;
     }
 
-    // Git stops following includes at this depth.
+    // Git refuses a config whose includes nest deeper than this, which also ends a file that includes itself.
     private const int MaxIncludeDepth = 10;
 
+    /// <summary>How many config files one lookup reads at most, counting a file each time it is included. Includes that fan out stay
+    /// under the depth limit and can still multiply, so this bounds the work of one hook call.</summary>
+    internal const int MaxConfigFiles = 1000;
+
     /// <summary>Reads the remote urls of one config file, and of the files it includes where the include stands, so the order is the
-    /// one git reads them in. An include that cannot be read, or that nests deeper than git follows, is skipped as git skips it.
-    /// <c>includeIf</c> is not followed: its condition is for git to judge.</summary>
+    /// one git reads them in. A missing include is skipped as git skips it. <c>includeIf</c> is not followed: its condition is for
+    /// git to judge.</summary>
     private static void Scan(string file, int depth, Found found)
     {
+        if (++found.Files > MaxConfigFiles)
+        {
+            throw new IOException($"its includes expand past {MaxConfigFiles} files");
+        }
+
         string? remote = null;
         var include = false;
-        foreach (var raw in File.ReadLines(file))
+        foreach (var logical in LogicalLines(file))
         {
-            var line = raw.Trim();
+            var line = logical.Trim();
             if (line.StartsWith('['))
             {
                 remote = RemoteName(line);
                 include = string.Equals(SectionOf(line), "include", StringComparison.OrdinalIgnoreCase);
-                continue;
+                // git reads [remote "origin"] url = ... on one line: what follows the closing bracket is an assignment of the section.
+                line = AfterHeader(line);
             }
 
             if (!TryKeyValue(line, out var key, out var value))
@@ -116,8 +129,13 @@ internal static class GitRemote
 
             if (include && string.Equals(key, "path", StringComparison.OrdinalIgnoreCase))
             {
-                if (depth < MaxIncludeDepth && Resolve(file, value) is { } target && File.Exists(target))
+                if (Resolve(file, value) is { } target && File.Exists(target))
                 {
+                    if (depth >= MaxIncludeDepth)
+                    {
+                        throw new IOException($"its includes nest deeper than the {MaxIncludeDepth} levels git follows");
+                    }
+
                     Scan(target, depth + 1, found);
                 }
             }
@@ -132,15 +150,75 @@ internal static class GitRemote
         }
     }
 
-    // A relative include path is relative to the file that names it.
-    private static string? Resolve(string file, string path) =>
-        path.Length == 0 || path.StartsWith('~') ? null : Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(Path.GetDirectoryName(file) ?? "", path));
+    // A relative include path is relative to the file that names it; ~/ is the home folder, as git expands it.
+    private static string? Resolve(string file, string path)
+    {
+        if (path.Length == 0)
+        {
+            return null;
+        }
+
+        if (path.StartsWith("~/", StringComparison.Ordinal))
+        {
+            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            return home.Length == 0 ? null : Path.GetFullPath(Path.Combine(home, path[2..]));
+        }
+
+        return path.StartsWith('~') ? null : Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(Path.GetDirectoryName(file) ?? "", path));
+    }
+
+    /// <summary>The lines of a config file as git reads them: a line that ends in an unescaped backslash continues on the next one.</summary>
+    private static IEnumerable<string> LogicalLines(string file)
+    {
+        var pending = new System.Text.StringBuilder();
+        foreach (var raw in File.ReadLines(file))
+        {
+            var trailing = raw.Length - raw.TrimEnd('\\').Length;
+            if (trailing % 2 == 1)
+            {
+                pending.Append(raw, 0, raw.Length - 1);
+                continue;
+            }
+
+            pending.Append(raw);
+            yield return pending.ToString();
+            pending.Clear();
+        }
+
+        if (pending.Length > 0)
+        {
+            yield return pending.ToString();
+        }
+    }
 
     // The text between the brackets before the first space or quote: remote for [remote "origin"], include for [include].
     private static string SectionOf(string header)
     {
         var end = header.IndexOfAny([' ', '\t', '"', ']']);
         return end < 0 ? header[1..] : header[1..end];
+    }
+
+    // The text after the bracket that closes the header, a bracket inside a quoted subsection name not counted.
+    private static string AfterHeader(string header)
+    {
+        var quoted = false;
+        for (var i = 1; i < header.Length; i++)
+        {
+            if (header[i] == '\\' && quoted)
+            {
+                i++;
+            }
+            else if (header[i] == '"')
+            {
+                quoted = !quoted;
+            }
+            else if (header[i] == ']' && !quoted)
+            {
+                return header[(i + 1)..].Trim();
+            }
+        }
+
+        return "";
     }
 
     private static bool TryKeyValue(string line, out string key, out string value)
@@ -197,18 +275,35 @@ internal static class GitRemote
         public string? Origin { get; set; }
 
         public string? First { get; set; }
+
+        public int Files { get; set; }
     }
 
-    // [remote "origin"] gives origin; any other section gives null.
+    // [remote "origin"] gives origin; any other section gives null. Git also accepts blanks or a tab between the section and the quoted
+    // subsection, blanks before the closing bracket, and the old form [remote.origin].
     private static string? RemoteName(string header)
     {
-        const string Section = "[remote \"";
-        if (!header.StartsWith(Section, StringComparison.OrdinalIgnoreCase))
+        var close = header.IndexOf(']', StringComparison.Ordinal);
+        var body = (close < 0 ? header[1..] : header[1..close]).Trim();
+        const string Section = "remote";
+        if (!body.StartsWith(Section, StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
 
-        var end = header.IndexOf('"', Section.Length);
-        return end < 0 ? null : header[Section.Length..end];
+        var rest = body[Section.Length..];
+        if (rest.StartsWith('.'))
+        {
+            return rest.Length > 1 ? rest[1..] : null;
+        }
+
+        rest = rest.TrimStart(' ', '\t');
+        if (rest.Length == body.Length - Section.Length || !rest.StartsWith('"'))
+        {
+            return null;
+        }
+
+        var end = rest.IndexOf('"', 1);
+        return end < 0 ? null : rest[1..end];
     }
 }

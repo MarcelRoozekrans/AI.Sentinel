@@ -100,11 +100,12 @@ internal sealed class InMemoryServerEventStore : IServerEventStore
                 return ValueTask.CompletedTask;
             }
 
-            foreach (var gone in data.Events.Where(e => e.ReceivedAt < eventsBefore).ToList())
+            foreach (var gone in data.Events.Where(e => e.ReceivedAt < eventsBefore))
             {
-                data.Events.Remove(gone);
                 data.Ids.Remove(gone.Id);
             }
+
+            data.Events.RemoveAll(e => e.ReceivedAt < eventsBefore);
 
             data.Gaps.RemoveAll(g => g.ReceivedAt < eventsBefore);
             foreach (var key in data.Counts.Keys.Where(k => k.Day < countsBefore).ToList())

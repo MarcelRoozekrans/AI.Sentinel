@@ -1,6 +1,6 @@
 name: Native CLI
 
-# Builds the Native AOT tool package of sentinel-hook, sentinel-copilot-hook and sentinel-mcp for
+# Builds the Native AOT tool package of sentinel-hook, sentinel-codex-hook, sentinel-copilot-hook and sentinel-mcp for
 # each RID on a runner of that OS (Native AOT cannot cross-compile between operating systems),
 # extracts the binary from the package, smoke-tests it and archives it. The PR check
 # (aot-publish.yml) and the release (release-please.yml) both call this workflow, so a PR
@@ -35,16 +35,43 @@ env:
   MUSL_IMAGE: mcr.microsoft.com/dotnet/sdk:10.0-alpine
 
 jobs:
+  # A republished tag builds only the CLIs whose project exists in that tag: a release made before a
+  # CLI was added has no project for it, and a leg that cannot pack would block the publish job.
+  plan:
+    name: Select the CLIs of the ref
+    runs-on: ubuntu-latest
+    outputs:
+      clis: ${{ steps.select.outputs.clis }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Keep the CLIs whose project exists
+        id: select
+        run: |
+          all='[
+            { "id": "ClaudeCode.Cli", "command": "sentinel-hook", "kind": "hook" },
+            { "id": "Codex.Cli", "command": "sentinel-codex-hook", "kind": "codex-hook" },
+            { "id": "Copilot.Cli", "command": "sentinel-copilot-hook", "kind": "copilot-hook" },
+            { "id": "Mcp.Cli", "command": "sentinel-mcp", "kind": "mcp" }
+          ]'
+          selected='[]'
+          for id in $(echo "$all" | jq -r '.[].id'); do
+            if [ -f "src/AI.Sentinel.$id/AI.Sentinel.$id.csproj" ]; then
+              selected=$(jq -c --arg id "$id" --argjson all "$all" '. + [$all[] | select(.id == $id)]' <<< "$selected")
+            fi
+          done
+          echo "clis=$selected" >> "$GITHUB_OUTPUT"
+
   native:
     name: ${{ matrix.cli.command }} ${{ matrix.target.rid }}
+    needs: plan
     runs-on: ${{ matrix.target.os }}
     strategy:
       fail-fast: false
       matrix:
-        cli:
-          - { id: ClaudeCode.Cli, command: sentinel-hook, kind: hook }
-          - { id: Copilot.Cli, command: sentinel-copilot-hook, kind: copilot-hook }
-          - { id: Mcp.Cli, command: sentinel-mcp, kind: mcp }
+        cli: ${{ fromJson(needs.plan.outputs.clis) }}
         # libc: glibc and musl legs pack in a container; none packs on the runner itself.
         target:
           - { rid: linux-x64, os: ubuntu-latest, libc: glibc }

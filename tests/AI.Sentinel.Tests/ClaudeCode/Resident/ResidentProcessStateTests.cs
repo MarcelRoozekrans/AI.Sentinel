@@ -311,6 +311,19 @@ public class ResidentProcessStateTests : IDisposable
     }
 
     [Fact]
+    public void A_module_folder_with_a_second_rego_file_is_never_evaluated()
+    {
+        var cache = RegoPolicyTestSupport.SharedCache;
+        State().StoreProfile(Sign(), Pinned(), Org, Repo, Now);
+        ProfileDecider.Decide(State(), Pinned(), Org, Repo, Now, Input("ls"), cache, RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()));
+        var file = Directory.GetFiles(Path.Combine(State().Directory, "modules"), "profile.rego", SearchOption.AllDirectories).Single();
+        File.WriteAllText(Path.Combine(Path.GetDirectoryName(file)!, "extra.rego"), "package sentinel\n\ndeny contains \"unsigned\"\n");
+
+        Assert.Throws<InvalidDataException>(() =>
+            ProfileDecider.Decide(State(), Pinned(), Org, Repo, Now, Input("ls"), cache, RegoPolicyTestSupport.Compilers(new ChildProcessCompiler())));
+    }
+
+    [Fact]
     public void An_expired_or_missing_profile_gives_no_decision_and_the_reason()
     {
         var cache = RegoPolicyTestSupport.SharedCache;

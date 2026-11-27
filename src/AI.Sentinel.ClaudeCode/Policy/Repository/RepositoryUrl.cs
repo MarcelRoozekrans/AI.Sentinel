@@ -43,12 +43,12 @@ internal static class RepositoryUrl
             var open = text.IndexOf('[', StringComparison.Ordinal);
             var close = open >= 0 ? text.IndexOf(']', open) : -1;
             var bracketed = open >= 0 && close > open && (firstSlash < 0 || open < firstSlash);
-            if (bracketed && close + 1 < text.Length && text[close + 1] == '/')
+            if (bracketed && open == 0 && close + 1 < text.Length && text[close + 1] == '/')
             {
-                // The name this returns, [ipv6]/path, so a name that was normalised once is normalised to itself.
-                authority = text[..(close + 1)];
-                path = text[(close + 2)..];
-                return Join(authority, path);
+                // The name this returns, [ipv6]/path, so a name that was normalised once is normalised to itself: its path is not
+                // stripped of a suffix a second time.
+                var kept = text[(close + 2)..].Trim('/');
+                return kept.Length == 0 ? null : text[..(close + 1)].ToLowerInvariant() + "/" + kept.ToLowerInvariant();
             }
 
             // The scp form: [user@]host:path. A colon after a slash, or a drive letter, is a local path. The colons inside the

@@ -26,13 +26,14 @@ internal static class EventReads
             return Results.StatusCode(StatusCodes.Status401Unauthorized);
         }
 
-        if (roles.OrganisationName is null)
+        // One configuration answers the organisation check and every role check of this request.
+        if (roles.Snapshot() is not { } current)
         {
             return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
         }
 
         var authorization = services.GetRequiredService<IAuthorizationService>();
-        if (!string.Equals(roles.OrganisationName, organisation, StringComparison.Ordinal)
+        if (!string.Equals(current.Organisation, organisation, StringComparison.Ordinal)
             || !(await authorization.AuthorizeAsync(http.User, organisation, options.PolicyName).ConfigureAwait(false)).Succeeded)
         {
             return Results.StatusCode(StatusCodes.Status403Forbidden);
@@ -55,16 +56,18 @@ internal static class EventReads
                 && (node.Length == 0 || string.Equals(e.Node, node, StringComparison.Ordinal))
                 && (session.Length == 0 || string.Equals(e.Session, session, StringComparison.Ordinal))
                 && (from is null || e.At >= from) && (to is null || e.At <= to)
-                && May(roles, http.User, e.Node, e.Developer, own))
+                && May(current, http.User, e.Node ?? current.OrganisationNodeId, e.Developer, own))
             .OrderBy(e => e.At).ToList();
         var gaps = blockedOnly
             ? []
             : (await store.ReadGapsAsync(organisation, http.RequestAborted).ConfigureAwait(false))
-                .Where(g => May(roles, http.User, g.Node ?? roles.OrganisationNodeId, g.Developer, own)).ToList();
+                .Where(g => (node.Length == 0 || string.Equals(g.Node, node, StringComparison.Ordinal))
+                    && (from is null || g.ReceivedAt >= from) && (to is null || g.ReceivedAt <= to)
+                    && May(current, http.User, g.Node ?? current.OrganisationNodeId, g.Developer, own)).ToList();
         return Results.Bytes(EventWriter.Write(events, blockedOnly ? null : gaps), "application/json");
     }
 
-    private static bool May(NodeRoles roles, System.Security.Claims.ClaimsPrincipal user, string? node, string developer, string? own) =>
+    private static bool May(NodeRoleSnapshot roles, ClaimsPrincipal user, string? node, string developer, string? own) =>
         (own is not null && string.Equals(own, developer, StringComparison.Ordinal))
         || (node is not null && roles.Allows(user, NodeRole.TeamLead, node));
 

@@ -5,4 +5,5 @@ internal static class PolicyClis
 {
     public const string ClaudeCode = "claude-code";
     public const string Copilot = "copilot";
+    public const string Codex = "codex";
 }

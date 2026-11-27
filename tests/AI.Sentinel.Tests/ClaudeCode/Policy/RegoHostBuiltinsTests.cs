@@ -54,6 +54,15 @@ public class RegoHostBuiltinsTests
     [InlineData("\"%U|%d|%v\"", "[-1, -123456789012345678901234567890, -123456789012345678901234567890]", "U+FFFFFFFFFFFFFFFF|-123456789012345678901234567890|-123456789012345678901234567890")]
     [InlineData("\"%[3]d %d\"", "[1, 2, 3]", "3 %!d(MISSING)")]
     [InlineData("\"%.[2]d\"", "[1, 2]", "2")]
+    [InlineData("\"%s|%c|%q|%U\"", "[123456789012345678901234567890, 123456789012345678901234567890, 123456789012345678901234567890, 123456789012345678901234567890]", "123456789012345678901234567890|%!c(big.Int=123456789012345678901234567890)|%!q(big.Int=123456789012345678901234567890)|%!U(big.Int=123456789012345678901234567890)")]
+    [InlineData("\"%#o|%#X|%#05o|%#x\"", "[18446744073709551616, 255, 8, 18446744073709551616]", "02000000000000000000000|0XFF|00010|0x10000000000000000")]
+    [InlineData("\"%q|%q\"", "[\"it's\", 34]", "\"it's\"|'\"'")]
+    [InlineData("\"%*s|%-*d|%*d\"", "[3, \"x\", 4, 7, -4, 7]", "  x|7   |7   ")]
+    [InlineData("\"%.*f|%.*s|%*.*f\"", "[2, 3.14159, 2, \"abc\", 8, 1, 2.55]", "3.14|ab|     2.5")]
+    [InlineData("\"%T|%T|%T|%T|%T\"", "[7, 1.5, \"s\", 123456789012345678901234567890, true]", "int64|float64|string|*big.Int|string")]
+    [InlineData("\"%8T|%-8T|%.3T\"", "[7, 7, 1.5]", "   int64|int64   |flo")]
+    [InlineData("\"%#024x|%#08x|%024d\"", "[9223372036854775808, 255, -9223372036854775809]", "0x0000008000000000000000|0x000000ff|-00009223372036854775809")]
+    [InlineData("\"%s|%v|%d\"", "[1e309, -1e309, 1e309]", "1e309|-1e309|%!d(string=1e309)")]
     public void Sprintf_formats_like_opa(string format, string args, string expected)
     {
         var json = HostBuiltins.Sprintf(format, args);
@@ -83,6 +92,11 @@ public class RegoHostBuiltinsTests
     [InlineData("\"%[2]5d|%[1].2d\"", "[1, 2]", "%!d(BADINDEX)|%!d(BADINDEX)")]
     [InlineData("\"%[]d|%[0]d\"", "[1]", "%!d(BADINDEX)|%!d(BADINDEX)")]
     [InlineData("\"%5.\"", "[1]", "%!.(int64=    1)")]
+    [InlineData("\"%-\"", "[]", "%!(NOVERB)")]
+    [InlineData("\"%*d\"", "[\"a\", 5]", "%!(BADWIDTH)5")]
+    [InlineData("\"%.*d\"", "[-1, 5]", "%!(BADPREC)5")]
+    [InlineData("\"%*d\"", "[]", "%!(BADWIDTH)%!d(MISSING)")]
+    [InlineData("\"%*d|%.*d\"", "[2000000, 1, 1.5, 2]", "%!(BADWIDTH)1|%!(BADPREC)2")]
     public void Sprintf_marks_a_mismatch_the_way_go_does(string format, string args, string expected)
     {
         var json = HostBuiltins.Sprintf(format, args);

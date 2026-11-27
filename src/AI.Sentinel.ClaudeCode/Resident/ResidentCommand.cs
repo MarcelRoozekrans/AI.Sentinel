@@ -33,7 +33,7 @@ internal static class ResidentCommand
         }
 
         // Sign-in is optional: without its settings the process holds no token (#659).
-        using var http = new HttpClient();
+        using var http = SignIn.SignInCommand.NoRedirects();
         var tokens = SignIn.SignInCommand.OpenSession(ResidentSettings.ProcessEnvironment(), http, stderr);
         // Events go to the server only with the server configured; without it there is no forwarder (#661).
         var forwarder = Events.EventForwarding.Open(ResidentSettings.ProcessEnvironment(), settings, tokens, inner: null, stderr);

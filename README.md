@@ -12,7 +12,7 @@
 
 Security monitoring middleware for `IChatClient` ([Microsoft.Extensions.AI](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)). Wraps any LLM client transparently, scans every prompt and response through 56 detectors, plus 4 opt-in EU AI Act Art. 5 compliance detectors, and blocks, alerts, or logs threats — with an embedded real-time dashboard.
 
-> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same detectors, same audit trail, zero code changes in the host.
+> **Not building on `IChatClient`?** AI.Sentinel also ships as a drop-in hook for [Claude Code](#claude-code) (`sentinel-hook`), [GitHub Copilot](#github-copilot) (`sentinel-copilot-hook`), [Codex CLI](#codex-cli) (`sentinel-codex-hook`), and any [MCP](#mcp-proxy) host — Cursor, Continue, Cline, Windsurf — via the `sentinel-mcp` stdio proxy. Same detectors, same audit trail, zero code changes in the host.
 
 > **Approval workflows for high-stakes tool calls** (`delete_database`, `send_payment`, `rotate_secrets`) — pluggable backends include in-memory, SQLite (persists across CLI invocations), and **native Microsoft Entra PIM** (approvers act in the portal they already use). Operators approve/deny from the dashboard or the PIM portal; the conversation resumes when approval lands. See the [approvals docs](https://marcelroozekrans.github.io/AI.Sentinel/docs/approvals/overview).
 
@@ -46,6 +46,7 @@ The embedded dashboard ships in `AI.Sentinel.AspNetCore`. Mount it on any ASP.NE
 | `AI.Sentinel.Cli` | `dotnet tool install AI.Sentinel.Cli` — offline replay CLI for forensics + CI, `sentinel dashboard` to browse the audit file the hooks and the MCP proxy write, and `sentinel report` for a compliance report from it |
 | `AI.Sentinel.ClaudeCode` / `AI.Sentinel.ClaudeCode.Cli` | Claude Code native hook adapter — wire into `settings.json` hooks to scan UserPromptSubmit, PreToolUse, PostToolUse |
 | `AI.Sentinel.Copilot` / `AI.Sentinel.Copilot.Cli` | GitHub Copilot native hook adapter — wire into `hooks.json` to scan userPromptSubmitted, preToolUse, postToolUse |
+| `AI.Sentinel.Codex.Cli` | Codex CLI hook adapter, `sentinel-codex-hook` — wire into `hooks.json` to scan UserPromptSubmit, PreToolUse, PostToolUse; shares the library code of `AI.Sentinel.ClaudeCode` |
 | `AI.Sentinel.Mcp` / `AI.Sentinel.Mcp.Cli` | `dotnet tool install AI.Sentinel.Mcp.Cli` — stdio MCP proxy that scans `tools/call` + `prompts/get` for any MCP-speaking host (Cursor, Continue, Cline, Windsurf, Copilot) |
 
 ```
@@ -855,6 +856,32 @@ Add to your repo's `hooks.json` (per Copilot hook documentation):
 
 Both hooks map each tool onto a shared tool kind (`shell`, `read`, `search`, `write`, `edit`, `fetch`, `mcp`, `agent` or `other`) and build the policy input for it, with a parsed command line for shell calls. It is the input of the [local Rego policy](#local-rego-policy), read only when `SENTINEL_HOOK_POLICY_DIR` is set; the hooks behave as before without it. See [Tool kinds and policy input](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#tool-kinds-and-policy-input).
 
+### Codex CLI
+
+```
+dotnet tool install -g AI.Sentinel.Codex.Cli
+```
+
+Add to `~/.codex/hooks.json`, or `.codex/hooks.json` in a trusted project, then review the hook with `/hooks` in Codex, which runs no hook it has not trusted:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "sentinel-codex-hook user-prompt-submit", "timeout": 10 }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "sentinel-codex-hook pre-tool-use", "timeout": 45 }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "sentinel-codex-hook post-tool-use", "timeout": 10 }] }
+    ]
+  }
+}
+```
+
+`sentinel-codex-hook` shares the detectors, approval config, local audit (`Source` is `codex`), severity settings, local Rego policy and fail-closed behaviour of `sentinel-hook`. Codex cannot ask from a hook and cannot replace a tool result, so an ask is a deny with instructions and nothing is redacted. Every new setting is optional and off by default; the adapter adds none. The events, the outcome table and the sources are on the [Codex CLI page](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/codex).
+
 ### MCP proxy
 
 For any MCP-speaking agent (Cursor, Continue, Cline, Windsurf, Copilot's MCP path), install the proxy and point your MCP host at it instead of at the target server directly:
@@ -940,7 +967,7 @@ A hook decision has one of five outcomes, strictest first: deny, ask, guidance, 
 
 ### Local Rego policy
 
-`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files, and `sentinel-hook` and `sentinel-copilot-hook` evaluate it against each `PreToolUse` call, with no server. **Every new setting is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset the hooks behave exactly as before.**
+`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files, and `sentinel-hook`, `sentinel-codex-hook` and `sentinel-copilot-hook` evaluate it against each `PreToolUse` call, with no server. **Every new setting is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset the hooks behave exactly as before.**
 
 | Variable | Default | Values |
 |---|---|---|
@@ -980,15 +1007,15 @@ A paused session has every tool call denied with the reason. See [Resident local
 
 The refresh token goes into Windows Credential Manager, the macOS Keychain, or the Linux Secret Service through `secret-tool`. Where there is none, such as a headless Linux, it is kept in the memory of the resident process only, so sign in again after the process restarts; it is never written to a file. Tokens never appear in logs, the audit or the policy input. See [Sign-in](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#sign-in).
 
+### Which policy applies
+
+The policy of a tool call is the policy of the node that owns the repository, not of the developer's team (ADR-232, ADR-246). The repository is the git remote of the working directory, read from `.git/config` with no `git` process and no network, through worktrees and submodules. The url is normalised, so the ssh and https forms and a `.git` suffix or different case name one repository, and credentials in a url are dropped before the policy input or the audit sees it. The input's `repository` and `node` fields carry the result. **Every new setting is optional and off by default: without a cached node map, which needs `SENTINEL_HOOK_RESIDENT=on` and a server, and with the organisation and node bundles not yet enforced by the shipped CLIs (they wire `NoNodePolicies` until #659 and #664), the input names no repository and the hooks behave exactly as before.**
+
+Strict repository mode is on by default once a node map is cached. A repository no node owns, or a folder outside git, gets only the organisation's top-level rules, and no events go to the server (the resident forwarder of #661 honours this; the hook has no server forwarder), and `sentinel-hook session-start` says so. `SENTINEL_HOOK_STRICT_REPOSITORY=off` turns it off. A local `SENTINEL_HOOK_POLICY_DIR` is evaluated next to the organisation's rules and the node's bundle, strictest wins, so it can only tighten; in strict mode too, because strict mode limits the organisation and node rules, not the local folder. See [Which policy applies](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#which-policy-applies). The repository policy applies with or without `SENTINEL_HOOK_POLICY_DIR`; with no cached node map nothing changes.
+
 ### Fail mode
 
 When no policy decision can be made for a call, the `fail_mode` of the profile decides: **closed**, the default, denies it with guidance, and **ask** asks, mapped per CLI as for any ask. With a server configured and no profile, including a developer who has not signed in yet, the hook uses closed and says to sign in. A `read` or `search` call inside the repository stays allowed in both modes, a policy bundle that errors at runtime always denies and names the bundle, and an internal error in the hook still blocks. **Every new setting is optional and off by default: no hook reads a profile until the server connection exists, and the hooks behave exactly as before.** See [Fail mode](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#fail-mode).
-
-### Which policy applies
-
-The policy of a tool call is the policy of the node that owns the repository, not of the developer's team (ADR-232, ADR-246). The repository is the git remote of the working directory, read from `.git/config` with no `git` process and no network, through worktrees and submodules. The url is normalised, so the ssh and https forms and a `.git` suffix or different case name one repository, and credentials in a url are dropped before the policy input or the audit sees it. The input's `repository` and `node` fields carry the result. **Every new setting is optional and off by default: without a cached node map, which needs `SENTINEL_HOOK_RESIDENT=on` and a server, the input names no repository and the hooks behave exactly as before.**
-
-Strict repository mode is on by default once a node map is cached. A repository no node owns, or a folder outside git, gets only the organisation's top-level rules and sends no events, and `sentinel-hook session-start` says so. `SENTINEL_HOOK_STRICT_REPOSITORY=off` turns it off. A local `SENTINEL_HOOK_POLICY_DIR` is evaluated next to the organisation's rules and the node's bundle, strictest wins, so it can only tighten. See [Which policy applies](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#which-policy-applies). The repository policy applies whether or not `SENTINEL_HOOK_POLICY_DIR` is set; with no cached node map nothing changes.
 
 ### Forward events to the server
 
@@ -1079,15 +1106,15 @@ Groundwork for control by an organisation's server: a policy profile that the se
 
 The server part in `AI.Sentinel.AspNetCore` reads policy and node configuration from a folder on disk and never accepts either over HTTP. A central product fills the folder from the protected branch of a git repository; a standalone deployment keeps a git checkout of that branch there, for example with a git-sync sidecar. **Whatever fills the folder has to swap it atomically, as git-sync does with a link.** The server waits for changes to settle, resolves the folder's real path once, reads every file into memory, compiles from that copy, reads the files again and publishes only when the second read equals the copy. On any difference, or a failed read, it publishes nothing and retries with bounded backoff. Reloads run one at a time.
 
-The folder holds `nodes.json` (the organisation and its teams, which repositories belong to which node, which identity-provider groups hold which role on which node, and per-node settings `fail_mode` (`closed` or `ask`), `profile_lifetime_hours`, `detailed_logging`, `severity_defaults`) and Rego bundles: a folder or a file per node, named after the node id, all in `package sentinel`. All bundles of a version compile into one module, identified by its sha256, and each profile carries the module of one node (the organisation node for the repository `*`, the owning node for a repository), out of process with the `opa` binary, so a crash of the compiler cannot end the host. A configuration is refused, the last good one stays in force and a rejected publish is written to the admin audit log (git channel) when a bundle uses a builtin that reaches outside the process (`http.send`, `net.lookup_ip_addr`, `opa.runtime`), when a bundle below the organisation defines an allow rule, or when `nodes.json` does not hold together. A publish is written there too.
+The folder holds `nodes.json` (the organisation and its teams, which repositories belong to which node, which identity-provider groups hold which role on which node, and per-node settings `fail_mode` (`closed` or `ask`), `profile_lifetime_hours`, `detailed_logging`, `severity_defaults`) and Rego bundles: a folder or a file per node, named after the node id, all in `package sentinel`. All bundles of a version are identified together by one sha256, and each profile carries the module of one node (the organisation node for the repository `*`, the owning node for a repository), each compiled out of process with the `opa` binary, so a crash of the compiler cannot end the host. A configuration is refused, the last good one stays in force and a rejected publish is written to the admin audit log (git channel) when a bundle uses a builtin that reaches outside the process (`http.send`, `net.lookup_ip_addr`, `opa.runtime`), when a bundle below the organisation defines an allow rule, or when `nodes.json` does not hold together. A publish is written there too.
 
 The server signs a profile per repository with the deployment's Ed25519 key and serves three `GET` endpoints to a signed-in developer of the organisation: `/.well-known/ai-sentinel/profile-keys` (the keys to pin), `{prefix}/profile?repository=` and `{prefix}/node-map`. **Every new setting is optional and off by default; nothing is registered or mapped unless the host calls `AddAISentinelPolicyFolder` and `MapAISentinelPolicyServer`.** Details are in the [Claude Code integration page](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#policy-folder-and-signed-profiles-server-part).
 
-Roles come from those group bindings: an administrator on the organisation, a team lead on a team, everyone else a developer, each applying to its node and below. The developer is the token's `sub` claim and the groups its `groups` claim (`DeveloperClaim` and `GroupsClaim` rename them, both optional). A team lead decides only sessions of repositories on their node, a developer reads their own decisions, and nobody decides their own request. See [Roles on nodes](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#roles-on-nodes). These settings are optional and off by default.
+Roles come from those group bindings: an administrator on the organisation, a team lead on a team, everyone else a developer, each applying to its node and below. The developer is the token's `sub` claim and the groups its `groups` claim (`DeveloperClaim` and `GroupsClaim` rename them, both optional). The server part has the checks for this: a team lead decides only sessions of repositories on their node, a developer reads their own decisions, and nobody decides their own request. They are helpers for later integration, and no approve, deny or pause handler calls them yet; the only endpoint they guard so far is the audit export. See [Roles on nodes](https://marcelroozekrans.github.io/AI.Sentinel/docs/integrations/claude-code#roles-on-nodes). These settings are optional and off by default.
 
 ### Administrative audit log (server part)
 
-The `AI.Sentinel.AspNetCore` server part can keep an append-only log of administrative actions. Approve and deny made through the dashboard are recorded today; pause, release, publish, rejected publish and rollback are not recorded yet and come with later issues, so an export holds no entries for them. Each entry records who, when, the target and the channel it came through (web, MCP or git). Entries are hash-chained per organisation with `AuditHashChain`, and the store refuses updates and deletes. An entry holds identifiers only, never file contents or secrets: a value over 256 characters or with a control character is refused.
+The `AI.Sentinel.AspNetCore` server part can keep an append-only log of administrative actions. Approve and deny made through the dashboard, and a publish and a rejected publish of the policy folder, are recorded today; pause, release and rollback are not recorded yet and come with later issues, so an export holds no entries for them. Each entry records who, when, the target and the channel it came through (web, MCP or git). Entries are hash-chained per organisation with `AuditHashChain`, and the store refuses updates and deletes. An entry holds identifiers only, never file contents or secrets: a value over 256 characters or with a control character is refused.
 
 The host opts in with `AddAISentinelAdminAudit` (set `SigningKey`, the base64 of the deployment's 32 byte Ed25519 seed, and optionally `PolicyName` and `Organisation`) and `MapAISentinelAdminAudit`, which maps `GET /ai-sentinel/admin-audit/{organisation}/export`. The endpoint uses the host's ASP.NET Core authorization with the organisation as the resource; with the policy folder registered it also needs the administrator role on the organisation, from the group bindings of `nodes.json`. An export lists the entries and ends with a head, the entry count, last hash, export time and organisation, signed with the deployment key. The log is in memory for now.
 
@@ -1102,8 +1129,8 @@ sentinel audit-verify <export.json> --organisation <org> --public-key <base64> [
 
 `AddAISentinelServerEvents` and `MapAISentinelServerEvents` add endpoints that receive events from developer machines and serve blocked calls and the audit trail. They need `AddAISentinelPolicyFolder`, because the roles per node and the organisation come from the node configuration. Set `ServerEventOptions.PseudonymKey` (the base64 of at least 16 random bytes). It reaches the server through the deployment and is never stored.
 
-- `POST /ai-sentinel/events/ingest` takes `{"organisation": "...", "events": [...], "gap": {"pruned": 3, "node": "..."}}`. An event holds only `event_id`, `at`, `tool_kind`, `outcome`, `policies`, `policy_version`, `decided` (where it was decided), `node`, `cli`, `session`, `detector`, `severity`, `redactions` (kind to count) and `reason`. The server keeps those and counts the names of any other field, dropping the value, so a command, a path or tool input is never kept. `reason` is kept only for a node with `detailed_logging`; the plugin has already redacted it. An event id that was stored before is not stored again.
-- The sender is the signed-in developer. The organisation is the sender's, from the claim named in `OrganisationClaim` or else the published node configuration; a batch that names another organisation is refused with 403 and nothing is stored. The developer is replaced on arrival by a code that is stable within one organisation and different across organisations. The key for the codes lives apart from the event store.
+- `POST /ai-sentinel/events/ingest` takes `{"organisation": "...", "events": [...], "gap": {"pruned": 3, "node": "..."}}`. An event holds only `event_id`, `at`, `tool_kind`, `outcome`, `policies`, `policy_version`, `decided` (where it was decided), `node`, `cli`, `session` (an identifier of ASCII letters, digits and `- _ . :`; any other value rejects the event), `detector`, `severity`, `redactions` (kind to count) and `reason`. The server keeps those and counts the names of any other field, dropping the value, so a command, a path or tool input is never kept. `reason` is kept only for a node with `detailed_logging`; the plugin has already redacted it. An event id that was stored before is not stored again.
+- The sender is the signed-in developer. The organisation is the sender's, from the claim named in `OrganisationClaim` or else the published node configuration; a sender whose claim names an organisation other than the published one, and a batch that names another organisation than the sender's, are refused with 403 and nothing is stored. The developer is replaced on arrival by a code that is stable within one organisation and different across organisations. The key for the codes lives apart from the event store.
 - `gap.pruned` reports how many events the machine pruned before it could send them. Gaps are listed with the audit trail.
 - `GET /ai-sentinel/events/{organisation}/blocked` lists denied calls and `GET /ai-sentinel/events/{organisation}/audit` lists every event and the gaps. Both filter on `node`, `session`, `from` and `to`. They show a code per developer, never a name. A team lead reads the events of their node, an administrator all of them and a developer their own.
 - All endpoints use the host's ASP.NET Core authorization policy named in `ServerEventOptions.PolicyName` (default `AISentinelEvents`) with the organisation as the resource, then the role on the node.

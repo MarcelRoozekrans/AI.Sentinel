@@ -91,4 +91,37 @@ public sealed class ServerEventReadTests
         Assert.Equal(HttpStatusCode.Forbidden, (await host.SendAsync(Get("acme/audit", "elsewhere", "root", "sec"))).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await host.SendAsync(Get("rival/audit", "rival", "root", "sec"))).StatusCode);
     }
+
+    [Fact]
+    public async Task An_event_without_a_node_is_read_by_an_administrator_and_its_sender()
+    {
+        using var host = await StartAsync();
+        var nodeless = """{"event_id":"n-1","tool_kind":"shell","outcome":"deny","session":"s-9","policies":["p1"]}""";
+        await host.SendAsync(Post(Batch("acme", nodeless), "acme", "alice"));
+
+        Assert.Equal(["n-1"], await IdsAsync(host, "acme/audit", "root", "sec"));
+        Assert.Equal(["n-1"], await IdsAsync(host, "acme/audit", "alice", ""));
+        Assert.Empty(await IdsAsync(host, "acme/audit", "lena", "leads-a"));
+    }
+
+    [Fact]
+    public async Task The_audit_gaps_follow_the_node_and_time_filters()
+    {
+        using var host = await StartAsync();
+        var gapA = Batch("acme", Event("e-1")).TrimEnd('}') + ",\"gap\":{\"pruned\":3,\"node\":\"team-a\"}}";
+        var gapB = Batch("acme", Event("e-2", node: "team-b")).TrimEnd('}') + ",\"gap\":{\"pruned\":5,\"node\":\"team-b\"}}";
+        await host.SendAsync(Post(gapA, "acme", "alice"));
+        await host.SendAsync(Post(gapB, "acme", "bob"));
+
+        async Task<int[]> GapsAsync(string query)
+        {
+            var response = await host.SendAsync(Get("acme/audit" + query, "acme", "root", "sec"));
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+            return [.. document.RootElement.GetProperty("gaps").EnumerateArray().Select(g => g.GetProperty("pruned").GetInt32()).Order()];
+        }
+
+        Assert.Equal(new[] { 3, 5 }, await GapsAsync(""));
+        Assert.Equal(new[] { 3 }, await GapsAsync("?node=team-a"));
+        Assert.Empty(await GapsAsync("?to=2000-01-01T00:00:00Z"));
+    }
 }

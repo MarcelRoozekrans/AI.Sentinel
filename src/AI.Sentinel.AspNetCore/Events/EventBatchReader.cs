@@ -73,7 +73,7 @@ internal static class EventBatchReader
         string? node = null;
         foreach (var property in gap.EnumerateObject())
         {
-            if (string.Equals(property.Name, "pruned", StringComparison.Ordinal) && property.Value.TryGetInt32(out var n) && n > 0)
+            if (string.Equals(property.Name, "pruned", StringComparison.Ordinal) && property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt32(out var n) && n > 0)
             {
                 pruned = n;
             }
@@ -99,7 +99,7 @@ internal static class EventBatchReader
         ["decided"] = (f, v) => (f.Decided = Text(v)) is not null,
         ["node"] = (f, v) => (f.Node = Text(v)) is not null,
         ["cli"] = (f, v) => (f.Cli = Text(v)) is not null,
-        ["session"] = (f, v) => (f.Session = Text(v)) is not null,
+        ["session"] = (f, v) => (f.Session = Identifier(v)) is not null,
         ["detector"] = (f, v) => (f.Detector = Text(v)) is not null,
         ["severity"] = (f, v) => (f.Severity = Text(v)) is not null,
         ["redactions"] = (f, v) => Counts(v) is { } counts && (f.Redactions = counts) is not null,
@@ -149,6 +149,11 @@ internal static class EventBatchReader
     private static string? Text(JsonElement value) =>
         value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 and <= MaxText } text ? text : null;
 
+    // A session is an identifier the CLI made up, never a path or other text of the machine: a value with a character outside
+    // ASCII letters, digits and - _ . : rejects the event, so a slash or a backslash cannot reach the store.
+    private static string? Identifier(JsonElement value) =>
+        Text(value) is { } text && text.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' or '.' or ':') ? text : null;
+
     private static DateTimeOffset? Time(JsonElement value) =>
         value.ValueKind == JsonValueKind.String
         && DateTimeOffset.TryParse(value.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var at)
@@ -186,7 +191,7 @@ internal static class EventBatchReader
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var property in value.EnumerateObject())
         {
-            if (counts.Count >= MaxItems || property.Name.Length > 64 || !property.Value.TryGetInt32(out var n) || n < 0)
+            if (counts.Count >= MaxItems || property.Name.Length > 64 || property.Value.ValueKind != JsonValueKind.Number || !property.Value.TryGetInt32(out var n) || n < 0)
             {
                 return null;
             }
