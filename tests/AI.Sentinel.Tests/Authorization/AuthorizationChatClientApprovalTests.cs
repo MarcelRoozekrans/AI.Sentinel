@@ -42,7 +42,9 @@ public class AuthorizationChatClientApprovalTests
     {
         var store = new InMemoryApprovalStore();
         var caller = new TestSec("alice");
-        var spec = new ApprovalSpec { PolicyName = "approval:delete_database", WaitTimeout = TimeSpan.FromSeconds(2) };
+        // The wait returns as soon as the approval lands; the budget only has to outlast a slow runner, where a 2 second budget
+        // timed out before the background approval ran.
+        var spec = new ApprovalSpec { PolicyName = "approval:delete_database", WaitTimeout = TimeSpan.FromSeconds(30) };
 
         // Seed a pending request so WaitForDecisionAsync has something to wait on.
         var pending = (ApprovalState.Pending)await store.EnsureRequestAsync(caller, spec,
@@ -52,7 +54,7 @@ public class AuthorizationChatClientApprovalTests
         // matching DefaultToolCallGuard's real behaviour where EvaluateApprovalAsync returns null
         // (skip binding) when the approval is Active and the remaining bindings allow.
         var guard = new StubGuard([
-            AuthorizationDecision.RequireApproval("approval:delete_database", pending.RequestId, pending.ApprovalUrl, pending.RequestedAt, TimeSpan.FromSeconds(2)),
+            AuthorizationDecision.RequireApproval("approval:delete_database", pending.RequestId, pending.ApprovalUrl, pending.RequestedAt, TimeSpan.FromSeconds(30)),
             AuthorizationDecision.Allow,
         ]);
 
