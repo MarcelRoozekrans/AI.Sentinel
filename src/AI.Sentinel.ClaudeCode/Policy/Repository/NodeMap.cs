@@ -30,6 +30,9 @@ internal sealed class NodeMap
         }
     }
 
+    /// <summary>The repositories the map names, in the form the keys are kept in.</summary>
+    public IEnumerable<string> Repositories => _owners.Keys;
+
     /// <summary>The node that owns <paramref name="repository"/>, or <see langword="null"/> when none does.</summary>
     public string? NodeFor(string repository) => _owners.TryGetValue(repository, out var node) ? node : null;
 

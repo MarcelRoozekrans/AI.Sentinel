@@ -56,10 +56,7 @@ internal sealed class ResidentSession
             return output;
         }
 
-        var reason = string.IsNullOrWhiteSpace(pause.Reason)
-            ? "AI.Sentinel is paused for this session."
-            : $"AI.Sentinel is paused for this session: {pause.Reason}";
-        var paused = new OutcomeDecision(DecisionOutcome.Deny, reason, [PauseSource]);
+        var paused = new OutcomeDecision(DecisionOutcome.Deny, pause.DenyReason(), [PauseSource]);
         var existing = output.Outcome ?? OutcomeDecision.FromHook(output.Decision, output.Reason, LocalPolicy.ChecksSource);
         return OutcomeDecision.Strictest([existing, paused]).ToHookOutput(canAsk: true);
     }

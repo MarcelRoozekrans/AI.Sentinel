@@ -37,7 +37,10 @@ internal static class ResidentCommand
         var tokens = SignIn.SignInCommand.OpenSession(ResidentSettings.ProcessEnvironment(), http, stderr);
         // Events go to the server only with the server configured; without it there is no forwarder (#661).
         var forwarder = Events.EventForwarding.Open(ResidentSettings.ProcessEnvironment(), settings, tokens, inner: null, stderr);
-        var exit = await ResidentHost.RunAsync(settings, compilers, CancellationToken.None, listening: null, tokens, forwarder).ConfigureAwait(false);
+        // The link to the server for pauses and profiles needs the sign-in as well as the server address; it is off without them.
+        var signIn = SignIn.SignInSettings.FromEnvironment(ResidentSettings.ProcessEnvironment(), out _);
+        var server = tokens is not null && signIn is not null ? new ServerLinkSettings(signIn.ServerUrl, ServerLinkTiming.Default) : null;
+        var exit = await ResidentHost.RunAsync(settings, compilers, CancellationToken.None, listening: null, tokens, server, forwarder).ConfigureAwait(false);
         return exit == ResidentExit.Failed ? 1 : 0;
     }
 }

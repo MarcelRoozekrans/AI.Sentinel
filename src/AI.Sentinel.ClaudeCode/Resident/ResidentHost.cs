@@ -19,9 +19,12 @@ internal static class ResidentHost
     /// <see langword="null"/>.</param>
     /// <param name="ct">Stops the process.</param>
     /// <param name="listening">Called once the socket accepts connections.</param>
+    /// <param name="tokens">The sign-in the process holds.</param>
+    /// <param name="server">The server to keep a link to, for pauses and profiles; none when <see langword="null"/>, or when there is no sign-in.</param>
+    /// <param name="forwarder">Sends the local audit to the server as events; none when <see langword="null"/>.</param>
     public static async Task<ResidentExit> RunAsync(
         ResidentSettings settings, IReadOnlyList<IRegoCompiler>? compilers, CancellationToken ct, Action? listening = null, SignIn.TokenSession? tokens = null,
-        Events.EventForwarder? forwarder = null)
+        ServerLinkSettings? server = null, Events.EventForwarder? forwarder = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ResidentPaths.Prepare(settings);
@@ -59,7 +62,10 @@ internal static class ResidentHost
         await File.WriteAllTextAsync(pidPath, Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture), CancellationToken.None).ConfigureAwait(false);
         try
         {
-            return await ServeAsync(listener, settings, new ResidentService(compilers, tokens), ct, listening, forwarder).ConfigureAwait(false);
+            var state = ResidentState.Open(settings);
+            var board = new PauseBoard(state);
+            var service = new ResidentService(compilers, tokens, board);
+            return await ServeAsync(listener, settings, service, ct, listening, LinkOf(state, board, service, tokens, server), forwarder).ConfigureAwait(false);
         }
         finally
         {
@@ -68,8 +74,30 @@ internal static class ResidentHost
         }
     }
 
+    // The link to the server exists only when the developer signed in and a server is set; otherwise nothing runs and nothing changes.
+    private static Func<CancellationToken, Task>? LinkOf(
+        ResidentState state, PauseBoard board, ResidentService service, SignIn.TokenSession? tokens, ServerLinkSettings? server)
+    {
+        if (server is null || tokens is null)
+        {
+            return null;
+        }
+
+        var http = new HttpClient(new SignIn.BearerTokenHandler(tokens, server.Handler ?? new SocketsHttpHandler(), server.ServerUrl), disposeHandler: true)
+        {
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+        var link = new ServerLink(http, server.ServerUrl, board, new ProfileRefresher(state, http, server.ServerUrl, service, server.Timing, TimeProvider.System), server.Timing, TimeProvider.System);
+        return async ct =>
+        {
+            using var _ = http;
+            await link.RunAsync(ct).ConfigureAwait(false);
+        };
+    }
+
     private static async Task<ResidentExit> ServeAsync(
-        Socket listener, ResidentSettings settings, ResidentService service, CancellationToken ct, Action? listening, Events.EventForwarder? forwarder)
+        Socket listener, ResidentSettings settings, ResidentService service, CancellationToken ct, Action? listening, Func<CancellationToken, Task>? link,
+        Events.EventForwarder? forwarder)
     {
         using var _ = service;
         using var idle = new CancellationTokenSource();
@@ -79,6 +107,9 @@ internal static class ResidentHost
         // The audit is read and sent beside the hooks' requests; no request waits for it, so it cannot change a decision (#661).
         var forwarding = forwarder?.RunAsync(Events.EventForwarding.DefaultInterval, stop.Token) ?? Task.CompletedTask;
         listening?.Invoke();
+        // The link runs until the process stops; it never touches the lock a decision is made under, apart from swapping in a new profile.
+        var linkStop = CancellationTokenSource.CreateLinkedTokenSource(ct, shutdown.Token, idle.Token);
+        var linked = link is null ? Task.CompletedTask : Task.Run(() => link(linkStop.Token), CancellationToken.None);
         var inFlight = new List<Task>();
         while (!stop.IsCancellationRequested)
         {
@@ -107,12 +138,31 @@ internal static class ResidentHost
         }
 
         await FinishForwardingAsync(forwarder, forwarding, stop).ConfigureAwait(false);
+        await StopLinkAsync(linkStop, linked).ConfigureAwait(false);
         if (shutdown.IsCancellationRequested)
         {
             return ResidentExit.Shutdown;
         }
 
         return ct.IsCancellationRequested ? ResidentExit.Cancelled : ResidentExit.Idle;
+    }
+
+    /// <summary>Stops the link to the server and waits for it to end.</summary>
+    private static async Task StopLinkAsync(CancellationTokenSource linkStop, Task linked)
+    {
+        await linkStop.CancelAsync().ConfigureAwait(false);
+        try
+        {
+            await linked.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false);
+        }
+        catch (Exception e) when (e is TimeoutException or OperationCanceledException)
+        {
+            // A link that does not stop in two seconds is dropped with the process.
+        }
+        finally
+        {
+            linkStop.Dispose();
+        }
     }
 
     /// <summary>Stops the forwarding loop and gives the entries written since its last pass one more try, bounded, before the process ends.</summary>

@@ -9,6 +9,15 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.5.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.4.0...v6.5.0) (2026-11-26)
+
+
+### Features
+
+* **server:** read policy from a folder and serve signed profiles ([#702](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/702)) ([692da6e](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/692da6e6e0d8ef3806f31f7a8e5ab1daa05728e8))
+* **server:** receive allowlisted hook events and serve blocked calls and the audit trail ([#705](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/705)) ([f92e99a](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/f92e99a529c26190b1993cd8bc9007c38fe281c4))
+* **server:** roles from identity provider groups per node ([#704](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/704)) ([87867ad](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/87867adbd634b1decf69d8cf57810b2da9ad8e01))
+
 ## [6.4.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.3.0...v6.4.0) (2026-11-26)
 
 

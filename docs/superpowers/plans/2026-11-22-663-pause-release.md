@@ -39,26 +39,26 @@ From the issue. Each has a test or check named after it.
 
 ### Task 1: Server pause API and SSE stream
 
-- [ ] Add pause, release and list endpoints and an SSE stream with a heartbeat, with #674's check; write each action to #672's log. A pause names a session.
-- [ ] Failing tests first in `SessionPauseTests`.
-- [ ] Commit.
+- [x] Add pause, release and list endpoints and an SSE stream with a heartbeat, with #674's check; write each action to #672's log. A pause names a session.
+- [x] Failing tests first in `SessionPauseTests`.
+- [x] Commit.
 
 ### Task 2: Resident process subscription
 
-- [ ] Subscribe with the token, apply pauses in every decision, write the pause state atomically, reconnect with backoff and resync.
-- [ ] Announce each published configuration on the stream; fetch the profile at start, on the announcement, after a reconnect, and a day before expiry or halfway through a shorter lifetime, at once when that point has passed. Retry a failed fetch with bounded backoff and keep the last valid profile meanwhile. Verify the fetched profile, write it to the cache as #658 does, and swap the warm module, only for a newer profile. Keep fetches at least 5 minutes apart and plan the next refresh from the fetched profile's expiry.
-- [ ] Tests in `ProfileRefreshTests`: a configuration published during a disconnect is used by the next resident decision; a fetch that fails once after a reconnect succeeds on retry without another trigger; a profile with a lifetime under a day is refreshed before it expires; an older profile from an overlapping fetch does not replace a newer one; an unchanged profile does not cause repeated fetches.
-- [ ] Commit.
+- [x] Subscribe with the token, apply pauses in every decision, write the pause state atomically, reconnect with backoff and resync.
+- [x] Announce each published configuration on the stream; fetch the profile at start, on the announcement, after a reconnect, and a day before expiry or halfway through a shorter lifetime, at once when that point has passed. Retry a failed fetch with bounded backoff and keep the last valid profile meanwhile. Verify the fetched profile, write it to the cache as #658 does, and swap the warm module, only for a newer profile. Keep fetches at least 5 minutes apart and plan the next refresh from the fetched profile's expiry.
+- [x] Tests in `ProfileRefreshTests`: a configuration published during a disconnect is used by the next resident decision; a fetch that fails once after a reconnect succeeds on retry without another trigger; a profile with a lifetime under a day is refreshed before it expires; an older profile from an overlapping fetch does not replace a newer one; an unchanged profile does not cause repeated fetches.
+- [x] Commit.
 
 ### Task 3: Hook deny
 
-- [ ] Deny PreToolUse for a paused session with the agreed message, also on in-process evaluation.
-- [ ] Commit.
+- [x] Deny PreToolUse for a paused session with the agreed message, also on in-process evaluation.
+- [x] Commit.
 
 ### Task 4: Document it
 
-- [ ] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
-- [ ] Commit as `docs`.
+- [x] Update the README and the docs page under `website/docs` that covers this area; state that every new setting is optional and off by default.
+- [x] Commit as `docs`.
 
 
 ## Checks
