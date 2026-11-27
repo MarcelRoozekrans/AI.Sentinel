@@ -90,7 +90,8 @@ internal sealed class ApprovalEndpoints(
 
     private async Task<IResult> DecideAsync(string id, bool approve, HttpContext http, IAuthorizationService authorization)
     {
-        if (await AdmitAsync(http, authorization).ConfigureAwait(false) is { } refused)
+        var (refused, admitted) = await AdmitWithAsync(http, authorization).ConfigureAwait(false);
+        if (refused is not null)
         {
             return refused;
         }
@@ -128,26 +129,31 @@ internal sealed class ApprovalEndpoints(
         // The decision is committed, so its entry is written even when the client has gone: a retry would get 409 and never record it.
         // The log names the decider and the request, and never the tool input.
         await audit.RecordAsync(
-            roles.OrganisationName!, approve ? AdminAuditAction.Approve : AdminAuditAction.Deny, decider, decided.Id, AdminAuditChannel.Web, CancellationToken.None).ConfigureAwait(false);
+            admitted!.Organisation, approve ? AdminAuditAction.Approve : AdminAuditAction.Deny, decider, decided.Id, AdminAuditChannel.Web, CancellationToken.None).ConfigureAwait(false);
         return StateResult(decided, isNew: false, http);
     }
 
     /// <summary>The response that refuses a request that may not be served at all, or <see langword="null"/> when it may.</summary>
-    private async Task<IResult?> AdmitAsync(HttpContext http, IAuthorizationService authorization)
+    private async Task<IResult?> AdmitAsync(HttpContext http, IAuthorizationService authorization) =>
+        (await AdmitWithAsync(http, authorization).ConfigureAwait(false)).Refused;
+
+    /// <summary>The refusal, or the node configuration the request was admitted with, so a decision is audited under the
+    /// organisation the host policy was asked about even when the policy folder publishes during the request.</summary>
+    private async Task<(IResult? Refused, NodeRoleSnapshot? Admitted)> AdmitWithAsync(HttpContext http, IAuthorizationService authorization)
     {
         if (http.User.Identity?.IsAuthenticated != true)
         {
-            return Results.StatusCode(StatusCodes.Status401Unauthorized);
+            return (Results.StatusCode(StatusCodes.Status401Unauthorized), null);
         }
 
         // Without a published configuration there are no roles to decide with.
-        if (roles.OrganisationName is not { } organisation)
+        if (roles.Snapshot() is not { } current)
         {
-            return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+            return (Results.StatusCode(StatusCodes.Status503ServiceUnavailable), null);
         }
 
-        var result = await authorization.AuthorizeAsync(http.User, organisation, options.Value.PolicyName).ConfigureAwait(false);
-        return result.Succeeded ? null : Results.StatusCode(StatusCodes.Status403Forbidden);
+        var result = await authorization.AuthorizeAsync(http.User, current.Organisation, options.Value.PolicyName).ConfigureAwait(false);
+        return result.Succeeded ? (null, current) : (Results.StatusCode(StatusCodes.Status403Forbidden), null);
     }
 
     private IResult StateResult(ServerApproval approval, bool isNew, HttpContext http)
