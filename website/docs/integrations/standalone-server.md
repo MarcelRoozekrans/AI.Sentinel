@@ -83,7 +83,7 @@ app.Run();
 - `AddAISentinelPolicyFolder` needs `AddAISentinelAdminAudit`: a publish and a rejected publish are written to that log. `MapAISentinelSessionControl` needs both.
 - The two policy names are the defaults of `PolicyFolderOptions.PolicyName` and `AdminAuditOptions.PolicyName`. The host defines them, and the organisation is passed as the resource. `RequireAuthenticatedUser` is enough when your provider only issues tokens for your organisation; add a claim requirement when it serves several. What a user may do then comes from the role bindings in section 5.
 - The host runs `opa` in a child process to compile policy. Put the `opa` executable on the `PATH` of the image, or set `Sentinel:OpaPath`.
-- **The dashboard and its approve and deny accept any user your authorization lets in.** `RequireAuthorization()` with a policy of your own, for example one that needs a group claim, limits who approves. Approve and deny without a signed-in user return `401`.
+- **The dashboard and its approve and deny accept any signed-in user that the authorization on the `MapAISentinel` group lets in.** No `PolicyName` applies to them. A parameterless `RequireAuthorization()` uses the default policy, so pass a named policy of your own, for example `RequireAuthorization("Approvers")` with a policy that needs an approver group claim, to limit who approves. Approve and deny without a signed-in user return `401`.
 - Pauses and the audit log are kept in memory, so they end when the server restarts. Export the audit log on a schedule (section 8).
 
 ## 2. The signing key from the deployment
@@ -197,7 +197,7 @@ Without these variables the plugin does not sign in and does not open a connecti
 
 ## 7. Approve, deny, pause and release
 
-Approve and deny go through the dashboard of the host, at `/ai-sentinel`, or its two endpoints:
+Approve and deny go through the dashboard of the host, at `/ai-sentinel`, or its two endpoints. The host in section 1 accepts bearer tokens only, so a browser that opens `/ai-sentinel` without one gets `401`, not a sign-in page, and the plugin sign-in does not give the browser a session. To use the dashboard page in a browser, add a browser sign-in to the host, such as cookie authentication with OpenID Connect against the same provider. Without one, use the two endpoints:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" https://sentinel.example.com/ai-sentinel/api/approvals/$ID/approve
