@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.9.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.8.0...v6.9.0) (2026-11-27)
+
+
+### Features
+
+* **server:** show activity per team without names unless a node approves names ([#710](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/710)) ([2f365d3](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/2f365d3bb28bdca34478a88f2940b7108f48fc0b))
+
 ## [6.8.0](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.7.0...v6.8.0) (2026-11-27)
 
 
