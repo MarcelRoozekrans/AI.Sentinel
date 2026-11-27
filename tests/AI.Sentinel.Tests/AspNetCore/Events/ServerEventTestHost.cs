@@ -58,11 +58,11 @@ internal sealed class ServerEventTestHost : IDisposable
 
     public IServerEventStore Store => Host.Services.GetRequiredService<IServerEventStore>();
 
-    public static async Task<ServerEventTestHost> StartAsync(Action<ServerEventOptions>? configure = null)
+    public static async Task<ServerEventTestHost> StartAsync(Action<ServerEventOptions>? configure = null, string? nodes = null)
     {
         var ct = TestContext.Current.CancellationToken;
         var folder = new PolicyFolderFixture();
-        folder.Write("v1", nodes: Nodes);
+        folder.Write("v1", nodes: nodes ?? Nodes);
         folder.LinkTo("v1");
         var time = new ManualTime();
         var seed = AI.Sentinel.Profiles.Ed25519Crypto.NewSeed();
@@ -114,6 +114,22 @@ internal sealed class ServerEventTestHost : IDisposable
     }
 
     private PolicyFolderFixture? _folderOwner;
+
+    /// <summary>Publishes a new node configuration and waits until the server has it.</summary>
+    public async Task RepublishAsync(string nodes, string name)
+    {
+        var loader = Host.Services.GetRequiredService<PolicyFolderLoader>();
+        var before = loader.Current;
+        _folderOwner!.Write(name, nodes: nodes);
+        _folderOwner.LinkTo(name);
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (ReferenceEquals(loader.Current, before) && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        }
+
+        Assert.NotSame(before, loader.Current);
+    }
 
     public static HttpRequestMessage Post(string json, string? org, string? sub = "alice", string groups = "")
     {

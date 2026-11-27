@@ -170,7 +170,7 @@ public sealed class EventsUnitTests
     {
         var e = new ServerEvent("e1", "acme", "dev-1", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch, "shell", "deny", ["p"],
             null, null, null, null, null, null, null, new Dictionary<string, int>(StringComparer.Ordinal) { ["email"] = 2 }, null);
-        using var doc = JsonDocument.Parse(EventWriter.Write([e], null));
+        using var doc = JsonDocument.Parse(EventWriter.Write([new ShownEvent(e, null, ShowDeveloper: false)], null));
         Assert.Equal(2, doc.RootElement.GetProperty("events")[0].GetProperty("redactions").GetProperty("email").GetInt32());
     }
 

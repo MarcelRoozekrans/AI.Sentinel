@@ -105,7 +105,8 @@ internal static class EventIngest
 
             var stored = new ServerEvent(
                 e.Id!, sender, code, e.At ?? now, now, e.ToolKind!, e.Outcome!, e.Policies ?? [], e.PolicyVersion, e.Decided, e.Node,
-                e.Cli, e.Session, e.Detector, e.Severity, e.Redactions, reason);
+                e.Cli, e.Session, e.Detector, e.Severity, e.Redactions, reason,
+                current.ShowsNames(e.Node) ? ServerEvent.WithNames : ServerEvent.TeamsOnly);
             if (await store.AddAsync(stored, ct).ConfigureAwait(false))
             {
                 accepted++;
