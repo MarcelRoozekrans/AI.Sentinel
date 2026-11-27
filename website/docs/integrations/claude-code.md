@@ -547,7 +547,7 @@ team-a/rules.rego     the bundle of the node team-a
 }
 ```
 
-A team inherits the settings it leaves out from the organisation. `fail_mode` is `closed` (the default) or `ask` (ADR-237); anything else, `open` included, refuses the configuration. The profile lifetime defaults to 7 days and is at most 876000 hours, 100 years; more refuses the configuration. `version` is optional: without it the server counts its publishes. Bundles are written in `package sentinel` and add reasons with `deny contains`, `ask contains` and the other outcome sets. A bundle below the organisation cannot define an `allow` rule (ADR-232). A link inside the folder is not followed and refuses the folder.
+A team inherits the settings it leaves out from the organisation. `fail_mode` is `closed` (the default) or `ask` (ADR-237); anything else, `open` included, refuses the configuration. The profile lifetime defaults to 7 days and is at most 876000 hours, 100 years; more refuses the configuration. `version` is optional: without it the server counts its publishes in memory, so the count starts again at 1 after a server restart, and a plugin that holds a higher version keeps its old profile until the count passes it. Set `version` and raise it with every change. Bundles are written in `package sentinel` and add reasons with `deny contains`, `ask contains` and the other outcome sets. A bundle below the organisation cannot define an `allow` rule (ADR-232). A link inside the folder is not followed and refuses the folder.
 
 ### Reading is one complete version
 

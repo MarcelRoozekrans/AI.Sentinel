@@ -159,6 +159,7 @@ The `roles` list in `nodes.json` binds groups to roles on nodes:
 ```json
 {
   "organisation": "acme",
+  "version": 1,
   "nodes": [
     {"id": "acme", "kind": "organisation", "settings": {"fail_mode": "closed"}},
     {"id": "team-a", "kind": "team"}
@@ -171,7 +172,9 @@ The `roles` list in `nodes.json` binds groups to roles on nodes:
 }
 ```
 
-An administrator holds the role on every node, a team lead on their team, and everyone else is a developer. Only an administrator, or a team lead of the node that owns the repository, can pause and release a session of it. The audit export needs the administrator role. The bindings are read from the configuration that is current at each check, so a change in git changes who may do what, with no restart. See [Roles on nodes](./claude-code#roles-on-nodes).
+An administrator holds the role on every node, a team lead on their team, and everyone else is a developer. Only an administrator, or a team lead of the node that owns the repository, can pause and release a session of it. The audit export needs the administrator role. The bindings are read from the configuration that is current at each check, so a change in git changes who may do what, with no restart.
+
+Raise `version` with every change you commit. A plugin applies a profile only when its configuration version is higher than the one it holds, or equal and issued later. Without `version` the server counts its publishes in memory, so after a server restart it starts again at 1, and a plugin that holds a higher version keeps its old profile until the count passes it. See [Roles on nodes](./claude-code#roles-on-nodes).
 
 ## 6. The plugin on each PC
 
@@ -199,7 +202,7 @@ Without these variables the plugin does not sign in and does not open a connecti
 
 Approve and deny go through the dashboard of the host, at `/ai-sentinel`, or its two endpoints. The host in section 1 accepts bearer tokens only, so a browser that opens `/ai-sentinel` without one gets `401`, not a sign-in page, and the plugin sign-in does not give the browser a session. To use the dashboard page in a browser, add a browser sign-in to the host, such as cookie authentication with OpenID Connect against the same provider. Without one, use the two endpoints.
 
-The sample starts with an empty `InMemoryApprovalStore` and adds no request to it, so there is nothing to approve until one arrives. `$ID` below is the id of a request that your host adds to its `IApprovalStore`. If the host also maps the [approval server](./claude-code#approvals-decided-on-the-server) with `AddAISentinelApprovalServer` and `MapAISentinelApprovalServer`, the id comes from a request a hook opened there. The sample does not map the approval server, which has its own routes under `/ai-sentinel/approvals`. The commands below use the dashboard routes:
+The sample starts with an empty `InMemoryApprovalStore` and adds no request to it, so there is nothing to approve until one arrives. `$ID` below is the id of a request that your host adds to its `IApprovalStore`. If the host also maps the [approval server](./claude-code#approvals-decided-on-the-server) with `AddAISentinelApprovalServer` and `MapAISentinelApprovalServer`, a hook opens its request in that server's own store, which is not the `IApprovalStore`. The dashboard routes cannot decide such a request; decide it through the approval server's routes under `/ai-sentinel/approvals`. The sample does not map the approval server. The commands below use the dashboard routes with an id from `IApprovalStore`:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" https://sentinel.example.com/ai-sentinel/api/approvals/$ID/approve
