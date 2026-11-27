@@ -11,7 +11,7 @@ public sealed class ServerEventReadTests
 
     private static async Task<ServerEventTestHost> SeededAsync()
     {
-        var host = await StartAsync();
+        var host = await StartAsync(o => o.MinimumTeamPeople = 1);
         await host.SendAsync(Post(Batch("acme",
             Event("a-deny", "deny", "team-a", "s-1", ",\"at\":\"2026-11-23T09:00:00Z\""),
             Event("a-allow", "allow", "team-a", "s-2", ",\"at\":\"2026-11-23T11:00:00Z\"")), "acme", "alice"));
@@ -65,7 +65,9 @@ public sealed class ServerEventReadTests
     [Fact]
     public async Task The_answers_show_a_code_for_the_developer_and_never_a_name()
     {
-        using var host = await SeededAsync();
+        using var host = await StartAsync(o => o.MinimumTeamPeople = 1, TeamVisibilityTests.NamesOn);
+        await host.SendAsync(Post(Batch("acme", Event("a-deny")), "acme", "alice"));
+        await host.SendAsync(Post(Batch("acme", Event("b-deny", node: "team-b")), "acme", "bob"));
 
         var response = await host.SendAsync(Get("acme/audit", "acme", "root", "sec"));
 
@@ -107,7 +109,7 @@ public sealed class ServerEventReadTests
     [Fact]
     public async Task The_audit_gaps_follow_the_node_and_time_filters()
     {
-        using var host = await StartAsync();
+        using var host = await StartAsync(o => o.MinimumTeamPeople = 1);
         var gapA = Batch("acme", Event("e-1")).TrimEnd('}') + ",\"gap\":{\"pruned\":3,\"node\":\"team-a\"}}";
         var gapB = Batch("acme", Event("e-2", node: "team-b")).TrimEnd('}') + ",\"gap\":{\"pruned\":5,\"node\":\"team-b\"}}";
         await host.SendAsync(Post(gapA, "acme", "alice"));
@@ -123,5 +125,22 @@ public sealed class ServerEventReadTests
         Assert.Equal(new[] { 3, 5 }, await GapsAsync(""));
         Assert.Equal(new[] { 3 }, await GapsAsync("?node=team-a"));
         Assert.Empty(await GapsAsync("?to=2000-01-01T00:00:00Z"));
+    }
+
+    [Fact]
+    public async Task A_gap_of_a_team_too_small_to_show_is_found_under_the_organisation_and_not_under_its_team()
+    {
+        using var host = await StartAsync();
+        await host.SendAsync(Post(Batch("acme", Event("e-1")).TrimEnd('}') + ",\"gap\":{\"pruned\":3,\"node\":\"team-a\"}}", "acme", "alice"));
+
+        async Task<int> GapsAsync(string query)
+        {
+            var response = await host.SendAsync(Get("acme/audit" + query, "acme", "root", "sec"));
+            using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+            return document.RootElement.GetProperty("gaps").GetArrayLength();
+        }
+
+        Assert.Equal(0, await GapsAsync("?node=team-a"));
+        Assert.Equal(1, await GapsAsync("?node=acme"));
     }
 }
