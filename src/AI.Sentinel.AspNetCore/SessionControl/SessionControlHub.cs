@@ -30,12 +30,22 @@ internal sealed class SessionControlHub : IDisposable
 
     public void Dispose() => _loader.Published -= OnPublished;
 
-    /// <summary>Pauses <paramref name="session"/>, or replaces its pause.</summary>
-    public PausedSession Pause(string session, string repository, string? reason, DateTimeOffset? until)
+    /// <summary>
+    /// Pauses <paramref name="session"/>, or replaces its pause. A pause in force is replaced only when <paramref name="mayReplace"/>
+    /// accepts the repository it was placed for; the check and the write happen under one lock, so a pause cannot be swapped between them.
+    /// Returns null when the replacement is refused.
+    /// </summary>
+    public PausedSession? Pause(string session, string repository, string? reason, DateTimeOffset? until, Func<string, bool> mayReplace)
     {
         var pause = new PausedSession(session, reason, until);
         lock (_gate)
         {
+            PruneExpired();
+            if (_pauses.TryGetValue(session, out var existing) && !mayReplace(existing.Repository))
+            {
+                return null;
+            }
+
             _pauses[session] = new HeldPause(pause, repository);
             Publish(SessionEventNames.Pause, JsonSerializer.Serialize(pause, SessionEventJsonContext.Default.PausedSession));
         }
@@ -48,21 +58,23 @@ internal sealed class SessionControlHub : IDisposable
     {
         lock (_gate)
         {
-            return _pauses.TryGetValue(session, out var held) && held.Pause.IsActive(_time.GetUtcNow()) ? held : null;
+            PruneExpired();
+            return _pauses.TryGetValue(session, out var held) ? held : null;
         }
     }
 
-    /// <summary>Lifts the pause of <paramref name="session"/>; false when there was none.</summary>
-    public bool Release(string session)
+    /// <summary>Lifts <paramref name="held"/>, the pause the caller was authorized for; false when the session no longer holds that pause.</summary>
+    public bool Release(HeldPause held)
     {
         lock (_gate)
         {
-            if (!_pauses.Remove(session))
+            if (!_pauses.TryGetValue(held.Pause.Session, out var current) || !ReferenceEquals(current, held))
             {
                 return false;
             }
 
-            Publish(SessionEventNames.Release, JsonSerializer.Serialize(new ReleasedSession(session), SessionEventJsonContext.Default.ReleasedSession));
+            _ = _pauses.Remove(held.Pause.Session);
+            Publish(SessionEventNames.Release, JsonSerializer.Serialize(new ReleasedSession(held.Pause.Session), SessionEventJsonContext.Default.ReleasedSession));
             return true;
         }
     }
@@ -72,7 +84,32 @@ internal sealed class SessionControlHub : IDisposable
     {
         lock (_gate)
         {
-            return [.. _pauses.Values.Where(h => h.Pause.IsActive(_time.GetUtcNow()))];
+            PruneExpired();
+            return [.. _pauses.Values];
+        }
+    }
+
+    // Called under the gate. A timed pause that has lapsed is dropped, so the table holds only what is in force.
+    private void PruneExpired()
+    {
+        var now = _time.GetUtcNow();
+        List<string>? lapsed = null;
+        foreach (var (session, held) in _pauses)
+        {
+            if (!held.Pause.IsActive(now))
+            {
+                (lapsed ??= []).Add(session);
+            }
+        }
+
+        if (lapsed is null)
+        {
+            return;
+        }
+
+        foreach (var session in lapsed)
+        {
+            _ = _pauses.Remove(session);
         }
     }
 
@@ -82,8 +119,9 @@ internal sealed class SessionControlHub : IDisposable
         var channel = Channel.CreateBounded<SseFrame>(new BoundedChannelOptions(StreamBacklog) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
         lock (_gate)
         {
+            PruneExpired();
             _streams.Add(channel);
-            var snapshot = new SessionSnapshot(_loader.Current?.Version, [.. _pauses.Values.Where(h => h.Pause.IsActive(_time.GetUtcNow())).Select(h => h.Pause)]);
+            var snapshot = new SessionSnapshot(_loader.Current?.Version, [.. _pauses.Values.Select(h => h.Pause)]);
             return new SessionSubscription(snapshot, channel.Reader, () =>
             {
                 lock (_gate)

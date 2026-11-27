@@ -143,9 +143,19 @@ public static class SessionControlExtensions
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
+        // A pause in force for another repository is replaced only by someone who may also lift it.
+        bool MayReplace(string repository) => roles.AllowsOnSession(http.User, NodeRole.TeamLead, repository);
+        if (hub.Find(session) is { } existing && !MayReplace(existing.Repository))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
         // Recorded first: a pause that is not in the audit log does not take effect.
         await audit.RecordAsync(configuration!.Organisation, AdminAuditAction.Pause, actor, session, AdminAuditChannel.Web, http.RequestAborted).ConfigureAwait(false);
-        return Results.Json(hub.Pause(session, body.Repository.Trim(), body.Reason, body.Until), SessionControlJsonContext.Default.PausedSession);
+        var pause = hub.Pause(session, body.Repository.Trim(), body.Reason, body.Until, MayReplace);
+        return pause is null
+            ? Results.StatusCode(StatusCodes.Status403Forbidden)
+            : Results.Json(pause, SessionControlJsonContext.Default.PausedSession);
     }
 
     private static async Task<IResult> ReleaseAsync(
@@ -174,8 +184,10 @@ public static class SessionControlExtensions
         }
 
         await audit.RecordAsync(configuration!.Organisation, AdminAuditAction.Release, actor, session, AdminAuditChannel.Web, http.RequestAborted).ConfigureAwait(false);
-        _ = hub.Release(session);
-        return Results.StatusCode(StatusCodes.Status204NoContent);
+        // False means the pause was replaced after the check above; the caller was not authorized for the replacement.
+        return hub.Release(held)
+            ? Results.StatusCode(StatusCodes.Status204NoContent)
+            : Results.StatusCode(StatusCodes.Status409Conflict);
     }
 
     private static async Task<PauseRequestWire?> ReadBodyAsync(HttpContext http)

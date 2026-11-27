@@ -6,7 +6,7 @@ namespace AI.Sentinel.ClaudeCode.Resident;
 /// What the resident process answers besides ping and shutdown: it keeps the compiled policy modules loaded, so a hook does not pay
 /// for loading one. A module is kept per policy folder, and replaced when the hook names another version of that folder.
 /// </summary>
-internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, SignIn.TokenSession? tokens = null, PauseBoard? pauses = null) : IDisposable
+internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, SignIn.TokenSession? tokens = null, PauseBoard? pauses = null, TimeProvider? time = null) : IDisposable
 {
     /// <summary>The most policy folders kept loaded; the least recently asked for goes first.</summary>
     private const int MaxLoaded = 8;
@@ -17,7 +17,7 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
     internal Action? AfterPauseCheck { get; set; }
 
     private readonly List<(string Folder, RegoPolicy Policy)> _loaded = [];
-    private readonly Dictionary<string, RegoPolicy> _profiles = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (RegoPolicy Policy, DateTimeOffset ExpiresAt)> _profiles = new(StringComparer.Ordinal);
 
     /// <summary>Loads the policy module of a profile, outside the gate, so a slow compile never holds up an answer. The module goes
     /// into a folder named by its hash, as <see cref="ProfileDecider"/> keeps it.</summary>
@@ -25,18 +25,18 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
         RegoPolicy.Load(ProfileDecider.ModuleFolder(state, module), Path.Combine(state.Directory, "compiled"), compilers);
 
     /// <summary>Puts <paramref name="policy"/> in place of the warm module of <paramref name="repository"/>; the next decision uses it,
-    /// and a decision running now finishes on the module it started with.</summary>
-    public void InstallProfile(string repository, RegoPolicy policy)
+    /// and a decision running now finishes on the module it started with. The profile answers until <paramref name="expiresAt"/>.</summary>
+    public void InstallProfile(string repository, RegoPolicy policy, DateTimeOffset expiresAt)
     {
         ArgumentNullException.ThrowIfNull(policy);
         lock (_gate)
         {
             if (_profiles.TryGetValue(repository, out var old))
             {
-                old.Dispose();
+                old.Policy.Dispose();
             }
 
-            _profiles[repository] = policy;
+            _profiles[repository] = (policy, expiresAt);
         }
     }
 
@@ -86,10 +86,18 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
     }
 
     // The pause is checked before the evaluation starts and never during it: a call that is running when the pause arrives completes.
-    private ResidentResponse? PausedAnswer(ResidentRequest request) =>
-        !string.IsNullOrEmpty(request.Session) && pauses?.Find(request.Session) is { } pause
+    // A pause file that could not be read denies every call, as it does for a hook that reads the same file.
+    private ResidentResponse? PausedAnswer(ResidentRequest request)
+    {
+        if (pauses?.Unreadable == true)
+        {
+            return ResidentDecisionWire.ToResponse(new RegoDecision(DecisionOutcome.Deny, ["AI.Sentinel: the pauses could not be read, so every session is treated as paused until the server sends them again."]));
+        }
+
+        return !string.IsNullOrEmpty(request.Session) && pauses?.Find(request.Session) is { } pause
             ? ResidentDecisionWire.ToResponse(new RegoDecision(DecisionOutcome.Deny, [pause.DenyReason()]))
             : null;
+    }
 
     private ResidentResponse AnswerProfile(ResidentRequest request)
     {
@@ -107,9 +115,15 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
         {
             lock (_gate)
             {
-                return _profiles.TryGetValue(request.Repository, out var policy)
-                    ? ResidentDecisionWire.ToResponse(policy.Evaluate(request.Input))
-                    : new ResidentResponse { Error = "no profile is held for the repository" };
+                if (!_profiles.TryGetValue(request.Repository, out var held))
+                {
+                    return new ResidentResponse { Error = "no profile is held for the repository" };
+                }
+
+                // An expired profile is not used, as ProfileDecider and the cache do not use one; the caller falls back to its fail mode.
+                return (time ?? TimeProvider.System).GetUtcNow() >= held.ExpiresAt
+                    ? new ResidentResponse { Error = "the profile held for the repository has expired" }
+                    : ResidentDecisionWire.ToResponse(held.Policy.Evaluate(request.Input));
             }
         }
 #pragma warning disable CA1031 // The hook gets the failure as no answer, and evaluates in-process, where the same failure blocks the call.
@@ -127,6 +141,7 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
             return new ResidentResponse { Error = "sign-in is not configured", SignIn = "off" };
         }
 
+        string? keychain = null;
         if (string.Equals(request.Op, ResidentOps.SignIn, StringComparison.Ordinal))
         {
             if (request.Tokens is null)
@@ -144,7 +159,12 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
                 };
             }
 
-            tokens.Set(request.Tokens);
+            keychain = tokens.Set(request.Tokens) switch
+            {
+                SignIn.KeychainState.Kept => "kept",
+                SignIn.KeychainState.MemoryOnly => "memory_only",
+                _ => "earlier_remains",
+            };
         }
 
         return new ResidentResponse
@@ -152,6 +172,7 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
             Ok = true,
             Pid = Environment.ProcessId,
             SignIn = tokens.Status == SignIn.SignInStatus.SignedIn ? "signed_in" : "sign_in_needed",
+            Keychain = keychain,
         };
     }
 
@@ -201,7 +222,7 @@ internal sealed class ResidentService(IReadOnlyList<IRegoCompiler>? compilers, S
             }
 
             _loaded.Clear();
-            foreach (var policy in _profiles.Values)
+            foreach (var (policy, _) in _profiles.Values)
             {
                 policy.Dispose();
             }

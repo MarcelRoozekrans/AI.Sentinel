@@ -14,6 +14,7 @@ internal sealed class ServerLink(
     HttpClient http, Uri server, PauseBoard board, ProfileRefresher refresher, ServerLinkTiming timing, TimeProvider time, Action<string>? log = null)
 {
     private int _snapshots;
+    private bool _snapshotDelivered;
 
     /// <summary>Runs until <paramref name="ct"/> ends, with the profile refresher beside it.</summary>
     public async Task RunAsync(CancellationToken ct)
@@ -45,12 +46,10 @@ internal sealed class ServerLink(
         var wait = timing.ReconnectInitial;
         while (!ct.IsCancellationRequested)
         {
+            _snapshotDelivered = false;
             try
             {
-                if (await ConsumeAsync(ct).ConfigureAwait(false))
-                {
-                    wait = timing.ReconnectInitial;
-                }
+                await ConsumeAsync(ct).ConfigureAwait(false);
             }
             catch (Exception e) when (e is HttpRequestException or IOException or InvalidDataException or JsonException or SignIn.SignInRequiredException
                 or UnauthorizedAccessException || (e is OperationCanceledException && !ct.IsCancellationRequested))
@@ -58,35 +57,36 @@ internal sealed class ServerLink(
                 log?.Invoke($"the connection to the server ended ({e.GetType().Name}); reconnecting");
             }
 
+            // A connection that delivered its snapshot worked, however it ended; one that failed before it keeps the growing backoff.
+            if (_snapshotDelivered)
+            {
+                wait = timing.ReconnectInitial;
+            }
+
             await Task.Delay(Jitter(wait), time, ct).ConfigureAwait(false);
             wait = wait * 2 > timing.ReconnectMax ? timing.ReconnectMax : wait * 2;
         }
     }
 
-    // True when the connection worked, that is, when it delivered its snapshot.
-    private async Task<bool> ConnectedAsync(Stream body, CancellationToken ct)
+    private async Task ConnectedAsync(Stream body, CancellationToken ct)
     {
-        var snapshotSeen = false;
         await foreach (var message in SseReader.ReadAsync(body, timing.Stall, ct).ConfigureAwait(false))
         {
-            snapshotSeen |= Handle(message);
+            Handle(message);
         }
-
-        return snapshotSeen;
     }
 
-    private async Task<bool> ConsumeAsync(CancellationToken ct)
+    private async Task ConsumeAsync(CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(server, SessionEventNames.StreamPath));
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
         using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
         using var body = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
-        return await ConnectedAsync(body, ct).ConfigureAwait(false);
+        await ConnectedAsync(body, ct).ConfigureAwait(false);
     }
 
-    // Returns true for the snapshot.
-    private bool Handle(SseMessage message)
+    private void Handle(SseMessage message)
     {
         switch (message.Event)
         {
@@ -94,6 +94,7 @@ internal sealed class ServerLink(
                 var snapshot = JsonSerializer.Deserialize(message.Data!, SessionEventJsonContext.Default.SessionSnapshot)
                     ?? throw new InvalidDataException("an empty snapshot");
                 board.Replace(snapshot.Pauses ?? []);
+                _snapshotDelivered = true;
                 if (_snapshots++ == 0)
                 {
                     // The first connection: the fetch at start covers it unless a newer configuration is already in force.
@@ -105,23 +106,23 @@ internal sealed class ServerLink(
                     refresher.Wake();
                 }
 
-                return true;
+                break;
             case SessionEventNames.Pause:
                 board.Add(JsonSerializer.Deserialize(message.Data!, SessionEventJsonContext.Default.PausedSession) is { Session: not null } pause
                     ? pause
                     : throw new InvalidDataException("a pause names no session"));
-                return false;
+                break;
             case SessionEventNames.Release:
                 board.Remove(JsonSerializer.Deserialize(message.Data!, SessionEventJsonContext.Default.ReleasedSession)?.Session
                     ?? throw new InvalidDataException("a release names no session"));
-                return false;
+                break;
             case SessionEventNames.Configuration:
                 refresher.Announce((JsonSerializer.Deserialize(message.Data!, SessionEventJsonContext.Default.ConfigurationAnnounced)
                     ?? throw new InvalidDataException("an empty announcement")).Version);
-                return false;
+                break;
             default:
                 // A heartbeat, or an event of a later server: ignored.
-                return false;
+                break;
         }
     }
 

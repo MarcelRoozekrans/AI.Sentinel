@@ -49,7 +49,9 @@ internal static class ProfileDecider
     {
         try
         {
-            return string.Equals(File.ReadAllText(Path.Combine(folder, ModuleFile)), module, StringComparison.Ordinal);
+            // The compiler loads every .rego file under the folder, so a second file would add rules the profile never signed.
+            var sources = System.IO.Directory.EnumerateFiles(folder, "*.rego", SearchOption.AllDirectories).Take(2).Count();
+            return sources == 1 && string.Equals(File.ReadAllText(Path.Combine(folder, ModuleFile)), module, StringComparison.Ordinal);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {

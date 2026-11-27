@@ -162,6 +162,37 @@ public sealed class SessionPauseTests : IDisposable
     }
 
     [Fact]
+    public async Task A_pause_in_force_is_replaced_only_by_someone_who_may_also_lift_it()
+    {
+        await using var host = await StartAsync();
+        _ = await host.PauseAsync("s-1", "alice", "leads-a", Widgets, ct: Ct);
+
+        var otherTeam = await host.PauseAsync("s-1", "bob", "leads-b", Gadgets, ct: Ct);
+        var sameTeam = await host.PauseAsync("s-1", "alice", "leads-a", Widgets, "again", Ct);
+        var admin = await host.PauseAsync("s-1", "root", "sec", Gadgets, ct: Ct);
+
+        Assert.Equal(HttpStatusCode.Forbidden, otherTeam.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, sameTeam.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, admin.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_release_lifts_only_the_pause_the_caller_was_authorized_for()
+    {
+        await using var host = await StartAsync();
+        _ = await host.PauseAsync("s-1", "alice", "leads-a", Widgets, ct: Ct);
+        var hub = (AI.Sentinel.AspNetCore.SessionControl.SessionControlHub)host.Host.Services.GetService(typeof(AI.Sentinel.AspNetCore.SessionControl.SessionControlHub))!;
+        var checkedPause = hub.Find("s-1")!;
+
+        // Another repository's lead takes the session over between the check and the release.
+        _ = hub.Pause("s-1", Gadgets, null, null, _ => true);
+        var released = hub.Release(checkedPause);
+
+        Assert.False(released);
+        Assert.Equal(Gadgets, hub.Find("s-1")!.Repository);
+    }
+
+    [Fact]
     public async Task The_list_shows_a_team_lead_the_pauses_of_their_own_node_only()
     {
         await using var host = await StartAsync();

@@ -11,9 +11,14 @@ internal sealed class PauseBoard
     private readonly ResidentState _state;
     private readonly TimeProvider _time;
     private List<PausedSession> _pauses;
+    private volatile bool _unreadable;
+
+    /// <summary>True while the pause file could not be read and no snapshot of the server has replaced it. The resident process
+    /// then denies every evaluation, as the hooks do that read the same file.</summary>
+    public bool Unreadable => _unreadable;
 
     /// <summary>Starts with what the state folder holds, so pauses survive a restart of the process. A pause file that cannot be read
-    /// starts empty here; hooks keep treating every session as paused until the next write replaces it.</summary>
+    /// is <see cref="Unreadable"/> here, and stays so until a snapshot of the server replaces it; hooks keep treating every session as paused until then.</summary>
     public PauseBoard(ResidentState state, TimeProvider? time = null)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -26,6 +31,7 @@ internal sealed class PauseBoard
         catch (InvalidDataException)
         {
             _pauses = [];
+            _unreadable = true;
         }
     }
 
@@ -58,6 +64,7 @@ internal sealed class PauseBoard
             list.Clear();
             list.AddRange(pauses.Where(p => p?.Session is not null));
         });
+        _unreadable = false;
     }
 
     /// <summary>Adds a pause, or replaces the pause of the same session.</summary>

@@ -32,6 +32,8 @@ internal sealed class ProfileRefresher(
     private long _fetches;
     private readonly Lock _sync = new();
     private long _announced;
+    private long _satisfied;
+    private bool _noKeys;
     private bool _running;
 
     /// <summary>How many profile requests were sent to the server; a test counts them.</summary>
@@ -97,20 +99,29 @@ internal sealed class ProfileRefresher(
                     continue;
                 }
 
+                long target;
                 lock (_sync)
                 {
                     _forced = false;
                     _running = true;
+                    target = _announced;
                 }
 
                 var ok = await RoundAsync(ct).ConfigureAwait(false);
                 lock (_sync)
                 {
                     _running = false;
-                    // Announced while the round ran, and the round did not bring it: fetch again.
-                    if (ok && _announced > HeldVersion)
+                    // A round without pinned keys fetched nothing, so it neither satisfies an announcement nor asks for another round:
+                    // a sign-in reconnects the link and wakes this.
+                    if (ok && !_noKeys)
                     {
-                        _forced = true;
+                        // Every profile of the round was asked for after the announcement it started with; one of them may have been
+                        // fetched before a later one, so the newest version held does not show that all of them are current.
+                        _satisfied = Math.Max(_satisfied, target);
+                        if (_announced > _satisfied || _announced > HeldVersion)
+                        {
+                            _forced = true;
+                        }
                     }
                 }
             }
@@ -146,7 +157,8 @@ internal sealed class ProfileRefresher(
     {
         try
         {
-            if (state.ReadPinnedKeys() is null)
+            _noKeys = state.ReadPinnedKeys() is null;
+            if (_noKeys)
             {
                 // Not signed in: there are no keys to check a profile against, and a sign-in reconnects the link, which wakes this.
                 return true;
@@ -270,7 +282,7 @@ internal sealed class ProfileRefresher(
             return false;
         }
 
-        warm.InstallProfile(repository, policy);
+        warm.InstallProfile(repository, policy, profile.ExpiresAt);
         lock (_held)
         {
             _held[repository] = profile;
@@ -315,7 +327,7 @@ internal sealed class ProfileRefresher(
 
             try
             {
-                warm.InstallProfile(repository, warm.LoadProfileModule(state, verification.Profile!.Module));
+                warm.InstallProfile(repository, warm.LoadProfileModule(state, verification.Profile!.Module), verification.Profile.ExpiresAt);
                 lock (_held)
                 {
                     _held[repository] = verification.Profile;
@@ -334,6 +346,7 @@ internal sealed class ProfileRefresher(
     private TimeSpan? NextWait()
     {
         var now = time.GetUtcNow();
+        // While a retry is pending it alone decides the next attempt: an elapsed profile timer must not cut the backoff short.
         DateTimeOffset? at = _retryAt;
         DateTimeOffset? timer = null;
         lock (_held)
@@ -345,14 +358,14 @@ internal sealed class ProfileRefresher(
             }
         }
 
-        if (timer is { } planned)
+        if (_retryAt is null && timer is { } planned)
         {
             if (_lastSuccess is { } last && planned < last + timing.MinFetchGap)
             {
                 planned = last + timing.MinFetchGap;
             }
 
-            at = at is null || planned < at ? planned : at;
+            at = planned;
         }
 
         return at is null ? null : at.Value <= now ? TimeSpan.Zero : at.Value - now;

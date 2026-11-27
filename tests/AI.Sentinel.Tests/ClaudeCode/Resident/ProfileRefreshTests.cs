@@ -160,6 +160,19 @@ public sealed class ProfileRefreshTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task A_profile_that_has_expired_is_not_used_by_the_resident_when_the_refetches_fail()
+    {
+        _server.Lifetime = TimeSpan.FromSeconds(2);
+        _ = StartLink(Timing());
+        await WaitForAsync(() => Shell() is "deny", "the first profile");
+
+        _server.FailProfiles(1000);
+        await WaitForAsync(() => Shell().StartsWith("error:", StringComparison.Ordinal), "the profile to expire", seconds: 20);
+
+        Assert.Contains("expired", Shell(), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_profile_with_a_lifetime_under_a_day_is_refreshed_before_it_expires_from_the_expiry_of_the_one_before()
     {
         _server.Lifetime = TimeSpan.FromSeconds(4);
@@ -268,5 +281,75 @@ public sealed class ProfileRefreshTests : IAsyncDisposable
         var policies = new CachedNodePolicies(_state, _server.Pinned, "acme", () => DateTimeOffset.UtcNow, Path.Combine(_dir, "c2"), [new ChildProcessCompiler()]);
         var fetch = PolicyInputSerializer.Serialize(PolicyInputBuilder.Build(PolicyClis.ClaudeCode, "WebFetch", JsonDocument.Parse("""{"url":"https://example.com"}""").RootElement, "s-1", [], "/work/repo"));
         Assert.Equal(AI.Sentinel.ClaudeCode.DecisionOutcome.Ask, policies.ForRepository(FakePolicyServer.Widgets, fetch)!.Outcome);
+    }
+
+    private const string BrokenModule = "this is not a policy module";
+
+    [Fact]
+    public async Task A_profile_whose_module_does_not_load_is_refused_and_leaves_the_cache_and_the_profile_in_force()
+    {
+        var refresher = new ProfileRefresher(_state, _http, Server, _service, Timing(), TimeProvider.System, _log.Enqueue);
+        _ = await refresher.OfferAsync("*", _server.Issue("*"), Ct);
+        _server.Version = 2;
+        _server.Module = _ => BrokenModule;
+
+        var offer = await refresher.OfferAsync("*", _server.Issue("*"), Ct);
+
+        Assert.Equal(ProfileOffer.Refused, offer);
+        Assert.Equal(1, refresher.HeldVersionOf("*"));
+        Assert.Equal("deny", Shell());
+        Assert.Equal(1, _state.ReadProfile(_server.Pinned, "acme", "*", DateTimeOffset.UtcNow, CachedNodePolicies.SlotOf("*"))!.Profile!.ConfigurationVersion);
+        Assert.Contains(_log, l => l.Contains("did not load", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task A_profile_that_is_offered_without_pinned_keys_is_refused()
+    {
+        File.Delete(Path.Combine(_state.Directory, ResidentState.PinnedKeysFile));
+        var refresher = new ProfileRefresher(_state, _http, Server, _service, Timing(), TimeProvider.System);
+
+        var offer = await refresher.OfferAsync("*", _server.Issue("*"), Ct);
+
+        Assert.Equal(ProfileOffer.Refused, offer);
+        Assert.Equal(0, refresher.HeldVersion);
+    }
+
+    [Fact]
+    public async Task The_profile_in_the_cache_is_in_force_from_the_start_even_when_every_fetch_fails()
+    {
+        var first = new ProfileRefresher(_state, _http, Server, _service, Timing(), TimeProvider.System);
+        _ = await first.OfferAsync("*", _server.Issue("*"), Ct);
+        _service.Dispose();
+        var service = new ResidentService([new ChildProcessCompiler()], null, new PauseBoard(_state));
+        _server.FailProfiles(1000);
+        var refresher = new ProfileRefresher(_state, _http, Server, service, Timing(), TimeProvider.System, _log.Enqueue);
+
+        _run = Task.Run(() => refresher.RunAsync(_stop.Token), Ct);
+        await WaitForAsync(() => refresher.HeldVersionOf("*") == 1, "the cached profile");
+
+        var json = PolicyInputSerializer.Serialize(PolicyInputBuilder.Build(PolicyClis.ClaudeCode, "Bash", JsonDocument.Parse("""{"command":"ls"}""").RootElement, "s-1", [], "/work/repo"));
+        var answer = service.Answer(new ResidentRequest { Op = ResidentOps.EvaluateProfile, Repository = "*", Input = json });
+        Assert.Equal("deny", answer.Outcome);
+        await _stop.CancelAsync();
+        await _run.WaitAsync(TimeSpan.FromSeconds(30), Ct);
+        service.Dispose();
+    }
+
+    [Fact]
+    public async Task A_cached_profile_whose_module_does_not_load_is_not_used_and_the_next_fetch_replaces_it()
+    {
+        _server.Module = _ => BrokenModule;
+        var cachedBroken = _server.Issue("*");
+        Assert.True(_state.StoreProfile(cachedBroken, _server.Pinned, "acme", "*", DateTimeOffset.UtcNow, CachedNodePolicies.SlotOf("*")).IsAccepted);
+        _server.Module = _ => FakePolicyServer.Rule("deny contains \"v1\" if input.kind == \"shell\"");
+        _server.Version = 2;
+        _server.FailProfiles(1);
+        var refresher = StartLink(Timing());
+
+        await WaitForAsync(() => _log.Any(l => l.Contains("a cached profile did not load", StringComparison.Ordinal)), "the cached profile to be refused");
+        Assert.Null(refresher.HeldVersionOf("*"));
+
+        await WaitForAsync(() => Shell() is "deny", "the fetched profile");
+        Assert.Equal(2, refresher.HeldVersionOf("*"));
     }
 }

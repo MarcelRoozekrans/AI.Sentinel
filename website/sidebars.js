@@ -75,6 +75,7 @@ const sidebars = {
       label: 'Integrations',
       items: [
         'integrations/claude-code',
+        'integrations/codex',
         'integrations/copilot',
         'integrations/mcp-proxy',
         'integrations/standalone-server',

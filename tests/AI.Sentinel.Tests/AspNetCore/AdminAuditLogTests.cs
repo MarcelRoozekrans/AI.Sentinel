@@ -258,6 +258,22 @@ public sealed class AdminAuditLogTests
     [Theory]
     [InlineData("approve")]
     [InlineData("deny")]
+    public async Task Dashboard_ARequestIdTheLogCannotHoldIsRefusedBeforeAnyDecision(string verb)
+    {
+        var (store, _) = await PendingApprovalAsync();
+        using var host = await DashboardApprovalsTests.BuildHostAsync(
+            store, authenticatedAs: "ops-bob", configure: s => AddAudit(s, Ed25519Crypto.NewSeed()));
+        var longId = new string('x', AdminAuditEntry.MaxFieldLength + 1);
+
+        var resp = await host.GetTestClient().PostAsync($"/sentinel/api/approvals/{longId}/{verb}", new StringContent(""), Ct);
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Empty(await host.Services.GetRequiredService<IAdminAuditStore>().ReadAsync("org-a", Ct));
+    }
+
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("deny")]
     public async Task Dashboard_ADecisionIsRecordedEvenWhenTheRequestAbortsAfterItApplied(string verb)
     {
         var (inner, id) = await PendingApprovalAsync();

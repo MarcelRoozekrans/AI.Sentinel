@@ -113,6 +113,12 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
 
     private TokenSet ToTokens(TokenResponseWire wire, string? previousRefreshToken)
     {
+        // An empty access token would go out as a bare "Bearer" header, so it is no token.
+        if (string.IsNullOrEmpty(wire.AccessToken))
+        {
+            throw new SignInException(SignInFailure.Protocol, "the token answer holds no access token");
+        }
+
         if (!string.Equals(wire.TokenType, "Bearer", StringComparison.OrdinalIgnoreCase))
         {
             throw new SignInException(SignInFailure.Protocol, "the provider issued a token that is not a bearer token");
@@ -125,7 +131,9 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
         }
 
         var lifetime = wire.ExpiresIn ?? 3600;
-        return new TokenSet(wire.AccessToken!, wire.RefreshToken ?? previousRefreshToken, time.GetUtcNow().AddSeconds(lifetime));
+        // An empty refresh token is no refresh token: it is not stored, and the one in use stays.
+        var refresh = string.IsNullOrEmpty(wire.RefreshToken) ? previousRefreshToken : wire.RefreshToken;
+        return new TokenSet(wire.AccessToken!, refresh, time.GetUtcNow().AddSeconds(lifetime));
     }
 
     private async Task DiscoverAsync(CancellationToken ct)
@@ -143,6 +151,12 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
             throw new SignInException(SignInFailure.Protocol, "the provider offers no secure device authorization grant");
         }
 
+        // OpenID Connect Discovery section 4.3: the issuer of the document is the one it was fetched for.
+        if (document.Issuer is null || !string.Equals(document.Issuer.TrimEnd('/'), settings.Issuer.AbsoluteUri.TrimEnd('/'), StringComparison.Ordinal))
+        {
+            throw new SignInException(SignInFailure.Protocol, "the discovery document is for another issuer");
+        }
+
         _deviceEndpoint = device;
         _tokenEndpoint = token;
     }
@@ -152,8 +166,15 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
         try
         {
             using var response = await http.PostAsync(_tokenEndpoint, content, ct).ConfigureAwait(false);
+            // A server error or a redirect is not an answer of the provider about the grant: it neither issues a token nor rejects one.
+            var code = (int)response.StatusCode;
+            if (code >= 500 || (code >= 300 && code < 400))
+            {
+                throw new SignInException(SignInFailure.Unavailable, $"the provider answered {code}");
+            }
+
             var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            if (!string.IsNullOrWhiteSpace(text) && Parse(text) is { } wire)
+            if (!string.IsNullOrWhiteSpace(text) && Parse(text) is { } wire && (response.IsSuccessStatusCode || wire.Error is not null))
             {
                 return (wire, response.StatusCode);
             }
@@ -202,6 +223,10 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
         {
             throw new SignInException(SignInFailure.Unavailable, $"{address.Host} cannot be reached ({e.GetType().Name})");
         }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new SignInException(SignInFailure.Unavailable, $"{address.Host} did not answer in time");
+        }
     }
 
     private async Task<T> PostAsync<T>(Uri address, HttpContent content, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> info, CancellationToken ct)
@@ -215,6 +240,10 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
         catch (HttpRequestException e)
         {
             throw new SignInException(SignInFailure.Unavailable, $"{address.Host} cannot be reached ({e.GetType().Name})");
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            throw new SignInException(SignInFailure.Unavailable, $"{address.Host} did not answer in time");
         }
     }
 
@@ -240,7 +269,12 @@ internal sealed class OidcDeviceClient(HttpClient http, SignInSettings settings,
     private static FormUrlEncodedContent Form(params (string Key, string Value)[] fields) =>
         new(fields.Select(f => new KeyValuePair<string, string>(f.Key, f.Value)));
 
-    // An error code is a short token of the OAuth registry; anything else is not echoed.
-    private static string SafeError(string? error) =>
-        error is { Length: <= 40 } && error.All(c => char.IsAsciiLetterOrDigit(c) || c == '_') ? error : "unknown";
+    // Only a code of RFC 6749 or RFC 8628 is echoed: a provider could put anything else, a credential included, in the field.
+    private static readonly HashSet<string> KnownErrors = new(StringComparer.Ordinal)
+    {
+        "invalid_request", "invalid_client", "invalid_grant", "unauthorized_client", "unsupported_grant_type", "invalid_scope",
+        "invalid_token", "authorization_pending", "slow_down", "access_denied", "expired_token", "temporarily_unavailable", "server_error",
+    };
+
+    private static string SafeError(string? error) => error is not null && KnownErrors.Contains(error) ? error : "unknown";
 }

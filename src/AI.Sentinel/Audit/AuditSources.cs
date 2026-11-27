@@ -9,6 +9,9 @@ public static class AuditSources
     /// <summary>Written by the Claude Code hook CLI.</summary>
     public const string ClaudeCode = "claude-code";
 
+    /// <summary>Written by the OpenAI Codex CLI hook.</summary>
+    public const string Codex = "codex";
+
     /// <summary>Written by the GitHub Copilot hook CLI.</summary>
     public const string Copilot = "copilot";
 
