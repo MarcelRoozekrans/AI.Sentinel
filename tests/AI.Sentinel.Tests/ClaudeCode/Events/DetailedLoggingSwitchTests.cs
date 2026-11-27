@@ -49,6 +49,31 @@ public sealed class DetailedLoggingSwitchTests : IDisposable
     }
 
     [Fact]
+    public void The_newest_profile_of_a_node_decides_so_an_older_cached_one_cannot_keep_detailed_logging_on()
+    {
+        var key = ProfileSigningKey.Generate();
+        var pinned = PinnedProfileKeys.Create([key.PublicKey]);
+        var state = new ResidentState(ResidentPaths.Prepare(new ResidentSettings(_dir, ResidentSettings.DefaultIdleTimeout, ResidentSettings.DefaultBudget)));
+        var sample = SignedProfileTests.Sample();
+        const string other = "github.com/acme/gadgets";
+        SignedProfile Issue(string repository, bool detailed, DateTimeOffset at) => new ProfileSigner(key, new Clock(at)).Issue(
+            sample with
+            {
+                Organisation = Org,
+                Repository = repository,
+                LoggingSwitches = new Dictionary<string, bool>(StringComparer.Ordinal) { ["detailed"] = detailed },
+            },
+            TimeSpan.FromMinutes(10));
+
+        // The refresh of the first repository failed, so it keeps the profile from before the node turned detailed logging off.
+        Assert.True(state.StoreProfile(Issue(Repo, detailed: true, Now.AddMinutes(-2)), pinned, Org, Repo, Now, slot: "a").IsAccepted);
+        Assert.True(new DetailedLoggingSwitch(_dir, () => (Org, pinned), new Clock(Now)).IsOn(sample.Node));
+        Assert.True(state.StoreProfile(Issue(other, detailed: false, Now.AddMinutes(-1)), pinned, Org, other, Now, slot: "b").IsAccepted);
+
+        Assert.False(new DetailedLoggingSwitch(_dir, () => (Org, pinned), new Clock(Now)).IsOn(sample.Node));
+    }
+
+    [Fact]
     public void Without_a_node_or_without_pinned_keys_detailed_logging_is_off()
     {
         Directory.CreateDirectory(_dir);

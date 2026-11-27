@@ -40,11 +40,14 @@ internal sealed class DetailedLoggingSwitch(string directory, Func<(string Organ
 
     private Dictionary<string, DateTimeOffset> Read(DateTimeOffset now)
     {
-        var on = new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         if (pinned() is not { } trusted || !System.IO.Directory.Exists(directory))
         {
-            return on;
+            return new Dictionary<string, DateTimeOffset>(StringComparer.Ordinal);
         }
+
+        // Every repository of a node carries the node's switches, so the newest valid profile of the node decides: an older cached one
+        // whose refresh failed must not keep detailed logging on after the node turned it off. A tie goes to off.
+        var newest = new Dictionary<string, PolicyProfile>(StringComparer.Ordinal);
 
         foreach (var file in System.IO.Directory.EnumerateFiles(directory, "profile*.json"))
         {
@@ -58,9 +61,11 @@ internal sealed class DetailedLoggingSwitch(string directory, Func<(string Organ
                 }
 
                 var verified = ProfileVerifier.Verify(signed, trusted.Keys, trusted.Organisation, claimed.Repository, now);
-                if (verified.Profile is { } profile && profile.LoggingSwitches.GetValueOrDefault("detailed"))
+                if (verified.Profile is { } profile
+                    && (!newest.TryGetValue(profile.Node, out var known) || profile.IssuedAt > known.IssuedAt
+                        || (profile.IssuedAt == known.IssuedAt && !IsDetailed(profile))))
                 {
-                    on[profile.Node] = on.TryGetValue(profile.Node, out var known) && known > profile.ExpiresAt ? known : profile.ExpiresAt;
+                    newest[profile.Node] = profile;
                 }
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException)
@@ -69,6 +74,8 @@ internal sealed class DetailedLoggingSwitch(string directory, Func<(string Organ
             }
         }
 
-        return on;
+        return newest.Values.Where(IsDetailed).ToDictionary(p => p.Node, p => p.ExpiresAt, StringComparer.Ordinal);
     }
+
+    private static bool IsDetailed(PolicyProfile profile) => profile.LoggingSwitches.GetValueOrDefault("detailed");
 }
