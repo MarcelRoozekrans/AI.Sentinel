@@ -230,10 +230,64 @@ public sealed class ServerEventIngestTests
         await host.SendAsync(Post(json, "acme"));
 
         var gap = Assert.Single(await host.Store.ReadGapsAsync("acme", Ct));
-        Assert.Equal((7, "team-a"), (gap.Pruned, gap.Node));
+        Assert.Equal(((int?)7, "team-a"), (gap.Pruned, gap.Node));
         var read = await host.SendAsync(Get("acme/audit", "acme", "root", "sec"));
         using var document = JsonDocument.Parse(await read.Content.ReadAsStringAsync(Ct));
         Assert.Equal(7, document.RootElement.GetProperty("gaps")[0].GetProperty("pruned").GetInt32());
+    }
+
+    [Fact]
+    public async Task A_gap_with_an_id_is_stored_once_when_its_batch_is_sent_again()
+    {
+        using var host = await StartAsync();
+        var json = Batch("acme", Event("e-1")).TrimEnd('}') + ",\"gap\":{\"id\":\"f1:2-3\",\"pruned\":2,\"cause\":\"pruned\"}}";
+
+        await host.SendAsync(Post(json, "acme"));
+        await host.SendAsync(Post(json, "acme"));
+
+        var gap = Assert.Single(await host.Store.ReadGapsAsync("acme", Ct));
+        Assert.Equal(("f1:2-3", "pruned"), (gap.Id, gap.Cause));
+    }
+
+    [Fact]
+    public async Task The_same_gap_id_from_another_developer_is_another_gap()
+    {
+        using var host = await StartAsync();
+        var json = Batch("acme").TrimEnd('}') + ",\"gap\":{\"id\":\"f1:2-3\",\"pruned\":2}}";
+
+        await host.SendAsync(Post(json, "acme", "alice"));
+        await host.SendAsync(Post(json, "acme", "bob"));
+
+        Assert.Equal(2, (await host.Store.ReadGapsAsync("acme", Ct)).Count);
+    }
+
+    [Fact]
+    public async Task A_gap_of_unknown_size_is_stored_and_read_as_unknown()
+    {
+        using var host = await StartAsync();
+        var json = Batch("acme").TrimEnd('}') + ",\"gap\":{\"id\":\"g-1\",\"unknown\":true,\"cause\":\"audit_replaced\"}}";
+
+        await host.SendAsync(Post(json, "acme"));
+
+        var gap = Assert.Single(await host.Store.ReadGapsAsync("acme", Ct));
+        Assert.Null(gap.Pruned);
+        var read = await host.SendAsync(Get("acme/audit", "acme", "root", "sec"));
+        using var document = JsonDocument.Parse(await read.Content.ReadAsStringAsync(Ct));
+        var shown = document.RootElement.GetProperty("gaps")[0];
+        Assert.True(shown.GetProperty("unknown").GetBoolean());
+        Assert.False(shown.TryGetProperty("pruned", out _));
+        Assert.Equal("audit_replaced", shown.GetProperty("cause").GetString());
+    }
+
+    [Fact]
+    public async Task A_gap_with_neither_a_count_nor_unknown_is_no_gap()
+    {
+        using var host = await StartAsync();
+        var json = Batch("acme", Event("e-1")).TrimEnd('}') + ",\"gap\":{\"id\":\"g-1\",\"unknown\":false,\"cause\":\"pruned\"}}";
+
+        await host.SendAsync(Post(json, "acme"));
+
+        Assert.Empty(await host.Store.ReadGapsAsync("acme", Ct));
     }
 
     [Theory]

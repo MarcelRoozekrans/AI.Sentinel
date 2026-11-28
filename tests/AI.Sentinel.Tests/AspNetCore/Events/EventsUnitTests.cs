@@ -161,8 +161,8 @@ public sealed class EventsUnitTests
         Assert.NotNull(batch);
         Assert.Single(batch.Events);
         Assert.Equal(1, batch.Dropped[new string('x', 64)]);
-        Assert.Equal(3, batch.Pruned);
-        Assert.Equal("n1", batch.GapNode);
+        Assert.Equal(3, batch.Gap!.Pruned);
+        Assert.Equal("n1", batch.Gap.Node);
     }
 
     [Fact]

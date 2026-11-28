@@ -82,7 +82,16 @@ internal static class EventWriter
             }
 
             Optional(w, "node", node);
-            w.WriteNumber("pruned", g.Pruned);
+            if (g.Pruned is { } pruned)
+            {
+                w.WriteNumber("pruned", pruned);
+            }
+            else
+            {
+                w.WriteBoolean("unknown", true);
+            }
+
+            Optional(w, "cause", g.Cause);
             w.WriteString("received_at", g.ReceivedAt);
             w.WriteEndObject();
         }

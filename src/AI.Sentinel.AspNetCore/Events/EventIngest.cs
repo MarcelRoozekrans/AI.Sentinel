@@ -117,9 +117,9 @@ internal static class EventIngest
             }
         }
 
-        if (batch.Pruned is { } pruned)
+        if (batch.Gap is { } gap)
         {
-            await store.AddGapAsync(new ServerEventGap(sender, code, batch.GapNode, pruned, now), ct).ConfigureAwait(false);
+            await store.AddGapAsync(new ServerEventGap(sender, code, gap.Node, gap.Pruned, now, gap.Id, gap.Cause), ct).ConfigureAwait(false);
         }
 
         await store.AddDroppedAsync(sender, dropped, ct).ConfigureAwait(false);
