@@ -30,7 +30,11 @@ internal sealed class InMemoryServerEventStore : IServerEventStore
         ArgumentNullException.ThrowIfNull(gap);
         lock (_gate)
         {
-            Of(gap.Organisation).Gaps.Add(gap);
+            var gaps = Of(gap.Organisation).Gaps;
+            if (gap.Id is null || !gaps.Exists(g => string.Equals(g.Id, gap.Id, StringComparison.Ordinal) && string.Equals(g.Developer, gap.Developer, StringComparison.Ordinal)))
+            {
+                gaps.Add(gap);
+            }
         }
 
         return ValueTask.CompletedTask;

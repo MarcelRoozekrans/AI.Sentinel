@@ -4,7 +4,9 @@ using System.Text.Json;
 namespace AI.Sentinel.AspNetCore.Events;
 
 /// <summary>The ingest contract (ADR-240), read without reflection. A batch is
-/// <c>{"organisation": "...", "events": [...], "gap": {"pruned": 3, "node": "..."}}</c>. An event holds only these fields:
+/// <c>{"organisation": "...", "events": [...], "gap": {"id": "...", "pruned": 3, "cause": "...", "node": "..."}}</c>. A gap holds a
+/// count in <c>pruned</c>, or <c>"unknown": true</c> when the machine does not know how many; with neither it is no gap. An event holds
+/// only these fields:
 /// <c>event_id</c>, <c>at</c>, <c>tool_kind</c>, <c>outcome</c>, <c>policies</c>, <c>policy_version</c>, <c>decided</c> (where it was
 /// decided), <c>node</c>, <c>cli</c>, <c>session</c>, <c>detector</c>, <c>severity</c>, <c>redactions</c> (kind to count) and
 /// <c>reason</c>. Any other field is dropped with its value; only its name is counted.</summary>
@@ -27,8 +29,7 @@ internal static class EventBatchReader
         var events = new List<ParsedEvent>();
         var dropped = new Dictionary<string, int>(StringComparer.Ordinal);
         var rejected = 0;
-        int? pruned = null;
-        string? gapNode = null;
+        ParsedGap? gap = null;
         foreach (var property in root.EnumerateObject())
         {
             if (string.Equals(property.Name, "organisation", StringComparison.Ordinal) && property.Value.ValueKind == JsonValueKind.String)
@@ -56,7 +57,7 @@ internal static class EventBatchReader
             }
             else if (string.Equals(property.Name, "gap", StringComparison.Ordinal) && property.Value.ValueKind == JsonValueKind.Object)
             {
-                (pruned, gapNode) = ReadGap(property.Value);
+                gap = ReadGap(property.Value);
             }
             else
             {
@@ -64,26 +65,39 @@ internal static class EventBatchReader
             }
         }
 
-        return string.IsNullOrWhiteSpace(organisation) ? null : new ParsedBatch(organisation, events, dropped, rejected, pruned, gapNode);
+        return string.IsNullOrWhiteSpace(organisation) ? null : new ParsedBatch(organisation, events, dropped, rejected, gap);
     }
 
-    private static (int? Pruned, string? Node) ReadGap(JsonElement gap)
+    private static ParsedGap? ReadGap(JsonElement gap)
     {
         int? pruned = null;
+        var unknown = false;
         string? node = null;
+        string? id = null;
+        string? cause = null;
         foreach (var property in gap.EnumerateObject())
         {
-            if (string.Equals(property.Name, "pruned", StringComparison.Ordinal) && property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt32(out var n) && n > 0)
+            switch (property.Name)
             {
-                pruned = n;
-            }
-            else if (string.Equals(property.Name, "node", StringComparison.Ordinal))
-            {
-                node = Text(property.Value);
+                case "pruned" when property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetInt32(out var n) && n > 0:
+                    pruned = n;
+                    break;
+                case "unknown":
+                    unknown = property.Value.ValueKind == JsonValueKind.True;
+                    break;
+                case "node":
+                    node = Text(property.Value);
+                    break;
+                case "id":
+                    id = Text(property.Value);
+                    break;
+                case "cause":
+                    cause = Text(property.Value);
+                    break;
             }
         }
 
-        return (pruned, node);
+        return pruned is not null || unknown ? new ParsedGap(pruned, node, id, cause) : null;
     }
 
     /// <summary>Each allowlisted field and how its value is read into the event. A reader returns <see langword="false"/> for a

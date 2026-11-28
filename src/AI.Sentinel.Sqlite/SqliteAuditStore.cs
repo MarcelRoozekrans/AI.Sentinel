@@ -236,9 +236,12 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             using (var head = _connection.CreateCommand())
             {
                 head.Transaction = tx;
+                // The counter decides, so a sequence never comes back after retention (#713). The audit_file_counter trigger moves it on
+                // every insert; the highest row is taken as well, so a file whose counter row is missing still never repeats a sequence.
                 head.CommandText = """
                     SELECT (SELECT hash FROM audit_chain_head WHERE id = 1),
-                           (SELECT COALESCE(MAX(sequence), 0) + 1 FROM audit_entries);
+                           MAX((SELECT COALESCE(MAX(sequence), 0) FROM audit_entries),
+                               COALESCE((SELECT last_sequence FROM audit_file WHERE id = 1), 0)) + 1;
                     """;
                 using var reader = await head.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 await reader.ReadAsync(ct).ConfigureAwait(false);
@@ -391,8 +394,11 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
     }
 
     /// <summary>One page of entries after a sequence, for the forwarder (#661). <paramref name="FirstSequence"/> and
-    /// <paramref name="LastSequence"/> are the smallest and largest sequence the file holds now, or 0 when it is empty.</summary>
-    internal readonly record struct ForwardPage(IReadOnlyList<(long Sequence, AuditEntry Entry)> Rows, long FirstSequence, long LastSequence);
+    /// <paramref name="LastSequence"/> are the smallest and largest sequence the file holds now, or 0 when it is empty.
+    /// <paramref name="FileId"/> names this audit file and <paramref name="LastAssigned"/> is the last sequence it handed out, also
+    /// when retention has deleted that entry (#713).</summary>
+    internal readonly record struct ForwardPage(
+        IReadOnlyList<(long Sequence, AuditEntry Entry)> Rows, long FirstSequence, long LastSequence, string FileId, long LastAssigned);
 
     /// <summary>The entries with a sequence above <paramref name="after"/>, oldest first, at most <paramref name="limit"/>.</summary>
     internal async Task<ForwardPage> ReadAfterAsync(long after, int limit, CancellationToken ct)
@@ -401,19 +407,32 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
+            // One read transaction, so the range, the counter and the rows come from the same moment of the file.
+            using var tx = _connection.BeginTransaction(deferred: true);
             long first;
             long last;
+            string fileId;
+            long assigned;
             using (var range = _connection.CreateCommand())
             {
-                range.CommandText = "SELECT COALESCE(MIN(sequence), 0), COALESCE(MAX(sequence), 0) FROM audit_entries;";
+                range.Transaction = tx;
+                range.CommandText = """
+                    SELECT COALESCE(MIN(sequence), 0), COALESCE(MAX(sequence), 0),
+                           (SELECT file_id FROM audit_file WHERE id = 1),
+                           COALESCE((SELECT last_sequence FROM audit_file WHERE id = 1), 0)
+                      FROM audit_entries;
+                    """;
                 using var reader = await range.ExecuteReaderAsync(ct).ConfigureAwait(false);
                 await reader.ReadAsync(ct).ConfigureAwait(false);
                 first = reader.GetInt64(0);
                 last = reader.GetInt64(1);
+                fileId = reader.IsDBNull(2) ? throw new InvalidOperationException("The audit file has no file id.") : reader.GetString(2);
+                assigned = Math.Max(last, reader.GetInt64(3));
             }
 
             var rows = new List<(long, AuditEntry)>();
             using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
             cmd.CommandText = """
                 SELECT id, timestamp, severity, detector_id, hash, previous_hash, summary, policy_code, session_id, source, tool_kind, node, sequence
                   FROM audit_entries WHERE sequence > $after ORDER BY sequence ASC LIMIT $limit;
@@ -426,7 +445,7 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
                 rows.Add((rowReader.GetInt64(12), ReadEntry((SqliteDataReader)rowReader)));
             }
 
-            return new ForwardPage(rows, first, last);
+            return new ForwardPage(rows, first, last, fileId, assigned);
         }
         finally
         {

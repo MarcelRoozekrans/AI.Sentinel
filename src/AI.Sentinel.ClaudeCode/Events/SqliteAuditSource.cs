@@ -20,7 +20,7 @@ internal sealed class SqliteAuditSource(string databasePath) : IAuditSource
             var store = SqliteAuditStore.OpenReadOnly(databasePath);
             await using var _ = store.ConfigureAwait(false);
             var page = await store.ReadAfterAsync(after, limit, ct).ConfigureAwait(false);
-            return new AuditPage(page.Rows, page.FirstSequence, page.LastSequence);
+            return new AuditPage(page.Rows, page.FirstSequence, page.LastSequence, page.FileId, page.LastAssigned);
         }
         catch (Exception e) when (e is SqliteException or InvalidOperationException)
         {

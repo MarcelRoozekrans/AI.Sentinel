@@ -272,7 +272,7 @@ public sealed class EventForwardingTests : IDisposable
         Assert.Equal(2, _server.Events.Count());
         // The refused request carried the same entries: forward them to a second server and compare the ids.
         var again = new EventServerStub();
-        new EventCursor(_dir).Write(0);
+        File.Delete(Path.Combine(_dir, EventCursor.FileName));
         await new EventForwarder(new SqliteAuditSource(_db), new EventCursor(_dir), new HttpClient(again), Endpoint, () => "acme", _ => false).ForwardAsync(CancellationToken.None);
         Assert.Equal(
             _server.Events.Select(e => e.GetProperty("event_id").GetString()!).ToList(),
@@ -310,9 +310,13 @@ public sealed class EventForwardingTests : IDisposable
 
         Assert.Equal(2, result.Pruned);
         Assert.Equal(2, result.Sent);
-        var gap = _server.Batches[^1].GetProperty("gap");
+        // The gap goes out first and alone, after it was stored in the cursor; the events follow.
+        var gapBatch = _server.Batches[^2];
+        Assert.Empty(gapBatch.GetProperty("events").EnumerateArray());
+        var gap = gapBatch.GetProperty("gap");
         Assert.Equal(2, gap.GetProperty("pruned").GetInt32());
         Assert.Equal("node-a", gap.GetProperty("node").GetString());
+        Assert.False(_server.Batches[^1].TryGetProperty("gap", out _));
     }
 
     [Fact]
@@ -328,8 +332,10 @@ public sealed class EventForwardingTests : IDisposable
 
         await Forwarder().ForwardAsync(CancellationToken.None);
 
-        Assert.Equal(2, _server.Batches[^1].GetProperty("gap").GetProperty("pruned").GetInt32());
-        Assert.Equal(2, _server.Batches.Count);
+        var gaps = _server.Batches.Where(b => b.TryGetProperty("gap", out _)).ToList();
+        Assert.Equal(2, Assert.Single(gaps).GetProperty("gap").GetProperty("pruned").GetInt32());
+        Assert.Equal(3, _server.Batches.Count);
+        Assert.Equal(2, _server.Events.Count());
     }
 
     [Fact]
@@ -360,7 +366,7 @@ public sealed class EventForwardingTests : IDisposable
     }
 
     [Fact]
-    public async Task A_replaced_audit_file_starts_again_without_a_gap()
+    public async Task An_emptied_audit_keeps_its_cursor_and_its_sequences_go_on()
     {
         await AppendManyAsync(3);
         await Forwarder().ForwardAsync(CancellationToken.None);

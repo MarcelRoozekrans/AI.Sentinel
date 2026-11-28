@@ -4,7 +4,7 @@ namespace AI.Sentinel.Sqlite;
 
 internal static class SqliteSchema
 {
-    internal const int CurrentVersion = 6;
+    internal const int CurrentVersion = 7;
 
     // The current shape, used only by the fresh-schema path. policy_code is nullable: only
     // AUTHZ-DENY entries carry one, and the stored value is hashed. source names the tool that
@@ -57,6 +57,24 @@ internal static class SqliteSchema
         );
         """;
 
+    // One row naming this audit file and holding the last sequence it handed out (#713). The id is random, so a reader tells a
+    // replaced file from the same one; the counter survives deletes, so retention never makes a sequence come back. An existing
+    // file starts its counter at its highest sequence. The trigger moves the counter on every insert, also one by a writer older
+    // than v7, which opens this file without knowing the table: SQLite runs the trigger for it all the same.
+    private const string FileTable = """
+        CREATE TABLE IF NOT EXISTS audit_file (
+            id            INTEGER PRIMARY KEY CHECK (id = 1),
+            file_id       TEXT NOT NULL,
+            last_sequence INTEGER NOT NULL
+        );
+        INSERT OR IGNORE INTO audit_file (id, file_id, last_sequence)
+        SELECT 1, lower(hex(randomblob(16))), COALESCE(MAX(sequence), 0) FROM audit_entries;
+        CREATE TRIGGER IF NOT EXISTS audit_file_counter AFTER INSERT ON audit_entries
+        BEGIN
+            UPDATE audit_file SET last_sequence = MAX(last_sequence, NEW.sequence) WHERE id = 1;
+        END;
+        """;
+
     internal static async Task InitializeAsync(SqliteConnection conn, CancellationToken ct)
     {
         // journal_mode cannot change inside a transaction, so set it first. WAL lets readers run
@@ -99,6 +117,7 @@ internal static class SqliteSchema
             if (current < 4) await MigrateV3ToV4Async(conn, tx, ct).ConfigureAwait(false);
             if (current < 5) await MigrateV4ToV5Async(conn, tx, ct).ConfigureAwait(false);
             if (current < 6) await MigrateV5ToV6Async(conn, tx, ct).ConfigureAwait(false);
+            if (current < 7) await MigrateV6ToV7Async(conn, tx, ct).ConfigureAwait(false);
         }
 
         using (var bump = conn.CreateCommand())
@@ -122,6 +141,7 @@ internal static class SqliteSchema
             );
             {AuditEntriesIndexes}
             {ChainHeadTable}
+            {FileTable}
             """;
         await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
@@ -199,6 +219,15 @@ internal static class SqliteSchema
         using var migrate = conn.CreateCommand();
         migrate.Transaction = tx;
         migrate.CommandText = "ALTER TABLE audit_entries ADD COLUMN tool_kind TEXT; ALTER TABLE audit_entries ADD COLUMN node TEXT;";
+        await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+    }
+
+    private static async Task MigrateV6ToV7Async(SqliteConnection conn, SqliteTransaction tx, CancellationToken ct)
+    {
+        // v6→v7: add the file id and the durable sequence counter (#713). Nothing hashed changes, so existing rows still verify.
+        using var migrate = conn.CreateCommand();
+        migrate.Transaction = tx;
+        migrate.CommandText = FileTable;
         await migrate.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
     }
 

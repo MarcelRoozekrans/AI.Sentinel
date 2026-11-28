@@ -8,6 +8,7 @@ internal interface IServerEventStore
     /// before. Returns <see langword="false"/> for a duplicate.</summary>
     ValueTask<bool> AddAsync(ServerEvent serverEvent, CancellationToken ct);
 
+    /// <summary>Stores a gap report. A report with an id that this developer sent before is not stored again.</summary>
     ValueTask AddGapAsync(ServerEventGap gap, CancellationToken ct);
 
     /// <summary>Adds to the count of received fields that are not on the allowlist, by field name.</summary>
