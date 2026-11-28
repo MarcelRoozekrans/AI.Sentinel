@@ -41,8 +41,9 @@ public sealed class EventCursorBindingTests : IDisposable
 
     private string CursorPath => Path.Combine(_dir, EventCursor.FileName);
 
-    private EventForwarder To(EventServerStub server, Uri endpoint, string? db = null) => new(
-        new SqliteAuditSource(db ?? _db), new EventCursor(_dir), new HttpClient(server), endpoint, () => _organisation, _ => false, _log.Add);
+    private EventForwarder To(EventServerStub server, Uri endpoint, string? db = null, int batchSize = 200) => new(
+        new SqliteAuditSource(db ?? _db), new EventCursor(_dir), new HttpClient(server), endpoint, () => _organisation, _ => false, _log.Add,
+        batchSize);
 
     private async Task AppendAsync(int count, string? db = null, string? toolKind = "shell")
     {
@@ -258,6 +259,58 @@ public sealed class EventCursorBindingTests : IDisposable
         Assert.Equal("pruned", gaps[0].GetProperty("cause").GetString());
         Assert.False(string.IsNullOrEmpty(gaps[0].GetProperty("id").GetString()));
         Assert.Equal(gaps[0].GetProperty("id").GetString(), gaps[1].GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public async Task A_sign_in_to_another_organisation_during_a_pass_sends_nothing_more_to_the_old_one()
+    {
+        await AppendAsync(1);
+        await To(_a, ServerA).ForwardAsync(CancellationToken.None);
+        await AppendAsync(3);
+        _a.AfterTaken = () =>
+        {
+            _a.AfterTaken = null;
+            _organisation = "globex";
+        };
+
+        var result = await To(_a, ServerA, batchSize: 1).ForwardAsync(CancellationToken.None);
+
+        Assert.False(result.Failed);
+        Assert.Equal(1, result.Sent);
+        Assert.Equal(2, _a.Events.Count());
+        Assert.All(_a.Batches, b => Assert.Equal("acme", b.GetProperty("organisation").GetString()));
+
+        await To(_a, ServerA).ForwardAsync(CancellationToken.None);
+
+        var last = _a.Batches[^1];
+        Assert.Equal("globex", last.GetProperty("organisation").GetString());
+        Assert.Equal(2, Gap(last).GetProperty("pruned").GetInt32());
+        Assert.Equal(2, _a.Events.Count());
+    }
+
+    [Fact]
+    public async Task A_stored_pruned_gap_is_sent_again_unchanged_even_when_retention_pruned_more_since()
+    {
+        await AppendAsync(1);
+        await To(_a, ServerA).ForwardAsync(CancellationToken.None);
+        await AppendAsync(3);
+        await ExecuteAsync("DELETE FROM audit_entries WHERE sequence <= 3;");
+        LoseTheNextCursorWrite(_a);
+        Assert.True((await To(_a, ServerA).ForwardAsync(CancellationToken.None)).Failed);
+        RepairTheCursor();
+        await AppendAsync(1);
+        await ExecuteAsync("DELETE FROM audit_entries WHERE sequence <= 4;");
+
+        var result = await To(_a, ServerA).ForwardAsync(CancellationToken.None);
+
+        var gaps = _a.Batches.Where(b => b.TryGetProperty("gap", out _)).Select(Gap).ToList();
+        Assert.Equal(3, gaps.Count);
+        Assert.Equal(gaps[0].GetProperty("id").GetString(), gaps[1].GetProperty("id").GetString());
+        Assert.Equal(2, gaps[1].GetProperty("pruned").GetInt32());
+        Assert.NotEqual(gaps[1].GetProperty("id").GetString(), gaps[2].GetProperty("id").GetString(), StringComparer.Ordinal);
+        Assert.Equal(1, gaps[2].GetProperty("pruned").GetInt32());
+        Assert.Equal(3, result.Pruned);
+        Assert.Equal(1, result.Sent);
     }
 
     [Fact]

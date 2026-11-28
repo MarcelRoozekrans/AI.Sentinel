@@ -28,7 +28,8 @@ internal sealed class EventForwarder(
     // The server the cursor is bound to: the ingest address without its query.
     private readonly string _server = endpoint.GetLeftPart(UriPartial.Path);
 
-    /// <summary>Sends what the server has not taken yet.</summary>
+    /// <summary>Sends what the server has not taken yet. A sign-in to another organisation during the pass ends it before the next
+    /// page, and the next pass applies the binding rule to what is left.</summary>
     public async Task<ForwardResult> ForwardAsync(CancellationToken ct)
     {
         // Before the sign-in there is no organisation to send to, and none to bind the cursor to.
@@ -52,6 +53,11 @@ internal sealed class EventForwarder(
 
         while (true)
         {
+            if (!string.Equals(organisation(), org, StringComparison.Ordinal))
+            {
+                return new ForwardResult(sent, prunedTotal, Failed: false);
+            }
+
             var page = await source.ReadAfterAsync(after, batchSize, ct).ConfigureAwait(false);
             if (page.ReadFailed || !string.Equals(page.FileId, file, StringComparison.Ordinal))
             {
@@ -65,30 +71,25 @@ internal sealed class EventForwarder(
                 return new ForwardResult(sent, prunedTotal + Math.Max(emptied, 0), Failed: emptied < 0);
             }
 
-            if (!hasCursor)
+            // Store where this audit starts before the first send, so entries pruned while it keeps failing are still counted.
+            if (!hasCursor && !TryStore(new(after = page.Rows[0].Sequence - 1, page.Rows[0].Entry.PreviousHash, file), org, gap: null))
             {
-                // Store where this audit starts before the first send, so entries pruned while it keeps failing are still counted.
-                hasCursor = true;
-                if (!TryStore(new(after = page.Rows[0].Sequence - 1, page.Rows[0].Entry.PreviousHash, file), org, gap: null))
-                {
-                    return new ForwardResult(sent, prunedTotal, Failed: true);
-                }
+                return new ForwardResult(sent, prunedTotal, Failed: true);
             }
 
+            hasCursor = true;
+
             var events = MapEvents(page);
-            var gap = PrunedGap(page, events, after, file);
-            if ((events.Count > 0 || gap is not null) && !await SendAsync(org, events, gap, ct).ConfigureAwait(false))
+            var (reported, pruned, gapEnd) = await ReportPrunedAsync(org, page, events, after, file, ct).ConfigureAwait(false);
+            (prunedTotal, after) = (prunedTotal + pruned, gapEnd);
+            if (!reported
+                || (events.Count > 0 && !await SendAsync(org, events, gap: null, ct).ConfigureAwait(false))
+                || !TryStore(new(after = page.Rows[^1].Sequence, page.Rows[^1].Entry.Hash, file), org, gap: null))
             {
                 return new ForwardResult(sent, prunedTotal, Failed: true);
             }
 
             sent += events.Count;
-            prunedTotal += gap?.Pruned ?? 0;
-            after = page.Rows[^1].Sequence;
-            if (!TryStore(new(after, page.Rows[^1].Entry.Hash, file), org, gap: null))
-            {
-                return new ForwardResult(sent, prunedTotal, Failed: true);
-            }
         }
     }
 
@@ -146,8 +147,7 @@ internal sealed class EventForwarder(
         return events;
     }
 
-    /// <summary>The entries pruned between the cursor and the first entry of <paramref name="page"/>. Its id is the range it covers, so a
-    /// batch sent again after a lost cursor carries the same one.</summary>
+    /// <summary>The entries pruned between the cursor and the first entry of <paramref name="page"/>, named by the range it covers.</summary>
     private static EventGap? PrunedGap(AuditPage page, List<ForwardedEvent> events, long after, string file)
     {
         var first = page.Rows[0].Sequence;
@@ -192,10 +192,32 @@ internal sealed class EventForwarder(
             Pruned = (int)Math.Min(page.LastAssigned - after, int.MaxValue),
             Cause = EventGap.PrunedCause,
         };
-        return await SendAsync(org, [], gap, ct).ConfigureAwait(false) && TryStore(new(page.LastAssigned, null, page.FileId!), org, gap: null)
+        return await ReportGapAsync(org, new Position(page.LastAssigned, null, page.FileId!), gap, ct).ConfigureAwait(false)
             ? gap.Pruned.Value
             : -1;
     }
+
+    /// <summary>Reports the entries pruned before the first entry of <paramref name="page"/>, if any. Whether that worked, how many
+    /// entries it reported, and the sequence the cursor stands at after it.</summary>
+    private async Task<(bool Reported, int Pruned, long After)> ReportPrunedAsync(
+        string org, AuditPage page, List<ForwardedEvent> events, long after, string file, CancellationToken ct)
+    {
+        if (PrunedGap(page, events, after, file) is not { } gap)
+        {
+            return (true, 0, after);
+        }
+
+        var end = new Position(page.Rows[0].Sequence - 1, page.Rows[0].Entry.PreviousHash, file);
+        return await ReportGapAsync(org, end, gap, ct).ConfigureAwait(false) ? (true, gap.Pruned ?? 0, end.Sequence) : (false, 0, after);
+    }
+
+    /// <summary>Reports <paramref name="gap"/>, which ends at <paramref name="end"/>. It is stored in the cursor before it is sent, so a
+    /// gap whose cursor write is lost after the server took it is sent again unchanged, under the same id, and counted once; with the
+    /// send failing, the next pass sends the stored gap before anything else.</summary>
+    private async Task<bool> ReportGapAsync(string org, Position end, EventGap gap, CancellationToken ct) =>
+        TryStore(end, org, gap)
+        && await SendAsync(org, [], gap, ct).ConfigureAwait(false)
+        && TryStore(end, org, gap: null);
 
     /// <summary>Where this pass starts. With no cursor yet it starts at the top of the audit. A cursor bound to another server or
     /// organisation, or to no server as one written before the binding was kept, skips the entries it has not sent: they were routed
