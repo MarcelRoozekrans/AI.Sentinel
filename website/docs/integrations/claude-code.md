@@ -154,7 +154,7 @@ Set the env vars in your shell profile or directly in `settings.json`:
 
 ## Local Rego policy
 
-`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files. On every `PreToolUse` call the hook builds the [policy input](#tool-kinds-and-policy-input), evaluates the policy and acts on its outcome. This is the policy a PC uses without a server. **Every new setting here is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset, the hook behaves exactly as before.**
+`SENTINEL_HOOK_POLICY_DIR` names a folder of [Rego](https://www.openpolicyagent.org/docs/policy-language) files. On every `PreToolUse` call the hook builds the [policy input](#tool-kinds-and-policy-input), evaluates the policy and acts on its outcome. This is the policy a PC uses without a server. **Every new setting here is optional and off by default: with `SENTINEL_HOOK_POLICY_DIR` unset and no server configured, the hook behaves exactly as before.** With a server configured the [signed profiles](#which-policy-applies) judge the call too.
 
 | Variable | Default | Values |
 |---|---|---|
@@ -246,7 +246,7 @@ Platforms:
 
 ## Resident local process
 
-`SENTINEL_HOOK_RESIDENT=on` lets the hooks use one resident process per user, started from the hook binary itself: `sentinel-hook --resident`, or `sentinel-copilot-hook --resident`, the same process for both. **It is optional and off by default. Every new setting here is optional and off by default: without `SENTINEL_HOOK_RESIDENT` no process is started, nothing is written to a state folder and the hooks behave exactly as before.** Setting `SENTINEL_HOOK_POLICY_DIR` does not turn it on, so a local policy keeps working as it did until you opt in.
+`SENTINEL_HOOK_RESIDENT=on` lets the hooks use one resident process per user, started from the hook binary itself: `sentinel-hook --resident`, or `sentinel-copilot-hook --resident`, the same process for both. **It is optional and off by default. Every new setting here is optional and off by default: without `SENTINEL_HOOK_RESIDENT` no process is started, and with no server configured either, nothing is written to a state folder and the hooks behave exactly as before.** With a server configured, sign-in still pins its keys in the state folder and the hooks still apply the [fail mode](#fail-mode), because the resident process is what fetches the profiles. Setting `SENTINEL_HOOK_POLICY_DIR` does not turn it on, so a local policy keeps working as it did until you opt in.
 
 | Variable | Default | Values |
 |---|---|---|
@@ -303,7 +303,7 @@ Only an administrator, or a team lead of the node that owns the repository the p
 
 ## Forward events to the server
 
-With a server configured and the developer signed in, the resident process sends the events of the local audit to the server's `POST /ai-sentinel/events/ingest` (see [Events and the decision log](#events-and-the-decision-log-server-part)). **It is optional and off by default. Every new setting is optional and off by default: with `SENTINEL_HOOK_SERVER_URL` unset nothing is routed, nothing is read and nothing is sent, and the hooks behave exactly as before.** It needs `SENTINEL_HOOK_RESIDENT=on` and the [sign-in](#sign-in) settings. There is no new variable.
+With a server configured and the developer signed in, the resident process sends the events of the local audit to the server's `POST /ai-sentinel/events/ingest` (see [Events and the decision log](#events-and-the-decision-log-server-part)). **It is optional and off by default. Every new setting is optional and off by default: with no server configured (none of `SENTINEL_HOOK_SERVER_URL`, `SENTINEL_HOOK_OIDC_ISSUER` and `SENTINEL_HOOK_OIDC_CLIENT_ID` set) nothing is routed, nothing is read and nothing is sent, and the hooks behave exactly as before.** It needs `SENTINEL_HOOK_RESIDENT=on` and the [sign-in](#sign-in) settings. There is no new variable.
 
 - **The hooks send nothing.** They write the local SQLite audit as always. A call that may send events gets a tool kind and a node on each of its entries (columns `tool_kind` and `node`, schema version 6, not part of the hash chain). The resident process reads the audit from a cursor, `events-cursor.json` in its state folder, every 10 seconds, and posts batches in order. The cursor moves only after the server took a batch. A send that fails, for example while the server is away or the token cannot be renewed, is retried with a growing wait of up to 5 minutes. No decision waits for it or sees it.
 - **What an event holds.** `event_id`, `at`, `tool_kind`, `outcome`, `policies`, `policy_version`, `decided`, `node`, `cli`, `session`, `detector`, `severity`, `redactions` and, only with detailed logging, `reason`. Never the command, paths or tool input: the audit does not hold them. The event id is the id of the audit entry, a UUID, so a batch that is sent again carries the same ids and the server stores each once.
@@ -315,7 +315,7 @@ With a server configured and the developer signed in, the resident process sends
 
 ## Which policy applies
 
-The policy of a tool call comes from the node that owns the repository, not from the developer's team (ADR-232, ADR-246). `SENTINEL_HOOK_TEAM` does not exist. **Every new setting is optional and off by default: until a node map is cached in the state folder, which needs `SENTINEL_HOOK_RESIDENT=on` and an organisation's server, the policy input's `repository` and `node` stay empty and the hooks behave exactly as before.**
+The policy of a tool call comes from the node that owns the repository, not from the developer's team (ADR-232, ADR-246). `SENTINEL_HOOK_TEAM` does not exist. **Every new setting is optional and off by default: until a node map is cached in the state folder, which needs `SENTINEL_HOOK_RESIDENT=on` and an organisation's server, the policy input's `repository` and `node` stay empty. With no server configured the hooks then behave exactly as before; with a server configured and no node map, the [fail mode](#fail-mode) applies.**
 
 | Variable | Default | Values |
 |---|---|---|
@@ -331,7 +331,7 @@ The policy of a tool call comes from the node that owns the repository, not from
 
 ## Fail mode
 
-When no policy decision can be made for a call, the `fail_mode` of the profile decides (ADR-237). **Every new setting is optional and off by default: with no server configured there is no profile to miss and the hooks behave exactly as before.** A server is configured as soon as `SENTINEL_HOOK_SERVER_URL`, `SENTINEL_HOOK_OIDC_ISSUER` or `SENTINEL_HOOK_OIDC_CLIENT_ID` is set, also when the set ones cannot be used, so a typo in them does not turn the policy off. From then on both hooks read the signed profiles cached in the state folder on every `PreToolUse`. The resident process (`SENTINEL_HOOK_RESIDENT=on`) is what fetches them: without it no profile is ever cached, and every call that is not a read inside the repository is denied.
+When no policy decision can be made for a call, the `fail_mode` of the profile decides (ADR-237). **Every new setting is optional and off by default: with no server configured there is no profile to miss and the hooks behave exactly as before.** A server is configured as soon as `SENTINEL_HOOK_SERVER_URL`, `SENTINEL_HOOK_OIDC_ISSUER` or `SENTINEL_HOOK_OIDC_CLIENT_ID` is set, also when the set ones cannot be used, so a typo in them does not turn the policy off. From then on both hooks read the signed profiles cached in the state folder on every `PreToolUse`. The resident process (`SENTINEL_HOOK_RESIDENT=on`) is what fetches and refreshes them. Without it a profile cached earlier still judges calls until it expires, and then its `fail_mode` decides; with none cached, every call that is not a read inside the repository is denied.
 
 - **closed**, the default. The call is denied, and the reason says why no decision could be made and what the developer can do.
 - **ask**, when the node chooses it. The call gets the outcome ask, mapped for each CLI as in [Decision outcomes](#decision-outcomes): where the CLI cannot ask, or the run is headless, it becomes a deny with instructions. There is no mode that lets such a call through.

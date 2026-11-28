@@ -55,8 +55,9 @@ internal sealed record ResidentRequest
     [JsonPropertyName("repository")]
     public string? Repository { get; init; }
 
-    /// <summary>For <see cref="ResidentOps.EvaluateProfile"/>: the module hash of the profile the hook verified. A process that holds
-    /// another module for the repository does not answer, so the hook evaluates the one it verified.</summary>
+    /// <summary>For <see cref="ResidentOps.EvaluateProfile"/>: the <see cref="ProfileDecider.ModuleHashOf"/> of the module text of the
+    /// profile the hook verified. A process that holds another module for the repository does not answer, so the hook evaluates the one
+    /// it verified.</summary>
     [JsonPropertyName("module_hash")]
     public string? ModuleHash { get; init; }
 }

@@ -44,6 +44,14 @@ internal static class ProfileDecider
         return new ProfileDecision(Evaluate(state, verification.Profile!, inputJson, cacheDirectory, compilers), ProfileRejection.None);
     }
 
+    /// <summary>The identity of a module by its text, the lowercase hex sha256 of its UTF-8 bytes. The hook and the resident process
+    /// each compute it from the module they evaluate, so they agree on the module itself and never only on what a profile says.</summary>
+    public static string ModuleHashOf(string module)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(module)));
+    }
+
     /// <summary>Where the compiled forms of the profile modules of <paramref name="state"/> are kept, by the resident process and by a
     /// hook alike.</summary>
     public static string CompiledDirectory(ResidentState state)

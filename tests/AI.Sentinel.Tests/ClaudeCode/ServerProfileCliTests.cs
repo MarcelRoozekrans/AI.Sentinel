@@ -232,6 +232,19 @@ public class ServerProfileCliTests : IDisposable
 
     [Theory]
     [MemberData(nameof(Clis))]
+    public async Task An_expired_organisation_profile_that_asks_does_not_soften_a_missing_node_profile(string cli)
+    {
+        SignedIn(alphaModule: null, failMode: ProfileFailModes.Ask);
+        Store(CachedNodePolicies.OrganisationRepository, RegoPolicyTestSupport.Baseline, ProfileFailModes.Ask, DateTimeOffset.UtcNow - TimeSpan.FromDays(30));
+
+        var (outcome, text) = await RunAsync(cli, _alpha, "ls");
+
+        Assert.Equal("deny", outcome);
+        Assert.Contains("no policy profile", text, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [MemberData(nameof(Clis))]
     public async Task A_signed_in_pc_without_the_profile_of_its_repository_denies_with_the_fail_mode(string cli)
     {
         SignedIn(alphaModule: null);

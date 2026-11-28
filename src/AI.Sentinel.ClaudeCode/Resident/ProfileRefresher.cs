@@ -325,7 +325,7 @@ internal sealed class ProfileRefresher(
             return false;
         }
 
-        warm.InstallProfile(repository, policy, profile.ExpiresAt, profile.ModuleHash);
+        warm.InstallProfile(repository, policy, profile.ExpiresAt, ProfileDecider.ModuleHashOf(profile.Module));
         lock (_held)
         {
             _held[repository] = profile;
@@ -370,7 +370,7 @@ internal sealed class ProfileRefresher(
 
             try
             {
-                warm.InstallProfile(repository, warm.LoadProfileModule(state, verification.Profile!.Module), verification.Profile.ExpiresAt, verification.Profile.ModuleHash);
+                warm.InstallProfile(repository, warm.LoadProfileModule(state, verification.Profile!.Module), verification.Profile.ExpiresAt, ProfileDecider.ModuleHashOf(verification.Profile.Module));
                 lock (_held)
                 {
                     _held[repository] = verification.Profile;

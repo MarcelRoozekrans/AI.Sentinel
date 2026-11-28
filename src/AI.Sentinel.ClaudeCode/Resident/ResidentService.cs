@@ -28,7 +28,7 @@ internal sealed class ResidentService(
 
     /// <summary>Puts <paramref name="policy"/> in place of the warm module of <paramref name="repository"/>; the next decision uses it,
     /// and a decision running now finishes on the module it started with. The profile answers until <paramref name="expiresAt"/>, and
-    /// only a hook that names <paramref name="moduleHash"/>, the hash of the signed profile, or names none.</summary>
+    /// only a hook that names <paramref name="moduleHash"/>, the <see cref="ProfileDecider.ModuleHashOf"/> of its module text, or names none.</summary>
     public void InstallProfile(string repository, RegoPolicy policy, DateTimeOffset expiresAt, string? moduleHash = null)
     {
         ArgumentNullException.ThrowIfNull(policy);

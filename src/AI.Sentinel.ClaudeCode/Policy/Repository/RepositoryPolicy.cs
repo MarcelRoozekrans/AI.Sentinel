@@ -21,17 +21,25 @@ internal sealed class RepositoryPolicy(RepositoryScope scope, INodePolicies poli
 
     /// <summary>The decisions of the organisation's rules and of the node's bundle for <paramref name="inputJson"/>, the ones that
     /// have an opinion. The bundle of an unowned repository is never consulted, so strict mode gives the organisation's rules only.</summary>
-    public IReadOnlyList<OutcomeDecision> Decisions(string inputJson)
+    public IReadOnlyList<OutcomeDecision> Decisions(string inputJson) => Evaluate(inputJson).Decisions;
+
+    /// <summary>As <see cref="Decisions"/>, and whether a profile module failed while it ran. That ends the order (ADR-237): the
+    /// denial names that bundle, and no later bundle, and no local folder, is evaluated after it.</summary>
+    public (IReadOnlyList<OutcomeDecision> Decisions, bool BundleFailed) Evaluate(string inputJson)
     {
         ArgumentNullException.ThrowIfNull(inputJson);
         var decisions = new List<OutcomeDecision>(2);
-        Add(decisions, () => policies.Organisation(inputJson), OrganisationSource);
-        if (!Scope.Unowned)
+        if (!Add(decisions, () => policies.Organisation(inputJson), OrganisationSource))
         {
-            Add(decisions, () => policies.ForRepository(Scope.Repository, inputJson), NodeSourcePrefix + Scope.Node);
+            return (decisions, true);
         }
 
-        return decisions;
+        if (!Scope.Unowned && !Add(decisions, () => policies.ForRepository(Scope.Repository, inputJson), NodeSourcePrefix + Scope.Node))
+        {
+            return (decisions, true);
+        }
+
+        return (decisions, false);
     }
 
     /// <summary>The denial of a profile module that failed while it ran (ADR-237): by name, whatever the fail mode. The message of the
@@ -42,7 +50,8 @@ internal sealed class RepositoryPolicy(RepositoryScope scope, INodePolicies poli
             $"The policy bundle {source} failed while it ran, so this call is denied whatever the fail mode. Ask a policy owner to fix the bundle.",
             [source]);
 
-    private static void Add(List<OutcomeDecision> decisions, Func<RegoDecision?> decide, string source)
+    // False when the module failed while it ran: its denial is added and the order ends.
+    private static bool Add(List<OutcomeDecision> decisions, Func<RegoDecision?> decide, string source)
     {
         RegoDecision? decision;
         try
@@ -52,12 +61,14 @@ internal sealed class RepositoryPolicy(RepositoryScope scope, INodePolicies poli
         catch (PolicyBundleException)
         {
             decisions.Add(BundleError(source));
-            return;
+            return false;
         }
 
         if (decision is { Outcome: not DecisionOutcome.Defer })
         {
             decisions.Add(new OutcomeDecision(decision.Outcome, string.Join("; ", decision.Reasons), [decision.Refused is { } builtin ? "builtin:" + builtin : source]));
         }
+
+        return true;
     }
 }

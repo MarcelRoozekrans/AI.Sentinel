@@ -65,17 +65,20 @@ internal sealed record HookProfiles(RepositoryPolicy? Repository, FailModeContex
         RepositoryScope.Open(env, workingDirectory) is { } scope ? new RepositoryPolicy(scope, NoNodePolicies.Instance) : null;
 
     // The organisation's rules judge every call and the node's bundle the calls in the repositories it owns, so a profile of either that
-    // cannot be used leaves part of the policy out: that profile gives the fail mode. When both are usable the node's fail mode applies
-    // in its repositories, and the organisation's elsewhere.
+    // cannot be used leaves part of the policy out and gives the fail mode. When both cannot be used the stricter one decides: a closed
+    // context, such as a missing profile, wins over an expired profile that asks. When all are usable the node's fail mode applies in its
+    // repositories, and the organisation's elsewhere.
     private static FailModeContext FailModeOf(CachedNodePolicies policies, RepositoryScope scope)
     {
         var organisation = policies.Verification(CachedNodePolicies.OrganisationRepository);
-        if (scope.Unowned || organisation is not { IsAccepted: true })
+        ProfileVerification?[] required = scope.Unowned ? [organisation] : [organisation, policies.Verification(scope.Repository)];
+        var unusable = required.Where(v => v is not { IsAccepted: true }).Select(ContextOf).ToList();
+        if (unusable.Count > 0)
         {
-            return ContextOf(organisation);
+            return unusable.FirstOrDefault(c => !c.Asks) ?? unusable[0];
         }
 
-        return ContextOf(policies.Verification(scope.Repository));
+        return ContextOf(required[^1]);
     }
 
     private static FailModeContext ContextOf(ProfileVerification? verification) =>

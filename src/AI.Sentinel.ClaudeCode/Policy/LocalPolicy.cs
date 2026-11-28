@@ -190,14 +190,15 @@ internal sealed class LocalPolicy : IDisposable
             cli, toolName, toolInput, session, _findings, _repositoryRoot, _repository?.Scope.Repository ?? "", _repository?.Scope.Node ?? "");
         var json = PolicyInputSerializer.Serialize(input);
         var before = existing.Outcome ?? OutcomeDecision.FromHook(existing.Decision, existing.Reason, ChecksSource);
-        if (_bundleFailed)
+        // The organisation's rules and the node's bundle (#656) are combined with the local folder strictest-wins, so the folder
+        // can tighten what the profile sets and never loosen it. They come first: a profile module that failed while it ran denies by
+        // its name and ends the order, so the folder is not evaluated (#729); a folder that failed at load denies by its own name.
+        var (repository, profileFailed) = _repository?.Evaluate(json) ?? ([], false);
+        if (profileFailed || _bundleFailed)
         {
-            return OutcomeDecision.Strictest([before, BundleError()]).ToHookOutput(canAsk: true);
+            return OutcomeDecision.Strictest([before, .. profileFailed ? repository : [BundleError()]]).ToHookOutput(canAsk: true);
         }
 
-        // The organisation's rules and the node's bundle (#656) are combined with the local folder strictest-wins, so the folder
-        // can tighten what the profile sets and never loosen it.
-        var repository = _repository?.Decisions(json) ?? [];
         PolicyAnswer? answer;
         try
         {

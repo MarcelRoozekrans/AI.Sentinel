@@ -51,14 +51,37 @@ public class ResidentProfileEvaluationTests : IDisposable
         new(state, Pinned, "acme", () => DateTimeOffset.UtcNow, ProfileDecider.CompiledDirectory(state), RegoPolicyTestSupport.Compilers(new ChildProcessCompiler()), resident);
 
     [Fact]
-    public void The_resident_answer_is_used_and_names_the_module_hash_of_the_verified_profile()
+    public void The_resident_answer_is_used_and_names_the_hash_of_the_module_text_not_the_signed_field()
     {
         var resident = new FakeResidentProfiles(() => new RegoDecision(DecisionOutcome.Guidance, ["warm module"]));
 
         var decision = Policies(StoreBaseline(), resident).ForRepository(Repository, Input);
 
         Assert.Equal(["warm module"], decision!.Reasons);
-        Assert.Equal([(Repository, "sha256:baseline")], resident.Asked);
+        // The profile's module_hash field says sha256:baseline; the hook names the module it would evaluate itself.
+        Assert.Equal([(Repository, ProfileDecider.ModuleHashOf(RegoPolicyTestSupport.Baseline))], resident.Asked);
+    }
+
+    [Fact]
+    public void A_bundle_error_of_the_organisation_ends_the_order_before_the_node_and_the_folder()
+    {
+        var policies = new AI.Sentinel.Tests.ClaudeCode.Repository.RepositoryTestSupport.FakePolicies(
+            _ => throw new PolicyBundleException("organisation module failed"),
+            (_, _) => new RegoDecision(DecisionOutcome.Deny, ["node forbids it"]));
+        var folder = new FakePolicyEvaluator(OutcomeDecision.InProcess, () => new RegoDecision(DecisionOutcome.Deny, ["folder forbids it"]));
+        using var policy = LocalPolicy.ForEvaluators("v1", ["folder"], "/work/repo", [folder], FailModeTests.Profile(ProfileFailModes.Ask));
+        policy.RepositoryPolicy = new RepositoryPolicy(new RepositoryScope(Repository, "node-a", StrictMode: true), policies);
+
+        var (decisions, failed) = policy.RepositoryPolicy.Evaluate("{}");
+        var output = policy.Decide(new AI.Sentinel.ClaudeCode.HookOutput { Decision = AI.Sentinel.ClaudeCode.HookDecision.Allow }, PolicyClis.ClaudeCode, "Bash",
+            System.Text.Json.JsonDocument.Parse("""{"command":"ls"}""").RootElement, "s");
+
+        Assert.True(failed);
+        Assert.Equal(["organisation"], Assert.Single(decisions).Sources);
+        Assert.Equal(DecisionOutcome.Deny, output.Outcome!.Outcome);
+        Assert.Equal(["organisation"], output.Outcome.Sources);
+        Assert.Equal(2, policies.Calls);
+        Assert.Equal(0, folder.Calls);
     }
 
     [Fact]

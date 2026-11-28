@@ -48,7 +48,7 @@ internal sealed class CachedNodePolicies(
             return null;
         }
 
-        return resident?.Evaluate(repository, profile.ModuleHash, inputJson)
+        return resident?.Evaluate(repository, ProfileDecider.ModuleHashOf(profile.Module), inputJson)
             ?? ProfileDecider.Evaluate(state, profile, inputJson, cacheDirectory, compilers);
     }
 }

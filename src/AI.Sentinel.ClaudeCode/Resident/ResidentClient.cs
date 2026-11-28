@@ -39,7 +39,8 @@ internal sealed class ResidentClient(ResidentSettings settings)
     /// when no answer came within the budget, or the process holds no usable profile for the repository, or holds one with another module
     /// than <paramref name="moduleHash"/>; the hook then evaluates the cached profile in-process, so the decision is the same.</summary>
     /// <param name="repository">The repository the profile is for, or <c>*</c> for the organisation's top-level rules.</param>
-    /// <param name="moduleHash">The module hash of the profile the hook verified; the process answers only with that module.</param>
+    /// <param name="moduleHash">The <see cref="ProfileDecider.ModuleHashOf"/> of the module the hook verified; the process answers only
+    /// with that module.</param>
     /// <param name="inputJson">The policy input.</param>
     /// <param name="budget">How long to wait; <see cref="ResidentSettings.Budget"/> when <see langword="null"/>.</param>
     /// <exception cref="Policy.Rego.PolicyBundleException">The module failed while it ran in the process.</exception>
