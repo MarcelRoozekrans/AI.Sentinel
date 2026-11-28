@@ -250,7 +250,7 @@ internal sealed class EventForwarder(
             return new Start(0, false, null, null, null) { Stop = new ForwardResult(0, 0, Failed: true) };
         }
 
-        var (position, gap) = IsBoundHere(stored, org) ? Replaced(probe, file) : Skipped(probe, file, skipped ?? 0, known: skipped is not null);
+        var (position, gap) = IsBoundHere(stored, org) ? Replaced(probe, file) : Skipped(probe, file, skipped ?? 0, known: skipped is not null, stored.Gap);
         return TryStore(position, org, gap) ? new Start(position.Sequence, true, file, gap, position.Hash) : null;
     }
 
@@ -299,9 +299,15 @@ internal sealed class EventForwarder(
     }
 
     /// <summary>Skips what the cursor has not sent: <paramref name="skipped"/> entries, or, not <paramref name="known"/>, an unknown number
-    /// in another audit file.</summary>
-    private (Position, EventGap?) Skipped(AuditPage probe, string file, long skipped, bool known)
+    /// in another audit file. A gap the cursor still keeps was taken by no server yet and is the only record of its entries, so it is
+    /// carried into the gap of the skip instead of dropped.</summary>
+    private (Position, EventGap?) Skipped(AuditPage probe, string file, long skipped, bool known, EventGap? pending)
     {
+        if (pending is not null)
+        {
+            (skipped, known) = (skipped + (pending.Pruned ?? 0), known && pending.Pruned is not null);
+        }
+
         var position = new Position(probe.LastAssigned, null, file);
         if (known && skipped == 0)
         {

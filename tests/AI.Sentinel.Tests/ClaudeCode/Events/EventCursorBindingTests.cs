@@ -157,6 +157,27 @@ public sealed class EventCursorBindingTests : IDisposable
     }
 
     [Fact]
+    public async Task A_stored_gap_that_the_old_server_refused_goes_to_the_new_one_with_the_skip()
+    {
+        await AppendAsync(1);
+        await To(_a, ServerA).ForwardAsync(CancellationToken.None);
+        await AppendAsync(2);
+        await ExecuteAsync("DELETE FROM audit_entries;");
+        _a.Status = System.Net.HttpStatusCode.ServiceUnavailable;
+        Assert.True((await To(_a, ServerA).ForwardAsync(CancellationToken.None)).Failed);
+        Assert.NotNull(new EventCursor(_dir).ReadContent()!.Gap);
+        await AppendAsync(1);
+        await ExecuteAsync("UPDATE audit_entries SET tool_kind = NULL;");
+
+        await To(_b, ServerB).ForwardAsync(CancellationToken.None);
+
+        var gap = Gap(Assert.Single(_b.Batches));
+        Assert.Equal(2, gap.GetProperty("pruned").GetInt32());
+        Assert.Equal("server_change", gap.GetProperty("cause").GetString());
+        Assert.Null(new EventCursor(_dir).ReadContent()!.Gap);
+    }
+
+    [Fact]
     public async Task A_server_change_with_nothing_unsent_reports_no_gap()
     {
         await AppendAsync(2);
