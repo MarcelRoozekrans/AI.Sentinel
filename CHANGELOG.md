@@ -9,6 +9,13 @@ Subsequent entries are generated automatically by
 [release-please](https://github.com/googleapis/release-please) from
 [Conventional Commits](https://www.conventionalcommits.org/).
 
+## [6.9.2](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.9.1...v6.9.2) (2026-11-28)
+
+
+### Bug Fixes
+
+* **hooks:** apply the server's signed profiles and the fail mode in both hook CLIs ([#730](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/730)) ([47d800d](https://github.com/MarcelRoozekrans/AI.Sentinel/commit/47d800d8708ffc21f42caeef5f7e7275d6a4407e)), closes [#729](https://github.com/MarcelRoozekrans/AI.Sentinel/issues/729)
+
 ## [6.9.1](https://github.com/MarcelRoozekrans/AI.Sentinel/compare/v6.9.0...v6.9.1) (2026-11-27)
 
 
