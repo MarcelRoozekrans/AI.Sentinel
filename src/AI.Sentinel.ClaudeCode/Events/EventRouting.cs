@@ -27,12 +27,13 @@ internal static class EventRouting
 
         try
         {
-            if (RepositoryPolicy.Open(env, workingDirectory) is not { Scope.SendsEvents: true } policy)
+            // Only the repository and its node are needed here, not the profiles that judge the call.
+            if (RepositoryScope.Open(env, workingDirectory) is not { SendsEvents: true } scope)
             {
                 return null;
             }
 
-            return (ToolKinds.Map(cli, toolName).ToWire(), policy.Scope.Unowned ? null : policy.Scope.Node);
+            return (ToolKinds.Map(cli, toolName).ToWire(), scope.Unowned ? null : scope.Node);
         }
         catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
         {

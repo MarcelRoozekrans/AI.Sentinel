@@ -476,15 +476,15 @@ public class RepositoryNodePolicyTests : IDisposable
     {
         var repo = RepositoryTestSupport.Repo(_root, "a", "https://github.com/acme/alpha.git");
         var env = new Dictionary<string, string?>(StringComparer.Ordinal) { [ResidentSettings.EnableVariable] = "on", [ResidentSettings.DirectoryVariable] = _state };
-        Assert.Null(RepositoryPolicy.Open(env, repo));
+        Assert.Null(HookProfiles.Open(env, repo, resident: null, compilers: null).Repository);
 
         ResidentState.Open(ResidentSettings.FromEnvironment(env)!).WriteNodeMap(new NodeMap([new("github.com/acme/alpha", "node-a")]));
-        var opened = RepositoryPolicy.Open(env, repo)!;
+        var opened = HookProfiles.Open(env, repo, resident: null, compilers: null).Repository!;
 
         Assert.Equal("node-a", opened.Scope.Node);
         Assert.Equal("github.com/acme/alpha", opened.Scope.Repository);
         File.WriteAllText(Path.Combine(ResidentPaths.Directory(ResidentSettings.FromEnvironment(env)!), ResidentState.NodesFile), "not a map");
-        Assert.Throws<InvalidDataException>(() => RepositoryPolicy.Open(env, repo));
+        Assert.Throws<InvalidDataException>(() => HookProfiles.Open(env, repo, resident: null, compilers: null).Repository);
     }
 
     [Fact]
@@ -496,7 +496,7 @@ public class RepositoryNodePolicyTests : IDisposable
         ResidentState.Open(settings);
         Directory.CreateDirectory(Path.Combine(ResidentPaths.Directory(settings), ResidentState.NodesFile));
 
-        Assert.Throws<InvalidDataException>(() => RepositoryPolicy.Open(env, repo));
+        Assert.Throws<InvalidDataException>(() => HookProfiles.Open(env, repo, resident: null, compilers: null).Repository);
     }
 
     [Fact]
@@ -561,7 +561,7 @@ public class RepositoryNodePolicyTests : IDisposable
     {
         var env = new Dictionary<string, string?>(StringComparer.Ordinal);
 
-        Assert.Null(RepositoryPolicy.Open(env, _root));
+        Assert.Null(HookProfiles.Open(env, _root, resident: null, compilers: null).Repository);
     }
 
     private static bool CanRead(string file)

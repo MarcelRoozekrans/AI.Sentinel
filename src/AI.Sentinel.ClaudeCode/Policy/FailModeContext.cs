@@ -3,9 +3,9 @@ using AI.Sentinel.Profiles;
 namespace AI.Sentinel.ClaudeCode.Policy;
 
 /// <summary>
-/// What a hook knows about its profile when it has to say what a call that no decision can be made for gets (#673). The profile comes
-/// with sign-in and the pinned keys (#659), so nothing builds one from a setting yet: a hook runs without one, as it did before, and
-/// the one that builds it from the cached profile passes it to <see cref="LocalPolicy.Load"/> and <see cref="FailModeGate"/>.
+/// What a hook knows about its profile when it has to say what a call that no decision can be made for gets (#673). Both hook CLIs
+/// build it with <see cref="Repository.HookProfiles.Open"/> from the profiles cached with the keys pinned at sign-in (#729), and pass it
+/// to <see cref="LocalPolicy.Load"/> and <see cref="FailModeGate"/>. Without a server configured there is none, and nothing changes.
 /// </summary>
 /// <param name="ServerConfigured">A server is configured, so a profile is expected. Without one there is no profile to miss.</param>
 /// <param name="ProfileUsable">A valid, unexpired profile is cached, so the policy decides and the fail mode only covers an evaluation
@@ -22,6 +22,15 @@ internal sealed record FailModeContext(bool ServerConfigured, bool ProfileUsable
     /// <summary>A server is configured and nothing is cached, which includes a developer who has not signed in yet.</summary>
     public static FailModeContext NotSignedIn { get; } =
         new(true, false, null, "you are not signed in to the AI.Sentinel server, so there is no policy profile for this repository", NeedsSignIn: true);
+
+    /// <summary>The developer signed in, and the profile the call needs is not cached yet: the resident process has not fetched it.</summary>
+    public static FailModeContext NoProfile { get; } =
+        new(true, false, null, "no policy profile for this repository is cached yet");
+
+    /// <summary>The developer signed in, and the map of which node owns which repository is not cached yet, so the profile that applies
+    /// is not known.</summary>
+    public static FailModeContext NoNodeMap { get; } =
+        new(true, false, null, "the map of which node owns which repository is not cached yet, so the policy profile that applies is not known");
 
     /// <summary>True when the developer is asked instead of the call being denied.</summary>
     public bool Asks => string.Equals(FailMode, ProfileFailModes.Ask, StringComparison.Ordinal);

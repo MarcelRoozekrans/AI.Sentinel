@@ -68,23 +68,17 @@ internal sealed class LocalPolicy : IDisposable
     /// <param name="resident">The resident process (#658), which is asked first for every evaluation and keeps the module warm; the
     /// module is then loaded in this process only when it does not answer in time. <see langword="null"/> when the resident
     /// process is not turned on, and then the module is loaded here, as before.</param>
+    /// <param name="profiles">The server's profiles of this call (#729); opened here when <see langword="null"/>.</param>
     public static LocalPolicy Load(
         string folder, IReadOnlyDictionary<string, string?> env, string? repositoryRoot = null, IReadOnlyList<IRegoCompiler>? compilers = null,
-        ResidentSession? resident = null, FailModeContext? failMode = null)
+        ResidentSession? resident = null, FailModeContext? failMode = null, Repository.HookProfiles? profiles = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(folder);
         ArgumentNullException.ThrowIfNull(env);
         var cache = PolicyCache.DefaultDirectory(env);
         var root = repositoryRoot ?? Directory.GetCurrentDirectory();
-        // A state folder that is not private is not used: the socket and the node map in it could be another user's. The hooks fail
-        // closed, so the load fails and the caller blocks the call.
-        if (resident?.Start == ResidentStart.Unusable)
-        {
-            throw new UnauthorizedAccessException(
-                $"the resident state folder '{resident.Settings.StateDirectory}' and its .private sibling are open to other users, so the hook cannot use them; make the folder private to you");
-        }
-
-        var repository = Repository.RepositoryPolicy.Open(env, root);
+        resident?.ThrowIfUnusable();
+        var repository = (profiles ?? Repository.HookProfiles.Open(env, root, resident, compilers)).Repository;
         // Only a process that already ran is asked: a hook that started one, or failed to, does not wait for it and decides this call
         // in-process.
         if (resident is null || resident.Start != ResidentStart.AlreadyRunning)
@@ -98,7 +92,7 @@ internal sealed class LocalPolicy : IDisposable
         // the resident process has it, and this process loads it only when that does not answer.
         var sources = PolicySources.Load(folder);
         var inProcess = new InProcessPolicyEvaluator(() => LoadRecorded(folder, cache, compilers, sources.Version));
-        var residentEvaluator = new ResidentPolicyEvaluator(resident.Client, Path.GetFullPath(folder), sources.Version, Path.GetFullPath(cache));
+        var residentEvaluator = new ResidentPolicyEvaluator(resident.Client, Path.GetFullPath(folder), sources.Version, Path.GetFullPath(cache), resident.Budget);
         var local = new LocalPolicy(sources.Version, sources.Bundles, root, new EvaluationOrder([residentEvaluator, inProcess]), inProcess, failMode);
         local._repository = repository;
         try
@@ -120,17 +114,19 @@ internal sealed class LocalPolicy : IDisposable
     public const string RepositoryOnlyName = "repository policy";
 
     /// <summary>The policy of a PC that has a cached node map and no policy folder (#656): only the organisation's rules and the
-    /// node's bundle of the repository judge a call, with no folder policy next to them. <see langword="null"/> when no node map is
-    /// cached, and then the hook does what it did before. It evaluates no module, so it always has an answer and the fail mode
-    /// never applies to it.</summary>
+    /// node's bundle of the repository judge a call, with no folder policy next to them. <see langword="null"/> when no repository
+    /// policy is resolved, and then the hook does what it did before. It has no folder module, so it always has an answer: a profile
+    /// module that fails while it runs is denied by name in the repository policy, and a profile that is missing or unusable is left to
+    /// the fail mode the hook applies next to it.</summary>
     /// <param name="env">The <c>SENTINEL_HOOK_</c> settings.</param>
     /// <param name="repositoryRoot">The working directory of the hook; the current directory when <see langword="null"/>.</param>
+    /// <param name="profiles">The server's profiles of this call (#729); opened here, with no resident process, when <see langword="null"/>.</param>
     /// <exception cref="InvalidDataException">The cached node map cannot be read; the caller blocks the call.</exception>
-    public static LocalPolicy? LoadRepositoryOnly(IReadOnlyDictionary<string, string?> env, string? repositoryRoot = null)
+    public static LocalPolicy? LoadRepositoryOnly(IReadOnlyDictionary<string, string?> env, string? repositoryRoot = null, Repository.HookProfiles? profiles = null)
     {
         ArgumentNullException.ThrowIfNull(env);
         var root = repositoryRoot ?? Directory.GetCurrentDirectory();
-        return Repository.RepositoryPolicy.Open(env, root) is { } repository
+        return (profiles ?? Repository.HookProfiles.Open(env, root, resident: null, compilers: null)).Repository is { } repository
             ? new LocalPolicy("repository", [], root, new EvaluationOrder([]), inProcess: null, failMode: null) { _repository = repository, _folderless = true }
             : null;
     }

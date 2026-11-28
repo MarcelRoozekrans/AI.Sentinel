@@ -19,16 +19,17 @@ internal sealed class ResidentService(
     internal Action? AfterPauseCheck { get; set; }
 
     private readonly List<(string Folder, RegoPolicy Policy)> _loaded = [];
-    private readonly Dictionary<string, (RegoPolicy Policy, DateTimeOffset ExpiresAt)> _profiles = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, (RegoPolicy Policy, DateTimeOffset ExpiresAt, string? ModuleHash)> _profiles = new(StringComparer.Ordinal);
 
     /// <summary>Loads the policy module of a profile, outside the gate, so a slow compile never holds up an answer. The module goes
     /// into a folder named by its hash, as <see cref="ProfileDecider"/> keeps it.</summary>
     public RegoPolicy LoadProfileModule(ResidentState state, string module) =>
-        RegoPolicy.Load(ProfileDecider.ModuleFolder(state, module), Path.Combine(state.Directory, "compiled"), compilers);
+        RegoPolicy.Load(ProfileDecider.ModuleFolder(state, module), ProfileDecider.CompiledDirectory(state), compilers);
 
     /// <summary>Puts <paramref name="policy"/> in place of the warm module of <paramref name="repository"/>; the next decision uses it,
-    /// and a decision running now finishes on the module it started with. The profile answers until <paramref name="expiresAt"/>.</summary>
-    public void InstallProfile(string repository, RegoPolicy policy, DateTimeOffset expiresAt)
+    /// and a decision running now finishes on the module it started with. The profile answers until <paramref name="expiresAt"/>, and
+    /// only a hook that names <paramref name="moduleHash"/>, the hash of the signed profile, or names none.</summary>
+    public void InstallProfile(string repository, RegoPolicy policy, DateTimeOffset expiresAt, string? moduleHash = null)
     {
         ArgumentNullException.ThrowIfNull(policy);
         lock (_gate)
@@ -38,7 +39,7 @@ internal sealed class ResidentService(
                 old.Policy.Dispose();
             }
 
-            _profiles[repository] = (policy, expiresAt);
+            _profiles[repository] = (policy, expiresAt, moduleHash);
         }
     }
 
@@ -174,8 +175,15 @@ internal sealed class ResidentService(
             }
 
             // An expired profile is not used, as ProfileDecider and the cache do not use one; the caller falls back to its fail mode.
-            return (time ?? TimeProvider.System).GetUtcNow() >= held.ExpiresAt
-                ? new ResidentResponse { Error = "the profile held for the repository has expired" }
+            if ((time ?? TimeProvider.System).GetUtcNow() >= held.ExpiresAt)
+            {
+                return new ResidentResponse { Error = "the profile held for the repository has expired" };
+            }
+
+            // The hook verified a profile with this module. Another one is no answer, so the hook evaluates the one it verified and the
+            // decision does not depend on whether this process answered (#729).
+            return !string.IsNullOrEmpty(request.ModuleHash) && !string.Equals(request.ModuleHash, held.ModuleHash, StringComparison.Ordinal)
+                ? new ResidentResponse { Error = "the profile held for the repository has another module" }
                 : Evaluated(held.Policy, request.Input);
         }
     }
@@ -268,7 +276,7 @@ internal sealed class ResidentService(
             }
 
             _loaded.Clear();
-            foreach (var (policy, _) in _profiles.Values)
+            foreach (var (policy, _, _) in _profiles.Values)
             {
                 policy.Dispose();
             }

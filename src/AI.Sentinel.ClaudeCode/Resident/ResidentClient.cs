@@ -23,16 +23,39 @@ internal sealed class ResidentClient(ResidentSettings settings)
     /// <param name="inputJson">The policy input.</param>
     /// <param name="budget">How long to wait; <see cref="ResidentSettings.Budget"/> when <see langword="null"/>.</param>
     /// <exception cref="Policy.Rego.PolicyBundleException">The bundle failed while it ran in the process.</exception>
-    public Policy.Rego.RegoDecision? Evaluate(string folder, string version, string cacheDirectory, string inputJson, TimeSpan? budget = null)
+    public Policy.Rego.RegoDecision? Evaluate(string folder, string version, string cacheDirectory, string inputJson, TimeSpan? budget = null) =>
+        Exchange(
+            new ResidentRequest
+            {
+                Op = ResidentOps.Evaluate,
+                Folder = folder,
+                Version = version,
+                CacheDirectory = cacheDirectory,
+                Input = inputJson,
+            },
+            budget);
+
+    /// <summary>Asks the process to evaluate the warm module of the profile of <paramref name="repository"/> (#729). <see langword="null"/>
+    /// when no answer came within the budget, or the process holds no usable profile for the repository, or holds one with another module
+    /// than <paramref name="moduleHash"/>; the hook then evaluates the cached profile in-process, so the decision is the same.</summary>
+    /// <param name="repository">The repository the profile is for, or <c>*</c> for the organisation's top-level rules.</param>
+    /// <param name="moduleHash">The module hash of the profile the hook verified; the process answers only with that module.</param>
+    /// <param name="inputJson">The policy input.</param>
+    /// <param name="budget">How long to wait; <see cref="ResidentSettings.Budget"/> when <see langword="null"/>.</param>
+    /// <exception cref="Policy.Rego.PolicyBundleException">The module failed while it ran in the process.</exception>
+    public Policy.Rego.RegoDecision? EvaluateProfile(string repository, string moduleHash, string inputJson, TimeSpan? budget = null) =>
+        Exchange(
+            new ResidentRequest
+            {
+                Op = ResidentOps.EvaluateProfile,
+                Repository = repository,
+                ModuleHash = moduleHash,
+                Input = inputJson,
+            },
+            budget);
+
+    private Policy.Rego.RegoDecision? Exchange(ResidentRequest request, TimeSpan? budget)
     {
-        var request = new ResidentRequest
-        {
-            Op = ResidentOps.Evaluate,
-            Folder = folder,
-            Version = version,
-            CacheDirectory = cacheDirectory,
-            Input = inputJson,
-        };
         var wait = budget ?? Settings.Budget;
         if (wait <= TimeSpan.Zero)
         {
