@@ -12,7 +12,7 @@
     <!-- The policy and inputs are read from disk at run time, next to the executable. -->
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Wasmtime" Version="48.0.2" />
+    <PackageReference Include="Wasmtime" Version="50.0.1" />
     <PackageReference Include="Rego" Version="1.5.1" />
   </ItemGroup>
   <!-- The interop compiler ships an x64 assembly and native library for linux-x64 and win-x64 only. On any
