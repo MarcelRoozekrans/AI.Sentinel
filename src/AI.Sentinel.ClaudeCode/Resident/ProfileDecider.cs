@@ -8,7 +8,7 @@ namespace AI.Sentinel.ClaudeCode.Resident;
 /// <summary>
 /// Evaluates a call against the policy module of the last valid signed profile in the state folder, with no network. This is what
 /// keeps a deny rule of the organisation in force while the server cannot be reached. A profile that fails its check, has expired, or
-/// names another organisation or repository is not used; what the hook does without one is a later decision, not made here.
+/// names another organisation or repository is not used; the hook then applies the fail mode, see <see cref="Policy.Repository.HookProfiles"/>.
 /// </summary>
 internal static class ProfileDecider
 {
@@ -41,8 +41,43 @@ internal static class ProfileDecider
             return new ProfileDecision(null, verification.Rejection);
         }
 
-        using var module = RegoPolicy.Load(ModuleFolder(state, verification.Profile!.Module), cacheDirectory, compilers);
-        return new ProfileDecision(module.Evaluate(inputJson), ProfileRejection.None);
+        return new ProfileDecision(Evaluate(state, verification.Profile!, inputJson, cacheDirectory, compilers), ProfileRejection.None);
+    }
+
+    /// <summary>The identity of a module by its text, the lowercase hex sha256 of its UTF-8 bytes. The hook and the resident process
+    /// each compute it from the module they evaluate, so they agree on the module itself and never only on what a profile says.</summary>
+    public static string ModuleHashOf(string module)
+    {
+        ArgumentNullException.ThrowIfNull(module);
+        return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(module)));
+    }
+
+    /// <summary>Where the compiled forms of the profile modules of <paramref name="state"/> are kept, by the resident process and by a
+    /// hook alike.</summary>
+    public static string CompiledDirectory(ResidentState state)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        return Path.Combine(state.Directory, "compiled");
+    }
+
+    /// <summary>The decision of the module of <paramref name="profile"/>, a profile that passed its check, loaded in this process.</summary>
+    /// <exception cref="PolicyBundleException">The module loaded and failed while it ran; the hook denies that by name (ADR-237). A module
+    /// that does not load throws what the load threw, and the hook blocks the call as an internal error.</exception>
+    public static RegoDecision Evaluate(ResidentState state, PolicyProfile profile, string inputJson, string cacheDirectory, IReadOnlyList<IRegoCompiler>? compilers)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(profile);
+        using var module = RegoPolicy.Load(ModuleFolder(state, profile.Module), cacheDirectory, compilers);
+        try
+        {
+            return module.Evaluate(inputJson);
+        }
+#pragma warning disable CA1031 // Any failure of the run is the module's; its message stays out of the reason, it may echo the input.
+        catch (Exception e)
+#pragma warning restore CA1031
+        {
+            throw new PolicyBundleException($"the policy module of the profile failed while it ran ({e.GetType().Name})", e);
+        }
     }
 
     private static bool IsModule(string folder, string module)

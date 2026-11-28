@@ -15,6 +15,7 @@ using AI.Sentinel.Sqlite.Local;
 using AI.Sentinel.ClaudeCode;
 using AI.Sentinel.ClaudeCode.Policy;
 using AI.Sentinel.ClaudeCode.Policy.Rego;
+using AI.Sentinel.ClaudeCode.Policy.Repository;
 using AI.Sentinel.ClaudeCode.Resident;
 using AI.Sentinel.ClaudeCode.SignIn;
 using AI.Sentinel.Copilot;
@@ -135,7 +136,7 @@ public static class Program
         }
 
         // A local Rego policy (SENTINEL_HOOK_POLICY_DIR) judges a PreToolUse; one that cannot be loaded blocks the call.
-        var (policy, resident, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, policyCompilers, residentStart, failMode, config, audit, auditProblems, stderr).ConfigureAwait(false);
+        var (policy, resident, callFailMode, blocked) = await OpenPolicyAsync(args, evt, input, hookEnv, policyCompilers, residentStart, failMode, config, audit, auditProblems, stderr).ConfigureAwait(false);
         if (blocked is { } blockedExit) return blockedExit;
         using var policyScope = policy;
         CopilotHookResult result;
@@ -145,7 +146,7 @@ public static class Program
         {
             (result, semanticWarning) = await EvaluateAsync(
                 evt, input, WithFindingSink(config, policy), hookEnv, approvalConfig, audit, approvalWarnings, stderr, embeddingGenerator, reviewer).ConfigureAwait(false);
-            result = result with { Output = DecideWithPolicy(policy, resident, evt == CopilotHookEvent.PreToolUse ? failMode : null, result.Output, input) };
+            result = result with { Output = DecideWithPolicy(policy, resident, evt == CopilotHookEvent.PreToolUse ? callFailMode : null, result.Output, input) };
         }
         catch (Exception ex) when (evt == CopilotHookEvent.PreToolUse)
         {
@@ -404,49 +405,53 @@ public static class Program
         policy is null ? config : config with { FindingSink = policy.FindingSink, SeverityOutcomes = policy.Severities() };
 
     /// <summary>Loads the policy, see <see cref="TryLoadPolicy"/>. One that cannot be loaded blocks the call as an internal
-    /// error, and its exit code is returned; running without it would skip every rule it holds.</summary>
-    private static async Task<(LocalPolicy? Policy, ResidentSession? Resident, int? Exit)> OpenPolicyAsync(
+    /// error, and its exit code is returned; running without it would skip every rule it holds. The fail mode of the call comes back with
+    /// it: <paramref name="failMode"/> when one is handed in, else the one of the server's profiles (#729).</summary>
+    private static async Task<(LocalPolicy? Policy, ResidentSession? Resident, FailModeContext? FailMode, int? Exit)> OpenPolicyAsync(
         string[] args, CopilotHookEvent evt, CopilotHookInput input, IReadOnlyDictionary<string, string?> hookEnv, IReadOnlyList<IRegoCompiler>? compilers, Func<ResidentLaunch, bool>? residentStart, FailModeContext? failMode, CopilotHookConfig config,
         LocalAuditSession audit, List<string> auditProblems, TextWriter stderr)
     {
         // With SENTINEL_HOOK_RESIDENT=on a hook that finds no resident process starts one, detached, and goes on in-process.
         var resident = evt == CopilotHookEvent.PreToolUse ? ResidentSession.Open(hookEnv, residentStart) : null;
-        var (policy, folder, error) = TryLoadPolicy(evt, hookEnv, compilers, resident, failMode);
+        var (policy, callFailMode, folder, error) = TryLoadPolicy(evt, hookEnv, compilers, resident, failMode);
         if (error is null)
         {
-            return (policy, resident, null);
+            return (policy, resident, callFailMode, null);
         }
 
         var exit = await BlockOnInternalErrorAsync(
             args, input.ToolName, input.SessionId, HookInternalError.PolicyReason(folder!, error),
             audit, auditProblems, config.Verbose, stderr).ConfigureAwait(false);
-        return (null, resident, exit);
+        return (null, resident, callFailMode, exit);
     }
 
     /// <summary>Loads the policy folder when the event is preToolUse and <c>SENTINEL_HOOK_POLICY_DIR</c> is set; all null
     /// otherwise. A failure of any kind, an unreadable folder, a policy that does not compile or use a refused builtin, or a
     /// platform without the Wasmtime library, is returned rather than thrown, so the caller blocks.</summary>
-    private static (LocalPolicy? Policy, string? Folder, Exception? Error) TryLoadPolicy(
+    private static (LocalPolicy? Policy, FailModeContext? FailMode, string? Folder, Exception? Error) TryLoadPolicy(
         CopilotHookEvent evt, IReadOnlyDictionary<string, string?> env, IReadOnlyList<IRegoCompiler>? compilers, ResidentSession? resident, FailModeContext? failMode)
     {
         if (evt != CopilotHookEvent.PreToolUse)
         {
-            return (null, null, null);
+            return (null, failMode, null, null);
         }
 
         // Without a policy folder a cached node map still gives the repository its policy (#656); with neither, nothing is loaded.
         var folder = LocalPolicy.FolderFrom(env);
         try
         {
+            // The server's profiles judge the call next to the folder, and give the fail mode (#729). Without a server nothing changes.
+            var profiles = HookProfiles.Open(env, Directory.GetCurrentDirectory(), resident, compilers);
+            failMode ??= profiles.FailMode;
             return folder is null
-                ? (LocalPolicy.LoadRepositoryOnly(env), LocalPolicy.RepositoryOnlyName, null)
-                : (LocalPolicy.Load(folder, env, compilers: compilers, resident: resident, failMode: failMode), folder, null);
+                ? (LocalPolicy.LoadRepositoryOnly(env, profiles: profiles), failMode, LocalPolicy.RepositoryOnlyName, null)
+                : (LocalPolicy.Load(folder, env, compilers: compilers, resident: resident, failMode: failMode, profiles: profiles), failMode, folder, null);
         }
 #pragma warning disable CA1031 // Every load failure is reported; on preToolUse it blocks the call.
         catch (Exception ex)
 #pragma warning restore CA1031
         {
-            return (null, folder ?? LocalPolicy.RepositoryOnlyName, ex);
+            return (null, failMode, folder ?? LocalPolicy.RepositoryOnlyName, ex);
         }
     }
 

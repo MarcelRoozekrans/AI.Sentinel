@@ -25,7 +25,7 @@ internal static class SessionStartCommand
         string? notice;
         try
         {
-            notice = RepositoryPolicy.Open(env, workingDirectory)?.Scope.Notice();
+            notice = RepositoryScope.Open(env, workingDirectory)?.Notice();
         }
         catch (InvalidDataException e)
         {

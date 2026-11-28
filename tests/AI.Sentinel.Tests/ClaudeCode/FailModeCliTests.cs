@@ -7,8 +7,8 @@ using CopilotProgram = AI.Sentinel.Copilot.Cli.Program;
 
 namespace AI.Sentinel.Tests.ClaudeCode;
 
-/// <summary>The fail mode of #673 through both hook CLIs. The context a hook builds from its profile and its sign-in comes with #659, so
-/// the tests hand it in, as that wiring will.</summary>
+/// <summary>The fail mode of #673 through both hook CLIs, with the context handed in, as a test may. The context the hooks build from
+/// the signed profiles in the state folder (#729) is tested end to end in <see cref="ServerProfileCliTests"/>.</summary>
 [Collection("NonParallel")]
 public class FailModeCliTests : IDisposable
 {

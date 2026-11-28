@@ -4,9 +4,9 @@ namespace AI.Sentinel.ClaudeCode.Policy.Repository;
 
 /// <summary>
 /// The policy that applies to a call is the policy of the node that owns the repository, not of the developer's team (ADR-232,
-/// ADR-246). This resolves the repository of the working directory and its node, fills the policy input with them, and judges the
-/// call by the organisation's top-level rules and, unless the repository is in strict mode, the node's bundle. Every decision is
-/// combined with the others strictest-wins, so a bundle can only tighten what the organisation set.
+/// ADR-246). <see cref="HookProfiles.Open"/> resolves the repository of the working directory and its node, which fill the policy
+/// input, and this judges the call by the organisation's top-level rules and, unless no node owns the repository, the node's bundle.
+/// Every decision is combined with the others strictest-wins, so a bundle can only tighten what the organisation set.
 /// </summary>
 internal sealed class RepositoryPolicy(RepositoryScope scope, INodePolicies policies)
 {
@@ -19,44 +19,56 @@ internal sealed class RepositoryPolicy(RepositoryScope scope, INodePolicies poli
     /// <summary>Where and by whom the calls of this process run.</summary>
     public RepositoryScope Scope { get; } = scope;
 
-    /// <summary>The repository policy when a node map is cached, or <see langword="null"/> and then nothing is resolved and the
-    /// input names no repository, as before. A cached map is only written once the PC has a server, so without one nothing changes.
-    /// Strict repository mode is on unless <see cref="RepositoryScope.StrictVariable"/> switches it off.</summary>
-    /// <param name="env">The <c>SENTINEL_HOOK_</c> settings.</param>
-    /// <param name="workingDirectory">The working directory of the hook.</param>
-    /// <exception cref="InvalidDataException">The cached map cannot be read; the hook blocks the call.</exception>
-    public static RepositoryPolicy? Open(IReadOnlyDictionary<string, string?> env, string workingDirectory)
-    {
-        ArgumentNullException.ThrowIfNull(env);
-        if (Resident.ResidentSettings.FromEnvironment(env) is not { } settings
-            || Resident.ResidentState.Open(settings).ReadNodeMap() is not { } map)
-        {
-            return null;
-        }
-
-        return new RepositoryPolicy(RepositoryScope.Resolve(workingDirectory, map, RepositoryScope.StrictFrom(env)), NoNodePolicies.Instance);
-    }
-
     /// <summary>The decisions of the organisation's rules and of the node's bundle for <paramref name="inputJson"/>, the ones that
     /// have an opinion. The bundle of an unowned repository is never consulted, so strict mode gives the organisation's rules only.</summary>
-    public IReadOnlyList<OutcomeDecision> Decisions(string inputJson)
+    public IReadOnlyList<OutcomeDecision> Decisions(string inputJson) => Evaluate(inputJson).Decisions;
+
+    /// <summary>As <see cref="Decisions"/>, and whether a profile module failed while it ran. That ends the order (ADR-237): the
+    /// denial names that bundle, and no later bundle, and no local folder, is evaluated after it.</summary>
+    public (IReadOnlyList<OutcomeDecision> Decisions, bool BundleFailed) Evaluate(string inputJson)
     {
         ArgumentNullException.ThrowIfNull(inputJson);
         var decisions = new List<OutcomeDecision>(2);
-        Add(decisions, policies.Organisation(inputJson), OrganisationSource);
-        if (!Scope.Unowned)
+        if (!Add(decisions, () => policies.Organisation(inputJson), OrganisationSource))
         {
-            Add(decisions, policies.ForRepository(Scope.Repository, inputJson), NodeSourcePrefix + Scope.Node);
+            return (decisions, true);
         }
 
-        return decisions;
+        if (!Scope.Unowned && !Add(decisions, () => policies.ForRepository(Scope.Repository, inputJson), NodeSourcePrefix + Scope.Node))
+        {
+            return (decisions, true);
+        }
+
+        return (decisions, false);
     }
 
-    private static void Add(List<OutcomeDecision> decisions, RegoDecision? decision, string source)
+    /// <summary>The denial of a profile module that failed while it ran (ADR-237): by name, whatever the fail mode. The message of the
+    /// error is left out, a module that aborts may echo what it was given.</summary>
+    internal static OutcomeDecision BundleError(string source) =>
+        new(
+            DecisionOutcome.Deny,
+            $"The policy bundle {source} failed while it ran, so this call is denied whatever the fail mode. Ask a policy owner to fix the bundle.",
+            [source]);
+
+    // False when the module failed while it ran: its denial is added and the order ends.
+    private static bool Add(List<OutcomeDecision> decisions, Func<RegoDecision?> decide, string source)
     {
+        RegoDecision? decision;
+        try
+        {
+            decision = decide();
+        }
+        catch (PolicyBundleException)
+        {
+            decisions.Add(BundleError(source));
+            return false;
+        }
+
         if (decision is { Outcome: not DecisionOutcome.Defer })
         {
             decisions.Add(new OutcomeDecision(decision.Outcome, string.Join("; ", decision.Reasons), [decision.Refused is { } builtin ? "builtin:" + builtin : source]));
         }
+
+        return true;
     }
 }

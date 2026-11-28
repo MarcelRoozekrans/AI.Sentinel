@@ -24,6 +24,18 @@ internal sealed record RepositoryScope(string Repository, string Node, bool Stri
     /// <summary>Whether strict repository mode is on in <paramref name="env"/>; on unless it is switched off.</summary>
     public static bool StrictFrom(IReadOnlyDictionary<string, string?> env) => HookConfig.ParseSwitch(env, StrictVariable) ?? true;
 
+    /// <summary>The scope of <paramref name="workingDirectory"/> from the node map the resident process cached, or <see langword="null"/>
+    /// when the resident process is off or no map is cached. It names the repository and the node only; which profiles judge the call is
+    /// <see cref="HookProfiles.Open"/>'s to say.</summary>
+    /// <exception cref="InvalidDataException">The cached map cannot be read.</exception>
+    public static RepositoryScope? Open(IReadOnlyDictionary<string, string?> env, string workingDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(env);
+        return Resident.ResidentSettings.FromEnvironment(env) is { } settings && Resident.ResidentState.Open(settings).ReadNodeMap() is { } map
+            ? Resolve(workingDirectory, map, StrictFrom(env))
+            : null;
+    }
+
     /// <summary>Resolves the scope of <paramref name="workingDirectory"/> from the git files and the cached <paramref name="map"/>.</summary>
     public static RepositoryScope Resolve(string workingDirectory, NodeMap map, bool strictMode)
     {
