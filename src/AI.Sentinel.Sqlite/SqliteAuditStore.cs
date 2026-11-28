@@ -236,8 +236,8 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
             using (var head = _connection.CreateCommand())
             {
                 head.Transaction = tx;
-                // The counter decides, so a sequence never comes back after retention (#713). The highest row still counts: a writer
-                // older than v7 appends to the file by MAX(sequence) and leaves the counter behind.
+                // The counter decides, so a sequence never comes back after retention (#713). The audit_file_counter trigger moves it on
+                // every insert; the highest row is taken as well, so a file whose counter row is missing still never repeats a sequence.
                 head.CommandText = """
                     SELECT (SELECT hash FROM audit_chain_head WHERE id = 1),
                            MAX((SELECT COALESCE(MAX(sequence), 0) FROM audit_entries),
@@ -272,8 +272,6 @@ public sealed class SqliteAuditStore : IAuditStore, IAsyncDisposable
                 ($id, $ts, $sev, $det, $hash, $prev, $summary, $seq, $code, $session, $source, $toolKind, $node);
             INSERT INTO audit_chain_head (id, hash) VALUES (1, $hash)
                 ON CONFLICT (id) DO UPDATE SET hash = excluded.hash;
-            INSERT INTO audit_file (id, file_id, last_sequence) VALUES (1, lower(hex(randomblob(16))), $seq)
-                ON CONFLICT (id) DO UPDATE SET last_sequence = excluded.last_sequence;
             """;
         cmd.Parameters.AddWithValue("$id", entry.Id);
         cmd.Parameters.AddWithValue("$ts", entry.Timestamp.UtcTicks);

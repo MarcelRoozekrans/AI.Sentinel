@@ -59,7 +59,8 @@ internal static class SqliteSchema
 
     // One row naming this audit file and holding the last sequence it handed out (#713). The id is random, so a reader tells a
     // replaced file from the same one; the counter survives deletes, so retention never makes a sequence come back. An existing
-    // file starts its counter at its highest sequence.
+    // file starts its counter at its highest sequence. The trigger moves the counter on every insert, also one by a writer older
+    // than v7, which opens this file without knowing the table: SQLite runs the trigger for it all the same.
     private const string FileTable = """
         CREATE TABLE IF NOT EXISTS audit_file (
             id            INTEGER PRIMARY KEY CHECK (id = 1),
@@ -68,6 +69,10 @@ internal static class SqliteSchema
         );
         INSERT OR IGNORE INTO audit_file (id, file_id, last_sequence)
         SELECT 1, lower(hex(randomblob(16))), COALESCE(MAX(sequence), 0) FROM audit_entries;
+        CREATE TRIGGER IF NOT EXISTS audit_file_counter AFTER INSERT ON audit_entries
+        BEGIN
+            UPDATE audit_file SET last_sequence = MAX(last_sequence, NEW.sequence) WHERE id = 1;
+        END;
         """;
 
     internal static async Task InitializeAsync(SqliteConnection conn, CancellationToken ct)

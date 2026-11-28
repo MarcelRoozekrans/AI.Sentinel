@@ -142,6 +142,24 @@ public sealed class SqliteSchemaV7MigrationTests : IDisposable
     }
 
     [Fact]
+    public async Task An_entry_from_an_older_writer_moves_the_counter_so_its_sequence_never_comes_back()
+    {
+        await using var store = Open();
+        await store.AppendAsync(Entry("one"), CancellationToken.None);
+        // A writer older than v7 appends by MAX(sequence) and knows nothing of audit_file; then retention empties the table.
+        await ExecuteAsync("""
+            INSERT INTO audit_entries(id, timestamp, severity, detector_id, hash, previous_hash, summary, sequence)
+            VALUES ('old-writer', 0, 1, 'SEC-01', 'h-x', NULL, 'by an old writer', 2);
+            DELETE FROM audit_entries;
+            """);
+
+        await store.AppendAsync(Entry("three"), CancellationToken.None);
+
+        var page = await store.ReadAfterAsync(0, 10, CancellationToken.None);
+        Assert.Equal(3, Assert.Single(page.Rows).Sequence);
+    }
+
+    [Fact]
     public async Task Each_audit_file_has_its_own_id_and_keeps_it()
     {
         string first;
